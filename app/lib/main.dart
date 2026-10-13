@@ -562,7 +562,7 @@ class _PageIndicator extends StatelessWidget {
         return Semantics(
           button: true,
           selected: selected,
-          label: 'Go to onboarding page \${index + 1}',
+          label: 'Go to onboarding page ${index + 1}',
           child: InkWell(
             key: Key('onboarding-dot-$index'),
             borderRadius: BorderRadius.circular(20),
@@ -939,7 +939,7 @@ class _SakhiFeaturePreviewScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 24),
                 Text(
-                  '\${feature.title} preview',
+                  '${feature.title} preview',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     color: sakhiPlum,
