@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -140,7 +139,7 @@ class _SakhiOnboardingScreenState extends State<SakhiOnboardingScreen> {
                             onPageChanged: (page) {
                               setState(() => _currentPage = page);
                             },
-                            children: const [
+                            children: [
                               _OnboardingPage(
                                 content: _content[0],
                                 visual: _HeroPortrait(),
@@ -381,7 +380,7 @@ class _HeroPortraitState extends State<_HeroPortrait> {
           end: Alignment.bottomRight,
           colors: [Color(0xFFFFE5F1), Color(0xFFF2E4FA), Color(0xFFFFF3E8)],
         ),
-        border: Border.all(color: Colors.white.withOpacity(0.8), width: 1.5),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.8), width: 1.5),
         boxShadow: const [
           BoxShadow(
             color: Color(0x19321044),
@@ -491,10 +490,10 @@ class _FeatureIllustration extends StatelessWidget {
             height: 218,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.white.withOpacity(0.73),
+              color: Colors.white.withValues(alpha: 0.73),
               boxShadow: [
                 BoxShadow(
-                  color: accent.withOpacity(0.15),
+                  color: accent.withValues(alpha: 0.15),
                   blurRadius: 28,
                   offset: const Offset(0, 9),
                 ),
@@ -507,9 +506,9 @@ class _FeatureIllustration extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 10),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.9),
+                color: Colors.white.withValues(alpha: 0.9),
                 borderRadius: BorderRadius.circular(30),
-                border: Border.all(color: accent.withOpacity(0.12)),
+                border: Border.all(color: accent.withValues(alpha: 0.12)),
               ),
               child: Text(
                 label,
@@ -683,7 +682,7 @@ class LotusLogoPainter extends CustomPainter {
     canvas.drawPath(centerPetal, centerPaint);
 
     final centerLine = Paint()
-      ..color = Colors.white.withOpacity(0.9)
+      ..color = Colors.white.withValues(alpha: 0.9)
       ..strokeWidth = 1.5
       ..strokeCap = StrokeCap.round;
     canvas.drawLine(
@@ -866,7 +865,7 @@ class _HomeFeatureCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.white.withOpacity(0.82),
+      color: Colors.white.withValues(alpha: 0.82),
       borderRadius: BorderRadius.circular(22),
       child: InkWell(
         onTap: onTap,
@@ -880,7 +879,7 @@ class _HomeFeatureCard extends StatelessWidget {
                 width: 48,
                 height: 48,
                 decoration: BoxDecoration(
-                  color: feature.accent.withOpacity(0.13),
+                  color: feature.accent.withValues(alpha: 0.13),
                   borderRadius: BorderRadius.circular(15),
                 ),
                 child: Icon(feature.icon, color: feature.accent, size: 27),
@@ -932,7 +931,7 @@ class _SakhiFeaturePreviewScreen extends StatelessWidget {
                   width: 116,
                   height: 116,
                   decoration: BoxDecoration(
-                    color: feature.accent.withOpacity(0.12),
+                    color: feature.accent.withValues(alpha: 0.12),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(feature.icon, size: 62, color: feature.accent),
