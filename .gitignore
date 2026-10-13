@@ -1,0 +1,29 @@
+﻿# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+*.iml
+.vscode/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+**/local.properties
+**/key.properties
+**/*.jks
+**/*.keystore
+**/*.p12
+**/*.pfx
+**/*.pem
+**/*.key
+
+# Generated and cached files
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+**/build/
+**/.gradle/
+**/node_modules/
+**/coverage/
