@@ -25,7 +25,9 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('next-onboarding-button')));
-    await tester.pumpAndSettle();
+    // The PageController animation lasts 320 ms. Advance beyond it directly;
+    // pumpAndSettle can time out if an unrelated ticker is active in the tree.
+    await tester.pump(const Duration(milliseconds: 450));
 
     expect(find.text('Safety That Starts\nWith You'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -40,7 +42,7 @@ void main() {
       find.byKey(const Key('sakhi-onboarding-page-view')),
       const Offset(-600, 0),
     );
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 450));
 
     expect(find.text('Safety That Starts\nWith You'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -52,13 +54,13 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('skip-onboarding-button')));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 450));
 
     expect(find.text('Stronger, Together'), findsOneWidget);
     expect(find.byKey(const Key('get-started-button')), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('get-started-button')));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 450));
 
     expect(find.text('Welcome to Sakhi'), findsOneWidget);
     expect(find.text('Explore Sakhi'), findsOneWidget);
@@ -71,7 +73,7 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Safety & support'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 450));
 
     expect(find.text('Safety & support preview'), findsOneWidget);
     expect(

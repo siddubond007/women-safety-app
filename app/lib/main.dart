@@ -409,9 +409,9 @@ class _HeroPortraitState extends State<_HeroPortrait> {
             if (snapshot.hasError) {
               return const _IllustrationFallback();
             }
-            return const Center(
-              child: CircularProgressIndicator(color: sakhiPurple),
-            );
+            // Keep the loading state static so it does not run an
+            // indeterminate animation while onboarding pages are offscreen.
+            return const _IllustrationFallback();
           },
         ),
       ),
