@@ -1,122 +1,433 @@
+import 'dart:convert';
+import 'dart:math' as math;
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 void main() {
-  runApp(const MyApp());
+  WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.dark,
+      systemNavigationBarColor: Color(0xFFFFF7F8),
+      systemNavigationBarIconBrightness: Brightness.dark,
+    ),
+  );
+  runApp(const SakhiApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class SakhiApp extends StatelessWidget {
+  const SakhiApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'Sakhi',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: .fromSeed(seedColor: Colors.deepPurple),
+        useMaterial3: true,
+        scaffoldBackgroundColor: const Color(0xFFFFF7F8),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF79318A),
+          brightness: Brightness.light,
+        ),
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const SakhiWelcomeScreen(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
+class SakhiWelcomeScreen extends StatelessWidget {
+  const SakhiWelcomeScreen({super.key});
 
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
-
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
-}
-
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
-  }
+  static const Color plum = Color(0xFF321044);
+  static const Color mutedPlum = Color(0xFF8D6C9D);
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
+      body: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFFF8ECFA),
+              Color(0xFFFFF8F2),
+              Color(0xFFFFEAF2),
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final height = constraints.maxHeight;
+              final width = constraints.maxWidth;
+              final heroTop = math.max(210.0, height * 0.29).toDouble();
+              final heroBottom = math.max(82.0, height * 0.115).toDouble();
+              final brandTitleSize = width < 370 ? 39.0 : 43.0;
+              final headlineSize = width < 370 ? 23.0 : 26.0;
+
+              return Stack(
+                clipBehavior: Clip.hardEdge,
+                children: [
+                  const _SoftBackdropShapes(),
+                  Positioned(
+                    left: -2,
+                    right: -2,
+                    top: heroTop,
+                    bottom: heroBottom,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        const _HeroArtwork(),
+                        const DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              stops: [0.0, 0.58, 0.80, 1.0],
+                              colors: [
+                                Color(0x00FFF7F5),
+                                Color(0x00FFF7F5),
+                                Color(0xBFFFF4F5),
+                                Color(0xFFFFF4F5),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Positioned(
+                    top: 8,
+                    left: 18,
+                    right: 18,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(height: 2),
+                        const CustomPaint(
+                          size: Size(86, 76),
+                          painter: LotusLogoPainter(),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Sakhi',
+                          style: TextStyle(
+                            color: plum,
+                            fontSize: brandTitleSize,
+                            height: 1.0,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -1.5,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Safer Women. Stronger Together.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: mutedPlum,
+                            fontSize: 14.5,
+                            height: 1.25,
+                            fontWeight: FontWeight.w500,
+                            letterSpacing: 0.05,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Positioned(
+                    left: 20,
+                    right: 20,
+                    bottom: 5,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'A Safer, Brighter Tomorrow\nfor Every Woman',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: plum,
+                            fontSize: headlineSize,
+                            height: 1.12,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.65,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        const FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            'Safety  •  Community  •  Wellness  •  Opportunities',
+                            maxLines: 1,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: mutedPlum,
+                              fontSize: 12.8,
+                              fontWeight: FontWeight.w500,
+                              letterSpacing: 0.05,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        const _PageProgressIndicator(),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: .center,
+    );
+  }
+}
+
+class _SoftBackdropShapes extends StatelessWidget {
+  const _SoftBackdropShapes();
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: Stack(
           children: [
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+            Positioned(
+              top: -82,
+              right: -72,
+              child: Container(
+                width: 235,
+                height: 235,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [Color(0x99F4C6E8), Color(0x00F4C6E8)],
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 220,
+              left: -104,
+              child: Container(
+                width: 210,
+                height: 210,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [Color(0x66E9C4F2), Color(0x00E9C4F2)],
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              right: -58,
+              bottom: 110,
+              child: Container(
+                width: 150,
+                height: 150,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [Color(0x55F7B7D8), Color(0x00F7B7D8)],
+                  ),
+                ),
+              ),
             ),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ),
+    );
+  }
+}
+
+class _PageProgressIndicator extends StatelessWidget {
+  const _PageProgressIndicator();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 30,
+          height: 6,
+          decoration: BoxDecoration(
+            color: const Color(0xFF79318A),
+            borderRadius: BorderRadius.circular(20),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Container(
+          width: 18,
+          height: 6,
+          decoration: BoxDecoration(
+            color: const Color(0xFFE8CBE4),
+            borderRadius: BorderRadius.circular(20),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Container(
+          width: 18,
+          height: 6,
+          decoration: BoxDecoration(
+            color: const Color(0xFFE8CBE4),
+            borderRadius: BorderRadius.circular(20),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class LotusLogoPainter extends CustomPainter {
+  const LotusLogoPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final h = size.height;
+    final bounds = Offset.zero & size;
+
+    final leftPetal = Path()
+      ..moveTo(cx, h * 0.91)
+      ..cubicTo(
+        cx - 3,
+        h * 0.66,
+        size.width * 0.07,
+        h * 0.56,
+        size.width * 0.17,
+        h * 0.21,
+      )
+      ..cubicTo(
+        size.width * 0.43,
+        h * 0.22,
+        cx + 1,
+        h * 0.46,
+        cx,
+        h * 0.91,
+      )
+      ..close();
+
+    final rightPetal = Path()
+      ..moveTo(cx, h * 0.91)
+      ..cubicTo(
+        cx + 3,
+        h * 0.66,
+        size.width * 0.93,
+        h * 0.56,
+        size.width * 0.83,
+        h * 0.21,
+      )
+      ..cubicTo(
+        size.width * 0.57,
+        h * 0.22,
+        cx - 1,
+        h * 0.46,
+        cx,
+        h * 0.91,
+      )
+      ..close();
+
+    final centerPetal = Path()
+      ..moveTo(cx, h * 0.94)
+      ..cubicTo(
+        size.width * 0.30,
+        h * 0.70,
+        size.width * 0.34,
+        h * 0.35,
+        cx,
+        h * 0.02,
+      )
+      ..cubicTo(
+        size.width * 0.66,
+        h * 0.35,
+        size.width * 0.70,
+        h * 0.70,
+        cx,
+        h * 0.94,
+      )
+      ..close();
+
+    final leftPaint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [Color(0xFFB176C5), Color(0xFF8F4DA6)],
+      ).createShader(bounds);
+    final rightPaint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topRight,
+        end: Alignment.bottomLeft,
+        colors: [Color(0xFFF06BAA), Color(0xFFC33A91)],
+      ).createShader(bounds);
+    final centerPaint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [Color(0xFFCB61AD), Color(0xFF9B429F)],
+      ).createShader(bounds);
+
+    canvas.drawPath(leftPetal, leftPaint);
+    canvas.drawPath(rightPetal, rightPaint);
+    canvas.drawPath(centerPetal, centerPaint);
+
+    final separatorPaint = Paint()
+      ..color = const Color(0xFFFFF8F8).withValues(alpha: 0.82)
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(
+      Offset(cx, h * 0.62),
+      Offset(cx, h * 0.91),
+      separatorPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant LotusLogoPainter oldDelegate) => false;
+}
+
+class _HeroArtwork extends StatefulWidget {
+  const _HeroArtwork();
+
+  @override
+  State<_HeroArtwork> createState() => _HeroArtworkState();
+}
+
+class _HeroArtworkState extends State<_HeroArtwork> {
+  late final Future<Uint8List> _imageBytes = rootBundle
+      .loadString('assets/images/sakhi_welcome_hero.jpg.b64')
+      .then((encoded) => base64Decode(encoded.trim()));
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Uint8List>(
+      future: _imageBytes,
+      builder: (context, snapshot) {
+        if (snapshot.hasData) {
+          return Image.memory(
+            snapshot.data!,
+            fit: BoxFit.cover,
+            alignment: Alignment.topCenter,
+            filterQuality: FilterQuality.high,
+            gaplessPlayback: true,
+          );
+        }
+        return const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFFFFEAF2), Color(0xFFF3D9F4)],
+            ),
+          ),
+        );
+      },
     );
   }
 }
