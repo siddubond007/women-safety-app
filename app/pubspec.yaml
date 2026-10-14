@@ -53,7 +53,8 @@ dev_dependencies:
 flutter:
 
   assets:
-    - assets/images/sakhi_welcome_hero.jpg.b64
+    - assets/images/onboarding/
+    - assets/brand/
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
