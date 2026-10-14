@@ -6,6 +6,8 @@ on:
       - fix/sakhi-fullbleed-onboarding
     paths:
       - assets-staging/sakhi_onboarding_assets.zip
+      - .github/workflows/import-sakhi-assets.yml
+  workflow_dispatch:
 
 permissions:
   contents: write
