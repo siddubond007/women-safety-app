@@ -1,0 +1,111 @@
+name: Import and verify Sakhi onboarding assets
+
+on:
+  push:
+    branches:
+      - fix/sakhi-fullbleed-onboarding
+    paths:
+      - assets-staging/sakhi_onboarding_assets.zip
+      - .github/workflows/import-sakhi-assets.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import-and-verify:
+    # Skip the bot's follow-up commit, which deletes the ZIP.
+    if: contains(github.event.head_commit.message, '[assets-imported]') == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out onboarding branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/sakhi-fullbleed-onboarding
+          fetch-depth: 0
+
+      - name: Validate the supplied asset archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="assets-staging/sakhi_onboarding_assets.zip"
+          test -s "$archive"
+          unzip -Z1 "$archive" > /tmp/sakhi-asset-list.txt
+          grep -Fxq "assets/images/onboarding/01_splash_woman_art.webp" /tmp/sakhi-asset-list.txt
+          grep -Fxq "assets/images/onboarding/02_onboarding_safety_art.webp" /tmp/sakhi-asset-list.txt
+          grep -Fxq "assets/images/onboarding/03_onboarding_community_art.webp" /tmp/sakhi-asset-list.txt
+          grep -Fxq "assets/brand/sakhi_logo.png" /tmp/sakhi-asset-list.txt
+          grep -Fxq "assets/brand/sakhi_logo_icon.png" /tmp/sakhi-asset-list.txt
+          test "$(wc -l < /tmp/sakhi-asset-list.txt | tr -d ' ')" = "5"
+
+      - name: Install supplied assets into the Flutter app
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="assets-staging/sakhi_onboarding_assets.zip"
+          mkdir -p app/assets/images/onboarding app/assets/brand
+          unzip -p "$archive" "assets/images/onboarding/01_splash_woman_art.webp" > app/assets/images/onboarding/01_splash_woman_art.webp
+          unzip -p "$archive" "assets/images/onboarding/02_onboarding_safety_art.webp" > app/assets/images/onboarding/02_onboarding_safety_art.webp
+          unzip -p "$archive" "assets/images/onboarding/03_onboarding_community_art.webp" > app/assets/images/onboarding/03_onboarding_community_art.webp
+          unzip -p "$archive" "assets/brand/sakhi_logo.png" > app/assets/brand/sakhi_logo.png
+          unzip -p "$archive" "assets/brand/sakhi_logo_icon.png" > app/assets/brand/sakhi_logo_icon.png
+          rm "$archive"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+          cache-dependency-path: app/pubspec.lock
+
+      - name: Resolve Flutter dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Format changed Dart files
+        working-directory: app
+        run: |
+          dart format \
+            lib/main.dart \
+            lib/core/theme/sakhi_design_system.dart \
+            lib/features/onboarding/sakhi_onboarding_screen.dart \
+            lib/shared/widgets/sakhi_action_button.dart \
+            lib/shared/widgets/sakhi_brand_logo.dart \
+            lib/shared/widgets/sakhi_page_indicator.dart \
+            test/widget_test.dart
+
+      - name: Analyze Flutter app
+        working-directory: app
+        run: flutter analyze
+
+      - name: Run widget tests
+        working-directory: app
+        run: flutter test
+
+      - name: Build debug APK
+        working-directory: app
+        run: flutter build apk --debug
+
+      - name: Commit verified source and image assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/lib/main.dart \
+            app/lib/core/theme/sakhi_design_system.dart \
+            app/lib/features/onboarding/sakhi_onboarding_screen.dart \
+            app/lib/shared/widgets/sakhi_action_button.dart \
+            app/lib/shared/widgets/sakhi_brand_logo.dart \
+            app/lib/shared/widgets/sakhi_page_indicator.dart \
+            app/pubspec.yaml \
+            app/test/widget_test.dart \
+            app/assets/images/onboarding/01_splash_woman_art.webp \
+            app/assets/images/onboarding/02_onboarding_safety_art.webp \
+            app/assets/images/onboarding/03_onboarding_community_art.webp \
+            app/assets/brand/sakhi_logo.png \
+            app/assets/brand/sakhi_logo_icon.png \
+            assets-staging/sakhi_onboarding_assets.zip
+          git commit -m "feat: ship full-bleed Sakhi onboarding [assets-imported]"
+          git push origin HEAD:fix/sakhi-fullbleed-onboarding
