@@ -211,51 +211,67 @@ class _SakhiOnboardingPage extends StatelessWidget {
           ),
         if (isSafetyPage) ...[
           Positioned(
-            top: size.height * (shortScreen ? 0.27 : 0.30),
-            left: size.width * 0.025,
-            width: size.width * 0.43,
-            child: const _SafetyFeatureCallout(
+            top: size.height * (shortScreen ? 0.28 : 0.26),
+            left: size.width * 0.02,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: size.width * (shortScreen ? 0.39 : 0.36),
+              ),
+              child: const _SafetyFeatureCallout(
               semanticsKey: Key('safety-callout-emergency-sos'),
               label: 'Emergency SOS',
               icon: Icons.phone_in_talk_rounded,
               accent: SakhiColors.pink,
               semanticsLabel: 'Emergency SOS introductory feature',
+              ),
             ),
           ),
           Positioned(
-            top: size.height * (shortScreen ? 0.21 : 0.24),
-            right: size.width * 0.025,
-            width: size.width * 0.43,
-            child: const _SafetyFeatureCallout(
+            top: size.height * (shortScreen ? 0.23 : 0.19),
+            right: size.width * 0.02,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: size.width * (shortScreen ? 0.39 : 0.36),
+              ),
+              child: const _SafetyFeatureCallout(
               semanticsKey: Key('safety-visual-cue'),
               label: 'Trusted Contacts',
               icon: Icons.people_alt_rounded,
               accent: SakhiColors.purple,
               semanticsLabel: 'Trusted Contacts introductory feature',
+              ),
             ),
           ),
           Positioned(
-            top: size.height * (shortScreen ? 0.36 : 0.41),
-            left: size.width * 0.025,
-            width: size.width * 0.43,
-            child: const _SafetyFeatureCallout(
+            top: size.height * (shortScreen ? 0.39 : 0.44),
+            left: size.width * 0.02,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: size.width * (shortScreen ? 0.39 : 0.36),
+              ),
+              child: const _SafetyFeatureCallout(
               semanticsKey: Key('safety-callout-find-nearby-help'),
               label: 'Find Nearby Help',
               icon: Icons.location_on_rounded,
               accent: SakhiColors.purple,
               semanticsLabel: 'Find Nearby Help introductory feature',
+              ),
             ),
           ),
           Positioned(
-            top: size.height * (shortScreen ? 0.33 : 0.38),
-            right: size.width * 0.025,
-            width: size.width * 0.43,
-            child: const _SafetyFeatureCallout(
+            top: size.height * (shortScreen ? 0.37 : 0.39),
+            right: size.width * 0.02,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: size.width * (shortScreen ? 0.39 : 0.36),
+              ),
+              child: const _SafetyFeatureCallout(
               semanticsKey: Key('safety-callout-report-concern'),
               label: 'Report a Concern',
               icon: Icons.chat_bubble_outline_rounded,
               accent: SakhiColors.pink,
               semanticsLabel: 'Report a Concern introductory feature',
+              ),
             ),
           ),
         ],
@@ -390,17 +406,17 @@ class _SafetyFeatureCallout extends StatelessWidget {
       child: ExcludeSemantics(
         child: Container(
           padding: const EdgeInsets.symmetric(
-            horizontal: SakhiSpacing.xs,
-            vertical: SakhiSpacing.xs,
+            horizontal: SakhiSpacing.xxs,
+            vertical: SakhiSpacing.xxs,
           ),
           decoration: BoxDecoration(
-            color: const Color(0xF7FFFBFD),
+            color: const Color(0xE8FFFBFD),
             borderRadius: BorderRadius.circular(SakhiRadii.pill),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.94)),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.82)),
             boxShadow: [
               BoxShadow(
-                color: SakhiColors.plum.withValues(alpha: 0.12),
-                blurRadius: 14,
+                color: SakhiColors.plum.withValues(alpha: 0.09),
+                blurRadius: 12,
                 offset: const Offset(0, 5),
               ),
             ],
@@ -409,16 +425,17 @@ class _SafetyFeatureCallout extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 30,
-                height: 30,
+                width: 27,
+                height: 27,
                 decoration: BoxDecoration(
-                  color: accent.withValues(alpha: 0.15),
+                  color: accent.withValues(alpha: 0.13),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(icon, size: 18, color: accent),
+                child: Icon(icon, size: 16, color: accent),
               ),
-              const SizedBox(width: SakhiSpacing.xs),
-              Expanded(
+              const SizedBox(width: SakhiSpacing.xxs),
+              Flexible(
+                fit: FlexFit.loose,
                 child: Text(
                   label,
                   maxLines: 2,
@@ -426,7 +443,7 @@ class _SafetyFeatureCallout extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: SakhiColors.plum,
-                    fontSize: 10.5,
+                    fontSize: 11,
                     height: 1.1,
                     fontWeight: FontWeight.w800,
                   ),
