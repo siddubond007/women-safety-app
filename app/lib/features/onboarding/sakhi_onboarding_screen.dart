@@ -269,7 +269,7 @@ class _SakhiOnboardingPage extends StatelessWidget {
               semanticsKey: Key('safety-callout-report-concern'),
               label: 'Report a Concern',
               icon: Icons.chat_bubble_outline_rounded,
-              accent: SakhiColors.pink,
+              accent: SakhiColors.pinkAccent,
               semanticsLabel: 'Report a Concern introductory feature',
               ),
             ),
