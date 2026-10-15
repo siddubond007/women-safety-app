@@ -18,6 +18,7 @@ void main() {
 
     expect(find.byKey(const Key('sakhi-logo-lockup')), findsOneWidget);
     expect(find.byKey(const Key('onboarding-artwork-0')), findsOneWidget);
+    expect(find.byKey(const Key('safety-visual-cue')), findsNothing);
     expect(find.text('A Safer, Brighter\nTomorrow for Every Woman'), findsOneWidget);
     expect(find.text('Safety • Community • Wellness • Opportunities'), findsOneWidget);
     expect(find.byKey(const Key('next-onboarding-button')), findsOneWidget);
