@@ -6,4 +6,13 @@ abstract final class AppAssets {
       'assets/images/onboarding/02_onboarding_safety_art.webp';
   static const String onboardingCommunity =
       'assets/images/onboarding/03_onboarding_community_art.webp';
+
+  static const String authBotanicalLogin =
+      'assets/images/illustrations/botanical_login_tall.png';
+  static const String authBotanicalProfile =
+      'assets/images/illustrations/botanical_profile_bloom.png';
+  static const String authBotanicalOtp =
+      'assets/images/illustrations/botanical_otp_berry.png';
+  static const String authBotanicalConsent =
+      'assets/images/illustrations/botanical_consent_open.png';
 }

@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 
 import 'core/branding/app_brand.dart';
 import 'core/theme/sakhi_design_system.dart';
+import 'features/auth/auth_service.dart';
+import 'features/auth/sakhi_registration_screen.dart';
 import 'features/onboarding/sakhi_onboarding_screen.dart';
 
 const Color sakhiPlum = SakhiColors.plum;
@@ -49,11 +51,11 @@ class SakhiApp extends StatelessWidget {
       home: Builder(
         builder: (context) => SakhiOnboardingScreen(
           onGetStarted: () {
-            // No authentication route/screen exists in this repository yet.
-            // Preserve the existing preview-home destination until auth exists.
             Navigator.of(context).pushReplacement(
               MaterialPageRoute<void>(
-                builder: (_) => const SakhiHomeScreen(),
+                builder: (_) => SakhiRegistrationScreen(
+                  authService: authServiceForCurrentBuild(),
+                ),
               ),
             );
           },

@@ -1,0 +1,31 @@
+import 'package:flutter/material.dart';
+
+import '../../core/assets/app_assets.dart';
+import 'auth_service.dart';
+import 'sakhi_mobile_entry_form.dart';
+import 'sakhi_registration_screen.dart';
+import 'widgets/auth_widgets.dart';
+
+class SakhiLoginScreen extends StatelessWidget {
+  const SakhiLoginScreen({super.key, required this.authService});
+
+  final AuthService authService;
+
+  @override
+  Widget build(BuildContext context) {
+    return SakhiAuthScaffold(
+      botanicalAsset: AppAssets.authBotanicalLogin,
+      authIsDemo: authService.isDemo,
+      botanicalHeight: 80,
+      child: SakhiMobileEntryForm(
+        authService: authService,
+        purpose: AuthPurpose.login,
+        onSwitchMethod: () => Navigator.of(context).pushReplacement(
+          MaterialPageRoute<void>(
+            builder: (_) => SakhiRegistrationScreen(authService: authService),
+          ),
+        ),
+      ),
+    );
+  }
+}
