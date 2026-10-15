@@ -131,7 +131,7 @@ void main() {
     }
 
     final headingTop = tester
-        .getRect(find.text('Safety That Starts\\nWith You'))
+        .getRect(find.text('Safety That Starts\nWith You'))
         .top;
     expect(calloutRects.every((rect) => rect.bottom < headingTop), isTrue);
 
