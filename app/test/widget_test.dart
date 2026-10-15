@@ -1,8 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:women_safety_app/core/branding/app_brand.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:women_safety_app/main.dart';
 
 void main() {
+  test('brand profile centralizes app identity and replaceable assets', () {
+    expect(AppBrand.appName, 'Sakhi');
+    expect(AppBrand.shortName, 'Sakhi');
+    expect(AppBrand.logoAsset, 'assets/brand/app_logo.png');
+    expect(AppBrand.iconAsset, 'assets/brand/app_icon.png');
+  });
+
   testWidgets('welcome screen uses supplied logo and full-screen artwork',
       (WidgetTester tester) async {
     await tester.pumpWidget(const SakhiApp());
