@@ -48,7 +48,7 @@ interface NavigationItem {
 const navigationItems: NavigationItem[] = [
   { label: "Overview dashboard", path: "/dashboard", icon: LayoutDashboard, group: "Workspace" },
   { label: "Action center", path: "/action-center", icon: Activity, group: "Workspace", planned: true },
-  { label: "Members & accounts", path: "/members", icon: Users, group: "People & trust", planned: true },
+  { label: "Members & accounts", path: "/members", icon: Users, group: "People & trust" },
   { label: "Eligibility & verification", path: "/verification", icon: UserRoundCheck, group: "People & trust", planned: true },
   { label: "Trust & safety", path: "/moderation", icon: ShieldAlert, group: "People & trust", planned: true },
   { label: "Complaints & cases", path: "/complaints", icon: MessageSquareWarning, group: "People & trust", planned: true },

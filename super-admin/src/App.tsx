@@ -5,6 +5,7 @@ import { AdminLayout } from "./layouts/AdminLayout";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
 import { PlannedPage } from "./pages/PlannedPage";
+import { MemberManagementPage } from "./pages/MemberManagementPage";
 
 function AppRoutes() {
   const [isDemoSignedIn, setIsDemoSignedIn] = useState(
@@ -32,6 +33,7 @@ function AppRoutes() {
         element={isDemoSignedIn ? <AdminLayout onSignOut={endDemo} /> : <Navigate to="/login" replace />}
       >
         <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/members" element={<MemberManagementPage />} />
         <Route path="*" element={<PlannedPage />} />
       </Route>
     </Routes>
