@@ -9,7 +9,7 @@
   },
   "scripts": {
     "start": "node dist/main.js",
-    "start:dev": "tsx watch src/main.ts",
+    "start:dev": "npm run build && node --watch dist/main.js",
     "build": "prisma generate && tsc -p tsconfig.build.json",
     "typecheck": "prisma generate && tsc --noEmit -p tsconfig.json",
     "test": "prisma generate && vitest run",
@@ -21,7 +21,8 @@
     "prisma:generate": "prisma generate",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:migrate:status": "prisma migrate status",
-    "db:seed": "prisma db seed"
+    "db:seed": "prisma db seed",
+    "start:compiled": "node dist/main.js"
   },
   "dependencies": {
     "@nestjs/common": "12.1.3",
