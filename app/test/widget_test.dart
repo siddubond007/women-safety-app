@@ -36,6 +36,7 @@ void main() {
     expect(find.text('Safety That Starts\nWith You'), findsOneWidget);
     expect(find.byKey(const Key('onboarding-artwork-1')), findsOneWidget);
     expect(find.byKey(const Key('onboarding-dot-1')), findsOneWidget);
+    expect(find.byKey(const Key('safety-visual-cue')), findsOneWidget);
 
     await tester.drag(
       find.byKey(const Key('sakhi-onboarding-page-view')),
@@ -43,6 +44,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('Stronger, Together'), findsOneWidget);
+    expect(find.byKey(const Key('safety-visual-cue')), findsNothing);
     expect(find.byKey(const Key('onboarding-artwork-2')), findsOneWidget);
     expect(find.byKey(const Key('onboarding-dot-2')), findsOneWidget);
 
