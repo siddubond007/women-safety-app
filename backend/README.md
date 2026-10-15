@@ -4,11 +4,11 @@
 
 ## Scope
 
-This stage provides NestJS + TypeScript, PostgreSQL 17 connectivity through Prisma ORM 7, the initial member/OTP metadata/consent/audit schema, safe synthetic seed tooling, health endpoints, OpenAPI docs, input validation, centralized safe errors, redacted structured request logs, and automated tests.
+This stage includes the NestJS + TypeScript foundation, PostgreSQL 17/Prisma 7 schema and health checks, plus a **development-only authentication API** and the Flutter debug adapter. Local test OTPs, profile/draft-consent persistence and short-lived revocable development sessions are implemented. This is not production authentication.
 
-It deliberately does **not** implement OTP sending/verification APIs, member registration APIs, session/token issuance, eligibility verification, admin authentication/RBAC, SOS dispatch, location persistence, complaints, messaging, commerce, or wellness data. No client is connected yet.
+It implements OTP request/resend/verify, development session validation/logout, profile and draft-policy acknowledgement persistence, opt-in product-update preference storage, and fail-closed eligibility configuration/status/start endpoints. The Flutter integration is opt-in with a debug-only build define. It does **not** send SMS, prove phone possession through a carrier, provide real eligibility verification, grant protected production access, or implement admin authentication/RBAC, SOS dispatch, location persistence, complaints, messaging, commerce, or wellness data.
 
-The initial migration excludes **AuthSession** until the token/session architecture is approved. There is no optional marketing/update-consent persistence yet; that needs its own purpose and policy decision. The seed does not create **MemberConsent** rows, because fixture data must never imply that someone accepted legal terms.
+The follow-up migration adds hashed bearer-session records and a separate optional product-update preference. The seed still does not create **MemberConsent** rows because fixture data must never imply that a user accepted legal terms. The profile API only records the app's explicitly submitted draft acknowledgement in dev/test; it does not publish draft policies or mark them approved.
 
 The policy records seeded by the demo are explicitly **DRAFT**; this stage does not invent approved Terms/Privacy content or a production minimum age.
 
@@ -69,17 +69,28 @@ After role passwords have been assigned in pgAdmin:
 .\scripts\start-dev.ps1
 ```
 
+For the end-to-end Flutter development setup, see [DEV_INTEGRATION.md](./DEV_INTEGRATION.md).
+
 db-migrate.ps1 uses prisma migrate deploy; it does not call migrate reset, db push, or any database deletion command. The test runner uses the test environment for configuration and never targets the development database for fixture inserts. A safe schema-only fallback URL lets Prisma formatting/client generation run without credentials; that fallback is deliberately not an authenticatable credential and is rejected by the runtime configuration.
 
-## Stage 1 endpoints
+## Development API endpoints
 
-| Method | Route                | Behavior                                                                             |
-| ------ | -------------------- | ------------------------------------------------------------------------------------ |
-| GET    | /api/v1/health/live  | Process liveness only; no database access                                            |
-| GET    | /api/v1/health/ready | Executes a minimal SELECT 1; returns sanitized HTTP 503 if PostgreSQL is unavailable |
-| GET    | /api/docs            | Development/test OpenAPI documentation                                               |
+| Method | Route                             | Behavior                                                                                    |
+| ------ | --------------------------------- | ------------------------------------------------------------------------------------------- |
+| GET    | /api/v1/health/live               | Process liveness; no database access                                                        |
+| GET    | /api/v1/health/ready              | Minimal database probe; sanitized 503 if unavailable                                        |
+| POST   | /api/v1/auth/otp/request          | Generates a local test OTP when dev mode is explicitly enabled; no SMS                      |
+| POST   | /api/v1/auth/otp/resend           | Rate-limited replacement test code; no SMS                                                  |
+| POST   | /api/v1/auth/otp/verify           | Validates/consumes a code and issues a hashed-at-rest, short-lived local session            |
+| POST   | /api/v1/auth/profile              | Saves profile, draft Terms/Privacy acknowledgement, and separate optional update preference |
+| GET    | /api/v1/auth/me                   | Reads the account bound to a valid bearer session                                           |
+| POST   | /api/v1/auth/logout               | Revokes the current bearer session                                                          |
+| GET    | /api/v1/eligibility/configuration | Returns provider and policy as explicitly unavailable                                       |
+| GET    | /api/v1/eligibility/status        | Authenticated fail-closed status; no real eligibility decision                              |
+| POST   | /api/v1/eligibility/start         | Returns provider-unavailable and creates no verification session                            |
+| GET    | /api/docs                         | Development/test OpenAPI documentation                                                      |
 
-The API binds to 127.0.0.1 by default. Use HOST=0.0.0.0 only when explicitly needed for local device/emulator testing on a trusted network.
+The development OTP mode is deliberately restricted to SAKHI_ENV=dev or test, non-production runtime and HOST=127.0.0.1. The development start wrapper sets that mode for the process and labels its temporary age-13 rule; the API refuses to echo codes when it is disabled. A real phone can reach the host loopback API via adb reverse tcp:3000 tcp:3000, without exposing the API on the LAN. Do not change HOST to 0.0.0.0 for OTP echo.
 
 ## Safeguards
 
@@ -88,4 +99,8 @@ The API binds to 127.0.0.1 by default. Use HOST=0.0.0.0 only when explicitly nee
 - The seed refuses production mode, requires an explicit SAKHI_ENV, verifies the exact migration role and target database, creates only a reserved fictitious phone number and an .invalid email, and is idempotent.
 - Seeded policy records are draft-only. The seed does not create consent, OTPs, sessions, or audit records.
 - Request bodies are size-limited; a global whitelist/validation pipe rejects unknown properties. Structured logs redact common authentication/contact fields and never serialize request bodies or query strings. Error responses do not expose driver errors or connection details.
-- No external SMS provider, storage provider, admin account, production credential, real person data, or sensitive feature storage is configured.
+- Development code echo is not SMS delivery and not carrier verification. It uses short expiry, per-challenge hashed codes, attempt limits and request throttling. It can run only on loopback in dev/test.
+- Bearer tokens are generated with cryptographic randomness; only SHA-256 digests are stored in PostgreSQL; sessions have a 12-hour expiry and can be revoked.
+- Profile writes require the authenticated development session, a real (non-future) accepted-at timestamp, matching draft policy metadata and only the temporary age-13 dev/test rule. Production startup is disabled.
+- Eligibility APIs always fail closed with provider unavailable. They do not create an external provider session, collect identity evidence, or infer a user's eligibility.
+- No external SMS provider, production identity provider, production credential, real person fixture, or production-sensitive feature storage is configured.

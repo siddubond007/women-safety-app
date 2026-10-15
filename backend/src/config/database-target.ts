@@ -97,11 +97,38 @@ export function validateRuntimeEnvironment(
     throw new Error("LOG_LEVEL is invalid.");
   }
 
+  const otpMode = String(config.SAKHI_OTP_MODE ?? "disabled");
+  if (!["disabled", "development"].includes(otpMode)) {
+    throw new Error('SAKHI_OTP_MODE must be "disabled" or "development".');
+  }
+  if (otpMode === "development" && config.NODE_ENV === "production") {
+    throw new Error("Development OTP delivery is prohibited in production.");
+  }
+  if (
+    otpMode === "development" &&
+    String(config.HOST ?? "127.0.0.1") !== "127.0.0.1"
+  ) {
+    throw new Error(
+      "Development OTP echo is permitted only when the API binds to 127.0.0.1.",
+    );
+  }
+
+  const previewMinimumAgeYears = String(
+    config.SAKHI_PREVIEW_MINIMUM_AGE_YEARS ?? "",
+  );
+  if (previewMinimumAgeYears !== "" && previewMinimumAgeYears !== "13") {
+    throw new Error(
+      "Only the explicit temporary development age setting of 13 is supported in Stage 1/2; it is not production policy.",
+    );
+  }
+
   return {
     ...config,
     SAKHI_ENV: environment,
     PORT: String(port),
     HOST: host,
     LOG_LEVEL: logLevel,
+    SAKHI_OTP_MODE: otpMode,
+    SAKHI_PREVIEW_MINIMUM_AGE_YEARS: previewMinimumAgeYears,
   };
 }

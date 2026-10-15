@@ -29,10 +29,12 @@ async function bootstrap(): Promise<void> {
   const openApi = new DocumentBuilder()
     .setTitle("Sakhi Backend API")
     .setDescription(
-      "Stage 1 development/test foundation. Only liveness and readiness endpoints are implemented.",
+      "Sakhi development/test backend. OTP codes are locally echoed only when explicitly enabled; no SMS or real eligibility provider is connected.",
     )
     .setVersion("0.1.0")
     .addTag("health")
+    .addTag("authentication")
+    .addTag("eligibility")
     .build();
   const document = SwaggerModule.createDocument(app, openApi);
   SwaggerModule.setup("api/docs", app, document, {

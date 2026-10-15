@@ -48,16 +48,18 @@ enum PolicyDocumentStatus {
 }
 
 model MemberAccount {
-  id                 String             @id @default(uuid()) @db.Uuid
-  phoneE164          String             @unique(map: "member_accounts_phone_e164_key") @map("phone_e164") @db.VarChar(16)
-  phoneVerifiedAt    DateTime?          @map("phone_verified_at") @db.Timestamptz(6)
-  status             AccountStatus      @default(PENDING_VERIFICATION)
-  verificationStatus VerificationStatus @default(UNVERIFIED) @map("verification_status")
-  createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
-  profile            MemberProfile?
-  otpChallenges      OtpChallenge[]
-  consents           MemberConsent[]
+  id                      String                         @id @default(uuid()) @db.Uuid
+  phoneE164               String                         @unique(map: "member_accounts_phone_e164_key") @map("phone_e164") @db.VarChar(16)
+  phoneVerifiedAt         DateTime?                      @map("phone_verified_at") @db.Timestamptz(6)
+  status                  AccountStatus                  @default(PENDING_VERIFICATION)
+  verificationStatus      VerificationStatus             @default(UNVERIFIED) @map("verification_status")
+  createdAt               DateTime                       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  profile                 MemberProfile?
+  otpChallenges           OtpChallenge[]
+  consents                MemberConsent[]
+  sessions                AuthSession[]
+  communicationPreference MemberCommunicationPreference?
 
   @@map("member_accounts")
 }
@@ -127,6 +129,35 @@ model MemberConsent {
   @@index([termsVersionId], map: "member_consents_terms_version_idx")
   @@index([privacyVersionId], map: "member_consents_privacy_version_idx")
   @@map("member_consents")
+}
+
+/// Opaque bearer sessions. Only SHA-256 token digests are stored.
+model AuthSession {
+  id          String        @id @default(uuid()) @db.Uuid
+  accountId   String        @map("account_id") @db.Uuid
+  tokenDigest String        @unique(map: "auth_sessions_token_digest_key") @map("token_digest") @db.VarChar(64)
+  expiresAt   DateTime      @map("expires_at") @db.Timestamptz(6)
+  revokedAt   DateTime?     @map("revoked_at") @db.Timestamptz(6)
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSeenAt  DateTime?     @map("last_seen_at") @db.Timestamptz(6)
+  account     MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([accountId, expiresAt], map: "auth_sessions_account_expiry_idx")
+  @@index([expiresAt], map: "auth_sessions_expiry_idx")
+  @@map("auth_sessions")
+}
+
+/// Stores the current product-update preference separately from required
+/// Terms/Privacy acceptance. It is development/test only until its own
+/// purpose and policy are approved for production.
+model MemberCommunicationPreference {
+  accountId              String        @id @map("account_id") @db.Uuid
+  productUpdatesAccepted Boolean       @default(false) @map("product_updates_accepted")
+  createdAt              DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  account                MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@map("member_communication_preferences")
 }
 
 model AuditEvent {
