@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:women_safety_app/core/branding/app_brand.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:women_safety_app/core/branding/app_brand.dart';
 import 'package:women_safety_app/main.dart';
 
 void main() {
