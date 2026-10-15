@@ -118,7 +118,7 @@ foreach ($item in @(
         }
         $assetKey = [string]$item.Key
         $assetRelativePath = [string]$brand.$assetKey
-        $destination = Join-Path $appRoot $assetRelativePath.Replace('/', '\')
+        $destination = Join-Path $appRoot ($assetRelativePath.Replace('/', '\'))
         if ([System.IO.Path]::GetFullPath($resolved) -ne [System.IO.Path]::GetFullPath($destination)) {
             Copy-Item -LiteralPath $resolved -Destination $destination -Force
         }
