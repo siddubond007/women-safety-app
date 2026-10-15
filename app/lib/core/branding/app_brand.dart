@@ -5,14 +5,12 @@ abstract final class AppBrand {
   static const String appName = 'Sakhi';
   static const String shortName = 'Sakhi';
   static const String tagline = 'Safer Women. Stronger Together.';
-  static const String description =
-      'Sakhi — women’s safety, community and wellness.';
+  static const String description = 'Sakhi — women’s safety, community and wellness.';
 
   /// Keep these filenames stable; replace their contents when rebranding.
   static const String logoAsset = 'assets/brand/app_logo.png';
   static const String iconAsset = 'assets/brand/app_icon.png';
-  static const String logoSemanticsLabel =
-      '${AppBrand.appName} — ${AppBrand.tagline}';
+  static const String logoSemanticsLabel = 'Sakhi â€” Safer Women. Stronger Together.';
 
   static const Color primaryColor = Color(0xFF79318A);
   static const Color darkTextColor = Color(0xFF321044);
