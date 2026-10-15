@@ -38,9 +38,18 @@ void main() {
     expect(find.byKey(const Key('onboarding-artwork-1')), findsOneWidget);
     expect(find.byKey(const Key('onboarding-dot-1')), findsOneWidget);
     expect(find.byKey(const Key('safety-visual-cue')), findsOneWidget);
-    expect(find.byKey(const Key('safety-callout-emergency-sos')), findsOneWidget);
-    expect(find.byKey(const Key('safety-callout-find-nearby-help')), findsOneWidget);
-    expect(find.byKey(const Key('safety-callout-report-concern')), findsOneWidget);
+    expect(
+      find.byKey(const Key('safety-callout-emergency-sos')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('safety-callout-find-nearby-help')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('safety-callout-report-concern')),
+      findsOneWidget,
+    );
     expect(find.text('Emergency SOS'), findsOneWidget);
     expect(find.text('Trusted Contacts'), findsOneWidget);
     expect(find.text('Find Nearby Help'), findsOneWidget);
@@ -64,7 +73,6 @@ void main() {
     expect(find.text('Safety That Starts\nWith You'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
-
 
   testWidgets('Stage 2 safety callouts fit a narrow phone viewport',
       (WidgetTester tester) async {
