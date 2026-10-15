@@ -1,14 +1,17 @@
 import { Catch, HttpException, HttpStatus, Injectable } from "@nestjs/common";
 import type { ArgumentsHost, ExceptionFilter } from "@nestjs/common";
 import type { Request, Response } from "express";
-import { PinoLogger } from "nestjs-pino";
+import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 
 type RequestWithId = Request;
 
 @Catch()
 @Injectable()
 export class ApiExceptionFilter implements ExceptionFilter {
-  constructor(private readonly logger: PinoLogger) {
+  constructor(
+    @InjectPinoLogger(ApiExceptionFilter.name)
+    private readonly logger: PinoLogger,
+  ) {
     this.logger.setContext(ApiExceptionFilter.name);
   }
 
