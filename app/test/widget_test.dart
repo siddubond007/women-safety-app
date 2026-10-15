@@ -38,6 +38,13 @@ void main() {
     expect(find.byKey(const Key('onboarding-artwork-1')), findsOneWidget);
     expect(find.byKey(const Key('onboarding-dot-1')), findsOneWidget);
     expect(find.byKey(const Key('safety-visual-cue')), findsOneWidget);
+    expect(find.byKey(const Key('safety-callout-emergency-sos')), findsOneWidget);
+    expect(find.byKey(const Key('safety-callout-find-nearby-help')), findsOneWidget);
+    expect(find.byKey(const Key('safety-callout-report-concern')), findsOneWidget);
+    expect(find.text('Emergency SOS'), findsOneWidget);
+    expect(find.text('Trusted Contacts'), findsOneWidget);
+    expect(find.text('Find Nearby Help'), findsOneWidget);
+    expect(find.text('Report a Concern'), findsOneWidget);
 
     await tester.drag(
       find.byKey(const Key('sakhi-onboarding-page-view')),
@@ -55,6 +62,37 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('Safety That Starts\nWith You'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+
+  testWidgets('Stage 2 safety callouts fit a narrow phone viewport',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(const SakhiApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('next-onboarding-button')));
+    await tester.pumpAndSettle();
+
+    final calloutKeys = [
+      const Key('safety-callout-emergency-sos'),
+      const Key('safety-visual-cue'),
+      const Key('safety-callout-find-nearby-help'),
+      const Key('safety-callout-report-concern'),
+    ];
+
+    for (final key in calloutKeys) {
+      final rect = tester.getRect(find.byKey(key));
+      expect(rect.left, greaterThanOrEqualTo(0));
+      expect(rect.right, lessThanOrEqualTo(320));
+      expect(rect.top, greaterThanOrEqualTo(0));
+      expect(rect.bottom, lessThanOrEqualTo(640));
+    }
+
     expect(tester.takeException(), isNull);
   });
 
