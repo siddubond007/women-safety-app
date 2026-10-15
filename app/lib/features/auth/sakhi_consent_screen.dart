@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../core/assets/app_assets.dart';
 import '../../core/theme/sakhi_design_system.dart';
+import '../eligibility/eligibility_intro_screen.dart';
+import '../eligibility/eligibility_verification_service.dart';
 import 'auth_policy.dart';
 import 'auth_service.dart';
 import 'sakhi_auth_status_screen.dart';
@@ -203,6 +205,26 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
                   fontSize: 12.5,
                   height: 1.35,
                 ),
+              ),
+            ),
+          ),
+          const SizedBox(height: SakhiSpacing.xs),
+          Center(
+            child: TextButton.icon(
+              key: const Key('eligibility-preview-entry-button'),
+              onPressed: _isCreatingAccount
+                  ? null
+                  : () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const EligibilityIntroScreen(
+                          service: DemoEligibilityVerificationService(),
+                        ),
+                      ),
+                    ),
+              icon: const Icon(Icons.verified_user_outlined, size: 18),
+              label: const Text(
+                'Preview eligibility verification (demo only)',
+                textAlign: TextAlign.center,
               ),
             ),
           ),
