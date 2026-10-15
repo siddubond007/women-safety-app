@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/assets/app_assets.dart';
 import '../../core/theme/sakhi_design_system.dart';
 import '../../shared/widgets/sakhi_action_button.dart';
 import '../../shared/widgets/sakhi_brand_logo.dart';
@@ -25,13 +26,13 @@ class _SakhiOnboardingScreenState extends State<SakhiOnboardingScreen> {
 
   static const List<_OnboardingSlide> _slides = [
     _OnboardingSlide(
-      artworkPath: 'assets/images/onboarding/01_splash_woman_art.webp',
+      artworkPath: AppAssets.onboardingWelcome,
       title: 'A Safer, Brighter\nTomorrow for Every Woman',
       description: 'Safety • Community • Wellness • Opportunities',
       alignment: Alignment(0, -0.02),
     ),
     _OnboardingSlide(
-      artworkPath: 'assets/images/onboarding/02_onboarding_safety_art.webp',
+      artworkPath: AppAssets.onboardingSafety,
       title: 'Safety That Starts\nWith You',
       description:
           'Explore practical guidance and support designed to help you feel more prepared and confident.',
@@ -39,7 +40,7 @@ class _SakhiOnboardingScreenState extends State<SakhiOnboardingScreen> {
       alignment: Alignment(0, -0.02),
     ),
     _OnboardingSlide(
-      artworkPath: 'assets/images/onboarding/03_onboarding_community_art.webp',
+      artworkPath: AppAssets.onboardingCommunity,
       title: 'Stronger, Together',
       description:
           'A welcoming vision for wellbeing, community support, and new opportunities for every woman.',

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'core/branding/app_brand.dart';
 import 'core/theme/sakhi_design_system.dart';
 import 'features/onboarding/sakhi_onboarding_screen.dart';
 
@@ -29,7 +30,7 @@ class SakhiApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Sakhi',
+      title: AppBrand.appName,
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
@@ -96,8 +97,8 @@ class SakhiHomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          'Sakhi',
+        title: Text(
+          AppBrand.appName,
           style: TextStyle(
             color: sakhiPlum,
             fontSize: 26,
@@ -122,21 +123,21 @@ class SakhiHomeScreen extends StatelessWidget {
                     colors: [Color(0xFFF0DDF7), Color(0xFFFFE8F0)],
                   ),
                 ),
-                child: const Column(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Welcome to Sakhi',
-                      style: TextStyle(
+                      'Welcome to ${AppBrand.appName}',
+                      style: const TextStyle(
                         color: sakhiPlum,
                         fontSize: 28,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
-                    SizedBox(height: 8),
+                    const SizedBox(height: 8),
                     Text(
-                      'Your journey to a safer, more supported tomorrow starts here.',
-                      style: TextStyle(
+                      AppBrand.description,
+                      style: const TextStyle(
                         color: sakhiMutedPlum,
                         fontSize: 15,
                         height: 1.45,
@@ -146,8 +147,8 @@ class SakhiHomeScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 26),
-              const Text(
-                'Explore Sakhi',
+              Text(
+                'Explore ${AppBrand.appName}',
                 style: TextStyle(
                   color: sakhiPlum,
                   fontSize: 21,

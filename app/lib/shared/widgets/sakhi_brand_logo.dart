@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/branding/app_brand.dart';
+
 class SakhiBrandLogo extends StatelessWidget {
   const SakhiBrandLogo({
     super.key,
@@ -14,9 +16,9 @@ class SakhiBrandLogo extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       image: true,
-      label: 'Sakhi — Safer Women. Stronger Together.',
+      label: AppBrand.logoSemanticsLabel,
       child: Image.asset(
-        'assets/brand/sakhi_logo.png',
+        AppBrand.logoAsset,
         key: const Key('sakhi-logo-lockup'),
         width: width,
         height: height,
