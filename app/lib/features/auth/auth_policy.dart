@@ -1,11 +1,18 @@
-/// Business/legal settings that must be approved before launch.
-///
-/// Deliberately null until the product owner supplies the approved rule.
-/// Do not infer a minimum age from a common default such as 18.
-abstract final class SakhiAuthPolicy {
-  static const int? minimumRegistrationAgeYears = null;
+import 'package:flutter/foundation.dart' show kDebugMode;
 
-  // Replace these draft markers with the approved legal-document versions.
+/// Provisional preview settings for Sakhi authentication.
+///
+/// The product owner has requested age 13 for temporary development testing.
+/// This is not an approved production/legal policy. Release builds intentionally
+/// keep the age threshold unset until formal business/legal approval is recorded.
+abstract final class SakhiAuthPolicy {
+  static const int provisionalPreviewMinimumAgeYears = 13;
+  static const bool usesProvisionalPreviewPolicy = kDebugMode;
+  static const int? minimumRegistrationAgeYears = kDebugMode
+      ? provisionalPreviewMinimumAgeYears
+      : null;
+
+  // Replace these draft markers with approved legal-document versions before launch.
   static const String termsVersion = 'draft';
   static const String privacyVersion = 'draft';
 }

@@ -149,6 +149,16 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
             ),
           ),
           const SizedBox(height: SakhiSpacing.md),
+          if (_agePolicyMissing)
+            const SakhiAuthStatusMessage(
+              message: 'Production registration is blocked because the approved minimum age is not configured. The temporary age-13 rule is available only in debug preview builds.',
+            )
+          else if (SakhiAuthPolicy.usesProvisionalPreviewPolicy)
+            const SakhiAuthStatusMessage(
+              message: 'DEVELOPMENT PREVIEW — minimum age 13 is a temporary testing rule, not an approved production policy. Legal documents below are drafts.',
+            ),
+          if (_agePolicyMissing || SakhiAuthPolicy.usesProvisionalPreviewPolicy)
+            const SizedBox(height: SakhiSpacing.sm),
           Material(
             color: Colors.transparent,
             child: CheckboxListTile(
@@ -161,7 +171,7 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
                   ? null
                   : (value) => setState(() => _termsAccepted = value ?? false),
               title: const Text(
-                'I agree to the Terms and Conditions and Privacy Policy.',
+                'I acknowledge the draft Terms and Conditions and Privacy Policy for this preview.',
                 style: TextStyle(
                   color: SakhiColors.plum,
                   fontSize: 13,

@@ -413,6 +413,65 @@ class SakhiPolicyDocumentScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isTerms = title == 'Terms and Conditions';
+    final sections = isTerms
+        ? const <List<String>>[
+            [
+              '1. Draft status and purpose',
+              'This is temporary placeholder copy for Sakhi development and usability testing. It has not been reviewed or approved by a legal adviser, is not the final agreement, and must not be published as production legal text.',
+            ],
+            [
+              '2. Eligibility and age',
+              'The current debug preview uses a provisional minimum age of 13 solely to test registration and date-of-birth validation. This is not an approved production eligibility policy. Production registration must remain blocked until the business/legal team approves the applicable age and eligibility rules. Additional safeguards for younger users must be reviewed before launch.',
+            ],
+            [
+              '3. Demo status and service availability',
+              'In demo mode, entering six digits only simulates the OTP screen. No SMS is sent, no phone number is verified, and no real account or authenticated session is created. Safety, identity-verification, messaging, notification and emergency integrations must not be assumed active unless the app explicitly confirms a configured service.',
+            ],
+            [
+              '4. Respectful and safe use',
+              'A future production service is intended for respectful community participation. Users must not harass, threaten, impersonate, stalk, expose private information about, or unlawfully harm other people. Final community rules, reporting procedures and enforcement processes require review before launch.',
+            ],
+            [
+              '5. Safety limitations',
+              'The app preview is not an emergency-response service and does not guarantee assistance or police notification. In an immediate emergency in India, contact 112 or the relevant local emergency service directly. Never rely on an unconfigured in-app feature as the sole source of help.',
+            ],
+            [
+              '6. Accounts, content and future terms',
+              'Account creation, user content, restrictions, account deletion, intellectual-property terms, liability, dispute handling and contact details need final product and legal review. Do not enter real identity documents or sensitive personal data into this demo.',
+            ],
+          ]
+        : const <List<String>>[
+            [
+              '1. Draft status',
+              'This is temporary privacy-policy placeholder copy for development testing only. It has not been legally reviewed or approved and does not replace the final Sakhi Privacy Policy.',
+            ],
+            [
+              '2. Information in the current preview',
+              'The demo authentication flow does not send SMS, verify a number, create an account, or establish a session. The screens temporarily display the phone number, display name and date of birth entered for the preview. Do not enter real identity documents, precise location, health details or other sensitive information for testing.',
+            ],
+            [
+              '3. Information planned for a connected service',
+              'A production service may need a mobile number, display name, date of birth, optional email address, optional profile photo, verification status and records of required Terms/Privacy acceptance. Additional features may process posts, messages, safety reports, location or wellness information only under a separately reviewed purpose and privacy design.',
+            ],
+            [
+              '4. Purpose and sharing',
+              'In a future connected service, data should be used only for disclosed account, security, safety and feature purposes. Third-party SMS, identity, storage, maps and notification providers have not been configured in this preview. Any future disclosure, role access and provider arrangement must be documented and approved before production.',
+            ],
+            [
+              '5. Location and sensitive information',
+              'Precise location must not be public by default. Sensitive identity, complaint and wellness data require strict access controls, appropriate protection, limited retention and clear consent where required. These controls and any identity-verification provider must be implemented and reviewed before those features launch.',
+            ],
+            [
+              '6. Age and eligibility',
+              'The minimum age of 13 applies only as a temporary debug-preview rule requested for testing. It is not an approved production policy. Production age, women-centric eligibility verification and any additional safeguards must be decided through business/legal review. The app must not infer gender from appearance or treat Aadhaar OTP alone as proof of eligibility.',
+            ],
+            [
+              '7. Choices, retention and contact',
+              'Terms/Privacy acceptance is required in the registration preview. Optional product updates are separate and start unchecked. Final consent withdrawal, data access, correction, deletion, retention periods, grievance/support contact details and other applicable rights must be defined in the approved policy before launch; no production contact or retention promise is made by this draft.',
+            ],
+          ];
+
     return Scaffold(
       backgroundColor: SakhiColors.blush,
       appBar: AppBar(title: Text(title)),
@@ -425,9 +484,61 @@ class SakhiPolicyDocumentScreen extends StatelessWidget {
               color: SakhiColors.ivory,
               borderRadius: BorderRadius.circular(22),
             ),
-            child: const Text(
-              'Development preview: approved legal copy has not been supplied yet. This placeholder is not the final Terms and Conditions or Privacy Policy. Replace it with the reviewed document before launch.',
-              style: SakhiTypography.body,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(SakhiSpacing.md),
+                  decoration: BoxDecoration(
+                    color: SakhiColors.pink.withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: SakhiColors.progressInactive),
+                  ),
+                  child: const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'DRAFT — NOT APPROVED FOR PRODUCTION',
+                        style: TextStyle(
+                          color: SakhiColors.plum,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      SizedBox(height: SakhiSpacing.xxs),
+                      Text(
+                        'Temporary preview copy · Version: draft',
+                        style: SakhiTypography.body,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: SakhiSpacing.md),
+                for (final section in sections) ...[
+                  Text(
+                    section[0],
+                    style: const TextStyle(
+                      color: SakhiColors.plum,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: SakhiSpacing.xs),
+                  Text(section[1], style: SakhiTypography.body),
+                  const SizedBox(height: SakhiSpacing.md),
+                ],
+                const Divider(color: SakhiColors.progressInactive),
+                const SizedBox(height: SakhiSpacing.xs),
+                const Text(
+                  'Replace this draft with reviewed and formally approved copy before public release. This screen is not legal advice and does not certify compliance.',
+                  style: TextStyle(
+                    color: SakhiColors.mutedPlum,
+                    fontSize: 12,
+                    height: 1.45,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
           ),
         ),

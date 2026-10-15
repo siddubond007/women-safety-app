@@ -18,7 +18,7 @@ Required operations:
 
 The future backend—not the Flutter UI—must enforce OTP expiration, one-time use, attempt and resend limits, rate limiting, duplicate-number handling, session issuance/revocation, authorization on protected requests, consent records, age-policy validation, and safe handling of sensitive profile data. Do not log OTPs, passwords, access tokens or unnecessary full phone numbers.
 
-The minimum registration age is intentionally unconfigured in `auth_policy.dart`. Set it only after the business/legal team approves a value. Terms and Privacy copy/version values are marked `draft` and must be replaced with approved legal documents before launch.
+`auth_policy.dart` exposes a provisional minimum age of 13 only in debug builds for local flow testing. This is not approved production policy. Release builds keep `minimumRegistrationAgeYears` unset, so registration fails closed until the business/legal team approves the minimum age and a production policy is configured. The Terms and Privacy screens now contain temporary, readable draft copy labelled `DRAFT — NOT APPROVED FOR PRODUCTION`; versions remain `draft`. Replace and approve both documents before launch. The temporary age-13 rule must not be promoted to release by accident.
 
 ## Current mode behavior
 

@@ -280,9 +280,10 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.byKey(const Key('auth-age-policy-unconfigured')),
+        find.byKey(const Key('auth-age-policy-provisional')),
         findsOneWidget,
       );
+      expect(find.textContaining('minimum age 13'), findsOneWidget);
       expect(find.text('Welcome to Sakhi'), findsNothing);
       expect(tester.takeException(), isNull);
     });
@@ -462,6 +463,9 @@ void main() {
         );
         expect(find.textContaining('minimum registration age'), findsOneWidget);
 
+        await tester.ensureVisible(
+          find.byKey(const Key('auth-required-consent-checkbox')),
+        );
         await tester.tap(
           find.byKey(const Key('auth-required-consent-checkbox')),
         );
@@ -548,8 +552,26 @@ void main() {
       await tester.tap(find.byKey(const Key('auth-privacy-link')));
       await tester.pumpAndSettle();
       expect(find.text('Privacy Policy'), findsOneWidget);
+      expect(find.text('DRAFT — NOT APPROVED FOR PRODUCTION'), findsOneWidget);
       expect(
-        find.textContaining('approved legal copy has not been supplied'),
+        find.textContaining('temporary privacy-policy placeholder'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('not an approved production policy'),
+        findsOneWidget,
+      );
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('auth-terms-link')));
+      await tester.tap(find.byKey(const Key('auth-terms-link')));
+      await tester.pumpAndSettle();
+      expect(find.text('Terms and Conditions'), findsOneWidget);
+      expect(find.text('DRAFT — NOT APPROVED FOR PRODUCTION'), findsOneWidget);
+      expect(find.text('2. Eligibility and age'), findsOneWidget);
+      expect(
+        find.textContaining('provisional minimum age of 13'),
         findsOneWidget,
       );
       expect(tester.takeException(), isNull);
@@ -583,8 +605,18 @@ void main() {
     });
   });
 
-  test('minimum age remains unconfigured rather than assuming a threshold', () {
-    expect(SakhiAuthPolicy.minimumRegistrationAgeYears, isNull);
+  test('debug preview uses provisional age 13', () {
+    expect(SakhiAuthPolicy.provisionalPreviewMinimumAgeYears, 13);
+    expect(SakhiAuthPolicy.minimumRegistrationAgeYears, 13);
+    expect(SakhiAuthPolicy.usesProvisionalPreviewPolicy, isTrue);
+  });
+
+  test('minimum-age calculation enforces birthday boundary at 13', () {
+    final today = DateTime(2026, 10, 15);
+    expect(isAtLeastMinimumAge(DateTime(2013, 10, 15), today, 13), isTrue);
+    expect(isAtLeastMinimumAge(DateTime(2013, 10, 16), today, 13), isFalse);
+    expect(isAtLeastMinimumAge(DateTime(2014, 10, 15), today, 13), isFalse);
+    expect(isAtLeastMinimumAge(DateTime(2000, 1, 1), today, 13), isTrue);
   });
 
   testWidgets('onboarding Get started enters mobile-first registration', (
