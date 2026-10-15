@@ -148,11 +148,18 @@ class _SakhiOnboardingPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isLastPage = pageIndex == 2;
+    final isSafetyPage = pageIndex == 1;
     final size = MediaQuery.sizeOf(context);
     final shortScreen = size.height < 740;
     final titleStyle = SakhiTypography.onboardingTitle.copyWith(
       fontSize: size.width < 360 ? 24 : (size.width < 400 ? 26 : 29),
     );
+    final descriptionStyle = pageIndex == 0
+        ? SakhiTypography.body
+        : SakhiTypography.body.copyWith(
+            color: SakhiColors.plum.withValues(alpha: 0.88),
+            fontWeight: FontWeight.w600,
+          );
 
     return Stack(
       fit: StackFit.expand,
@@ -184,6 +191,87 @@ class _SakhiOnboardingPage extends StatelessWidget {
             ),
           ),
         ),
+        if (pageIndex > 0)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: size.height * (shortScreen ? 0.50 : 0.46),
+            child: const IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    stops: [0.0, 0.30, 1.0],
+                    colors: [
+                      Color(0x00FFF5FA),
+                      Color(0x82FFF5FA),
+                      Color(0xE8FFF5FA),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        if (isSafetyPage)
+          Positioned(
+            top: size.height * 0.25,
+            right: SakhiSpacing.lg,
+            child: Semantics(
+              key: const Key('safety-visual-cue'),
+              container: true,
+              label: 'Trusted support and safety guidance',
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: SakhiSpacing.sm,
+                  vertical: SakhiSpacing.xs,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.82),
+                  borderRadius: BorderRadius.circular(SakhiRadii.pill),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.92),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: SakhiColors.plum.withValues(alpha: 0.10),
+                      blurRadius: 14,
+                      offset: const Offset(0, 5),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 30,
+                      height: 30,
+                      decoration: BoxDecoration(
+                        color: SakhiColors.purple.withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.shield_outlined,
+                        size: 18,
+                        color: SakhiColors.purple,
+                      ),
+                    ),
+                    const SizedBox(width: SakhiSpacing.xs),
+                    const Text(
+                      'TRUSTED SUPPORT',
+                      style: TextStyle(
+                        color: SakhiColors.plum,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.6,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         SafeArea(
           child: Padding(
             padding: EdgeInsets.fromLTRB(
@@ -236,7 +324,7 @@ class _SakhiOnboardingPage extends StatelessWidget {
                   child: Text(
                     slide.description,
                     textAlign: TextAlign.center,
-                    style: SakhiTypography.body,
+                    style: descriptionStyle,
                   ),
                 ),
                 const SizedBox(height: SakhiSpacing.md),
