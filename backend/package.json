@@ -21,8 +21,7 @@
     "prisma:generate": "prisma generate",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:migrate:status": "prisma migrate status",
-    "db:seed": "prisma db seed",
-    "start:compiled": "node dist/main.js"
+    "db:seed": "prisma db seed"
   },
   "dependencies": {
     "@nestjs/common": "12.1.3",
