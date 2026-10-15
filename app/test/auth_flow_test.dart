@@ -448,9 +448,17 @@ void main() {
         final createFinder = find.byKey(
           const Key('auth-create-account-button'),
         );
+        final optionalUpdatesFinder = find.byKey(
+          const Key('auth-optional-updates-checkbox'),
+        );
         expect(
           tester.widget<SakhiAuthSubmitButton>(createFinder).onPressed,
           isNull,
+        );
+        expect(
+          tester.widget<CheckboxListTile>(optionalUpdatesFinder).value,
+          isFalse,
+          reason: 'Optional product-update consent must be off by default.',
         );
         expect(find.textContaining('minimum registration age'), findsOneWidget);
 
@@ -458,6 +466,11 @@ void main() {
           find.byKey(const Key('auth-required-consent-checkbox')),
         );
         await tester.pumpAndSettle();
+        expect(
+          tester.widget<CheckboxListTile>(optionalUpdatesFinder).value,
+          isFalse,
+          reason: 'Accepting legal terms must not opt into marketing updates.',
+        );
         expect(
           tester.widget<SakhiAuthSubmitButton>(createFinder).onPressed,
           isNull,
