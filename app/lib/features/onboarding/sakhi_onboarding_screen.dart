@@ -216,7 +216,7 @@ class _SakhiOnboardingPage extends StatelessWidget {
           ),
         if (isSafetyPage) ...[
           Positioned(
-            top: size.height * 0.30,
+            top: size.height * (shortScreen ? 0.27 : 0.30),
             left: size.width * 0.025,
             width: size.width * 0.43,
             child: const _SafetyFeatureCallout(
@@ -228,7 +228,7 @@ class _SakhiOnboardingPage extends StatelessWidget {
             ),
           ),
           Positioned(
-            top: size.height * 0.24,
+            top: size.height * (shortScreen ? 0.21 : 0.24),
             right: size.width * 0.025,
             width: size.width * 0.43,
             child: const _SafetyFeatureCallout(
@@ -240,7 +240,7 @@ class _SakhiOnboardingPage extends StatelessWidget {
             ),
           ),
           Positioned(
-            top: size.height * 0.41,
+            top: size.height * (shortScreen ? 0.36 : 0.41),
             left: size.width * 0.025,
             width: size.width * 0.43,
             child: const _SafetyFeatureCallout(
@@ -252,7 +252,7 @@ class _SakhiOnboardingPage extends StatelessWidget {
             ),
           ),
           Positioned(
-            top: size.height * 0.38,
+            top: size.height * (shortScreen ? 0.33 : 0.38),
             right: size.width * 0.025,
             width: size.width * 0.43,
             child: const _SafetyFeatureCallout(
