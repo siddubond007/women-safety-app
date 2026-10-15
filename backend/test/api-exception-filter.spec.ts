@@ -23,6 +23,8 @@ describe("API exception filter dependency injection", () => {
 
   it("resolves its scoped Pino logger when the Nest module starts", async () => {
     moduleRef = await createTestModule();
-    expect(moduleRef.get(ApiExceptionFilter)).toBeInstanceOf(ApiExceptionFilter);
+    expect(moduleRef.get(ApiExceptionFilter)).toBeInstanceOf(
+      ApiExceptionFilter,
+    );
   });
 });
