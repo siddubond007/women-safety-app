@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 
+import '../branding/app_brand.dart';
+
 abstract final class SakhiColors {
-  static const plum = Color(0xFF321044);
-  static const purple = Color(0xFF79318A);
-  static const mutedPlum = Color(0xFF8D6C9D);
-  static const blush = Color(0xFFFFF4F7);
-  static const ivory = Color(0xFFFFF8F4);
-  static const lavender = Color(0xFFF5EAF9);
-  static const pink = Color(0xFFFFEAF2);
-  static const progressInactive = Color(0xFFE8CBE4);
+  static const plum = AppBrand.darkTextColor;
+  static const purple = AppBrand.primaryColor;
+  static const mutedPlum = AppBrand.mutedTextColor;
+  static const blush = AppBrand.backgroundColor;
+  static const ivory = AppBrand.ivoryColor;
+  static const lavender = AppBrand.lavenderColor;
+  static const pink = AppBrand.pinkColor;
+  static const progressInactive = AppBrand.progressInactiveColor;
 }
 
 abstract final class SakhiSpacing {
