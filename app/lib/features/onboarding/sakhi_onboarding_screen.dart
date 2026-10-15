@@ -221,7 +221,7 @@ class _SakhiOnboardingPage extends StatelessWidget {
               semanticsKey: Key('safety-callout-emergency-sos'),
               label: 'Emergency SOS',
               icon: Icons.phone_in_talk_rounded,
-              accent: SakhiColors.pink,
+              accent: SakhiColors.pinkAccent,
               semanticsLabel: 'Emergency SOS introductory feature',
               ),
             ),
