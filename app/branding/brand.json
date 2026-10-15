@@ -1,18 +1,18 @@
 {
-  "appName": "Sakhi",
-  "shortName": "Sakhi",
-  "tagline": "Safer Women. Stronger Together.",
-  "description": "Sakhi — women’s safety, community and wellness.",
-  "logoAsset": "assets/brand/app_logo.png",
-  "iconAsset": "assets/brand/app_icon.png",
-  "colors": {
-    "primary": "#79318A",
-    "darkText": "#321044",
-    "mutedText": "#8D6C9D",
-    "background": "#FFF4F7",
-    "ivory": "#FFF8F4",
-    "lavender": "#F5EAF9",
-    "pink": "#FFEAF2",
-    "progressInactive": "#E8CBE4"
-  }
+    "appName":  "Sakhi",
+    "shortName":  "Sakhi",
+    "tagline":  "Safer Women. Stronger Together.",
+    "description":  "Sakhi — women’s safety, community and wellness.",
+    "logoAsset":  "assets/brand/app_logo.png",
+    "iconAsset":  "assets/brand/app_icon.png",
+    "colors":  {
+                   "primary":  "#79318A",
+                   "darkText":  "#321044",
+                   "mutedText":  "#8D6C9D",
+                   "background":  "#FFF4F7",
+                   "ivory":  "#FFF8F4",
+                   "lavender":  "#F5EAF9",
+                   "pink":  "#FFEAF2",
+                   "progressInactive":  "#E8CBE4"
+               }
 }
