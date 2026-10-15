@@ -21,7 +21,7 @@ function Write-Utf8NoBom {
 function ConvertTo-DartString {
     param([string]$Value)
     $escaped = ([string]$Value).Replace('\', '\\').Replace("'", "\'").Replace('$', '\$')
-    $escaped = $escaped.Replace([char]13, '\r').Replace([char]10, '\n')
+    $escaped = $escaped.Replace("`r", '\r').Replace("`n", '\n')
     return "'" + $escaped + "'"
 }
 
