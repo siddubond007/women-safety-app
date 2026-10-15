@@ -135,12 +135,15 @@ void main() {
         .top;
     expect(calloutRects.every((rect) => rect.bottom < headingTop), isTrue);
 
-    final descriptionRect =
-        tester.getRect(find.textContaining('Explore practical guidance'));
-    final indicatorRect =
-        tester.getRect(find.byKey(const Key('onboarding-dot-1')));
-    final nextButtonRect =
-        tester.getRect(find.byKey(const Key('next-onboarding-button')));
+    final descriptionRect = tester.getRect(
+      find.textContaining('Explore practical guidance'),
+    );
+    final indicatorRect = tester.getRect(
+      find.byKey(const Key('onboarding-dot-1')),
+    );
+    final nextButtonRect = tester.getRect(
+      find.byKey(const Key('next-onboarding-button')),
+    );
     expect(descriptionRect.bottom, lessThanOrEqualTo(indicatorRect.top));
     expect(indicatorRect.bottom, lessThanOrEqualTo(nextButtonRect.top));
     expect(tester.takeException(), isNull);
