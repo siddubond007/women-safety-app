@@ -8,10 +8,7 @@ import '../../shared/widgets/sakhi_brand_logo.dart';
 import '../../shared/widgets/sakhi_page_indicator.dart';
 
 class SakhiOnboardingScreen extends StatefulWidget {
-  const SakhiOnboardingScreen({
-    super.key,
-    required this.onGetStarted,
-  });
+  const SakhiOnboardingScreen({super.key, required this.onGetStarted});
 
   /// Inject the destination from the app shell; no auth route exists yet.
   final VoidCallback onGetStarted;
@@ -34,16 +31,14 @@ class _SakhiOnboardingScreenState extends State<SakhiOnboardingScreen> {
     _OnboardingSlide(
       artworkPath: AppAssets.onboardingSafety,
       title: 'Safety That Starts\nWith You',
-      description:
-          'Explore practical guidance and support designed to help you feel more prepared and confident.',
+      description: 'Explore practical guidance and support designed to help you feel more prepared and confident.',
       category: 'SAFETY & GUIDANCE',
       alignment: Alignment(0, -0.02),
     ),
     _OnboardingSlide(
       artworkPath: AppAssets.onboardingCommunity,
       title: 'Stronger, Together',
-      description:
-          'A welcoming vision for wellbeing, community support, and new opportunities for every woman.',
+      description: 'A welcoming vision for wellbeing, community support, and new opportunities for every woman.',
       category: 'COMMUNITY & WELLBEING',
       alignment: Alignment(0, -0.02),
     ),
@@ -214,64 +209,72 @@ class _SakhiOnboardingPage extends StatelessWidget {
               ),
             ),
           ),
-        if (isSafetyPage)
+        if (isSafetyPage) ...[
           Positioned(
-            top: size.height * 0.25,
-            right: SakhiSpacing.lg,
-            child: Semantics(
-              key: const Key('safety-visual-cue'),
-              container: true,
-              label: 'Trusted support and safety guidance',
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: SakhiSpacing.sm,
-                  vertical: SakhiSpacing.xs,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.82),
-                  borderRadius: BorderRadius.circular(SakhiRadii.pill),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.92),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: SakhiColors.plum.withValues(alpha: 0.10),
-                      blurRadius: 14,
-                      offset: const Offset(0, 5),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 30,
-                      height: 30,
-                      decoration: BoxDecoration(
-                        color: SakhiColors.purple.withValues(alpha: 0.12),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        Icons.shield_outlined,
-                        size: 18,
-                        color: SakhiColors.purple,
-                      ),
-                    ),
-                    const SizedBox(width: SakhiSpacing.xs),
-                    const Text(
-                      'TRUSTED SUPPORT',
-                      style: TextStyle(
-                        color: SakhiColors.plum,
-                        fontSize: 9,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.6,
-                      ),
-                    ),
-                  ],
-                ),
+            top: size.height * (shortScreen ? 0.28 : 0.26),
+            left: size.width * 0.02,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: size.width * (shortScreen ? 0.39 : 0.36),
+              ),
+              child: const _SafetyFeatureCallout(
+                semanticsKey: Key('safety-callout-emergency-sos'),
+                label: 'Emergency SOS',
+                icon: Icons.phone_in_talk_rounded,
+                accent: SakhiColors.pinkAccent,
+                semanticsLabel: 'Emergency SOS introductory feature',
               ),
             ),
           ),
+          Positioned(
+            top: size.height * (shortScreen ? 0.23 : 0.19),
+            right: size.width * 0.02,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: size.width * (shortScreen ? 0.39 : 0.36),
+              ),
+              child: const _SafetyFeatureCallout(
+                semanticsKey: Key('safety-visual-cue'),
+                label: 'Trusted Contacts',
+                icon: Icons.people_alt_rounded,
+                accent: SakhiColors.purple,
+                semanticsLabel: 'Trusted Contacts introductory feature',
+              ),
+            ),
+          ),
+          Positioned(
+            top: size.height * (shortScreen ? 0.39 : 0.44),
+            left: size.width * 0.02,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: size.width * (shortScreen ? 0.39 : 0.36),
+              ),
+              child: const _SafetyFeatureCallout(
+                semanticsKey: Key('safety-callout-find-nearby-help'),
+                label: 'Find Nearby Help',
+                icon: Icons.location_on_rounded,
+                accent: SakhiColors.purple,
+                semanticsLabel: 'Find Nearby Help introductory feature',
+              ),
+            ),
+          ),
+          Positioned(
+            top: size.height * (shortScreen ? 0.37 : 0.39),
+            right: size.width * 0.02,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: size.width * (shortScreen ? 0.39 : 0.36),
+              ),
+              child: const _SafetyFeatureCallout(
+                semanticsKey: Key('safety-callout-report-concern'),
+                label: 'Report a Concern',
+                icon: Icons.chat_bubble_outline_rounded,
+                accent: SakhiColors.pinkAccent,
+                semanticsLabel: 'Report a Concern introductory feature',
+              ),
+            ),
+          ),
+        ],
         SafeArea(
           child: Padding(
             padding: EdgeInsets.fromLTRB(
@@ -373,6 +376,83 @@ class _SakhiOnboardingPage extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Decorative onboarding callout. It introduces a feature without implying
+/// that an emergency service or external integration is already active.
+class _SafetyFeatureCallout extends StatelessWidget {
+  const _SafetyFeatureCallout({
+    required this.semanticsKey,
+    required this.label,
+    required this.icon,
+    required this.accent,
+    required this.semanticsLabel,
+  });
+
+  final Key semanticsKey;
+  final String label;
+  final IconData icon;
+  final Color accent;
+  final String semanticsLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      key: semanticsKey,
+      container: true,
+      label: semanticsLabel,
+      child: ExcludeSemantics(
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: SakhiSpacing.xxs,
+            vertical: SakhiSpacing.xxs,
+          ),
+          decoration: BoxDecoration(
+            color: const Color(0xE8FFFBFD),
+            borderRadius: BorderRadius.circular(SakhiRadii.pill),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.82)),
+            boxShadow: [
+              BoxShadow(
+                color: SakhiColors.plum.withValues(alpha: 0.09),
+                blurRadius: 12,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 27,
+                height: 27,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.13),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, size: 16, color: accent),
+              ),
+              const SizedBox(width: SakhiSpacing.xxs),
+              Flexible(
+                fit: FlexFit.loose,
+                child: Text(
+                  label,
+                  maxLines: 2,
+                  softWrap: true,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: SakhiColors.plum,
+                    fontSize: 11,
+                    height: 1.1,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

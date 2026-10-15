@@ -10,6 +10,9 @@ abstract final class SakhiColors {
   static const ivory = AppBrand.ivoryColor;
   static const lavender = AppBrand.lavenderColor;
   static const pink = AppBrand.pinkColor;
+
+  /// Saturated foreground pink for icons and controls on pale surfaces.
+  static const pinkAccent = Color(0xFFC02668);
   static const progressInactive = AppBrand.progressInactiveColor;
 }
 
