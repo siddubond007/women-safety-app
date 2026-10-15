@@ -17,18 +17,11 @@ import {
   UserRoundCheck,
   type LucideIcon,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { StatusPill } from "../components/StatusPill";
-import {
-  attentionItems,
-  dashboardIndicators,
-  dashboardMetrics,
-  demoDataNotice,
-  integrationPlaceholders,
-  queueRows,
-  weeklyTrend,
-} from "../services/mock/dashboard";
-import type { DashboardMetric, MetricTone } from "../types/admin";
+import { getDashboardRepository } from "../services/repositories/dashboardRepository";
+import type { DashboardMetric, DashboardSnapshot, MetricTone, TrendPoint } from "../types/admin";
 
 const metricIconMap: Record<DashboardMetric["icon"], LucideIcon> = {
   members: Users,
@@ -49,6 +42,67 @@ const indicatorIcons: Record<string, LucideIcon> = {
 };
 
 export function DashboardPage() {
+  const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    getDashboardRepository()
+      .getSnapshot()
+      .then((nextSnapshot) => {
+        if (active) {
+          setSnapshot(nextSnapshot);
+          setLoadError(false);
+        }
+      })
+      .catch(() => {
+        if (active) setLoadError(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [retryCount]);
+
+  if (loadError) {
+    return (
+      <section className="panel dashboard-state" role="alert">
+        <div>
+          <CircleAlert size={26} />
+          <h2>Dashboard data unavailable</h2>
+          <p>The selected demo data adapter could not load. No backend API is configured.</p>
+          <button
+            className="button button--secondary"
+            type="button"
+            onClick={() => {
+              setSnapshot(null);
+              setLoadError(false);
+              setRetryCount((count) => count + 1);
+            }}
+          >
+            Retry demo data
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  if (!snapshot) {
+    return (
+      <section className="panel dashboard-state" aria-busy="true">
+        <div>
+          <span className="dashboard-loading-mark"><Activity size={22} /></span>
+          <h2>Preparing the overview</h2>
+          <p>Loading fictional dashboard data for this demo workspace.</p>
+        </div>
+      </section>
+    );
+  }
+
+  return <DashboardContent snapshot={snapshot} />;
+}
+
+function DashboardContent({ snapshot }: { snapshot: DashboardSnapshot }) {
   return (
     <div className="dashboard-page">
       <section className="page-heading">
@@ -64,7 +118,7 @@ export function DashboardPage() {
       </section>
 
       <section className="primary-metrics" aria-label="Primary sample metrics">
-        {dashboardMetrics.map((metric, index) => {
+        {snapshot.metrics.map((metric, index) => {
           const Icon = metricIconMap[metric.icon];
           const DeltaIcon = metric.direction === "down" ? ArrowDownRight : ArrowUpRight;
           return (
@@ -91,7 +145,7 @@ export function DashboardPage() {
             <StatusPill tone="demo">SAMPLE</StatusPill>
           </div>
           <div className="chart-legend"><span className="legend-mark" /> <span>Illustrative member activity</span><span className="legend-spacer" /><span className="chart-info">No live analytics connected</span></div>
-          <ActivityChart />
+          <ActivityChart data={snapshot.trend} />
           <div className="chart-footer">
             <div><span className="chart-footer-dot chart-footer-dot--rose" /><span>Registrations</span><strong>1,284</strong></div>
             <div><span className="chart-footer-dot chart-footer-dot--violet" /><span>Active members</span><strong>6,280</strong></div>
@@ -105,7 +159,7 @@ export function DashboardPage() {
             <span className="attention-count">03</span>
           </div>
           <div className="attention-list">
-            {attentionItems.map((item) => {
+            {snapshot.attentionItems.map((item) => {
               const Icon = item.icon === "verification" ? UserRoundCheck : item.icon === "report" ? FileWarning : ShieldAlert;
               return (
                 <Link className="attention-item" to={item.route} key={item.id}>
@@ -126,7 +180,7 @@ export function DashboardPage() {
           <span className="panel-subnote">All values are fictional</span>
         </div>
         <div className="indicator-grid">
-          {dashboardIndicators.map((item) => {
+          {snapshot.indicators.map((item) => {
             const Icon = indicatorIcons[item.id] ?? CircleAlert;
             const route = item.id === "businesses" ? "/businesses" : item.id === "content" ? "/moderation" : item.id === "complaints" || item.id === "closed" ? "/complaints" : item.id === "sos" ? "/emergency" : item.id === "failures" ? "/verification" : item.id === "media" ? "/community" : "/integrations";
             return (
@@ -150,7 +204,7 @@ export function DashboardPage() {
             <table className="operations-table">
               <thead><tr><th>Reference / category</th><th>Assigned team</th><th>Status</th><th>Age</th><th aria-label="Open item" /></tr></thead>
               <tbody>
-                {queueRows.map((row) => (
+                {snapshot.queueRows.map((row) => (
                   <tr key={row.id}>
                     <td><span className="table-ref">{row.reference}</span><span className="table-category">{row.category}</span></td>
                     <td><span className="table-owner">{row.owner}</span></td>
@@ -171,7 +225,7 @@ export function DashboardPage() {
             <StatusPill tone="neutral">4 NOT CONNECTED</StatusPill>
           </div>
           <div className="integration-list">
-            {integrationPlaceholders.map((item) => (
+            {snapshot.integrations.map((item) => (
               <div className="integration-row" key={item.id}>
                 <span className="integration-status-icon"><CircleAlert size={16} /></span>
                 <span className="integration-copy"><strong>{item.name}</strong><small>{item.description}</small></span>
@@ -183,15 +237,15 @@ export function DashboardPage() {
         </section>
       </div>
 
-      <div className="dashboard-footnote"><ShieldCheck size={15} /><span>{demoDataNotice}</span><Link to="/settings">About this environment <ArrowRight size={13} /></Link></div>
+      <div className="dashboard-footnote"><ShieldCheck size={15} /><span>{snapshot.dataNotice}</span><Link to="/settings">About this environment <ArrowRight size={13} /></Link></div>
     </div>
   );
 }
 
-function ActivityChart() {
-  const points = weeklyTrend.map((point, index) => ({
+function ActivityChart({ data }: { data: TrendPoint[] }) {
+  const points = data.map((point, index) => ({
     ...point,
-    x: 34 + index * (532 / (weeklyTrend.length - 1)),
+    x: 34 + index * (532 / (data.length - 1)),
     y: 154 - ((point.value - 20) / 70) * 108,
   }));
   const polyline = points.map((point) => point.x + "," + point.y).join(" ");

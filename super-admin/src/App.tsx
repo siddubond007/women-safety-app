@@ -1,24 +1,23 @@
 import { useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { adminAuthService } from "./services/auth/adminAuthService";
 import { AdminLayout } from "./layouts/AdminLayout";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
 import { PlannedPage } from "./pages/PlannedPage";
 
-const DEMO_SESSION_KEY = "sakhi-admin-demo-session";
-
 function AppRoutes() {
   const [isDemoSignedIn, setIsDemoSignedIn] = useState(
-    () => window.sessionStorage.getItem(DEMO_SESSION_KEY) === "active",
+    () => adminAuthService.hasActiveSession(),
   );
 
   function enterDemo() {
-    window.sessionStorage.setItem(DEMO_SESSION_KEY, "active");
+    adminAuthService.enterDemoSession();
     setIsDemoSignedIn(true);
   }
 
   function endDemo() {
-    window.sessionStorage.removeItem(DEMO_SESSION_KEY);
+    adminAuthService.signOut();
     setIsDemoSignedIn(false);
   }
 

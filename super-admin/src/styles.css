@@ -440,3 +440,12 @@ svg { flex-shrink: 0; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+.dashboard-state { min-height: 360px; display: grid; place-items: center; padding: 28px; text-align: center; }
+.dashboard-state > div { display: flex; flex-direction: column; align-items: center; max-width: 420px; }
+.dashboard-state > div > svg { color: #a875a4; }
+.dashboard-state h2 { margin: 14px 0 7px; font-family: Manrope, sans-serif; font-size: 20px; letter-spacing: -.5px; color: #44354b; }
+.dashboard-state p { margin: 0 0 18px; color: #928596; font-size: 11px; line-height: 1.7; }
+.dashboard-loading-mark { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 14px; color: #ad4d7b; background: #fbedf4; }
+@media (max-width: 620px) {
+  .dashboard-state { min-height: 285px; padding: 24px 16px; }
+}

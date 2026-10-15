@@ -49,3 +49,13 @@ export interface IntegrationPlaceholder {
   name: string;
   description: string;
 }
+
+export interface DashboardSnapshot {
+  metrics: DashboardMetric[];
+  indicators: Indicator[];
+  trend: TrendPoint[];
+  attentionItems: AttentionItem[];
+  queueRows: QueueRow[];
+  integrations: IntegrationPlaceholder[];
+  dataNotice: string;
+}

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+﻿import { useMemo, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -11,7 +11,6 @@ import {
   ChevronDown,
   ClipboardCheck,
   FileClock,
-  Flag,
   HeartPulse,
   HelpCircle,
   LayoutDashboard,
@@ -126,7 +125,7 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
                     end
                     onClick={closeOverlays}
                     className={({ isActive }) => "nav-link" + (isActive ? " nav-link--active" : "")}
-                    title={item.planned ? item.label + " — planned" : item.label}
+                    title={item.planned ? item.label + " â€” planned" : item.label}
                   >
                     <Icon size={17} strokeWidth={1.8} />
                     <span className="nav-link-label">{item.label}</span>
@@ -230,13 +229,13 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
         <main className="page-content">
           <div className="demo-banner" role="status">
             <span className="demo-banner__icon"><AlertTriangle size={16} /></span>
-            <div><strong>DEMO ENVIRONMENT</strong><span>Fictional sample data · No production API connected · Actions do not alter real records</span></div>
+            <div><strong>DEMO ENVIRONMENT</strong><span>Fictional sample data Â· No production API connected Â· Actions do not alter real records</span></div>
             <StatusPill tone="demo">STAGE 1</StatusPill>
           </div>
           <Outlet />
           <footer className="page-footer">
             <span>SAKHI ADMIN CONTROL CENTER</span>
-            <span>Stage 1 prototype <span className="footer-dot">·</span> Demo data only</span>
+            <span>Stage 1 prototype <span className="footer-dot">Â·</span> Demo data only</span>
           </footer>
         </main>
       </div>
