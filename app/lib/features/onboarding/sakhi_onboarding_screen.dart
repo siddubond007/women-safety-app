@@ -8,10 +8,7 @@ import '../../shared/widgets/sakhi_brand_logo.dart';
 import '../../shared/widgets/sakhi_page_indicator.dart';
 
 class SakhiOnboardingScreen extends StatefulWidget {
-  const SakhiOnboardingScreen({
-    super.key,
-    required this.onGetStarted,
-  });
+  const SakhiOnboardingScreen({super.key, required this.onGetStarted});
 
   /// Inject the destination from the app shell; no auth route exists yet.
   final VoidCallback onGetStarted;
@@ -34,16 +31,14 @@ class _SakhiOnboardingScreenState extends State<SakhiOnboardingScreen> {
     _OnboardingSlide(
       artworkPath: AppAssets.onboardingSafety,
       title: 'Safety That Starts\nWith You',
-      description:
-          'Explore practical guidance and support designed to help you feel more prepared and confident.',
+      description: 'Explore practical guidance and support designed to help you feel more prepared and confident.',
       category: 'SAFETY & GUIDANCE',
       alignment: Alignment(0, -0.02),
     ),
     _OnboardingSlide(
       artworkPath: AppAssets.onboardingCommunity,
       title: 'Stronger, Together',
-      description:
-          'A welcoming vision for wellbeing, community support, and new opportunities for every woman.',
+      description: 'A welcoming vision for wellbeing, community support, and new opportunities for every woman.',
       category: 'COMMUNITY & WELLBEING',
       alignment: Alignment(0, -0.02),
     ),
@@ -401,9 +396,7 @@ class _SafetyFeatureCallout extends StatelessWidget {
           decoration: BoxDecoration(
             color: const Color(0xF7FFFBFD),
             borderRadius: BorderRadius.circular(SakhiRadii.pill),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.94),
-            ),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.94)),
             boxShadow: [
               BoxShadow(
                 color: SakhiColors.plum.withValues(alpha: 0.12),
@@ -422,11 +415,7 @@ class _SafetyFeatureCallout extends StatelessWidget {
                   color: accent.withValues(alpha: 0.15),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(
-                  icon,
-                  size: 18,
-                  color: accent,
-                ),
+                child: Icon(icon, size: 18, color: accent),
               ),
               const SizedBox(width: SakhiSpacing.xs),
               Expanded(
@@ -450,4 +439,3 @@ class _SafetyFeatureCallout extends StatelessWidget {
     );
   }
 }
-

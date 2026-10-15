@@ -11,24 +11,32 @@ void main() {
     expect(AppBrand.iconAsset, 'assets/brand/app_icon.png');
   });
 
-  testWidgets('welcome screen uses supplied logo and full-screen artwork',
-      (WidgetTester tester) async {
+  testWidgets('welcome screen uses supplied logo and full-screen artwork', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(const SakhiApp());
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('sakhi-logo-lockup')), findsOneWidget);
     expect(find.byKey(const Key('onboarding-artwork-0')), findsOneWidget);
     expect(find.byKey(const Key('safety-visual-cue')), findsNothing);
-    expect(find.text('A Safer, Brighter\nTomorrow for Every Woman'), findsOneWidget);
-    expect(find.text('Safety • Community • Wellness • Opportunities'), findsOneWidget);
+    expect(
+      find.text('A Safer, Brighter\nTomorrow for Every Woman'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Safety • Community • Wellness • Opportunities'),
+      findsOneWidget,
+    );
     expect(find.byKey(const Key('next-onboarding-button')), findsOneWidget);
     expect(find.byKey(const Key('onboarding-dot-0')), findsOneWidget);
     expect(find.byType(Card), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Next and horizontal swiping move through all three pages',
-      (WidgetTester tester) async {
+  testWidgets('Next and horizontal swiping move through all three pages', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(const SakhiApp());
     await tester.pumpAndSettle();
 
@@ -74,8 +82,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Stage 2 safety callouts fit a narrow phone viewport',
-      (WidgetTester tester) async {
+  testWidgets('Stage 2 safety callouts fit a narrow phone viewport', (
+    WidgetTester tester,
+  ) async {
     tester.view.physicalSize = const Size(320, 640);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -104,8 +113,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Skip goes to the final page and Get started continues',
-      (WidgetTester tester) async {
+  testWidgets('Skip goes to the final page and Get started continues', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(const SakhiApp());
     await tester.pumpAndSettle();
 
@@ -121,8 +131,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('shared home feature cards retain their existing navigation',
-      (WidgetTester tester) async {
+  testWidgets('shared home feature cards retain their existing navigation', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(const MaterialApp(home: SakhiHomeScreen()));
     await tester.pumpAndSettle();
 
@@ -130,7 +141,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Safety & support preview'), findsOneWidget);
-    expect(find.textContaining('service and backend integration'), findsOneWidget);
+    expect(
+      find.textContaining('service and backend integration'),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 }
