@@ -16,6 +16,7 @@ class EligibilityIntroScreen extends StatelessWidget {
     return SakhiAuthScaffold(
       botanicalAsset: AppAssets.authBotanicalConsent,
       authIsDemo: false,
+      authIsDevelopmentBackend: service.isDevelopmentBackend,
       botanicalHeight: 68,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

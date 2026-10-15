@@ -16,6 +16,7 @@ class SakhiRegistrationScreen extends StatelessWidget {
     return SakhiAuthScaffold(
       botanicalAsset: AppAssets.authBotanicalConsent,
       authIsDemo: authService.isDemo,
+      authIsDevelopmentBackend: authService.isDevelopmentBackend,
       botanicalHeight: 80,
       child: SakhiMobileEntryForm(
         authService: authService,

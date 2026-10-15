@@ -288,6 +288,9 @@ class _FakeEligibilityService implements EligibilityVerificationService {
   EligibilityConsentRecord? lastConsent;
 
   @override
+  bool get isDevelopmentBackend => false;
+
+  @override
   Future<EligibilityConfiguration> loadConfiguration() async => configuration;
 
   @override

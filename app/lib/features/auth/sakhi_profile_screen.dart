@@ -128,6 +128,7 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
     return SakhiAuthScaffold(
       botanicalAsset: AppAssets.authBotanicalProfile,
       authIsDemo: widget.authService.isDemo,
+      authIsDevelopmentBackend: widget.authService.isDevelopmentBackend,
       botanicalHeight: 76,
       child: Form(
         key: _formKey,

@@ -6,6 +6,8 @@ import 'eligibility_verification_models.dart';
 /// never trust a client-side redirect as proof, and fail closed when
 /// configuration is missing. The demo never creates provider sessions.
 abstract interface class EligibilityVerificationService {
+  bool get isDevelopmentBackend;
+
   Future<EligibilityConfiguration> loadConfiguration();
 
   Future<EligibilityStatusResult> readStatus();
@@ -20,6 +22,9 @@ abstract interface class EligibilityVerificationService {
 class DemoEligibilityVerificationService
     implements EligibilityVerificationService {
   const DemoEligibilityVerificationService();
+
+  @override
+  bool get isDevelopmentBackend => false;
 
   @override
   Future<EligibilityConfiguration> loadConfiguration() async =>

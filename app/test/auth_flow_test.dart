@@ -671,6 +671,9 @@ class _FakeAuthService implements AuthService {
   bool get isDemo => demo;
 
   @override
+  bool get isDevelopmentBackend => false;
+
+  @override
   Future<AuthOtpSession> requestOtp({
     required String countryCode,
     required String phoneNumber,

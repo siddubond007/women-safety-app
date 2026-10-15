@@ -6,9 +6,14 @@ import '../auth/widgets/auth_widgets.dart';
 import 'eligibility_verification_models.dart';
 
 class EligibilityStatusScreen extends StatelessWidget {
-  const EligibilityStatusScreen({super.key, required this.result});
+  const EligibilityStatusScreen({
+    super.key,
+    required this.result,
+    this.isDevelopmentBackend = false,
+  });
 
   final EligibilityStatusResult result;
+  final bool isDevelopmentBackend;
 
   String get _heading => switch (result.status) {
     EligibilityStatus.notStarted => 'Verification not started',
@@ -71,6 +76,7 @@ class EligibilityStatusScreen extends StatelessWidget {
     return SakhiAuthScaffold(
       botanicalAsset: AppAssets.authBotanicalConsent,
       authIsDemo: false,
+      authIsDevelopmentBackend: isDevelopmentBackend,
       botanicalHeight: 56,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

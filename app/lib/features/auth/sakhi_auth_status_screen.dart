@@ -23,18 +23,29 @@ class SakhiAuthStatusScreen extends StatelessWidget {
     AuthAccountState.restricted => 'Account access needs attention',
   };
 
-  String get _description => switch (accountState) {
-    AuthAccountState.existingAccount => 'The login route has been previewed. A real account session has not been established.',
-    AuthAccountState.newAccount => 'Continue through the registration steps to complete the profile and required consent.',
-    AuthAccountState.pendingVerification => 'This account state requires follow-up from a configured authentication service before access can be granted.',
-    AuthAccountState.restricted => 'This account state must be resolved by the configured account service. No protected app area is opened from this preview.',
-  };
+  String get _description {
+    if (authService.isDevelopmentBackend) {
+      return switch (accountState) {
+        AuthAccountState.existingAccount => 'You signed in to the local development backend. This is not a production session and does not establish eligibility verification.',
+        AuthAccountState.newAccount => 'Your local development OTP was accepted. Complete the profile and draft-policy acknowledgement to save the test profile. No SMS was sent.',
+        AuthAccountState.pendingVerification => 'Your development account is pending setup or review. No protected app access or eligibility status is granted by this test flow.',
+        AuthAccountState.restricted => 'The backend reports this account as restricted. No protected app area is opened from this development flow.',
+      };
+    }
+    return switch (accountState) {
+      AuthAccountState.existingAccount => 'The login route has been previewed. A real account session has not been established.',
+      AuthAccountState.newAccount => 'Continue through the registration steps to complete the profile and required consent.',
+      AuthAccountState.pendingVerification => 'This account state requires follow-up from a configured authentication service before access can be granted.',
+      AuthAccountState.restricted => 'This account state must be resolved by the configured account service. No protected app area is opened from this preview.',
+    };
+  }
 
   @override
   Widget build(BuildContext context) {
     return SakhiAuthScaffold(
       botanicalAsset: AppAssets.authBotanicalProfile,
       authIsDemo: authService.isDemo,
+      authIsDevelopmentBackend: authService.isDevelopmentBackend,
       botanicalHeight: 76,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

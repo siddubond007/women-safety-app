@@ -10,12 +10,14 @@ class SakhiAuthScaffold extends StatelessWidget {
     required this.child,
     required this.botanicalAsset,
     required this.authIsDemo,
+    this.authIsDevelopmentBackend = false,
     this.botanicalHeight = 82,
   });
 
   final Widget child;
   final String botanicalAsset;
   final bool authIsDemo;
+  final bool authIsDevelopmentBackend;
   final double botanicalHeight;
 
   @override
@@ -58,6 +60,9 @@ class SakhiAuthScaffold extends StatelessWidget {
                         const SizedBox(height: SakhiSpacing.xs),
                       if (authIsDemo) ...[
                         const SakhiDemoBanner(),
+                        const SizedBox(height: SakhiSpacing.sm),
+                      ] else if (authIsDevelopmentBackend) ...[
+                        const SakhiDevelopmentBackendBanner(),
                         const SizedBox(height: SakhiSpacing.sm),
                       ],
                       Container(
@@ -161,6 +166,51 @@ class SakhiDemoBanner extends StatelessWidget {
             Expanded(
               child: Text(
                 'DEMO PREVIEW — no SMS is sent, no number is truly verified, and no account or session is created.',
+                style: TextStyle(
+                  color: SakhiColors.plum,
+                  fontSize: 11.5,
+                  height: 1.35,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class SakhiDevelopmentBackendBanner extends StatelessWidget {
+  const SakhiDevelopmentBackendBanner({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        key: const Key('auth-development-backend-banner'),
+        padding: const EdgeInsets.symmetric(
+          horizontal: SakhiSpacing.sm,
+          vertical: SakhiSpacing.xs,
+        ),
+        decoration: BoxDecoration(
+          color: SakhiColors.lavender,
+          borderRadius: BorderRadius.circular(13),
+          border: Border.all(color: SakhiColors.progressInactive),
+        ),
+        child: const Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              Icons.developer_mode_outlined,
+              color: SakhiColors.purple,
+              size: 18,
+            ),
+            SizedBox(width: SakhiSpacing.xs),
+            Expanded(
+              child: Text(
+                'DEVELOPMENT BACKEND — profile and consent can be saved to the local test database. OTP codes are test codes only; no SMS or carrier verification occurs. Not for production.',
                 style: TextStyle(
                   color: SakhiColors.plum,
                   fontSize: 11.5,

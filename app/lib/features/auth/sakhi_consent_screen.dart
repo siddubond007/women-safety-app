@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../../core/assets/app_assets.dart';
 import '../../core/theme/sakhi_design_system.dart';
+import '../eligibility/backend_eligibility_verification_service.dart';
 import '../eligibility/eligibility_intro_screen.dart';
 import '../eligibility/eligibility_verification_service.dart';
 import 'auth_policy.dart';
 import 'auth_service.dart';
+import 'backend_auth_service.dart';
 import 'sakhi_auth_status_screen.dart';
 import 'widgets/auth_widgets.dart';
 
@@ -93,6 +95,22 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
     }
   }
 
+  void _openEligibilityPreview() {
+    final authService = widget.authService;
+    final EligibilityVerificationService eligibilityService =
+        authService is BackendAuthService
+        ? BackendEligibilityVerificationService(
+            apiClient: authService.apiClient,
+          )
+        : const DemoEligibilityVerificationService();
+
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => EligibilityIntroScreen(service: eligibilityService),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final dob = widget.profile.dateOfBirth;
@@ -103,6 +121,7 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
     return SakhiAuthScaffold(
       botanicalAsset: AppAssets.authBotanicalConsent,
       authIsDemo: widget.authService.isDemo,
+      authIsDevelopmentBackend: widget.authService.isDevelopmentBackend,
       botanicalHeight: 66,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -212,18 +231,12 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
           Center(
             child: TextButton.icon(
               key: const Key('eligibility-preview-entry-button'),
-              onPressed: _isCreatingAccount
-                  ? null
-                  : () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const EligibilityIntroScreen(
-                          service: DemoEligibilityVerificationService(),
-                        ),
-                      ),
-                    ),
+              onPressed: _isCreatingAccount ? null : _openEligibilityPreview,
               icon: const Icon(Icons.verified_user_outlined, size: 18),
-              label: const Text(
-                'Preview eligibility verification (demo only)',
+              label: Text(
+                widget.authService.isDevelopmentBackend
+                    ? 'Check eligibility status (provider not configured)'
+                    : 'Preview eligibility verification (demo only)',
                 textAlign: TextAlign.center,
               ),
             ),

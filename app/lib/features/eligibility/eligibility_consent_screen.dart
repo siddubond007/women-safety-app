@@ -48,15 +48,19 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
       if (!mounted) return;
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => EligibilityStatusScreen(result: result),
+          builder: (_) => EligibilityStatusScreen(
+            result: result,
+            isDevelopmentBackend: widget.service.isDevelopmentBackend,
+          ),
         ),
       );
     } catch (_) {
       if (!mounted) return;
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => const EligibilityStatusScreen(
-            result: EligibilityStatusResult(
+          builder: (_) => EligibilityStatusScreen(
+            isDevelopmentBackend: widget.service.isDevelopmentBackend,
+            result: const EligibilityStatusResult(
               status: EligibilityStatus.verificationFailed,
               message: 'The status could not be confirmed. This technical problem is not an eligibility decision.',
               isDemo: true,
@@ -77,15 +81,19 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
       if (!mounted) return;
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => EligibilityStatusScreen(result: result),
+          builder: (_) => EligibilityStatusScreen(
+            result: result,
+            isDevelopmentBackend: widget.service.isDevelopmentBackend,
+          ),
         ),
       );
     } catch (_) {
       if (!mounted) return;
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => const EligibilityStatusScreen(
-            result: EligibilityStatusResult(
+          builder: (_) => EligibilityStatusScreen(
+            isDevelopmentBackend: widget.service.isDevelopmentBackend,
+            result: const EligibilityStatusResult(
               status: EligibilityStatus.providerUnavailable,
               message: 'A trusted eligibility status is unavailable. No conclusion about eligibility can be drawn.',
               isDemo: true,
@@ -105,6 +113,7 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
     return SakhiAuthScaffold(
       botanicalAsset: AppAssets.authBotanicalConsent,
       authIsDemo: false,
+      authIsDevelopmentBackend: widget.service.isDevelopmentBackend,
       botanicalHeight: 58,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
