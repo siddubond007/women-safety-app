@@ -111,6 +111,7 @@ void main() {
       const Key('safety-callout-report-concern'),
     ];
 
+    final logoRect = tester.getRect(find.byKey(const Key('sakhi-logo-lockup')));
     final calloutRects = <Rect>[];
     for (final key in calloutKeys) {
       final rect = tester.getRect(find.byKey(key));
@@ -120,6 +121,7 @@ void main() {
       expect(rect.top, greaterThanOrEqualTo(0));
       expect(rect.bottom, lessThanOrEqualTo(640));
       expect(rect.width, lessThanOrEqualTo(320 * 0.40));
+      expect(rect.overlaps(logoRect), isFalse);
     }
 
     for (var i = 0; i < calloutRects.length; i++) {
@@ -132,6 +134,15 @@ void main() {
         .getRect(find.text('Safety That Starts\\nWith You'))
         .top;
     expect(calloutRects.every((rect) => rect.bottom < headingTop), isTrue);
+
+    final descriptionRect =
+        tester.getRect(find.textContaining('Explore practical guidance'));
+    final indicatorRect =
+        tester.getRect(find.byKey(const Key('onboarding-dot-1')));
+    final nextButtonRect =
+        tester.getRect(find.byKey(const Key('next-onboarding-button')));
+    expect(descriptionRect.bottom, lessThanOrEqualTo(indicatorRect.top));
+    expect(indicatorRect.bottom, lessThanOrEqualTo(nextButtonRect.top));
     expect(tester.takeException(), isNull);
   });
 
