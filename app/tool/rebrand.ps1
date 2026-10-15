@@ -41,11 +41,8 @@ function ConvertTo-XmlText {
 function Set-YamlQuotedValue {
     param([string]$Content, [string]$Key, [string]$Value)
     $pattern = '(?m)^([ \t]*' + [regex]::Escape($Key) + '[ \t]*")[^"]+(".*)$'
-    $evaluator = [System.Text.RegularExpressions.MatchEvaluator]{
-        param($match)
-        return $match.Groups[1].Value + $Value + $match.Groups[2].Value
-    }.GetNewClosure()
-    return [regex]::Replace($Content, $pattern, $evaluator)
+    $safeValue = ([string]$Value).Replace('$', '$$')
+    return [regex]::Replace($Content, $pattern, ('$1' + $safeValue + '$2'))
 }
 
 function Normalize-LauncherIcon {
@@ -189,11 +186,8 @@ $stringsPath = Join-Path $appRoot 'android\app\src\main\res\values\strings.xml'
 $escapedName = ConvertTo-XmlText ([string]$brand.appName)
 if (Test-Path -LiteralPath $stringsPath) {
     $strings = Get-Content -LiteralPath $stringsPath -Raw -Encoding UTF8
-    $evaluator = [System.Text.RegularExpressions.MatchEvaluator]{
-        param($match)
-        return $match.Groups[1].Value + $escapedName + $match.Groups[2].Value
-    }.GetNewClosure()
-    $strings = [regex]::Replace($strings, '(<string\s+name="app_name">).*?(</string>)', $evaluator)
+    $safeName = $escapedName.Replace('$', '$$')
+    $strings = [regex]::Replace($strings, '(<string\s+name="app_name">).*?(</string>)', ('$1' + $safeName + '$2'))
 }
 else {
     $strings = '<?xml version="1.0" encoding="utf-8"?>' + [Environment]::NewLine +
@@ -205,17 +199,11 @@ Write-Utf8NoBom -Path $stringsPath -Content $strings
 
 $infoPath = Join-Path $appRoot 'ios\Runner\Info.plist'
 $info = Get-Content -LiteralPath $infoPath -Raw -Encoding UTF8
-$evaluator = [System.Text.RegularExpressions.MatchEvaluator]{
-    param($match)
-    return $match.Groups[1].Value + $escapedName + $match.Groups[2].Value
-}.GetNewClosure()
-$info = [regex]::Replace($info, '(?s)(<key>CFBundleDisplayName</key>\s*<string>).*?(</string>)', $evaluator)
+$safeName = $escapedName.Replace('$', '$$')
+$info = [regex]::Replace($info, '(?s)(<key>CFBundleDisplayName</key>\s*<string>).*?(</string>)', ('$1' + $safeName + '$2'))
 $shortXmlName = ConvertTo-XmlText ([string]$brand.shortName)
-$evaluator = [System.Text.RegularExpressions.MatchEvaluator]{
-    param($match)
-    return $match.Groups[1].Value + $shortXmlName + $match.Groups[2].Value
-}.GetNewClosure()
-$info = [regex]::Replace($info, '(?s)(<key>CFBundleName</key>\s*<string>).*?(</string>)', $evaluator)
+$safeShortName = $shortXmlName.Replace('$', '$$')
+$info = [regex]::Replace($info, '(?s)(<key>CFBundleName</key>\s*<string>).*?(</string>)', ('$1' + $safeShortName + '$2'))
 Write-Utf8NoBom -Path $infoPath -Content $info
 
 $webManifestPath = Join-Path $appRoot 'web\manifest.json'
