@@ -1,14 +1,14 @@
 # Sakhi Module 2 — User Profile and Account Management
 
-**Checkpoint updated:** 2026-10-16 12:24 IST (Asia/Kolkata)  
+**Checkpoint updated:** 2026-10-16 12:32 IST (Asia/Kolkata)  
 **Repository:** `siddubond007/women-safety-app`  
 **Primary Module 2 branch:** `feat/user-profile-account-management`  
 **Primary branch base:** `feat/auth-session-resume-logout` at `674afe4d8ed178d2b09a15af300184bb09739270`  
-**Primary branch head:** `674afe4d8ed178d2b09a15af300184bb09739270` before this checkpoint commit  
-**Primary PR:** Not created yet  
+**Primary feature-code head before this checkpoint refresh:** `d4fd6d584b2bd581ce31733c66082b55f062c966` (the checkpoint-refresh commit will advance the branch one commit further; verify the exact current head via GitHub before resuming)  
+**Primary PR:** [#13 — feat(profile): add authenticated My Profile editing](https://github.com/siddubond007/women-safety-app/pull/13), open, draft, unmerged; base `feat/auth-session-resume-logout` at `674afe4d8ed178d2b09a15af300184bb09739270`; head `feat/user-profile-account-management` at `d4fd6d584b2bd581ce31733c66082b55f062c966` before checkpoint refresh  
 **Backend companion branch:** `feat/user-profile-account-management-backend`  
-**Backend branch base/head at creation:** `fix/backend-pino-logger-injection` at `9347dc1e555672fd06510849e939d12c8e5aac54`  
-**Backend PR:** Not created yet
+**Backend branch base:** `fix/backend-pino-logger-injection` at `9347dc1e555672fd06510849e939d12c8e5aac54`; **backend feature-code head:** `d4fbb9408b4cfa61e0b2d35c90b0036d5920a0db`  
+**Backend PR:** [#14 — feat(profile): add secure self-service profile API](https://github.com/siddubond007/women-safety-app/pull/14), open, draft, unmerged; base `fix/backend-pino-logger-injection` at `9347dc1e555672fd06510849e939d12c8e5aac54`; head `feat/user-profile-account-management-backend` at `d4fbb9408b4cfa61e0b2d35c90b0036d5920a0db`
 
 ## Scope and operating rules
 
@@ -87,36 +87,110 @@ Proposed endpoint contract:
 - Record profile-change audit metadata without storing profile values in audit logs.
 - Return safe errors for missing profiles and invalid input. Reject unknown DTO fields using existing global validation conventions.
 
-## Changes made so far
+## Current implementation state — Phase A initial increment
 
-- Created `feat/user-profile-account-management` at `674afe4d8ed178d2b09a15af300184bb09739270`.
-- Created `feat/user-profile-account-management-backend` at `9347dc1e555672fd06510849e939d12c8e5aac54`.
-- This checkpoint file is the first intended commit on the primary Module 2 branch. No feature code, migrations or PRs have been created yet.
+### Mobile PR #13
+
+Committed to `feat/user-profile-account-management`:
+- `app/lib/features/profile/profile_service.dart`: typed profile model and authenticated GET/PATCH adapter; never sends an owner/account ID.
+- `app/lib/features/profile/sakhi_my_profile_screen.dart`: My Profile / edit screen with display name, optional email, bio, and city/general area, loading/retry/save/error states, and explicit not-yet-implemented photo/privacy messaging.
+- `app/lib/features/auth/backend_api_client.dart`: authenticated PATCH method.
+- `app/lib/features/auth/sakhi_auth_status_screen.dart`: link to My Profile only for development-backend sessions in eligible account states; existing logout/session logic unchanged.
+- `app/test/profile_service_test.dart`: API adapter response/normalization tests.
+- `app/test/profile_screen_test.dart`: profile load/save and retry tests.
+- PR #13 is open, draft and unmerged, and currently reports GitHub mergeable=true. This is GitHub metadata, not a test result.
+
+Relevant mobile commits before checkpoint refresh:
+- Initial checkpoint: `89ab8f05b4b569bb0f0f2d330be42e38355c25b8`.
+- Initial UI/API client increment: `e19d951853a615970058c2d3ba2f2c4abf617c87`.
+- Existing design-token correction and load-retry test fix: `d4fd6d584b2bd581ce31733c66082b55f062c966`.
+
+### Backend PR #14
+
+Committed to `feat/user-profile-account-management-backend`:
+- `backend/src/profile/profile.dto.ts`, `profile.controller.ts`, `profile.service.ts`, and `profile.module.ts`.
+- `backend/src/app.module.ts` registers `ProfileModule`.
+- `backend/prisma/schema.prisma` adds nullable `bio` (VARCHAR(500)) and `city` (VARCHAR(100)) to the existing `MemberProfile`.
+- `backend/prisma/migrations/20261016130000_member_profile_bio_city/migration.sql` contains a forward-only, database-name-guarded additive migration. It has **not** been applied anywhere.
+- `backend/test/profile.spec.ts` covers self-profile GET/PATCH, owner ID injection rejection, input validation, optional clearing, response minimization, and audit field redaction.
+- Backend feature commit before checkpoint refresh: `d4fbb9408b4cfa61e0b2d35c90b0036d5920a0db`.
+- PR #14 is open, draft and unmerged, and currently reports GitHub mergeable=true. This is GitHub metadata, not a test result.
+
+### Phase A contract
+
+- `GET /api/v1/profile/me`: derive owner from the validated bearer session and return only display name, email, bio, city, and update timestamp.
+- `PATCH /api/v1/profile/me`: allow only display name, email, bio, and city; derive ownership from session, reject unknown fields, normalize cleared optional values to null, and audit changed field names only.
+- Date of birth, account ID, precise location, eligibility status, and profile photo data are intentionally excluded from these profile endpoints.
+- Client profile editing is shown only for development-backend authenticated accounts. Production authentication remains unconfigured as documented by the existing project.
+- The client and backend PRs are based on different unmerged upstream lineages. Keep them separate; do not merge or rebase onto the eligibility branch now.
+
+## Exact verification status
+
+- **Module 2 Flutter analyze/test/build:** not run in this session.
+- **Module 2 backend typecheck/build/test/format checks:** not run in this session.
+- **Module 2 migration:** committed only; not applied to `sakhi_dev`, `sakhi_test`, or any other database.
+- **Module 2 physical-device tests:** not run.
+- Upstream-reported PR #11 Flutter results remain historical evidence only: analyze had no issues, 43 Flutter tests passed with concurrency 1, and session restore/logout was physically checked on device I2214. Do not attribute these results to Module 2.
+
+## Known limitations / issues to test
+
+1. No profile-photo upload/removal yet.
+2. No interests/community preferences, privacy settings, notification preferences, block/report, relationships/posts, account deactivation/deletion, or active-session listing in Phase A.
+3. Backend migration requires deliberate application to an isolated/test database; no database was created or changed by this workflow.
+4. The linked Google Docs URL could not be opened through Drive because the Google Drive integration is disabled by administrator policy. The SRS and eligibility handoff were recovered from the persistent ChatGPT Library; request the doc contents if it contains additional requirements not covered there.
+5. The exact branch HEAD will advance when this checkpoint is committed. Always refresh GitHub and verify the current PR head SHA on resume rather than assuming the pre-refresh SHA listed above is still tip.
 
 ## Exact next tasks
 
-1. Commit this checkpoint on `feat/user-profile-account-management`.
-2. Create a draft mobile PR targeting `feat/auth-session-resume-logout`; document the dependency on PR #11.
-3. Implement Phase A mobile screens and a typed profile service on the primary branch, adding PATCH support to `BackendApiClient`; add widget/service tests.
-4. Implement `ProfileModule`, DTO/controller/service, additive schema fields/migration, and backend tests on `feat/user-profile-account-management-backend`; target PR #10's branch and document dependency on PR #10/#8.
-5. Update this checkpoint with exact resulting PR numbers/URLs, final head SHAs, file list, contracts, migration status and only the tests actually supported by evidence.
-6. Provide complete PowerShell commands for the isolated mobile and backend worktrees. The user will run all tests locally and return output.
-7. Do not apply migrations or merge any PR without explicit approval.
+1. Review/fix any issues found by the maintainer's local validation.
+2. Fetch and test mobile PR #13 in the isolated worktree; test only after backend API is present or expect backend connection errors.
+3. Create/use a separate backend worktree for PR #14; run formatting, Prisma validation/generation, typecheck/build, and tests. Do not run the migration yet.
+4. Send the full output back to ChatGPT; implement the smallest safe fixes on the corresponding Module 2 branch only.
+5. Once API and mobile tests pass, consider local integration against a separately approved isolated database (propose setup first; do not create/use it without approval).
+6. Extend Phase A to include a route/status screen widget test and explicit service unauthorized-error UI testing if the first run reveals gaps.
+7. Begin photo upload/preferences only after Phase A passes and the upload/storage infrastructure has been audited.
 
-## Local recovery notes
+## Exact local validation commands
 
-- Main repository: `D:\Development\Projects\women_safety_app`
-- Existing auth worktree: `D:\Development\Projects\women_safety_app-session-resume`
-- Preferred new mobile worktree: `D:\Development\Projects\women_safety_app-profile-module`
-- Backend worktree noted in handoff: `D:\Development\Projects\women_safety_app-backend-clean\backend`
-- Confirm local `git worktree list` before creating a new worktree; never reset/reuse an existing dirty worktree. Local Git, Flutter, backend, migration and physical-device tests are user-run only.
+Before creating any worktree, run `git worktree list` and inspect local branch state. Do not reuse/reset a worktree. User-only commands; no local commands have been executed by this conversation.
 
-## Definition of done for the first increment
+Mobile worktree path:
+`D:\Development\Projects\women_safety_app-profile-module`
 
-- Profile can be read/updated only by an authenticated session owner.
-- Unknown ownership identifiers cannot be used to modify another account.
-- Name, biography, city and optional email validation/clearing behavior is tested.
-- The server is authoritative; fields are persisted in the existing `MemberProfile` row.
-- Precise device location remains unused and private by default.
-- Existing auth/onboarding/session tests remain unchanged and pass when the user runs them.
-- Mobile and backend PRs remain open/unmerged, and this checkpoint is updated with the exact current heads.
+From an existing repository checkout, after confirming this path is not already used:
+```powershell
+Set-Location 'D:\Development\Projects\women_safety_app'
+git worktree list
+git fetch origin feat/user-profile-account-management
+git worktree add -b feat/user-profile-account-management 'D:\Development\Projects\women_safety_app-profile-module' origin/feat/user-profile-account-management
+Set-Location 'D:\Development\Projects\women_safety_app-profile-module\app'
+& 'D:\Development\flutter\bin\flutter.bat' pub get
+& 'D:\Development\flutter\bin\flutter.bat' analyze
+& 'D:\Development\flutter\bin\flutter.bat' test --concurrency=1
+```
+
+Backend companion worktree path (keep separate from the existing backend-clean worktree):
+`D:\Development\Projects\women_safety_app-profile-backend-module`
+
+After checking `git worktree list` and confirming the path is unused:
+```powershell
+Set-Location 'D:\Development\Projects\women_safety_app'
+git fetch origin feat/user-profile-account-management-backend
+git worktree add -b feat/user-profile-account-management-backend 'D:\Development\Projects\women_safety_app-profile-backend-module' origin/feat/user-profile-account-management-backend
+Set-Location 'D:\Development\Projects\women_safety_app-profile-backend-module\backend'
+npm ci
+npm run format:check
+npm run prisma:validate
+npm run typecheck
+npm run build
+npm test
+```
+
+Do not run `npm run db:migrate:deploy` or any migration command yet. These commands have not been executed by this chat. If a worktree/local branch already exists, stop and report the output instead of overwriting it.
+
+## Recovery guardrails
+
+- Do not modify PR #7, PR #12, `feat/eligibility-verification`, `feat/eligibility-domain-status`, or the eligibility checkpoint.
+- Do not merge PRs #13/#14 or any upstream PR without explicit owner approval.
+- Do not apply the migration to `sakhi_dev`, `sakhi_test`, or `marketplacedb`.
+- No terminal/remote desktop interaction from ChatGPT; the user runs the PowerShell commands above.
