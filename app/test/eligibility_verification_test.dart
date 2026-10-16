@@ -443,6 +443,9 @@ const _approvedTestConfiguration = EligibilityConfiguration(
 class _FakeEligibilityService implements EligibilityVerificationService {
   _FakeEligibilityService({required this.configuration, required this.result});
 
+  @override
+  bool get isDevelopmentBackend => false;
+
   final EligibilityConfiguration configuration;
   final EligibilityStatusResult result;
   int startCalls = 0;
