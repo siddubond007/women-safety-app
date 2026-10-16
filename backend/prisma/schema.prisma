@@ -69,6 +69,8 @@ model MemberProfile {
   displayName     String        @map("display_name") @db.VarChar(100)
   dateOfBirth     DateTime      @map("date_of_birth") @db.Date
   email           String?       @db.VarChar(254)
+  bio             String?       @db.VarChar(500)
+  city            String?       @db.VarChar(100)
   profilePhotoRef String?       @map("profile_photo_ref") @db.VarChar(512)
   createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
