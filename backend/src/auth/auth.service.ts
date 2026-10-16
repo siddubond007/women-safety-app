@@ -124,6 +124,9 @@ export class AuthenticationService {
       },
     });
 
+    // The runtime role may insert audit records but must not read the
+    // audit log. Returning only the generated ID keeps its SELECT privilege
+    // limited to the ID column.
     await tx.auditEvent.create({
       data: {
         actorType: "SYSTEM",
@@ -137,6 +140,7 @@ export class AuthenticationService {
           deliveryMode: "development_echo",
         },
       },
+      select: { id: true },
     });
 
     // This code is deliberately echoed only by the explicit local dev/test
