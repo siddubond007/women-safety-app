@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../../core/assets/app_assets.dart';
 import '../../core/theme/sakhi_design_system.dart';
+import '../eligibility/backend_eligibility_verification_service.dart';
+import '../eligibility/eligibility_intro_screen.dart';
+import '../eligibility/eligibility_verification_service.dart';
 import 'auth_policy.dart';
 import 'auth_service.dart';
+import 'backend_auth_service.dart';
 import 'sakhi_auth_status_screen.dart';
 import 'widgets/auth_widgets.dart';
 
@@ -91,6 +95,22 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
     }
   }
 
+  void _openEligibilityPreview() {
+    final authService = widget.authService;
+    final EligibilityVerificationService eligibilityService =
+        authService is BackendAuthService
+        ? BackendEligibilityVerificationService(
+            apiClient: authService.apiClient,
+          )
+        : const DemoEligibilityVerificationService();
+
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => EligibilityIntroScreen(service: eligibilityService),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final dob = widget.profile.dateOfBirth;
@@ -101,6 +121,7 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
     return SakhiAuthScaffold(
       botanicalAsset: AppAssets.authBotanicalConsent,
       authIsDemo: widget.authService.isDemo,
+      authIsDevelopmentBackend: widget.authService.isDevelopmentBackend,
       botanicalHeight: 66,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -149,6 +170,16 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
             ),
           ),
           const SizedBox(height: SakhiSpacing.md),
+          if (_agePolicyMissing)
+            const SakhiAuthStatusMessage(
+              message: 'Production registration is blocked because the approved minimum age is not configured. The temporary age-13 rule is available only in debug preview builds.',
+            )
+          else if (SakhiAuthPolicy.usesProvisionalPreviewPolicy)
+            const SakhiAuthStatusMessage(
+              message: 'DEVELOPMENT PREVIEW — minimum age 13 is a temporary testing rule, not an approved production policy. Legal documents below are drafts.',
+            ),
+          if (_agePolicyMissing || SakhiAuthPolicy.usesProvisionalPreviewPolicy)
+            const SizedBox(height: SakhiSpacing.sm),
           Material(
             color: Colors.transparent,
             child: CheckboxListTile(
@@ -161,7 +192,7 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
                   ? null
                   : (value) => setState(() => _termsAccepted = value ?? false),
               title: const Text(
-                'I agree to the Terms and Conditions and Privacy Policy.',
+                'I acknowledge the draft Terms and Conditions and Privacy Policy for this preview.',
                 style: TextStyle(
                   color: SakhiColors.plum,
                   fontSize: 13,
@@ -193,6 +224,20 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
                   fontSize: 12.5,
                   height: 1.35,
                 ),
+              ),
+            ),
+          ),
+          const SizedBox(height: SakhiSpacing.xs),
+          Center(
+            child: TextButton.icon(
+              key: const Key('eligibility-preview-entry-button'),
+              onPressed: _isCreatingAccount ? null : _openEligibilityPreview,
+              icon: const Icon(Icons.verified_user_outlined, size: 18),
+              label: Text(
+                widget.authService.isDevelopmentBackend
+                    ? 'Check eligibility status (provider not configured)'
+                    : 'Preview eligibility verification (demo only)',
+                textAlign: TextAlign.center,
               ),
             ),
           ),

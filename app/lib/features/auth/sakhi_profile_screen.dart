@@ -128,6 +128,7 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
     return SakhiAuthScaffold(
       botanicalAsset: AppAssets.authBotanicalProfile,
       authIsDemo: widget.authService.isDemo,
+      authIsDevelopmentBackend: widget.authService.isDevelopmentBackend,
       botanicalHeight: 76,
       child: Form(
         key: _formKey,
@@ -242,8 +243,19 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
             if (SakhiAuthPolicy.minimumRegistrationAgeYears == null) ...[
               const SizedBox(height: SakhiSpacing.xs),
               const Text(
-                'Age eligibility is pending the approved business/legal minimum-age policy. Account creation will remain unavailable until it is configured.',
+                'Age eligibility is pending the approved business/legal minimum-age policy. Production account creation remains unavailable until it is configured.',
                 key: Key('auth-age-policy-unconfigured'),
+                style: TextStyle(
+                  color: SakhiColors.mutedPlum,
+                  fontSize: 11.5,
+                  height: 1.4,
+                ),
+              ),
+            ] else if (SakhiAuthPolicy.usesProvisionalPreviewPolicy) ...[
+              const SizedBox(height: SakhiSpacing.xs),
+              const Text(
+                'Temporary preview rule: minimum age 13. This is for development testing only and is not approved for production.',
+                key: Key('auth-age-policy-provisional'),
                 style: TextStyle(
                   color: SakhiColors.mutedPlum,
                   fontSize: 11.5,

@@ -1,5 +1,3 @@
-import 'package:flutter/foundation.dart';
-
 enum AuthPurpose { login, registration }
 
 enum AuthAccountState {
@@ -30,6 +28,7 @@ class AuthOtpSession {
     required this.expiresAt,
     required this.resendAvailableAt,
     required this.isDemo,
+    this.developmentCode,
   });
 
   final String id;
@@ -39,6 +38,10 @@ class AuthOtpSession {
   final DateTime expiresAt;
   final DateTime resendAvailableAt;
   final bool isDemo;
+
+  /// Present only when the local dev/test backend deliberately echoes its
+  /// generated test code. Never present in a production provider response.
+  final String? developmentCode;
 
   String get maskedPhoneNumber {
     final digits = phoneNumber.replaceAll(RegExp(r'\D'), '');
@@ -105,6 +108,17 @@ class MemberConsentRecord {
 abstract interface class AuthService {
   bool get isDemo;
 
+  /// True when the app is connected to the local backend using development
+  /// authentication. This differs from the no-persistence demo simulator.
+  bool get isDevelopmentBackend;
+
+  /// Restores a persisted session from the configured service. Returns null
+  /// when no valid session exists; implementations must not infer access.
+  Future<AuthAccountState?> restoreSession();
+
+  /// Revokes the current session where supported and clears local credentials.
+  Future<void> logout();
+
   Future<AuthOtpSession> requestOtp({
     required String countryCode,
     required String phoneNumber,
@@ -132,6 +146,15 @@ class DemoAuthService implements AuthService {
 
   @override
   bool get isDemo => true;
+
+  @override
+  bool get isDevelopmentBackend => false;
+
+  @override
+  Future<AuthAccountState?> restoreSession() async => null;
+
+  @override
+  Future<void> logout() async {}
 
   AuthOtpSession _newSession({
     required String countryCode,
@@ -216,6 +239,15 @@ class UnconfiguredAuthService implements AuthService {
   bool get isDemo => false;
 
   @override
+  bool get isDevelopmentBackend => false;
+
+  @override
+  Future<AuthAccountState?> restoreSession() async => null;
+
+  @override
+  Future<void> logout() async {}
+
+  @override
   Future<AuthOtpSession> requestOtp({
     required String countryCode,
     required String phoneNumber,
@@ -257,6 +289,3 @@ class UnconfiguredAuthService implements AuthService {
     );
   }
 }
-
-AuthService authServiceForCurrentBuild() =>
-    kDebugMode ? const DemoAuthService() : const UnconfiguredAuthService();

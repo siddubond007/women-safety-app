@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:women_safety_app/features/auth/auth_policy.dart';
 import 'package:women_safety_app/features/auth/auth_service.dart';
+import 'package:women_safety_app/features/auth/sakhi_auth_status_screen.dart';
 import 'package:women_safety_app/features/auth/sakhi_consent_screen.dart';
 import 'package:women_safety_app/features/auth/sakhi_login_screen.dart';
 import 'package:women_safety_app/features/auth/sakhi_otp_screen.dart';
@@ -280,9 +281,10 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.byKey(const Key('auth-age-policy-unconfigured')),
+        find.byKey(const Key('auth-age-policy-provisional')),
         findsOneWidget,
       );
+      expect(find.textContaining('minimum age 13'), findsOneWidget);
       expect(find.text('Welcome to Sakhi'), findsNothing);
       expect(tester.takeException(), isNull);
     });
@@ -347,6 +349,153 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Welcome to Sakhi'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('authenticated eligibility entry', () {
+    testWidgets('post-auth status opens the safe eligibility preview flow', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: SakhiAuthStatusScreen(
+            authService: DemoAuthService(),
+            accountState: AuthAccountState.existingAccount,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final entry = find.byKey(const Key('auth-status-eligibility-button'));
+      expect(entry, findsOneWidget);
+      await tester.ensureVisible(entry);
+      await tester.tap(entry);
+      await tester.pumpAndSettle();
+
+      expect(find.text('ELIGIBILITY VERIFICATION'), findsOneWidget);
+      await tester.ensureVisible(
+        find.byKey(const Key('eligibility-review-details-button')),
+      );
+      await tester.tap(
+        find.byKey(const Key('eligibility-review-details-button')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Verification information'), findsOneWidget);
+
+      final continueButton = find.byKey(
+        const Key('eligibility-information-continue-button'),
+      );
+      await tester.ensureVisible(continueButton);
+      await tester.tap(continueButton);
+      await tester.pumpAndSettle();
+      expect(find.text('Eligibility consent'), findsOneWidget);
+
+      final startButton = tester.widget<SakhiAuthSubmitButton>(
+        find.byKey(const Key('eligibility-start-verification-button')),
+      );
+      expect(startButton.onPressed, isNull);
+
+      final consentCheckbox = find.byKey(
+        const Key('eligibility-consent-checkbox'),
+      );
+      await tester.ensureVisible(consentCheckbox);
+      await tester.tap(consentCheckbox);
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(
+        find.byKey(const Key('eligibility-preview-status-button')),
+      );
+      await tester.tap(
+        find.byKey(const Key('eligibility-preview-status-button')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Verification is not available yet'), findsOneWidget);
+      expect(
+        find.textContaining('no real identity verification occurred'),
+        findsOneWidget,
+      );
+      expect(find.text('Eligibility verified'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+      'eligibility entry is hidden before profile completion and for restricted accounts',
+      (tester) async {
+        for (final state in [
+          AuthAccountState.newAccount,
+          AuthAccountState.restricted,
+        ]) {
+          await tester.pumpWidget(
+            MaterialApp(
+              home: SakhiAuthStatusScreen(
+                authService: const DemoAuthService(),
+                accountState: state,
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          expect(
+            find.byKey(const Key('auth-status-eligibility-button')),
+            findsNothing,
+          );
+          expect(tester.takeException(), isNull);
+        }
+      },
+    );
+  });
+
+  group('session persistence and logout', () {
+    testWidgets('restores a valid saved session before onboarding', (
+      tester,
+    ) async {
+      final service = _FakeAuthService()
+        ..developmentBackend = true
+        ..restoredState = AuthAccountState.pendingVerification;
+
+      await tester.pumpWidget(
+        MaterialApp(home: SakhiStartupRouter(authService: service)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(service.restoreCalls, 1);
+      expect(find.text('One more step'), findsOneWidget);
+      expect(
+        find.textContaining('Your saved development session was checked'),
+        findsOneWidget,
+      );
+      expect(find.text('Welcome to Sakhi'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('sign out calls the service and returns to mobile login', (
+      tester,
+    ) async {
+      final service = _FakeAuthService()..developmentBackend = true;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SakhiAuthStatusScreen(
+            authService: service,
+            accountState: AuthAccountState.pendingVerification,
+            isRestoredSession: true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final signOutButton = find.byKey(
+        const Key('auth-status-sign-out-button'),
+      );
+      await tester.ensureVisible(signOutButton);
+      await tester.pumpAndSettle();
+      await tester.tap(signOutButton);
+      await tester.pumpAndSettle();
+
+      expect(service.logoutCalls, 1);
+      expect(find.text('Welcome back'), findsOneWidget);
+      expect(find.byKey(const Key('auth-mobile-number-field')), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   });
@@ -462,6 +611,9 @@ void main() {
         );
         expect(find.textContaining('minimum registration age'), findsOneWidget);
 
+        await tester.ensureVisible(
+          find.byKey(const Key('auth-required-consent-checkbox')),
+        );
         await tester.tap(
           find.byKey(const Key('auth-required-consent-checkbox')),
         );
@@ -548,8 +700,26 @@ void main() {
       await tester.tap(find.byKey(const Key('auth-privacy-link')));
       await tester.pumpAndSettle();
       expect(find.text('Privacy Policy'), findsOneWidget);
+      expect(find.text('DRAFT — NOT APPROVED FOR PRODUCTION'), findsOneWidget);
       expect(
-        find.textContaining('approved legal copy has not been supplied'),
+        find.textContaining('temporary privacy-policy placeholder'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('not an approved production policy'),
+        findsOneWidget,
+      );
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('auth-terms-link')));
+      await tester.tap(find.byKey(const Key('auth-terms-link')));
+      await tester.pumpAndSettle();
+      expect(find.text('Terms and Conditions'), findsOneWidget);
+      expect(find.text('DRAFT — NOT APPROVED FOR PRODUCTION'), findsOneWidget);
+      expect(find.text('2. Eligibility and age'), findsOneWidget);
+      expect(
+        find.textContaining('provisional minimum age of 13'),
         findsOneWidget,
       );
       expect(tester.takeException(), isNull);
@@ -583,8 +753,18 @@ void main() {
     });
   });
 
-  test('minimum age remains unconfigured rather than assuming a threshold', () {
-    expect(SakhiAuthPolicy.minimumRegistrationAgeYears, isNull);
+  test('debug preview uses provisional age 13', () {
+    expect(SakhiAuthPolicy.provisionalPreviewMinimumAgeYears, 13);
+    expect(SakhiAuthPolicy.minimumRegistrationAgeYears, 13);
+    expect(SakhiAuthPolicy.usesProvisionalPreviewPolicy, isTrue);
+  });
+
+  test('minimum-age calculation enforces birthday boundary at 13', () {
+    final today = DateTime(2026, 10, 15);
+    expect(isAtLeastMinimumAge(DateTime(2013, 10, 15), today, 13), isTrue);
+    expect(isAtLeastMinimumAge(DateTime(2013, 10, 16), today, 13), isFalse);
+    expect(isAtLeastMinimumAge(DateTime(2014, 10, 15), today, 13), isFalse);
+    expect(isAtLeastMinimumAge(DateTime(2000, 1, 1), today, 13), isTrue);
   });
 
   testWidgets('onboarding Get started enters mobile-first registration', (
@@ -625,6 +805,10 @@ AuthOtpSession _session({
 
 class _FakeAuthService implements AuthService {
   bool demo = false;
+  bool developmentBackend = false;
+  AuthAccountState? restoredState;
+  int restoreCalls = 0;
+  int logoutCalls = 0;
   int requestCalls = 0;
   int resendCalls = 0;
   int verifyCalls = 0;
@@ -637,6 +821,21 @@ class _FakeAuthService implements AuthService {
 
   @override
   bool get isDemo => demo;
+
+  @override
+  bool get isDevelopmentBackend => developmentBackend;
+
+  @override
+  Future<AuthAccountState?> restoreSession() async {
+    restoreCalls++;
+    return restoredState;
+  }
+
+  @override
+  Future<void> logout() async {
+    logoutCalls++;
+    restoredState = null;
+  }
 
   @override
   Future<AuthOtpSession> requestOtp({
