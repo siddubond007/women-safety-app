@@ -14,8 +14,17 @@ The eligibility feature is isolated under `features/eligibility/`:
   unavailability and does not create sessions or persist consent.
 - Screens show information, preview consent interaction and separate result
   states. A preview status never grants protected access.
-- `SakhiConsentScreen` offers a clearly labelled demo-only entry point.
-  Existing registration, mobile OTP and account-creation logic are unchanged.
+- `SakhiAuthStatusScreen` exposes a `Review eligibility verification` entry
+  only for `existingAccount` and `pendingVerification`, after authentication
+  has completed. It is not part of onboarding, and is hidden before profile
+  completion and for restricted accounts.
+- Development-backend sessions use `BackendEligibilityVerificationService`
+  with the backend API client's existing secure token. Demo builds use
+  `DemoEligibilityVerificationService`; neither path fabricates a successful
+  eligibility result or grants protected access.
+- Existing registration, mobile OTP, account creation and logout behavior remain
+  unchanged. The provider-unconfigured response remains a normal fail-closed
+  preview outcome.
 
 This contract defines candidates, not implemented HTTP endpoints.
 
@@ -101,8 +110,23 @@ eligibility status. Its `DEMO RESULT — no real identity verification occurred.
 notice is mandatory on preview outcomes. App restart does not restore a real
 eligibility state because none exists in this stage.
 
+## Authenticated entry and device-testing checkpoint
+
+The post-authentication entry is implemented on the stacked branch
+`feat/eligibility-mobile-entry`. Automated widget coverage verifies that a
+`pendingVerification` account can open the eligibility introduction, and that
+the entry is hidden for `newAccount` and `restricted` states.
+
+**Local Flutter analysis, complete test suite and physical-device visual
+verification remain pending.** The next verification run must exercise the app
+on the connected Android device, review intro/information/consent/status layout
+and scrolling, confirm Start verification stays disabled while configuration is
+unavailable, and capture any overflow, clipped controls, broken assets, or
+navigation regressions before this increment is considered verified.
+
 ## Later work requires separate approval
 
-Real provider integration, backend persistence, database migrations, production
-eligibility decisions, Super Admin review tools and sensitive-evidence handling
-are out of scope for this UI stage and require an approved implementation plan.
+Real provider integration, database-backed production eligibility decisions,
+Super Admin review tools and sensitive-evidence handling are out of scope until
+an approved provider/method, legal policy and review process are established.
+The current UI and backend adapter must continue to fail closed meanwhile.
