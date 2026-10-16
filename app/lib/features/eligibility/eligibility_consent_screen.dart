@@ -184,7 +184,9 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
           const SizedBox(height: SakhiSpacing.md),
           Material(
             color: Colors.transparent,
-            child: Container(
+            borderRadius: BorderRadius.circular(18),
+            clipBehavior: Clip.antiAlias,
+            child: Ink(
               decoration: BoxDecoration(
                 color: SakhiColors.ivory,
                 borderRadius: BorderRadius.circular(18),
@@ -195,35 +197,37 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
                   width: _consentSelected ? 1.4 : 1,
                 ),
               ),
-              padding: const EdgeInsets.symmetric(
-                horizontal: SakhiSpacing.xs,
-                vertical: SakhiSpacing.xs,
-              ),
-              child: CheckboxListTile(
-                key: const Key('eligibility-consent-checkbox'),
-                contentPadding: const EdgeInsets.symmetric(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
                   horizontal: SakhiSpacing.xs,
+                  vertical: SakhiSpacing.xs,
                 ),
-                controlAffinity: ListTileControlAffinity.leading,
-                value: _consentSelected,
-                activeColor: SakhiColors.purple,
-                onChanged: _isWorking
-                    ? null
-                    : (value) => setState(() {
-                        _consentSelected = value ?? false;
-                        _consentSelectedAt = _consentSelected
-                            ? DateTime.now()
-                            : null;
-                      }),
-                title: Text(
-                  canStart
-                      ? 'I have read the approved verification details above and explicitly consent to this eligibility-verification process.'
-                      : 'I select this control for the demo preview and understand that no real verification will occur.',
-                  style: const TextStyle(
-                    color: SakhiColors.plum,
-                    fontSize: 13,
-                    height: 1.4,
-                    fontWeight: FontWeight.w600,
+                child: CheckboxListTile(
+                  key: const Key('eligibility-consent-checkbox'),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: SakhiSpacing.xs,
+                  ),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  value: _consentSelected,
+                  activeColor: SakhiColors.purple,
+                  onChanged: _isWorking
+                      ? null
+                      : (value) => setState(() {
+                          _consentSelected = value ?? false;
+                          _consentSelectedAt = _consentSelected
+                              ? DateTime.now()
+                              : null;
+                        }),
+                  title: Text(
+                    canStart
+                        ? 'I have read the approved verification details above and explicitly consent to this eligibility-verification process.'
+                        : 'I select this control for the demo preview and understand that no real verification will occur.',
+                    style: const TextStyle(
+                      color: SakhiColors.plum,
+                      fontSize: 13,
+                      height: 1.4,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),
