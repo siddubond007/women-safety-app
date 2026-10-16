@@ -34,6 +34,7 @@ export const ELIGIBILITY_STATUS_API_VALUE: Record<EligibilityVerificationStatus,
 const ALLOWED_TRANSITIONS = {
   NOT_VERIFIED: ["VERIFICATION_IN_PROGRESS"],
   VERIFICATION_IN_PROGRESS: [
+    "NOT_VERIFIED",
     "VERIFIED",
     "PENDING_MANUAL_REVIEW",
     "VERIFICATION_FAILED",
@@ -64,6 +65,12 @@ export function canTransitionEligibilityStatus(
 
   if (from === "PENDING_MANUAL_REVIEW") {
     return authority === "REVIEWER";
+  }
+
+  // A provider startup/network failure is not an adverse eligibility decision.
+  // Roll back to NOT_VERIFIED only when the session never reached the provider.
+  if (to === "NOT_VERIFIED") {
+    return from === "VERIFICATION_IN_PROGRESS" && authority === "SYSTEM";
   }
 
   if (to === "VERIFIED") {
