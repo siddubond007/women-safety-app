@@ -82,9 +82,13 @@ class EligibilityInformationScreen extends StatelessWidget {
                 const SakhiAuthStatusMessage(
                   message: 'The approved verification configuration could not be loaded. Treat verification as unavailable; no session will be created.',
                 )
-              else if (!config.canStartVerification)
+              else if (!config.hasApprovedConfiguration)
                 const SakhiAuthStatusMessage(
                   message: 'DEVELOPMENT PREVIEW — the provider, approved method, policy and complete disclosures are not configured. No real verification can start.',
+                )
+              else if (!config.mobileHandoffSupported)
+                const SakhiAuthStatusMessage(
+                  message: 'The approved configuration was received, but this mobile build does not yet support the secure provider handoff and return flow. No verification session will be started.',
                 ),
               const SizedBox(height: SakhiSpacing.md),
               _DisclosureRow(
