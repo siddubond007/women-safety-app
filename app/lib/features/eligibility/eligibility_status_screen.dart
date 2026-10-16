@@ -23,35 +23,28 @@ class EligibilityStatusScreen extends StatelessWidget {
     EligibilityStatus.temporarilyRestricted => 'Access temporarily restricted',
     EligibilityStatus.reverificationRequired => 'Further verification required',
     EligibilityStatus.cancelled => 'Verification cancelled',
-    EligibilityStatus.providerUnavailable => 'Verification is not available yet',
+    EligibilityStatus.providerUnavailable =>
+      'Verification is not available yet',
     EligibilityStatus.consentNotGiven => 'Consent was not given',
   };
 
   String get _explanation => switch (result.status) {
-    EligibilityStatus.notVerified =>
-      'No trusted provider result or authorized review has established eligibility yet.',
+    EligibilityStatus.notVerified => 'No trusted provider result or authorized review has established eligibility yet.',
     EligibilityStatus.notStarted =>
       'No eligibility-verification attempt has started.',
     EligibilityStatus.consentRequired =>
       'The required informed-consent step has not been completed.',
-    EligibilityStatus.inProgress =>
-      'A configured service reports that verification is underway. This is not a final decision.',
-    EligibilityStatus.pendingManualReview =>
-      'The result is awaiting review. It is not a rejection or a verified decision.',
+    EligibilityStatus.inProgress => 'A configured service reports that verification is underway. This is not a final decision.',
+    EligibilityStatus.pendingManualReview => 'The result is awaiting review. It is not a rejection or a verified decision.',
     EligibilityStatus.verified =>
       result.isDemo
           ? 'This is only a simulated status. It does not verify identity or eligibility and does not grant protected access.'
           : 'This status must be confirmed by the trusted backend. Protected APIs must still enforce access server-side.',
-    EligibilityStatus.verificationFailed =>
-      'A technical or provider problem prevented completion. A failure or timeout does not establish ineligibility.',
-    EligibilityStatus.temporarilyRestricted =>
-      'A trusted backend has temporarily restricted access. The reason and any resolution steps must follow the approved policy.',
-    EligibilityStatus.reverificationRequired =>
-      'Further verification may be required only under an approved policy and confirmed backend status.',
-    EligibilityStatus.cancelled =>
-      'The flow was cancelled before completion. This does not establish ineligibility.',
-    EligibilityStatus.providerUnavailable =>
-      'The provider or its approved configuration is unavailable. No eligibility conclusion can be drawn.',
+    EligibilityStatus.verificationFailed => 'A technical or provider problem prevented completion. A failure or timeout does not establish ineligibility.',
+    EligibilityStatus.temporarilyRestricted => 'A trusted backend has temporarily restricted access. The reason and any resolution steps must follow the approved policy.',
+    EligibilityStatus.reverificationRequired => 'Further verification may be required only under an approved policy and confirmed backend status.',
+    EligibilityStatus.cancelled => 'The flow was cancelled before completion. This does not establish ineligibility.',
+    EligibilityStatus.providerUnavailable => 'The provider or its approved configuration is unavailable. No eligibility conclusion can be drawn.',
     EligibilityStatus.consentNotGiven =>
       'No verification session should be created without explicit consent.',
   };
@@ -139,9 +132,7 @@ class EligibilityStatusScreen extends StatelessWidget {
               decoration: BoxDecoration(
                 color: statusColor.withValues(alpha: 0.11),
                 shape: BoxShape.circle,
-                border: Border.all(
-                  color: statusColor.withValues(alpha: 0.18),
-                ),
+                border: Border.all(color: statusColor.withValues(alpha: 0.18)),
               ),
               child: Icon(_icon, size: 30, color: statusColor),
             ),
