@@ -122,7 +122,7 @@ class EligibilityStatusScreen extends StatelessWidget {
           ),
           const SizedBox(height: SakhiSpacing.md),
           const EligibilityVectorHero(
-            icon: Icons.shield_moon_outlined,
+            icon: Icons.verified_user_outlined,
             caption: 'A status is only as trustworthy as its source.',
           ),
           const SizedBox(height: SakhiSpacing.md),
