@@ -106,26 +106,25 @@ export class EligibilityService {
   async status(authorization?: string) {
     const session = await this.auth.authenticateAuthorization(authorization);
     const provider = this.providerConfiguration();
+    const readiness = this.configuration();
     const eligibilityStatus =
       session.account.eligibilityStatus as EligibilityVerificationStatus;
 
     return {
       // Keep the existing providerUnavailable contract until an approved
       // adapter is actually configured and the mobile client supports it.
-      status:
-        provider.providerConfigured && provider.policyApproved
-          ? ("providerConfigured" as const)
-          : ("providerUnavailable" as const),
+      status: readiness.canStartVerification
+        ? ("providerConfigured" as const)
+        : ("providerUnavailable" as const),
       eligibilityStatus: ELIGIBILITY_STATUS_API_VALUE[eligibilityStatus],
       providerConfigured: provider.providerConfigured,
       policyApproved: provider.policyApproved,
-      canStartVerification: this.configuration().canStartVerification,
+      canStartVerification: readiness.canStartVerification,
       supportRequestsAvailable: true,
-      message:
-        provider.providerConfigured && provider.policyApproved
-          ? "An approved provider is configured. Eligibility is still determined only by the trusted backend result."
-          : "No approved eligibility provider or policy is configured. No verification session exists.",
-      isDemo: !(provider.providerConfigured && provider.policyApproved),
+      message: readiness.canStartVerification
+        ? "An approved provider is configured. Eligibility is still determined only by the trusted backend result."
+        : "No approved eligibility provider or policy is configured. No verification session exists.",
+      isDemo: !readiness.canStartVerification,
     };
   }
 
@@ -338,14 +337,15 @@ export class EligibilityService {
       });
     }
 
+    const readyProviderSession = providerSession;
     try {
       await this.prisma.$transaction(async (tx) => {
         await tx.eligibilityVerificationSession.update({
           where: { id: localSessionId },
           data: {
-            providerReference: providerSession.providerReference,
+            providerReference: readyProviderSession.providerReference,
             status: "REDIRECT_READY",
-            expiresAt: providerSession.expiresAt,
+            expiresAt: readyProviderSession.expiresAt,
           },
           select: { id: true },
         });
@@ -359,7 +359,7 @@ export class EligibilityService {
             requestId: localSessionId,
             redactedMetadata: {
               providerKey,
-              expiresAt: providerSession.expiresAt.toISOString(),
+              expiresAt: readyProviderSession.expiresAt.toISOString(),
             },
           },
           select: { id: true },
@@ -368,7 +368,7 @@ export class EligibilityService {
     } catch {
       if (this.provider.cancelSession) {
         await this.provider
-          .cancelSession({ providerReference: providerSession.providerReference })
+          .cancelSession({ providerReference: readyProviderSession.providerReference })
           .catch(() => undefined);
       }
       await this.failProviderStart(localSessionId, accountId, currentStatus).catch(() => undefined);
@@ -382,8 +382,8 @@ export class EligibilityService {
       status: "verificationInProgress" as const,
       eligibilityStatus: "verificationInProgress" as const,
       sessionId: localSessionId,
-      redirectUrl: providerSession.redirectUrl,
-      expiresAt: providerSession.expiresAt.toISOString(),
+      redirectUrl: readyProviderSession.redirectUrl,
+      expiresAt: readyProviderSession.expiresAt.toISOString(),
       providerConfigured: true,
       message: "Continue with the approved provider. Eligibility is not granted until the backend validates the provider result.",
       isDemo: false,
