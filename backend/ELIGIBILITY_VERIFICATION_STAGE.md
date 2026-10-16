@@ -155,7 +155,7 @@ Follow-up source fixes were committed to `feat/eligibility-domain-status` after 
 - The support audit test models the database-generated request ID consistently and checks that the request and audit event share the same ID.
 - A newly created provider-start session receives a five-minute startup deadline; stale `CREATED` sessions stop blocking retry after that deadline.
 
-**These follow-up commits have not been validated by the maintainer's local build/tests yet.** Pull the current branch head and rerun Prisma validation, build and the full test suite. The additive migration was reported applied to `sakhi_test` before these follow-up code/test fixes; because the follow-up changes do not alter the Prisma schema or migration, do not reset the database or reapply manually.
+**Subsequent maintainer validation:** on the later pull at `81747a81d7b575a4b251db05f95a817d93645217`, the maintainer reported Prisma validation passed, build passed, all 8 test files passed, and all 44 tests passed. The callback schema/source/migration added after that tested commit are a new, not-yet-validated increment. The earlier consent/session migration is already applied to `sakhi_test`; the new callback-event migration still needs to be applied by the maintainer. No database reset is needed or permitted.
 
 
 ## Implementation increment: trusted callback boundary and idempotent result processing
