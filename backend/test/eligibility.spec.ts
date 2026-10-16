@@ -357,6 +357,7 @@ describe("canonical eligibility state", () => {
       providerConfigured: true,
       policyApproved: true,
       providerKey: "synthetic-provider",
+      redirectHosts: ["verify.example.test"],
       providerDisplayName: "Synthetic Test Provider",
       methodDescription: "Synthetic provider fixture for unit testing.",
       attributesCheckedDescription: "No real attributes; synthetic fixture only.",
