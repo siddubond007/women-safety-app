@@ -132,7 +132,8 @@ The adapter configuration must explicitly provide `redirectHosts`. Verification 
 ### Remaining blockers and safety boundaries
 
 - No provider is selected/authorized; no provider credentials are present; no real identity data is collected. Production provider activation is blocked by provider and legal approval.
-- There is no webhook/callback validation, replay/idempotency handler, provider result mapper, authenticated reviewer/RBAC decision flow, appeal decision workflow, retention/deletion job, or active protected community endpoint. These must be implemented before representing the full SRS workflow as complete.
+- The provider-specific signature algorithm, freshness window and payload schema remain unimplemented because no provider has been selected or approved. The callback boundary now requires an adapter to authenticate raw bytes and normalize only an allowed result; the unconfigured adapter makes the endpoint unavailable. Event-level replay protection and atomic status processing are implemented for any future approved adapter.
+- There is still no authenticated reviewer/RBAC decision flow, appeal decision workflow, retention/deletion job, scheduled session-expiry worker, or active protected community endpoint. These must be implemented before representing the full SRS workflow as complete.
 - The adapter must not infer gender from a selfie, name, voice or facial appearance. Phone OTP or Aadhaar OTP success is not an eligibility result.
 - Human review decisions remain disabled until reviewer authorization and approved, fair review criteria exist. A category-only request records a request, not an accepted eligibility appeal.
 - Shared user/profile contract and schema/migration integration with PRs #13/#14 remains deferred. The profile workstream must not migrate `sakhi_test` while eligibility testing is underway.
@@ -155,3 +156,23 @@ Follow-up source fixes were committed to `feat/eligibility-domain-status` after 
 - A newly created provider-start session receives a five-minute startup deadline; stale `CREATED` sessions stop blocking retry after that deadline.
 
 **These follow-up commits have not been validated by the maintainer's local build/tests yet.** Pull the current branch head and rerun Prisma validation, build and the full test suite. The additive migration was reported applied to `sakhi_test` before these follow-up code/test fixes; because the follow-up changes do not alter the Prisma schema or migration, do not reset the database or reapply manually.
+
+
+## Implementation increment: trusted callback boundary and idempotent result processing
+
+**Source branch:** `feat/eligibility-domain-status`. This increment extends draft PR #12; no PR is merged.
+
+### Implemented in source (local maintainer validation pending)
+
+- Added `POST /api/v1/eligibility/provider-callback`. It is not a member-authenticated route; trust is delegated to the approved provider adapter, which must validate provider-specific signature/authentication and freshness rules over exact raw request bytes before returning a normalized event.
+- The bootstrap preserves exact raw request bytes only for this callback route; the payload is not logged or persisted. The provider adapter is responsible for translating only trusted results to `VERIFIED`, `PENDING_MANUAL_REVIEW`, or `VERIFICATION_FAILED`. Ambiguous/unsupported results must map to manual review, not approval.
+- The callback boundary stays disabled because the default `UnconfiguredEligibilityProviderAdapter` has no verifier and provider/policy configuration remains false. No generic guessed signature format, credentials, provider, legal approval or result is invented.
+- Added an append-only callback event table with a unique provider/event key. Within one database transaction, a trusted callback claims its event, checks the matching non-expired `REDIRECT_READY` session, validates the canonical state transition, updates the account and session, and records a redacted audit event. Concurrent/duplicate deliveries are idempotent.
+- Only the normalized outcome and opaque identifiers are persisted. Raw callback payload, raw identity attributes, documents, images and biometrics are not stored. The callback response exposes only accepted/duplicate acknowledgement, not member status.
+- New migration: `20261016150000_eligibility_provider_callback_events`. It is additive and grants only matching local app-role SELECT/INSERT on the event table. Apply it only to `sakhi_test` for this check; do not reset databases, apply Module 2 migrations, or change `sakhi_dev`.
+
+### Remaining gaps
+
+- No real provider is selected/authorized. An approved adapter's actual signature algorithm, replay timestamp window, event schema and sandbox integration must be based on that provider's official contract before enabling the endpoint.
+- Reviewer authentication/RBAC, manual-review decisions/appeals, scheduled session expiry, retention/deletion jobs and wiring the eligibility guard into actual protected community endpoints remain outstanding.
+- This source change is not locally validated yet. The maintainer must pull, apply the new migration to `sakhi_test`, then run Prisma validation, build and the entire backend test suite. Test fixtures are synthetic and do not represent end-to-end verification with a real provider.
