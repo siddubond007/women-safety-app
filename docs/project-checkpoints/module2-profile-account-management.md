@@ -1,14 +1,14 @@
 # Sakhi Module 2 — User Profile and Account Management
 
-**Checkpoint updated:** 2026-10-16 12:32 IST (Asia/Kolkata)  
+**Checkpoint updated:** 2026-10-16 12:37 IST (Asia/Kolkata)  
 **Repository:** `siddubond007/women-safety-app`  
 **Primary Module 2 branch:** `feat/user-profile-account-management`  
 **Primary branch base:** `feat/auth-session-resume-logout` at `674afe4d8ed178d2b09a15af300184bb09739270`  
-**Primary feature-code head before this checkpoint refresh:** `d4fd6d584b2bd581ce31733c66082b55f062c966` (the checkpoint-refresh commit will advance the branch one commit further; verify the exact current head via GitHub before resuming)  
-**Primary PR:** [#13 — feat(profile): add authenticated My Profile editing](https://github.com/siddubond007/women-safety-app/pull/13), open, draft, unmerged; base `feat/auth-session-resume-logout` at `674afe4d8ed178d2b09a15af300184bb09739270`; head `feat/user-profile-account-management` at `d4fd6d584b2bd581ce31733c66082b55f062c966` before checkpoint refresh  
+**Primary branch head before this checkpoint refresh:** `87a55192734a065386fc8fada2f8891fd112165c` (the checkpoint-refresh commit will advance the branch one commit further; verify the exact current head via GitHub before resuming)  
+**Primary PR:** [#13 — feat(profile): add authenticated My Profile editing](https://github.com/siddubond007/women-safety-app/pull/13), open, draft, unmerged; base `feat/auth-session-resume-logout` at `674afe4d8ed178d2b09a15af300184bb09739270`; head `feat/user-profile-account-management` at `87a55192734a065386fc8fada2f8891fd112165c` before checkpoint refresh  
 **Backend companion branch:** `feat/user-profile-account-management-backend`  
-**Backend branch base:** `fix/backend-pino-logger-injection` at `9347dc1e555672fd06510849e939d12c8e5aac54`; **backend feature-code head:** `d4fbb9408b4cfa61e0b2d35c90b0036d5920a0db`  
-**Backend PR:** [#14 — feat(profile): add secure self-service profile API](https://github.com/siddubond007/women-safety-app/pull/14), open, draft, unmerged; base `fix/backend-pino-logger-injection` at `9347dc1e555672fd06510849e939d12c8e5aac54`; head `feat/user-profile-account-management-backend` at `d4fbb9408b4cfa61e0b2d35c90b0036d5920a0db`
+**Backend branch base:** `fix/backend-pino-logger-injection` at `9347dc1e555672fd06510849e939d12c8e5aac54`; **backend branch head:** `c3014b04100001056eb64b006ea0c3a2b1549710`  
+**Backend PR:** [#14 — feat(profile): add secure self-service profile API](https://github.com/siddubond007/women-safety-app/pull/14), open, draft, unmerged; base `fix/backend-pino-logger-injection` at `9347dc1e555672fd06510849e939d12c8e5aac54`; head `feat/user-profile-account-management-backend` at `c3014b04100001056eb64b006ea0c3a2b1549710`
 
 ## Scope and operating rules
 
@@ -98,12 +98,13 @@ Committed to `feat/user-profile-account-management`:
 - `app/lib/features/auth/sakhi_auth_status_screen.dart`: link to My Profile only for development-backend sessions in eligible account states; existing logout/session logic unchanged.
 - `app/test/profile_service_test.dart`: API adapter response/normalization tests.
 - `app/test/profile_screen_test.dart`: profile load/save and retry tests.
-- PR #13 is open, draft and unmerged, and currently reports GitHub mergeable=true. This is GitHub metadata, not a test result.
+- PR #13 is open, draft and unmerged. The raw GitHub pull-request API reported `mergeable=true` and `mergeable_state=clean` at the last refresh; no CI status entries were reported for the inspected feature commits.
 
 Relevant mobile commits before checkpoint refresh:
 - Initial checkpoint: `89ab8f05b4b569bb0f0f2d330be42e38355c25b8`.
 - Initial UI/API client increment: `e19d951853a615970058c2d3ba2f2c4abf617c87`.
 - Existing design-token correction and load-retry test fix: `d4fd6d584b2bd581ce31733c66082b55f062c966`.
+- Checkpoint-only tip before this refresh: `87a55192734a065386fc8fada2f8891fd112165c`.
 
 ### Backend PR #14
 
@@ -112,9 +113,10 @@ Committed to `feat/user-profile-account-management-backend`:
 - `backend/src/app.module.ts` registers `ProfileModule`.
 - `backend/prisma/schema.prisma` adds nullable `bio` (VARCHAR(500)) and `city` (VARCHAR(100)) to the existing `MemberProfile`.
 - `backend/prisma/migrations/20261016130000_member_profile_bio_city/migration.sql` contains a forward-only, database-name-guarded additive migration. It has **not** been applied anywhere.
-- `backend/test/profile.spec.ts` covers self-profile GET/PATCH, owner ID injection rejection, input validation, optional clearing, response minimization, and audit field redaction.
-- Backend feature commit before checkpoint refresh: `d4fbb9408b4cfa61e0b2d35c90b0036d5920a0db`.
-- PR #14 is open, draft and unmerged, and currently reports GitHub mergeable=true. This is GitHub metadata, not a test result.
+- `backend/test/profile.spec.ts` covers self-profile GET/PATCH, owner ID injection rejection, input validation, optional clearing, omitted-field preservation, response minimization, and audit field redaction.
+- Backend profile API implementation: `d9cfa358c148596d98569bffd8bc0075dedc0653`.
+- Omitted optional fields preservation fix + regression test: `c3014b04100001056eb64b006ea0c3a2b1549710`.
+- PR #14 is open, draft and unmerged. The raw GitHub pull-request API reported `mergeable=true` and `mergeable_state=clean` at the last refresh; no CI status entries were reported for the inspected feature commits.
 
 ### Phase A contract
 
