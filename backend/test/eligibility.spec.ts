@@ -4,6 +4,8 @@ import {
   ConflictException,
   type INestApplication,
   HttpException,
+  ServiceUnavailableException,
+  UnauthorizedException,
 } from "@nestjs/common";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Test } from "@nestjs/testing";
@@ -21,6 +23,7 @@ import {
 import type {
   EligibilityProviderAdapter,
   EligibilityProviderConfiguration,
+  NormalizedEligibilityProviderCallback,
 } from "../src/eligibility/eligibility-provider.js";
 
 const providerUnavailableConfiguration: EligibilityProviderConfiguration = {
@@ -43,10 +46,16 @@ const providerUnavailableConfiguration: EligibilityProviderConfiguration = {
 function providerStub(
   configuration: EligibilityProviderConfiguration = providerUnavailableConfiguration,
   startSession = vi.fn(),
+  verifyAndNormalizeCallback = vi
+    .fn()
+    .mockRejectedValue(
+      new ServiceUnavailableException("No callback verifier configured in test adapter."),
+    ),
 ): EligibilityProviderAdapter {
   return {
     configuration: () => configuration,
     startSession,
+    verifyAndNormalizeCallback,
   };
 }
 
@@ -56,6 +65,7 @@ describe("eligibility API fail-closed contract", () => {
     configuration: vi.fn(),
     status: vi.fn(),
     start: vi.fn(),
+    processProviderCallback: vi.fn(),
     createSupportRequest: vi.fn(),
     listSupportRequests: vi.fn(),
   };
@@ -164,6 +174,27 @@ describe("eligibility API fail-closed contract", () => {
     expect(service.start).toHaveBeenCalled();
     expect(service.start.mock.calls[0]?.[0]).toBe(
       "Bearer a-valid-looking-test-token",
+    );
+  });
+
+  it("routes provider callbacks through the adapter-backed service boundary", async () => {
+    service.processProviderCallback.mockResolvedValue({
+      accepted: true,
+      duplicate: false,
+    });
+    const app = await createApp();
+    const response = await request(app.getHttpServer())
+      .post("/api/v1/eligibility/provider-callback")
+      .set("x-synthetic-signature", "signature-fixture")
+      .send({ result: "not trusted by the route" })
+      .expect(202);
+
+    expect(response.body).toEqual({ accepted: true, duplicate: false });
+    expect(service.processProviderCallback).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({
+        "x-synthetic-signature": "signature-fixture",
+      }),
     );
   });
 
@@ -583,5 +614,190 @@ describe("eligibility support request persistence", () => {
       }),
     ).rejects.toThrow(HttpException);
     expect(tx.eligibilitySupportRequest.create).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("eligibility provider callback processing", () => {
+  const configured = {
+    ...providerUnavailableConfiguration,
+    providerConfigured: true,
+    policyApproved: true,
+    providerKey: "synthetic-provider",
+    redirectHosts: ["verify.example.test"],
+    providerDisplayName: "Synthetic Test Provider",
+    consentVersion: "notice-v1",
+  } satisfies EligibilityProviderConfiguration;
+
+  const rawBody = Buffer.from('{"synthetic":"signed-fixture"}');
+  const headers = { "x-synthetic-signature": "valid-fixture" };
+  const verifiedEvent: NormalizedEligibilityProviderCallback = {
+    eventId: "synthetic-event-001",
+    providerReference: "synthetic-provider-reference",
+    outcome: "VERIFIED",
+  };
+
+  function fakeTransaction(sessionOverrides: Record<string, unknown> = {}) {
+    const tx = {
+      eligibilityProviderCallbackEvent: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        createMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      eligibilityVerificationSession: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: "local-session-id",
+          accountId: "account-id",
+          status: "REDIRECT_READY",
+          expiresAt: new Date(Date.now() + 60_000),
+          account: {
+            eligibilityStatus: ELIGIBILITY_VERIFICATION_STATUS.VERIFICATION_IN_PROGRESS,
+          },
+          ...sessionOverrides,
+        }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      memberAccount: {
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      auditEvent: {
+        create: vi.fn().mockResolvedValue({ id: "audit-id" }),
+      },
+    };
+    const prisma = {
+      $transaction: vi.fn(async (callback: (value: unknown) => Promise<unknown>) =>
+        callback(tx),
+      ),
+    } as unknown as PrismaService;
+    return { tx, prisma };
+  }
+
+  it("fails closed while the provider is unconfigured", async () => {
+    const verifier = vi.fn();
+    const prisma = { $transaction: vi.fn() } as unknown as PrismaService;
+    const service = new EligibilityService(
+      {} as AuthenticationService,
+      prisma,
+      providerStub(providerUnavailableConfiguration, vi.fn(), verifier),
+    );
+
+    await expect(service.processProviderCallback(rawBody, headers)).rejects.toThrow(
+      ServiceUnavailableException,
+    );
+    expect(verifier).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("does not touch persistence when provider signature verification fails", async () => {
+    const verifier = vi.fn().mockRejectedValue(
+      new UnauthorizedException("Synthetic signature rejected."),
+    );
+    const { prisma } = fakeTransaction();
+    const service = new EligibilityService(
+      {} as AuthenticationService,
+      prisma,
+      providerStub(configured, vi.fn(), verifier),
+    );
+
+    await expect(service.processProviderCallback(rawBody, headers)).rejects.toThrow(
+      UnauthorizedException,
+    );
+    expect(verifier).toHaveBeenCalledWith({ rawBody, headers });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("atomically maps a trusted synthetic result and records only redacted audit metadata", async () => {
+    const verifier = vi.fn().mockResolvedValue(verifiedEvent);
+    const { tx, prisma } = fakeTransaction();
+    const service = new EligibilityService(
+      {} as AuthenticationService,
+      prisma,
+      providerStub(configured, vi.fn(), verifier),
+    );
+
+    await expect(
+      service.processProviderCallback(rawBody, headers),
+    ).resolves.toEqual({ accepted: true, duplicate: false });
+
+    expect(tx.eligibilityProviderCallbackEvent.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          id: expect.any(String),
+          providerKey: "synthetic-provider",
+          providerEventId: "synthetic-event-001",
+          sessionId: "local-session-id",
+          outcome: "VERIFIED",
+        },
+      ],
+      skipDuplicates: true,
+    });
+    expect(tx.memberAccount.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "account-id",
+        eligibilityStatus: "VERIFICATION_IN_PROGRESS",
+      },
+      data: { eligibilityStatus: "VERIFIED" },
+    });
+    expect(tx.eligibilityVerificationSession.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "local-session-id",
+        status: "REDIRECT_READY",
+        expiresAt: { gt: expect.any(Date) },
+      },
+      data: {
+        status: "COMPLETED",
+        completedAt: expect.any(Date),
+      },
+    });
+    expect(tx.auditEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          actorType: "PROVIDER",
+          action: "eligibility.provider_result.applied",
+          targetId: "local-session-id",
+          redactedMetadata: {
+            providerKey: "synthetic-provider",
+            providerOutcome: "VERIFIED",
+            from: "VERIFICATION_IN_PROGRESS",
+            to: "VERIFIED",
+          },
+        }),
+      }),
+    );
+  });
+
+  it("acknowledges duplicate events without applying the result twice", async () => {
+    const verifier = vi.fn().mockResolvedValue(verifiedEvent);
+    const { tx, prisma } = fakeTransaction();
+    tx.eligibilityProviderCallbackEvent.findUnique.mockResolvedValue({ id: "existing-event" });
+    const service = new EligibilityService(
+      {} as AuthenticationService,
+      prisma,
+      providerStub(configured, vi.fn(), verifier),
+    );
+
+    await expect(
+      service.processProviderCallback(rawBody, headers),
+    ).resolves.toEqual({ accepted: true, duplicate: true });
+    expect(tx.eligibilityProviderCallbackEvent.createMany).not.toHaveBeenCalled();
+    expect(tx.memberAccount.updateMany).not.toHaveBeenCalled();
+    expect(tx.eligibilityVerificationSession.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("rejects a callback whose provider session has expired", async () => {
+    const verifier = vi.fn().mockResolvedValue(verifiedEvent);
+    const { tx, prisma } = fakeTransaction({
+      expiresAt: new Date(Date.now() - 1_000),
+    });
+    const service = new EligibilityService(
+      {} as AuthenticationService,
+      prisma,
+      providerStub(configured, vi.fn(), verifier),
+    );
+
+    await expect(service.processProviderCallback(rawBody, headers)).rejects.toThrow(
+      ConflictException,
+    );
+    expect(tx.eligibilityProviderCallbackEvent.createMany).not.toHaveBeenCalled();
+    expect(tx.memberAccount.updateMany).not.toHaveBeenCalled();
   });
 });
