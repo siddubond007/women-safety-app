@@ -384,7 +384,10 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.text('Verification information'), findsOneWidget);
-        expect(find.text('No authorised provider is configured.'), findsOneWidget);
+        expect(
+          find.text('No authorised provider is configured.'),
+          findsOneWidget,
+        );
 
         final continueButton = find.byKey(
           const Key('eligibility-information-continue-button'),
