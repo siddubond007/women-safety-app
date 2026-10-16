@@ -18,7 +18,24 @@ async function bootstrap(): Promise<void> {
   // Swagger is enabled only for the local development/test foundation; production
   // startup is rejected by environment validation.
   app.use(helmet({ contentSecurityPolicy: false }));
-  app.use(json({ limit: "64kb", strict: true }));
+  app.use(
+    json({
+      limit: "64kb",
+      strict: true,
+      verify: (req, _res, buffer) => {
+        // Preserve exact bytes only for the provider callback signature
+        // verifier. The adapter consumes them transiently; they are not logged
+        // or persisted. Other request bodies are not copied.
+        const request = req as typeof req & { rawBody?: Buffer };
+        if (
+          request.url?.split("?")[0] ===
+          "/api/v1/eligibility/provider-callback"
+        ) {
+          request.rawBody = Buffer.from(buffer);
+        }
+      },
+    }),
+  );
   app.use(urlencoded({ extended: false, limit: "64kb", parameterLimit: 100 }));
 
   app.setGlobalPrefix("api/v1");
