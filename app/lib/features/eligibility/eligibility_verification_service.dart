@@ -1,6 +1,6 @@
 import 'eligibility_verification_models.dart';
 
-/// Future integration boundary for the trusted Sakhi backend.
+/// Contract for the trusted Sakhi eligibility backend and safe preview.
 ///
 /// Implementations must retrieve authoritative status from the backend,
 /// never trust a client-side redirect as proof, and fail closed when
