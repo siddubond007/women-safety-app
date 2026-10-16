@@ -122,7 +122,9 @@ export class EligibilityService {
         ? provider.biometricProcessingRequired
           ? "Biometric processing is required by the approved provider flow and needs separate explicit consent."
           : "Biometric processing is supported but optional; it requires separate explicit consent if selected."
-        : null,
+        : provider.providerConfigured && provider.policyApproved
+          ? "The approved method does not use selfie or liveness processing."
+          : null,
       dataHandlingDescription: provider.dataHandlingDescription,
       retentionAndDeletionDescription: provider.retentionAndDeletionDescription,
       declineOrFailureDescription: provider.declineOrFailureDescription,
