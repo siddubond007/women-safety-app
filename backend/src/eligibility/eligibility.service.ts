@@ -2,10 +2,11 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Inject,
   Injectable,
   ServiceUnavailableException,
-  TooManyRequestsException,
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { AuthenticationService } from "../auth/auth.service.js";
@@ -54,6 +55,12 @@ const SUPPORT_STATUS_FROM_DB: Record<string, string> = {
   RESOLVED: "resolved",
   CLOSED: "closed",
 };
+
+class EligibilityRateLimitException extends HttpException {
+  constructor(message: string) {
+    super(message, HttpStatus.TOO_MANY_REQUESTS);
+  }
+}
 
 const SUPPORT_REQUEST_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MAX_SUPPORT_REQUESTS_PER_WINDOW = 5;
@@ -161,7 +168,7 @@ export class EligibilityService {
         message: "Explicit acceptance of the current eligibility notice is required.",
       });
     }
-    if (dto.consentVersion !== provider.consentVersion) {
+    if (dto.consentVersion !== consentVersion) {
       throw new ConflictException({
         code: "eligibility_consent_version_changed",
         message: "The eligibility notice has changed. Review the current notice before continuing.",
@@ -283,7 +290,7 @@ export class EligibilityService {
           outcome: "success",
           requestId: localSessionId,
           redactedMetadata: {
-            noticeVersion: provider.consentVersion,
+            noticeVersion: consentVersion,
             biometricProcessingConsented: dto.biometricProcessingConsented === true,
           },
         },
@@ -449,7 +456,7 @@ export class EligibilityService {
           targetId: localSessionId,
           outcome: "failed",
           requestId: localSessionId,
-          redactedMetadata: { reason: "provider_start_or_persistence_failure" },
+          redactedMetadata: { reason: "provider_start_or_persistence_failure", statusRestoredTo: originalStatus },
         },
         select: { id: true },
       });
@@ -469,7 +476,7 @@ export class EligibilityService {
       },
     });
     if (recentCount >= MAX_SUPPORT_REQUESTS_PER_WINDOW) {
-      throw new TooManyRequestsException(
+      throw new EligibilityRateLimitException(
         "Too many eligibility support requests. Try again later.",
       );
     }
