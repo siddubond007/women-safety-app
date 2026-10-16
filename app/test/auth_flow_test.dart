@@ -376,6 +376,66 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets(
+      'completed account status opens the eligibility verification preview',
+      (tester) async {
+        final service = _FakeAuthService()..developmentBackend = true;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: SakhiAuthStatusScreen(
+              authService: service,
+              accountState: AuthAccountState.pendingVerification,
+              isRestoredSession: true,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final eligibilityButton = find.byKey(
+          const Key('auth-status-eligibility-button'),
+        );
+        expect(eligibilityButton, findsOneWidget);
+        await tester.ensureVisible(eligibilityButton);
+        await tester.tap(eligibilityButton);
+        await tester.pumpAndSettle();
+
+        expect(find.text('ELIGIBILITY VERIFICATION'), findsOneWidget);
+        expect(
+          find.byKey(const Key('eligibility-review-details-button')),
+          findsOneWidget,
+        );
+        expect(find.textContaining('DEVELOPMENT PREVIEW'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'eligibility entry is hidden before profile completion and for restricted accounts',
+      (tester) async {
+        for (final state in [
+          AuthAccountState.newAccount,
+          AuthAccountState.restricted,
+        ]) {
+          await tester.pumpWidget(
+            MaterialApp(
+              home: SakhiAuthStatusScreen(
+                authService: _FakeAuthService(),
+                accountState: state,
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          expect(
+            find.byKey(const Key('auth-status-eligibility-button')),
+            findsNothing,
+          );
+          expect(tester.takeException(), isNull);
+        }
+      },
+    );
+
     testWidgets('sign out calls the service and returns to mobile login', (
       tester,
     ) async {
