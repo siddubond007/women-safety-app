@@ -98,7 +98,7 @@ describe("development authentication service", () => {
 
     expect(result.deliveryMode).toBe("development_echo");
     expect(result.isDemo).toBe(true);
-    expect(result.developmentCode).toMatch(/^\\d{6}$/);
+    expect(result.developmentCode).toMatch(/^\d{6}$/);
     expect(tx.otpChallenge.create).toHaveBeenCalledTimes(1);
     expect(tx.auditEvent.create).toHaveBeenCalledTimes(1);
   });
