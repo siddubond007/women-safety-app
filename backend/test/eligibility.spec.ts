@@ -362,10 +362,15 @@ describe("canonical eligibility state", () => {
         create: vi.fn().mockResolvedValue({ id: "consent-id" }),
       },
       eligibilityVerificationSession: {
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
         create: vi.fn().mockResolvedValue({ id: "session-id" }),
         update: vi.fn().mockResolvedValue({ id: "session-id" }),
+        findFirst: vi.fn().mockResolvedValue(null),
       },
       memberAccount: {
+        findUnique: vi.fn().mockResolvedValue({
+          eligibilityStatus: ELIGIBILITY_VERIFICATION_STATUS.NOT_VERIFIED,
+        }),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       auditEvent: {
@@ -439,6 +444,126 @@ describe("canonical eligibility state", () => {
       }),
     );
     expect(tx.auditEvent.create).toHaveBeenCalled();
+  });
+
+  it("expires abandoned sessions and allows retry after a stuck in-progress state", async () => {
+    const accountId = "account-id";
+    const expiresAt = new Date(Date.now() - 1_000);
+    const fakeAuth = {
+      authenticateAuthorization: vi.fn().mockResolvedValue({
+        accountId,
+        account: {
+          eligibilityStatus: ELIGIBILITY_VERIFICATION_STATUS.VERIFICATION_IN_PROGRESS,
+        },
+      }),
+    };
+
+    const expiryTx = {
+      eligibilityVerificationSession: {
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+      memberAccount: {
+        findUnique: vi.fn().mockResolvedValue({
+          eligibilityStatus: ELIGIBILITY_VERIFICATION_STATUS.VERIFICATION_IN_PROGRESS,
+        }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      auditEvent: {
+        create: vi.fn().mockResolvedValue({ id: "expiry-audit-id" }),
+      },
+    };
+    const createTx = {
+      eligibilityConsent: {
+        create: vi.fn().mockResolvedValue({ id: "new-consent-id" }),
+      },
+      eligibilityVerificationSession: {
+        create: vi.fn().mockResolvedValue({ id: "new-session-id" }),
+      },
+      memberAccount: {
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      auditEvent: {
+        create: vi.fn().mockResolvedValue({ id: "start-audit-id" }),
+      },
+    };
+    const readyTx = {
+      eligibilityVerificationSession: {
+        update: vi.fn().mockResolvedValue({ id: "new-session-id" }),
+      },
+      auditEvent: {
+        create: vi.fn().mockResolvedValue({ id: "ready-audit-id" }),
+      },
+    };
+    const transactionResults: unknown[] = [expiryTx, createTx, readyTx];
+    const fakePrisma = {
+      memberProfile: {
+        findUnique: vi.fn().mockResolvedValue({ accountId }),
+      },
+      eligibilityVerificationSession: {
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+      $transaction: vi.fn(
+        async (callback: (value: unknown) => Promise<unknown>) => {
+          const tx = transactionResults.shift();
+          if (!tx) throw new Error("Unexpected extra transaction");
+          return callback(tx);
+        },
+      ),
+    } as unknown as PrismaService;
+    const providerSession = {
+      providerReference: "retry-provider-reference",
+      redirectUrl: "https://verify.example.test/session/retry",
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    };
+    const config: EligibilityProviderConfiguration = {
+      ...providerUnavailableConfiguration,
+      providerConfigured: true,
+      policyApproved: true,
+      providerKey: "synthetic-provider",
+      redirectHosts: ["verify.example.test"],
+      providerDisplayName: "Synthetic Test Provider",
+      consentVersion: "notice-v1",
+    };
+    const realService = new EligibilityService(
+      fakeAuth as unknown as AuthenticationService,
+      fakePrisma,
+      providerStub(config, vi.fn().mockResolvedValue(providerSession)),
+    );
+
+    const response = await realService.start("Bearer synthetic-test-token", {
+      consentAccepted: true,
+      consentVersion: "notice-v1",
+      biometricProcessingConsented: false,
+    });
+
+    expect(response).toMatchObject({
+      status: "verificationInProgress",
+      eligibilityStatus: "verificationInProgress",
+      redirectUrl: providerSession.redirectUrl,
+    });
+    expect(expiryTx.eligibilityVerificationSession.updateMany).toHaveBeenCalledWith({
+      where: {
+        accountId,
+        status: { in: ["CREATED", "REDIRECT_READY"] },
+        OR: [{ expiresAt: { lte: expect.any(Date) } }, { expiresAt: null }],
+      },
+      data: { status: "EXPIRED", completedAt: expect.any(Date) },
+    });
+    expect(expiryTx.memberAccount.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: accountId,
+        eligibilityStatus: "VERIFICATION_IN_PROGRESS",
+      },
+      data: { eligibilityStatus: "NOT_VERIFIED" },
+    });
+    expect(createTx.memberAccount.updateMany).toHaveBeenCalledWith({
+      where: { id: accountId, eligibilityStatus: "NOT_VERIFIED" },
+      data: { eligibilityStatus: "VERIFICATION_IN_PROGRESS" },
+    });
+    expect(expiryTx.auditEvent.create).toHaveBeenCalled();
+    expect(transactionResults).toHaveLength(0);
+    expect(expiresAt.getTime()).toBeLessThan(Date.now());
   });
 
   it("requires a reviewer or trusted provider for sensitive status transitions", () => {
