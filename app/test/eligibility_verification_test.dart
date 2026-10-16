@@ -188,11 +188,14 @@ void main() {
           providerDisplayName: 'Test-only fake provider',
           methodDescription: 'Test-only fake verification method.',
           attributesCheckedDescription: 'Test-only attributes description.',
-          selfieOrLivenessDescription: 'Biometric processing is required in this test.',
+          selfieOrLivenessDescription:
+              'Biometric processing is required in this test.',
           dataHandlingDescription: 'No data leaves this fake test service.',
           retentionAndDeletionDescription: 'Not applicable to this fake test.',
-          declineOrFailureDescription: 'This test does not create a real request.',
-          manualReviewDescription: 'No manual review is implemented in this test.',
+          declineOrFailureDescription:
+              'This test does not create a real request.',
+          manualReviewDescription:
+              'No manual review is implemented in this test.',
           consentVersion: 'test-approved-v1',
         );
         final service = _FakeEligibilityService(
@@ -233,7 +236,10 @@ void main() {
         await tester.ensureVisible(biometricConsent);
         await tester.tap(biometricConsent);
         await tester.pumpAndSettle();
-        expect(tester.widget<SakhiAuthSubmitButton>(start).onPressed, isNotNull);
+        expect(
+          tester.widget<SakhiAuthSubmitButton>(start).onPressed,
+          isNotNull,
+        );
 
         await tester.ensureVisible(start);
         await tester.tap(start);
