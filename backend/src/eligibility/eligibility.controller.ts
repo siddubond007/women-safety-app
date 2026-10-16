@@ -6,13 +6,18 @@ import {
   Headers,
   HttpCode,
   Post,
+  Req,
 } from "@nestjs/common";
+import type { Request } from "express";
 import {
+  ApiAcceptedResponse,
   ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiOkResponse,
+  ApiServiceUnavailableResponse,
   ApiTags,
+  ApiUnauthorizedResponse,
 } from "@nestjs/swagger";
 import {
   CreateEligibilitySupportRequestDto,
@@ -20,6 +25,10 @@ import {
   StartEligibilityVerificationDto,
 } from "./eligibility.dto.js";
 import { EligibilityService } from "./eligibility.service.js";
+
+interface RequestWithRawBody extends Request {
+  rawBody?: Buffer;
+}
 
 @ApiTags("eligibility")
 @Controller("eligibility")
@@ -51,6 +60,24 @@ export class EligibilityController {
     @Body() dto?: StartEligibilityVerificationDto,
   ) {
     return this.eligibility.start(authorization, dto);
+  }
+
+  @Post("provider-callback")
+  @HttpCode(202)
+  @ApiAcceptedResponse({
+    description: "Accepts a callback only after the configured adapter authenticates and normalizes it.",
+  })
+  @ApiUnauthorizedResponse({
+    description: "The callback signature, event, or session reference is not trusted.",
+  })
+  @ApiServiceUnavailableResponse({
+    description: "No approved provider callback validator is configured.",
+  })
+  providerCallback(@Req() request: RequestWithRawBody) {
+    return this.eligibility.processProviderCallback(
+      request.rawBody,
+      request.headers,
+    );
   }
 
   @Post("support-requests")
