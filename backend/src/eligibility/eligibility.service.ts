@@ -113,6 +113,8 @@ export class EligibilityService {
     return {
       providerConfigured: provider.providerConfigured,
       policyApproved: provider.policyApproved,
+      biometricProcessingSupported: provider.biometricProcessingSupported,
+      biometricProcessingRequired: provider.biometricProcessingRequired,
       providerDisplayName: provider.providerDisplayName,
       methodDescription: provider.methodDescription,
       attributesCheckedDescription: provider.attributesCheckedDescription,
