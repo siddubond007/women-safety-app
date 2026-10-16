@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../../core/assets/app_assets.dart';
 import '../../core/theme/sakhi_design_system.dart';
+import '../eligibility/backend_eligibility_verification_service.dart';
+import '../eligibility/eligibility_intro_screen.dart';
+import '../eligibility/eligibility_verification_service.dart';
 import 'auth_service.dart';
+import 'backend_api_client.dart';
 import 'sakhi_login_screen.dart';
 import 'widgets/auth_widgets.dart';
 
@@ -60,6 +64,25 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
     navigator.pushReplacement(
       MaterialPageRoute<void>(
         builder: (_) => SakhiLoginScreen(authService: widget.authService),
+      ),
+    );
+  }
+
+  EligibilityVerificationService _eligibilityServiceForCurrentSession() {
+    if (widget.authService.isDevelopmentBackend) {
+      return BackendEligibilityVerificationService(
+        apiClient: BackendApiClient(),
+      );
+    }
+    return const DemoEligibilityVerificationService();
+  }
+
+  void _openEligibilityVerification() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => EligibilityIntroScreen(
+          service: _eligibilityServiceForCurrentSession(),
+        ),
       ),
     );
   }
@@ -139,6 +162,23 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
             const SizedBox(height: SakhiSpacing.md),
             const SakhiAuthStatusMessage(
               message: 'DEMO ONLY — no mobile number was verified by SMS, no account was created, and no authenticated session exists. The preview Home is not treated as a protected destination.',
+            ),
+          ],
+          if (widget.accountState == AuthAccountState.existingAccount ||
+              widget.accountState == AuthAccountState.pendingVerification) ...[
+            const SizedBox(height: SakhiSpacing.md),
+            OutlinedButton.icon(
+              key: const Key('auth-status-eligibility-button'),
+              onPressed: _isSigningOut ? null : _openEligibilityVerification,
+              icon: const Icon(Icons.verified_user_outlined),
+              label: const Text('Review eligibility verification'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: SakhiColors.purple,
+                minimumSize: const Size.fromHeight(50),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(SakhiRadii.control),
+                ),
+              ),
             ),
           ],
           const SizedBox(height: SakhiSpacing.lg),
