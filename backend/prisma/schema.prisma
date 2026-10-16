@@ -25,6 +25,20 @@ enum VerificationStatus {
   @@map("verification_status")
 }
 
+/// Eligibility for Sakhi's protected community features. This is separate
+/// from account lifecycle status and the legacy authentication verification flag.
+enum EligibilityVerificationStatus {
+  NOT_VERIFIED
+  VERIFICATION_IN_PROGRESS
+  PENDING_MANUAL_REVIEW
+  VERIFIED
+  VERIFICATION_FAILED
+  TEMPORARILY_RESTRICTED
+  REVERIFICATION_REQUIRED
+
+  @@map("eligibility_verification_status")
+}
+
 enum OtpPurpose {
   LOGIN
   REGISTRATION
@@ -53,6 +67,7 @@ model MemberAccount {
   phoneVerifiedAt         DateTime?                      @map("phone_verified_at") @db.Timestamptz(6)
   status                  AccountStatus                  @default(PENDING_VERIFICATION)
   verificationStatus      VerificationStatus             @default(UNVERIFIED) @map("verification_status")
+  eligibilityStatus       EligibilityVerificationStatus  @default(NOT_VERIFIED) @map("eligibility_status")
   createdAt               DateTime                       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt               DateTime                       @updatedAt @map("updated_at") @db.Timestamptz(6)
   profile                 MemberProfile?

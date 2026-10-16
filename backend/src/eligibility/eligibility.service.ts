@@ -1,5 +1,9 @@
 import { ConflictException, Injectable } from "@nestjs/common";
 import { AuthenticationService } from "../auth/auth.service.js";
+import {
+  ELIGIBILITY_STATUS_API_VALUE,
+  type EligibilityVerificationStatus,
+} from "./eligibility-status.js";
 
 @Injectable()
 export class EligibilityService {
@@ -27,8 +31,15 @@ export class EligibilityService {
 
   async status(authorization?: string) {
     const session = await this.auth.authenticateAuthorization(authorization);
+    const eligibilityStatus =
+      session.account.eligibilityStatus as EligibilityVerificationStatus;
+
     return {
+      // Preserve the existing mobile integration contract: no live verification
+      // service is available, irrespective of the saved eligibility state.
       status: "providerUnavailable" as const,
+      eligibilityStatus: ELIGIBILITY_STATUS_API_VALUE[eligibilityStatus],
+      providerConfigured: false,
       message:
         "No approved eligibility provider or policy is configured. No verification session exists.",
       isDemo: true,

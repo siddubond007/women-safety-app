@@ -5,6 +5,12 @@ import { Test } from "@nestjs/testing";
 import request from "supertest";
 import { EligibilityController } from "../src/eligibility/eligibility.controller.js";
 import { EligibilityService } from "../src/eligibility/eligibility.service.js";
+import type { AuthenticationService } from "../src/auth/auth.service.js";
+import {
+  ELIGIBILITY_STATUS_API_VALUE,
+  ELIGIBILITY_VERIFICATION_STATUS,
+  canTransitionEligibilityStatus,
+} from "../src/eligibility/eligibility-status.js";
 
 describe("eligibility API fail-closed contract", () => {
   let app: INestApplication | undefined;
@@ -71,6 +77,8 @@ describe("eligibility API fail-closed contract", () => {
   it("routes authenticated status lookups through the service boundary", async () => {
     service.status.mockResolvedValue({
       status: "providerUnavailable",
+      eligibilityStatus: "notVerified",
+      providerConfigured: false,
       message: "No approved provider is configured.",
       isDemo: true,
     });
@@ -81,6 +89,8 @@ describe("eligibility API fail-closed contract", () => {
       .expect(200);
 
     expect(response.body.status).toBe("providerUnavailable");
+    expect(response.body.eligibilityStatus).toBe("notVerified");
+    expect(response.body.providerConfigured).toBe(false);
     expect(service.status).toHaveBeenCalledWith(
       "Bearer a-valid-looking-test-token",
     );
@@ -107,5 +117,105 @@ describe("eligibility API fail-closed contract", () => {
     expect(service.start).toHaveBeenCalledWith(
       "Bearer a-valid-looking-test-token",
     );
+  });
+});
+
+
+describe("canonical eligibility state", () => {
+  it.each([
+    ["NOT_VERIFIED", "notVerified"],
+    ["VERIFICATION_IN_PROGRESS", "verificationInProgress"],
+    ["PENDING_MANUAL_REVIEW", "pendingManualReview"],
+    ["VERIFIED", "verified"],
+    ["VERIFICATION_FAILED", "verificationFailed"],
+    ["TEMPORARILY_RESTRICTED", "temporarilyRestricted"],
+    ["REVERIFICATION_REQUIRED", "reverificationRequired"],
+  ] as const)("returns the persisted state %s without claiming provider availability", async (storedStatus, apiStatus) => {
+    const fakeAuth = {
+      authenticateAuthorization: vi.fn().mockResolvedValue({
+        account: { eligibilityStatus: storedStatus },
+      }),
+    };
+    const realService = new EligibilityService(
+      fakeAuth as unknown as AuthenticationService,
+    );
+
+    const response = await realService.status("Bearer synthetic-test-token");
+
+    expect(response).toMatchObject({
+      status: "providerUnavailable",
+      eligibilityStatus: apiStatus,
+      providerConfigured: false,
+      isDemo: true,
+    });
+    expect(fakeAuth.authenticateAuthorization).toHaveBeenCalledWith(
+      "Bearer synthetic-test-token",
+    );
+    expect(ELIGIBILITY_STATUS_API_VALUE[storedStatus]).toBe(apiStatus);
+  });
+
+  it("keeps provider startup fail-closed and does not change the stored state", async () => {
+    const account = {
+      eligibilityStatus: ELIGIBILITY_VERIFICATION_STATUS.NOT_VERIFIED,
+    };
+    const fakeAuth = {
+      authenticateAuthorization: vi.fn().mockResolvedValue({ account }),
+    };
+    const realService = new EligibilityService(
+      fakeAuth as unknown as AuthenticationService,
+    );
+
+    await expect(
+      realService.start("Bearer synthetic-test-token"),
+    ).rejects.toThrow(ConflictException);
+    expect(account.eligibilityStatus).toBe("NOT_VERIFIED");
+    expect(fakeAuth.authenticateAuthorization).toHaveBeenCalledOnce();
+  });
+
+  it("allows only explicitly defined status transitions and trusted authorities", () => {
+    const status = ELIGIBILITY_VERIFICATION_STATUS;
+
+    expect(
+      canTransitionEligibilityStatus(
+        status.NOT_VERIFIED,
+        status.VERIFICATION_IN_PROGRESS,
+        "SYSTEM",
+      ),
+    ).toBe(true);
+    expect(
+      canTransitionEligibilityStatus(
+        status.VERIFICATION_IN_PROGRESS,
+        status.VERIFIED,
+        "SYSTEM",
+      ),
+    ).toBe(false);
+    expect(
+      canTransitionEligibilityStatus(
+        status.VERIFICATION_IN_PROGRESS,
+        status.VERIFIED,
+        "PROVIDER",
+      ),
+    ).toBe(true);
+    expect(
+      canTransitionEligibilityStatus(
+        status.PENDING_MANUAL_REVIEW,
+        status.VERIFIED,
+        "PROVIDER",
+      ),
+    ).toBe(false);
+    expect(
+      canTransitionEligibilityStatus(
+        status.PENDING_MANUAL_REVIEW,
+        status.VERIFIED,
+        "REVIEWER",
+      ),
+    ).toBe(true);
+    expect(
+      canTransitionEligibilityStatus(
+        status.VERIFIED,
+        status.NOT_VERIFIED,
+        "REVIEWER",
+      ),
+    ).toBe(false);
   });
 });
