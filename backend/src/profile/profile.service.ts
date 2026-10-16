@@ -65,13 +65,13 @@ export class ProfileService {
       }
       data.displayName = displayName;
     }
-    if (Object.prototype.hasOwnProperty.call(dto, "email")) {
+    if (dto.email !== undefined) {
       data.email = this.normalizeOptional(dto.email);
     }
-    if (Object.prototype.hasOwnProperty.call(dto, "bio")) {
+    if (dto.bio !== undefined) {
       data.bio = this.normalizeOptional(dto.bio);
     }
-    if (Object.prototype.hasOwnProperty.call(dto, "city")) {
+    if (dto.city !== undefined) {
       data.city = this.normalizeOptional(dto.city);
     }
 

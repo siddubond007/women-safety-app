@@ -231,6 +231,28 @@ describe("member profile API", () => {
     expect(harness.tx.memberProfile.update).not.toHaveBeenCalled();
   });
 
+  it("leaves optional fields unchanged when they are omitted", async () => {
+    const { testApp, harness } = await createApp();
+    await request(testApp.getHttpServer())
+      .patch("/api/v1/profile/me")
+      .set("authorization", "Bearer test-development-token")
+      .send({ displayName: "Asha R." })
+      .expect(200);
+
+    expect(harness.tx.memberProfile.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { accountId: OWNER_ID },
+        data: { displayName: "Asha R." },
+      }),
+    );
+    expect(harness.getProfile()).toMatchObject({
+      displayName: "Asha R.",
+      email: "asha@example.com",
+      bio: null,
+      city: null,
+    });
+  });
+
   it("normalizes cleared optional fields to null", async () => {
     const { testApp, harness } = await createApp();
     const response = await request(testApp.getHttpServer())
