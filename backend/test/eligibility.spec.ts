@@ -182,6 +182,12 @@ describe("eligibility API fail-closed contract", () => {
       .send({ category: "arbitrary" })
       .expect(400);
 
+    await request(app.getHttpServer())
+      .post("/api/v1/eligibility/support-requests")
+      .set("Authorization", "Bearer a-valid-looking-test-token")
+      .send({ category: "manualReviewRequest", identityDocument: "not-a-real-document" })
+      .expect(400);
+
     const response = await request(app.getHttpServer())
       .post("/api/v1/eligibility/support-requests")
       .set("Authorization", "Bearer a-valid-looking-test-token")
