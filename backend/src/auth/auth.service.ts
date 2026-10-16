@@ -508,7 +508,7 @@ export class AuthenticationService {
         "The profile does not meet the temporary development age rule.",
       );
     }
-    if (Number.isNaN(acceptedAt.getTime()) || acceptedAt > new Date()) {
+    if (Number.isNaN(acceptedAt.getTime())) {
       throw new BadRequestException(
         "The draft policy acknowledgement time is invalid.",
       );
