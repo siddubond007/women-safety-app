@@ -176,3 +176,15 @@ Follow-up source fixes were committed to `feat/eligibility-domain-status` after 
 - No real provider is selected/authorized. An approved adapter's actual signature algorithm, replay timestamp window, event schema and sandbox integration must be based on that provider's official contract before enabling the endpoint.
 - Reviewer authentication/RBAC, manual-review decisions/appeals, scheduled session expiry, retention/deletion jobs and wiring the eligibility guard into actual protected community endpoints remain outstanding.
 - **Maintainer-reported local validation passed** from `D:\Development\Projects\women_safety_app-eligibility-domain-status\backend` at commit `08635b707e38211d7563858092b55cebae8507f7`: the additive callback-event migration applied successfully to `sakhi_test`; `npx.cmd prisma validate` passed; `scripts/build.ps1` passed; all 8 test files and 50/50 tests passed. The worktree reported clean and synchronized with origin. This verifies the provider-neutral boundary and synthetic fixtures only—not a real provider's signature contract or end-to-end identity result.
+
+
+## Follow-up implementation: expired-session recovery and safe retry
+
+**Source branch:** `feat/eligibility-domain-status`. This code/test increment is committed after the callback validation checkpoint and is awaiting maintainer validation.
+
+- A member starting a retry now invokes a database transaction that marks expired or expiry-less `CREATED` / `REDIRECT_READY` sessions as `EXPIRED`.
+- The transaction rechecks whether another non-expired session remains. Only when no active session remains, and the account is still `VERIFICATION_IN_PROGRESS`, does it restore `NOT_VERIFIED` through the allowed SYSTEM transition and write redacted audit metadata.
+- It never maps a timeout to `VERIFIED` or `VERIFICATION_FAILED`; it treats expiry as a lifecycle event, not an eligibility decision.
+- Added a synthetic regression test that begins with a stuck in-progress account and an expired session, then verifies that the service restores the retryable state and starts a new provider-neutral session.
+- This increment changes no database schema, so it requires no migration. The callback-event migration already applied to `sakhi_test` remains in place.
+- **Maintainer validation pending:** pull the latest branch, then run Prisma validation, the backend build, and the entire test suite. The earlier reported 50/50 pass applied to the preceding commit, not this follow-up increment.
