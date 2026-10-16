@@ -67,25 +67,20 @@ describe("development authentication service", () => {
     enableLocalDevelopmentOtp();
     const { service, tx, transaction } = createHarness(null);
 
-    await expect(
-      service.requestOtp({
+    const error = await service
+      .requestOtp({
         countryCode: "+91",
         phoneNumber: "9876543210",
         purpose: "login",
-      }),
-    ).rejects.toBeInstanceOf(BadRequestException);
+      })
+      .catch((caught: unknown) => caught);
 
-    await expect(
-      service.requestOtp({
-        countryCode: "+91",
-        phoneNumber: "9876543210",
-        purpose: "login",
-      }),
-    ).rejects.toThrow(
+    expect(error).toBeInstanceOf(BadRequestException);
+    expect(error).toHaveProperty(
+      "message",
       "No Sakhi account was found for this number. Choose Create account to register.",
     );
-
-    expect(transaction).toHaveBeenCalledTimes(2);
+    expect(transaction).toHaveBeenCalledTimes(1);
     expect(tx.memberAccount.findUnique).toHaveBeenCalled();
     expect(tx.otpChallenge.create).not.toHaveBeenCalled();
     expect(tx.auditEvent.create).not.toHaveBeenCalled();
