@@ -91,3 +91,16 @@ No production credentials, real Aadhaar number, OTP, identity document, selfie, 
 ### Eligibility database verification status
 
 The successful migration/build/test output from the original `women_safety_app-backend-live-worktree` checkout was produced on `temp/sakhi-backend-checkpoint-20261016`, not on this eligibility branch. Its migration output reported no pending migrations across two discovered migrations and does not prove that the eligibility migration ran. The isolated eligibility worktree at `D:\Development\Projects\women_safety_app-eligibility-domain-status` was created at commit `3d9889fbc3bf34b833b4278014ed3e9037e6d3fe`; the first reported command was still running `npm ci`. The eligibility migration, build, and tests must be reported only after they are run from that isolated worktree.
+
+
+## Local verification checkpoint — 16 October 2026
+
+**Reported by the maintainer from the isolated worktree** `D:\Development\Projects\women_safety_app-eligibility-domain-status\backend`:
+
+- Prisma CLI: 7.10.0 under Node.js 24.22.0 — passed.
+- Test migration wrapper: targeted `sakhi_test`; Prisma found 4 migration directories and reported `No pending migrations to apply.`
+- Build wrapper: Prisma Client generation and TypeScript build completed successfully.
+- Automated tests: 7 test files passed; 31 tests passed, 0 skipped; runtime 14.89 seconds.
+- Git checkpoint before this verification: `c2d384d0dbb015612eed56cd64ee79ba63dd0ea6`.
+
+**Migration reconciliation still required:** the wrapper's `No pending migrations` output does not identify which migration records exist or prove the expected `member_accounts.eligibility_status` column is present. Run a read-only migration-history/schema check against `sakhi_test` before claiming database verification complete. Do not reset the database or apply the profile migration in this workstream.
