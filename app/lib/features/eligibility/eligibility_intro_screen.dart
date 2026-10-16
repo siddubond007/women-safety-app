@@ -69,7 +69,8 @@ class EligibilityIntroScreen extends StatelessWidget {
           const EligibilityPrincipleCard(
             icon: Icons.visibility_off_outlined,
             title: 'No assumptions about appearance',
-            description: 'Sakhi must never infer gender from a face, name or voice.',
+            description:
+                'Sakhi must never infer gender from a face, name or voice.',
             iconColor: SakhiColors.pinkAccent,
           ),
           const SizedBox(height: SakhiSpacing.md),
