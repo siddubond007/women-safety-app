@@ -416,6 +416,7 @@ export class AuthenticationService {
           requestId: challenge.id,
           redactedMetadata: { purpose: challenge.purpose.toLowerCase() },
         },
+        select: { id: true },
       });
 
       return {
