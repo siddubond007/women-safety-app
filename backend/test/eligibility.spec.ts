@@ -458,6 +458,7 @@ describe("canonical eligibility state", () => {
     };
 
     const expiryTx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: accountId }]),
       eligibilityVerificationSession: {
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         findFirst: vi.fn().mockResolvedValue(null),
@@ -562,6 +563,68 @@ describe("canonical eligibility state", () => {
     });
     expect(expiryTx.auditEvent.create).toHaveBeenCalled();
     expect(transactionResults).toHaveLength(0);
+  });
+
+  it("sweeps stale sessions across accounts and restores retryable status", async () => {
+    const accountId = "account-id";
+    const now = new Date("2026-10-16T14:00:00.000Z");
+    const expiryTx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: accountId }]),
+      eligibilityVerificationSession: {
+        updateMany: vi.fn().mockResolvedValue({ count: 2 }),
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+      memberAccount: {
+        findUnique: vi.fn().mockResolvedValue({
+          eligibilityStatus: ELIGIBILITY_VERIFICATION_STATUS.VERIFICATION_IN_PROGRESS,
+        }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      auditEvent: {
+        create: vi.fn().mockResolvedValue({ id: "expiry-audit-id" }),
+      },
+    };
+    const fakePrisma = {
+      eligibilityVerificationSession: {
+        findMany: vi.fn().mockResolvedValue([{ accountId }]),
+      },
+      $transaction: vi.fn(
+        async (callback: (value: unknown) => Promise<unknown>) => callback(expiryTx),
+      ),
+    } as unknown as PrismaService;
+    const realService = new EligibilityService(
+      {} as AuthenticationService,
+      fakePrisma,
+      providerStub(),
+    );
+
+    await expect(realService.expireStaleVerificationSessions(now)).resolves.toBe(1);
+
+    expect(fakePrisma.eligibilityVerificationSession.findMany).toHaveBeenCalledWith({
+      where: {
+        status: { in: ["CREATED", "REDIRECT_READY"] },
+        OR: [{ expiresAt: { lte: now } }, { expiresAt: null }],
+      },
+      select: { accountId: true },
+      distinct: ["accountId"],
+    });
+    expect(expiryTx.$queryRaw).toHaveBeenCalled();
+    expect(expiryTx.eligibilityVerificationSession.updateMany).toHaveBeenCalledWith({
+      where: {
+        accountId,
+        status: { in: ["CREATED", "REDIRECT_READY"] },
+        OR: [{ expiresAt: { lte: now } }, { expiresAt: null }],
+      },
+      data: { status: "EXPIRED", completedAt: now },
+    });
+    expect(expiryTx.memberAccount.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: accountId,
+        eligibilityStatus: "VERIFICATION_IN_PROGRESS",
+      },
+      data: { eligibilityStatus: "NOT_VERIFIED" },
+    });
+    expect(expiryTx.auditEvent.create).toHaveBeenCalled();
   });
 
   it("requires a reviewer or trusted provider for sensitive status transitions", () => {
