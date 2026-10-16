@@ -27,6 +27,7 @@ const providerUnavailableConfiguration: EligibilityProviderConfiguration = {
   providerConfigured: false,
   policyApproved: false,
   providerKey: null,
+  redirectHosts: [],
   providerDisplayName: null,
   methodDescription: null,
   attributesCheckedDescription: null,
@@ -287,6 +288,7 @@ describe("canonical eligibility state", () => {
       providerConfigured: true,
       policyApproved: true,
       providerKey: "synthetic-provider",
+      redirectHosts: ["verify.example.test"],
       providerDisplayName: "Synthetic Test Provider",
       consentVersion: "notice-v1",
     };
