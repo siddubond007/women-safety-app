@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -168,6 +169,12 @@ export class AuthenticationService {
 
       // A login request must not issue a challenge for a number without an
       // account. New numbers must use the explicit registration flow instead.
+      if (dto.purpose === "registration" && account) {
+        throw new ConflictException(
+          "A Sakhi account already exists for this number. Choose Sign in instead.",
+        );
+      }
+
       if (dto.purpose === "login" && !account) {
         throw new BadRequestException(
           "No Sakhi account was found for this number. Choose Create account to register.",
@@ -337,22 +344,38 @@ export class AuthenticationService {
         };
       }
 
-      await tx.otpChallenge.update({
-        where: { id: challenge.id },
-        data: { consumedAt: now },
-      });
-
       let account = await tx.memberAccount.findUnique({
         where: { phoneE164: challenge.phoneE164 },
       });
 
       if (challenge.purpose === "LOGIN" && !account) {
+        await tx.otpChallenge.update({
+          where: { id: challenge.id },
+          data: { consumedAt: now },
+        });
         return {
           status: "invalid" as const,
           message:
             "This number could not be signed in. Check it and try again.",
         };
       }
+
+      if (challenge.purpose === "REGISTRATION" && account) {
+        await tx.otpChallenge.update({
+          where: { id: challenge.id },
+          data: { consumedAt: now },
+        });
+        return {
+          status: "invalid" as const,
+          message:
+            "A Sakhi account already exists for this number. Choose Sign in instead.",
+        };
+      }
+
+      await tx.otpChallenge.update({
+        where: { id: challenge.id },
+        data: { consumedAt: now },
+      });
 
       if (!account && challenge.purpose === "REGISTRATION") {
         account = await tx.memberAccount.create({
@@ -518,6 +541,16 @@ export class AuthenticationService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      const existingProfile = await tx.memberProfile.findUnique({
+        where: { accountId: session.accountId },
+        select: { accountId: true },
+      });
+      if (existingProfile) {
+        throw new ConflictException(
+          "A profile already exists for this account. Use the profile-management flow to make changes.",
+        );
+      }
+
       const [terms, privacy] = await Promise.all([
         tx.policyDocumentVersion.findFirst({
           where: { documentType: "TERMS", status: "DRAFT" },
@@ -534,15 +567,9 @@ export class AuthenticationService {
         );
       }
 
-      const profile = await tx.memberProfile.upsert({
-        where: { accountId: session.accountId },
-        create: {
+      const profile = await tx.memberProfile.create({
+        data: {
           accountId: session.accountId,
-          displayName: dto.displayName.trim(),
-          dateOfBirth: dob,
-          email: dto.email?.trim().toLowerCase() || null,
-        },
-        update: {
           displayName: dto.displayName.trim(),
           dateOfBirth: dob,
           email: dto.email?.trim().toLowerCase() || null,
