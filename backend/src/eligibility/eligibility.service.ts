@@ -219,8 +219,10 @@ export class EligibilityService {
     }
 
     const accountId = authSession.accountId;
+    // Recover only expired/incomplete sessions before deciding whether a retry
+    // is permitted. The status is re-read inside the same transaction as cleanup.
     const currentStatus =
-      authSession.account.eligibilityStatus as EligibilityVerificationStatus;
+      await this.expireStaleVerificationSessions(accountId);
 
     if (
       !canTransitionEligibilityStatus(
@@ -640,6 +642,123 @@ export class EligibilityService {
         message: "The provider callback could not be authenticated and normalized.",
       });
     }
+  }
+
+  /**
+   * Lazily expires abandoned startup/redirect sessions on a trusted member
+   * start request. If no live session remains, a stuck in-progress state is
+   * returned to NOT_VERIFIED so the member can retry. No provider outcome is
+   * inferred and no session is automatically marked failed.
+   */
+  private async expireStaleVerificationSessions(
+    accountId: string,
+    now = new Date(),
+  ): Promise<EligibilityVerificationStatus> {
+    return this.prisma.$transaction(async (tx) => {
+      const expired = await tx.eligibilityVerificationSession.updateMany({
+        where: {
+          accountId,
+          status: { in: ["CREATED", "REDIRECT_READY"] },
+          OR: [{ expiresAt: { lte: now } }, { expiresAt: null }],
+        },
+        data: { status: "EXPIRED", completedAt: now },
+      });
+
+      const activeSession =
+        await tx.eligibilityVerificationSession.findFirst({
+          where: {
+            accountId,
+            status: { in: ["CREATED", "REDIRECT_READY"] },
+            expiresAt: { gt: now },
+          },
+          select: { id: true },
+        });
+
+      const account = await tx.memberAccount.findUnique({
+        where: { id: accountId },
+        select: { eligibilityStatus: true },
+      });
+      if (!account) {
+        throw new UnauthorizedException({
+          code: "eligibility_account_unavailable",
+          message: "The authenticated account is no longer available.",
+        });
+      }
+
+      let status =
+        account.eligibilityStatus as EligibilityVerificationStatus;
+
+      if (
+        !activeSession &&
+        status === ELIGIBILITY_VERIFICATION_STATUS.VERIFICATION_IN_PROGRESS &&
+        canTransitionEligibilityStatus(
+          status,
+          ELIGIBILITY_VERIFICATION_STATUS.NOT_VERIFIED,
+          "SYSTEM",
+        )
+      ) {
+        const updated = await tx.memberAccount.updateMany({
+          where: {
+            id: accountId,
+            eligibilityStatus:
+              ELIGIBILITY_VERIFICATION_STATUS.VERIFICATION_IN_PROGRESS,
+          },
+          data: {
+            eligibilityStatus: ELIGIBILITY_VERIFICATION_STATUS.NOT_VERIFIED,
+          },
+        });
+
+        if (updated.count === 1) {
+          status = ELIGIBILITY_VERIFICATION_STATUS.NOT_VERIFIED;
+          await tx.auditEvent.create({
+            data: {
+              actorType: "SYSTEM",
+              action: "eligibility.status.changed",
+              targetType: "member_account",
+              targetId: accountId,
+              outcome: "recovered",
+              requestId: randomUUID(),
+              redactedMetadata: {
+                from: ELIGIBILITY_VERIFICATION_STATUS.VERIFICATION_IN_PROGRESS,
+                to: ELIGIBILITY_VERIFICATION_STATUS.NOT_VERIFIED,
+                reason: "no_active_verification_session",
+              },
+            },
+            select: { id: true },
+          });
+        } else {
+          const refreshed = await tx.memberAccount.findUnique({
+            where: { id: accountId },
+            select: { eligibilityStatus: true },
+          });
+          if (!refreshed) {
+            throw new UnauthorizedException({
+              code: "eligibility_account_unavailable",
+              message: "The authenticated account is no longer available.",
+            });
+          }
+          status =
+            refreshed.eligibilityStatus as EligibilityVerificationStatus;
+        }
+      }
+
+      if (expired.count > 0) {
+        await tx.auditEvent.create({
+          data: {
+            actorType: "SYSTEM",
+            action: "eligibility.provider_sessions.expired",
+            targetType: "member_account",
+            targetId: accountId,
+            outcome: "completed",
+            requestId: randomUUID(),
+            redactedMetadata: { expiredSessionCount: expired.count },
+          },
+          select: { id: true },
+        });
+      }
+
+      return status;
+    });
   }
 
   private validateProviderSession(
