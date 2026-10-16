@@ -25,12 +25,15 @@ class EligibilityConsentScreen extends StatefulWidget {
 
 class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
   bool _consentSelected = false;
+  bool _biometricConsentSelected = false;
   bool _isWorking = false;
   DateTime? _consentSelectedAt;
 
   Future<void> _startVerification() async {
     if (!_consentSelected ||
         !widget.configuration.canStartVerification ||
+        (widget.configuration.biometricProcessingRequired &&
+            !_biometricConsentSelected) ||
         _isWorking) {
       return;
     }
@@ -44,6 +47,7 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
         consent: EligibilityConsentRecord(
           consentVersion: version,
           acceptedAt: _consentSelectedAt ?? DateTime.now(),
+          biometricProcessingConsented: _biometricConsentSelected,
         ),
       );
       if (!mounted) return;
@@ -101,7 +105,12 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final configurationReady = widget.configuration.hasApprovedConfiguration;
     final canStart = widget.configuration.canStartVerification;
+    final biometricConsentRequired =
+        widget.configuration.biometricProcessingRequired;
+    final showBiometricConsent =
+        canStart && widget.configuration.biometricProcessingSupported;
 
     return SakhiAuthScaffold(
       botanicalAsset: AppAssets.authBotanicalConsent,
@@ -139,13 +148,17 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
             style: SakhiTypography.body,
           ),
           const SizedBox(height: SakhiSpacing.md),
-          if (!canStart)
+          if (!configurationReady)
             const SakhiAuthStatusMessage(
               message: 'DEMO CONSENT PREVIEW — the provider and approved policy are not configured. This screen tests the consent interaction only; your selection is not recorded as valid production consent.',
             )
+          else if (!widget.configuration.mobileHandoffSupported)
+            const SakhiAuthStatusMessage(
+              message: 'The provider configuration is available, but this app cannot yet complete the secure provider handoff and return flow. No real verification session or production consent will be started from this screen.',
+            )
           else
             const SakhiAuthStatusMessage(
-              message: 'Review the approved details above before consenting. The service is called only after you press Start verification; only a trusted service response can establish a status.',
+              message: 'Review the approved details above before consenting. A trusted backend response—not a redirect or client action—must determine eligibility.',
             ),
           const SizedBox(height: SakhiSpacing.md),
           Container(
@@ -233,20 +246,77 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
               ),
             ),
           ),
+          if (showBiometricConsent) ...[
+            const SizedBox(height: SakhiSpacing.sm),
+            Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(18),
+              clipBehavior: Clip.antiAlias,
+              child: Ink(
+                decoration: BoxDecoration(
+                  color: SakhiColors.ivory,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: _biometricConsentSelected
+                        ? SakhiColors.purple.withValues(alpha: 0.65)
+                        : SakhiColors.progressInactive,
+                  ),
+                ),
+                child: CheckboxListTile(
+                  key: const Key('eligibility-biometric-consent-checkbox'),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: SakhiSpacing.sm,
+                  ),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  value: _biometricConsentSelected,
+                  activeColor: SakhiColors.purple,
+                  onChanged: _isWorking
+                      ? null
+                      : (value) => setState(
+                          () => _biometricConsentSelected = value ?? false,
+                        ),
+                  title: Text(
+                    biometricConsentRequired
+                        ? 'I separately consent to the biometric processing described in the approved verification details.'
+                        : 'I optionally consent to the biometric processing described in the approved verification details.',
+                    style: const TextStyle(
+                      color: SakhiColors.plum,
+                      fontSize: 13,
+                      height: 1.4,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: SakhiSpacing.xs),
-          if (!canStart)
+          if (!configurationReady)
             const SakhiAuthStatusMessage(
               message: 'Start verification is unavailable because an authorised provider, approved method, complete disclosures and consent version have not been configured.',
+            )
+          else if (!widget.configuration.mobileHandoffSupported)
+            const SakhiAuthStatusMessage(
+              message: 'Start verification remains disabled until the secure provider handoff and return flow are implemented and tested.',
+            )
+          else if (biometricConsentRequired && !_biometricConsentSelected)
+            const SakhiAuthStatusMessage(
+              message: 'Separate explicit biometric consent is required before the verification session can start.',
             ),
           const SizedBox(height: SakhiSpacing.md),
           SakhiAuthSubmitButton(
             key: const Key('eligibility-start-verification-button'),
-            label: canStart
-                ? 'Start verification'
-                : 'Start verification · Not configured',
+            label: !canStart
+                ? 'Start verification · Not configured'
+                : biometricConsentRequired && !_biometricConsentSelected
+                ? 'Separate biometric consent required'
+                : 'Start verification',
             icon: Icons.verified_user_outlined,
             isLoading: _isWorking,
-            onPressed: _consentSelected && canStart && !_isWorking
+            onPressed: _consentSelected &&
+                    canStart &&
+                    (!biometricConsentRequired || _biometricConsentSelected) &&
+                    !_isWorking
                 ? _startVerification
                 : null,
           ),
