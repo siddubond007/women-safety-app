@@ -29,15 +29,21 @@ class BackendApiClient {
     String? baseUrl,
     HttpClient? httpClient,
     FlutterSecureStorage? secureStorage,
-  }) : baseUrl =
-           baseUrl ??
-           const String.fromEnvironment(
-             'SAKHI_API_BASE_URL',
-             defaultValue: 'http://127.0.0.1:3000/api/v1',
-           ),
+  }) : baseUrl = baseUrl ?? _defaultBaseUrl(),
        _httpClient = httpClient ?? HttpClient(),
        _secureStorage = secureStorage ?? const FlutterSecureStorage() {
     _httpClient.connectionTimeout = const Duration(seconds: 8);
+  }
+
+  static String _defaultBaseUrl() {
+    const configuredBaseUrl = String.fromEnvironment('SAKHI_API_BASE_URL');
+    if (configuredBaseUrl.isNotEmpty) return configuredBaseUrl;
+
+    // Android emulators reach the development host via 10.0.2.2, not their
+    // own loopback address. Other native development targets use host loopback.
+    return Platform.isAndroid
+        ? 'http://10.0.2.2:3000/api/v1'
+        : 'http://127.0.0.1:3000/api/v1';
   }
 
   static const _tokenStorageKey = 'sakhi.dev.auth.access_token';
@@ -96,10 +102,9 @@ class BackendApiClient {
           .openUrl(method, _uri(path))
           .timeout(const Duration(seconds: 12));
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      if (body != null) {
-        request.headers.contentType = ContentType.json;
-        request.write(jsonEncode(body));
-      }
+      // Resolve authentication before writing the body. Once request bytes are
+      // written, some HttpClient implementations may begin sending the request
+      // and no longer permit header mutation.
       if (authenticated) {
         final token = await readAccessToken();
         if (token == null || token.isEmpty) {
@@ -110,6 +115,10 @@ class BackendApiClient {
           );
         }
         request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+      }
+      if (body != null) {
+        request.headers.contentType = ContentType.json;
+        request.write(jsonEncode(body));
       }
 
       final response = await request.close().timeout(

@@ -113,6 +113,8 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final canPreviewEligibility =
+        widget.authService.isDemo && !widget.authService.isDevelopmentBackend;
     final dob = widget.profile.dateOfBirth;
     final day = dob.day.toString().padLeft(2, '0');
     final month = dob.month.toString().padLeft(2, '0');
@@ -231,12 +233,16 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
           Center(
             child: TextButton.icon(
               key: const Key('eligibility-preview-entry-button'),
-              onPressed: _isCreatingAccount ? null : _openEligibilityPreview,
+              onPressed: _isCreatingAccount || !canPreviewEligibility
+                  ? null
+                  : _openEligibilityPreview,
               icon: const Icon(Icons.verified_user_outlined, size: 18),
               label: Text(
                 widget.authService.isDevelopmentBackend
-                    ? 'Check eligibility status (provider not configured)'
-                    : 'Preview eligibility verification (demo only)',
+                    ? 'Eligibility verification unavailable (provider not configured)'
+                    : canPreviewEligibility
+                    ? 'Preview eligibility verification (demo only)'
+                    : 'Eligibility verification unavailable',
                 textAlign: TextAlign.center,
               ),
             ),

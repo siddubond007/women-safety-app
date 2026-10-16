@@ -619,6 +619,42 @@ void main() {
     expect(isAtLeastMinimumAge(DateTime(2000, 1, 1), today, 13), isTrue);
   });
 
+  testWidgets(
+    'eligibility entry is disabled for backend mode without an approved provider',
+    (tester) async {
+      final service = _FakeAuthService()..developmentBackend = true;
+      final profile = MemberProfileDraft(
+        countryCode: '+1',
+        phoneNumber: '2025550100',
+        displayName: 'Siddu Test',
+        dateOfBirth: DateTime(2001, 10, 17),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SakhiConsentScreen(
+            authService: service,
+            profile: profile,
+            minimumAgeYears: 13,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final entry = find.byKey(
+        const Key('eligibility-preview-entry-button'),
+      );
+      expect(tester.widget<TextButton>(entry).onPressed, isNull);
+      expect(
+        find.text(
+          'Eligibility verification unavailable (provider not configured)',
+        ),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('onboarding Get started enters mobile-first registration', (
     tester,
   ) async {
@@ -657,6 +693,7 @@ AuthOtpSession _session({
 
 class _FakeAuthService implements AuthService {
   bool demo = false;
+  bool developmentBackend = false;
   int requestCalls = 0;
   int resendCalls = 0;
   int verifyCalls = 0;
@@ -671,7 +708,7 @@ class _FakeAuthService implements AuthService {
   bool get isDemo => demo;
 
   @override
-  bool get isDevelopmentBackend => false;
+  bool get isDevelopmentBackend => developmentBackend;
 
   @override
   Future<AuthOtpSession> requestOtp({
