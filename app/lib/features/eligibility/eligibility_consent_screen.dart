@@ -274,12 +274,12 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
               onPressed: _isWorking
                   ? null
                   : () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => const SakhiPolicyDocumentScreen(
-                            title: 'Privacy Policy',
-                          ),
+                      MaterialPageRoute<void>(
+                        builder: (_) => const SakhiPolicyDocumentScreen(
+                          title: 'Privacy Policy',
                         ),
                       ),
+                    ),
               child: const Text('Review the Privacy Policy'),
             ),
           ),
