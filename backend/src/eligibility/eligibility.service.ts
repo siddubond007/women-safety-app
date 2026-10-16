@@ -84,7 +84,8 @@ export class EligibilityService {
       provider.providerConfigured &&
       provider.policyApproved &&
       Boolean(provider.providerKey) &&
-      Boolean(provider.consentVersion);
+      Boolean(provider.consentVersion) &&
+      provider.redirectHosts.length > 0;
 
     return {
       providerConfigured: provider.providerConfigured,
@@ -322,7 +323,7 @@ export class EligibilityService {
         biometricProcessingConsented: dto.biometricProcessingConsented === true,
       });
       providerSession = candidate;
-      this.validateProviderSession(candidate);
+      this.validateProviderSession(candidate, provider.redirectHosts);
     } catch {
       if (providerSession && this.provider.cancelSession) {
         await this.provider
@@ -397,7 +398,10 @@ export class EligibilityService {
     };
   }
 
-  private validateProviderSession(session: EligibilityProviderSession): void {
+  private validateProviderSession(
+    session: EligibilityProviderSession,
+    allowedRedirectHosts: readonly string[],
+  ): void {
     if (
       !session ||
       typeof session.providerReference !== "string" ||
@@ -416,9 +420,14 @@ export class EligibilityService {
     if (
       redirect.protocol !== "https:" ||
       redirect.username.length > 0 ||
-      redirect.password.length > 0
+      redirect.password.length > 0 ||
+      !allowedRedirectHosts.some(
+        (host) => host.toLowerCase() === redirect.hostname.toLowerCase(),
+      )
     ) {
-      throw new Error("Provider redirect must use HTTPS without embedded credentials");
+      throw new Error(
+        "Provider redirect must use HTTPS, omit embedded credentials, and match the configured provider host allowlist",
+      );
     }
 
     if (
