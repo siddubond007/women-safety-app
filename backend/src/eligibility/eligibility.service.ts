@@ -307,17 +307,31 @@ export class EligibilityService {
       });
     });
 
-    let providerSession: EligibilityProviderSession;
+    let providerSession: EligibilityProviderSession | undefined;
     try {
-      providerSession = await this.provider.startSession({
+      const candidate = await this.provider.startSession({
         localSessionId,
         accountId,
         consentVersion,
         biometricProcessingConsented: dto.biometricProcessingConsented === true,
       });
-      this.validateProviderSession(providerSession);
+      providerSession = candidate;
+      this.validateProviderSession(candidate);
     } catch {
-      await this.failProviderStart(localSessionId, accountId).catch(() => undefined);
+      if (providerSession && this.provider.cancelSession) {
+        await this.provider
+          .cancelSession({ providerReference: providerSession.providerReference })
+          .catch(() => undefined);
+      }
+      await this.failProviderStart(localSessionId, accountId, currentStatus).catch(() => undefined);
+      throw new ServiceUnavailableException({
+        code: "eligibility_provider_start_failed",
+        message: "The verification session could not be started. Your account remains not verified; retry later or contact support.",
+      });
+    }
+
+    if (!providerSession) {
+      await this.failProviderStart(localSessionId, accountId, currentStatus).catch(() => undefined);
       throw new ServiceUnavailableException({
         code: "eligibility_provider_start_failed",
         message: "The verification session could not be started. Your account remains not verified; retry later or contact support.",
@@ -357,7 +371,7 @@ export class EligibilityService {
           .cancelSession({ providerReference: providerSession.providerReference })
           .catch(() => undefined);
       }
-      await this.failProviderStart(localSessionId, accountId).catch(() => undefined);
+      await this.failProviderStart(localSessionId, accountId, currentStatus).catch(() => undefined);
       throw new ServiceUnavailableException({
         code: "eligibility_session_persistence_failed",
         message: "The provider session could not be safely recorded. No eligibility approval was granted; retry later or contact support.",
@@ -412,6 +426,7 @@ export class EligibilityService {
   private async failProviderStart(
     localSessionId: string,
     accountId: string,
+    originalStatus: EligibilityVerificationStatus,
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       await tx.eligibilityVerificationSession.update({
@@ -424,7 +439,7 @@ export class EligibilityService {
           id: accountId,
           eligibilityStatus: "VERIFICATION_IN_PROGRESS",
         },
-        data: { eligibilityStatus: "NOT_VERIFIED" },
+        data: { eligibilityStatus: originalStatus },
       });
       await tx.auditEvent.create({
         data: {
