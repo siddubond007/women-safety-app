@@ -358,6 +358,7 @@ describe("canonical eligibility state", () => {
       }),
     };
     const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: accountId }]),
       eligibilityConsent: {
         create: vi.fn().mockResolvedValue({ id: "consent-id" }),
       },
