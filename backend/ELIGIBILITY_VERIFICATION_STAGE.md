@@ -125,6 +125,10 @@ The successful migration/build/test output from the original `women_safety_app-b
 
 Support request categories are `verificationHelp`, `manualReviewRequest`, `accessibilityAlternative`, and `appealGuidance`. The start request DTO uses `consentAccepted`, `consentVersion`, and `biometricProcessingConsented`. The consent fields are optional at the transport DTO layer only to maintain the old disabled-provider client contract; when an approved provider is configured, the service requires explicit, matching consent before making the provider call.
 
+### Provider redirect and input minimization
+
+The adapter configuration must explicitly provide `redirectHosts`. Verification start is rejected when that allowlist is empty. When a provider is enabled, its returned URL must be HTTPS, have no embedded username/password, and have a hostname exactly matching one of the configured allowed hosts. The internal account ID is not passed to the provider adapter; only the local opaque session ID, notice version and biometric-consent boolean are supplied as adapter input.
+
 ### Remaining blockers and safety boundaries
 
 - No provider is selected/authorized; no provider credentials are present; no real identity data is collected. Production provider activation is blocked by provider and legal approval.
@@ -132,4 +136,4 @@ Support request categories are `verificationHelp`, `manualReviewRequest`, `acces
 - The adapter must not infer gender from a selfie, name, voice or facial appearance. Phone OTP or Aadhaar OTP success is not an eligibility result.
 - Human review decisions remain disabled until reviewer authorization and approved, fair review criteria exist. A category-only request records a request, not an accepted eligibility appeal.
 - Shared user/profile contract and schema/migration integration with PRs #13/#14 remains deferred. The profile workstream must not migrate `sakhi_test` while eligibility testing is underway.
-- The earlier 31-test passing result predates these source changes and is not validation of this increment. Maintainer must rerun the new migration, build and complete backend tests after pulling.
+- The earlier 31-test passing result predates these source changes and is not validation of this increment. The latest source checkpoint is on `feat/eligibility-domain-status`; maintainer must pull the latest head, run the new migration on `sakhi_test`, then run Prisma validation/build and the complete backend test suite. Database migration history/column existence must be verified separately; no status should be inferred from an older “No pending migrations” message.
