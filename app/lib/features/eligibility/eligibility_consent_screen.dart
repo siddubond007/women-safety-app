@@ -6,6 +6,7 @@ import '../auth/widgets/auth_widgets.dart';
 import 'eligibility_status_screen.dart';
 import 'eligibility_verification_models.dart';
 import 'eligibility_verification_service.dart';
+import 'eligibility_widgets.dart';
 
 class EligibilityConsentScreen extends StatefulWidget {
   const EligibilityConsentScreen({
@@ -109,12 +110,23 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const EligibilityStepIndicator(
+            step: 3,
+            totalSteps: 3,
+            label: 'Your decision',
+          ),
+          const SizedBox(height: SakhiSpacing.md),
+          const EligibilityVectorHero(
+            icon: Icons.lock_outline_rounded,
+            caption: 'Consent is a choice—not a shortcut.',
+          ),
+          const SizedBox(height: SakhiSpacing.md),
           const Text(
             'YOUR CHOICE',
             style: SakhiTypography.categoryLabel,
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: SakhiSpacing.sm),
+          const SizedBox(height: SakhiSpacing.xs),
           Text(
             'Eligibility consent',
             textAlign: TextAlign.center,
@@ -136,31 +148,83 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
               message: 'Review the approved details above before consenting. The service is called only after you press Start verification; only a trusted service response can establish a status.',
             ),
           const SizedBox(height: SakhiSpacing.md),
+          Container(
+            padding: const EdgeInsets.all(SakhiSpacing.md),
+            decoration: BoxDecoration(
+              color: SakhiColors.lavender.withValues(alpha: 0.55),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: SakhiColors.progressInactive.withValues(alpha: 0.8),
+              ),
+            ),
+            child: const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Before you continue',
+                  style: TextStyle(
+                    color: SakhiColors.plum,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                SizedBox(height: SakhiSpacing.sm),
+                EligibilityBullet(
+                  text: 'You can read the verification method and data-use details before deciding.',
+                ),
+                EligibilityBullet(
+                  text: 'A future provider must return a trusted result; a redirect or OTP alone is not proof of eligibility.',
+                ),
+                EligibilityBullet(
+                  text: 'A failure or timeout is not an eligibility decision.',
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: SakhiSpacing.md),
           Material(
             color: Colors.transparent,
-            child: CheckboxListTile(
-              key: const Key('eligibility-consent-checkbox'),
-              contentPadding: EdgeInsets.zero,
-              controlAffinity: ListTileControlAffinity.leading,
-              value: _consentSelected,
-              activeColor: SakhiColors.purple,
-              onChanged: _isWorking
-                  ? null
-                  : (value) => setState(() {
-                      _consentSelected = value ?? false;
-                      _consentSelectedAt = _consentSelected
-                          ? DateTime.now()
-                          : null;
-                    }),
-              title: Text(
-                canStart
-                    ? 'I have read the approved verification details above and explicitly consent to this eligibility-verification process.'
-                    : 'I affirmatively select the eligibility-consent control for this demo preview and understand that no real verification will occur.',
-                style: const TextStyle(
-                  color: SakhiColors.plum,
-                  fontSize: 13,
-                  height: 1.4,
-                  fontWeight: FontWeight.w600,
+            child: Container(
+              decoration: BoxDecoration(
+                color: SakhiColors.ivory,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: _consentSelected
+                      ? SakhiColors.purple.withValues(alpha: 0.65)
+                      : SakhiColors.progressInactive,
+                  width: _consentSelected ? 1.4 : 1,
+                ),
+              ),
+              padding: const EdgeInsets.symmetric(
+                horizontal: SakhiSpacing.xs,
+                vertical: SakhiSpacing.xs,
+              ),
+              child: CheckboxListTile(
+                key: const Key('eligibility-consent-checkbox'),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: SakhiSpacing.xs,
+                ),
+                controlAffinity: ListTileControlAffinity.leading,
+                value: _consentSelected,
+                activeColor: SakhiColors.purple,
+                onChanged: _isWorking
+                    ? null
+                    : (value) => setState(() {
+                        _consentSelected = value ?? false;
+                        _consentSelectedAt = _consentSelected
+                            ? DateTime.now()
+                            : null;
+                      }),
+                title: Text(
+                  canStart
+                      ? 'I have read the approved verification details above and explicitly consent to this eligibility-verification process.'
+                      : 'I select this control for the demo preview and understand that no real verification will occur.',
+                  style: const TextStyle(
+                    color: SakhiColors.plum,
+                    fontSize: 13,
+                    height: 1.4,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ),
@@ -200,6 +264,21 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
             ),
           ),
           const SizedBox(height: SakhiSpacing.xs),
+          Center(
+            child: TextButton(
+              key: const Key('eligibility-consent-policy-button'),
+              onPressed: _isWorking
+                  ? null
+                  : () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const SakhiPolicyDocumentScreen(
+                            title: 'Privacy Policy',
+                          ),
+                        ),
+                      ),
+              child: const Text('Review the Privacy Policy'),
+            ),
+          ),
           Center(
             child: TextButton(
               key: const Key('eligibility-consent-back-button'),
