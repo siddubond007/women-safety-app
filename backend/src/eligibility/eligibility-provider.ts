@@ -32,6 +32,36 @@ export interface EligibilityProviderSession {
 }
 
 /**
+ * Only the approved provider adapter may normalize an authenticated callback
+ * into one of these conservative outcomes. Ambiguous or unsupported results
+ * must map to PENDING_MANUAL_REVIEW, never to VERIFIED.
+ */
+export const ELIGIBILITY_PROVIDER_CALLBACK_OUTCOMES = [
+  "VERIFIED",
+  "PENDING_MANUAL_REVIEW",
+  "VERIFICATION_FAILED",
+] as const;
+
+export type EligibilityProviderCallbackOutcome =
+  (typeof ELIGIBILITY_PROVIDER_CALLBACK_OUTCOMES)[number];
+
+export interface EligibilityProviderCallbackInput {
+  /** Exact request bytes, before JSON parsing; never log or persist this value. */
+  rawBody: Buffer;
+  /** Adapter-specific signature/timestamp headers, supplied without alteration. */
+  headers: Readonly<Record<string, string | string[] | undefined>>;
+}
+
+export interface NormalizedEligibilityProviderCallback {
+  /** Stable provider event identifier used for durable replay protection. */
+  eventId: string;
+  /** Opaque provider reference previously saved on the matching local session. */
+  providerReference: string;
+  /** A verified, provider-authenticated normalized result. */
+  outcome: EligibilityProviderCallbackOutcome;
+}
+
+/**
  * Adapter contract for a legally approved provider. Implementations must only
  * return attributes permitted for the reviewed eligibility criterion. They
  * must never infer gender from appearance or equate phone/Aadhaar OTP success
@@ -42,6 +72,15 @@ export interface EligibilityProviderAdapter {
   startSession(
     input: CreateEligibilityProviderSession,
   ): Promise<EligibilityProviderSession>;
+  /**
+   * Verify provider-specific signature/authentication, timestamp freshness,
+   * and event schema over rawBody before returning a normalized event. An
+   * implementation must reject an invalid signature and must never trust a
+   * redirect query string or client-supplied result.
+   */
+  verifyAndNormalizeCallback(
+    input: EligibilityProviderCallbackInput,
+  ): Promise<NormalizedEligibilityProviderCallback>;
   cancelSession?(input: { providerReference: string }): Promise<void>;
 }
 
@@ -78,6 +117,14 @@ export class UnconfiguredEligibilityProviderAdapter
   ): Promise<EligibilityProviderSession> {
     throw new ServiceUnavailableException(
       "No approved eligibility provider is configured. No identity data was sent.",
+    );
+  }
+
+  async verifyAndNormalizeCallback(
+    _input: EligibilityProviderCallbackInput,
+  ): Promise<NormalizedEligibilityProviderCallback> {
+    throw new ServiceUnavailableException(
+      "No approved eligibility provider callback validator is configured.",
     );
   }
 }
