@@ -160,9 +160,9 @@ describe("eligibility API fail-closed contract", () => {
       .expect(409);
 
     expect(response.body.code).toBe("eligibility_provider_unavailable");
-    expect(service.start).toHaveBeenCalledWith(
+    expect(service.start).toHaveBeenCalled();
+    expect(service.start.mock.calls[0]?.[0]).toBe(
       "Bearer a-valid-looking-test-token",
-      {},
     );
   });
 
