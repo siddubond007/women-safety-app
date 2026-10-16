@@ -58,8 +58,5 @@ BEGIN
     );
     EXECUTE format('GRANT SELECT ON TABLE policy_document_versions TO %I', app_role);
     EXECUTE format('GRANT INSERT ON TABLE audit_events TO %I', app_role);
-    -- Prisma's create() returns inserted data; the app code selects only id.
-    -- Keep the runtime role from reading the rest of the audit record.
-    EXECUTE format('GRANT SELECT (id) ON TABLE audit_events TO %I', app_role);
 END
 $grant_runtime_permissions$;
