@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { EligibilitySessionExpiryWorker, ELIGIBILITY_SESSION_EXPIRY_INTERVAL_MS } from "../src/eligibility/eligibility-session-expiry.worker.js";
+import {
+  ELIGIBILITY_SESSION_EXPIRY_INTERVAL_MS,
+  EligibilitySessionExpiryWorker,
+} from "../src/eligibility/eligibility-session-expiry.worker.js";
 import type { EligibilityService } from "../src/eligibility/eligibility.service.js";
 
 describe("eligibility session expiry worker", () => {
