@@ -1,7 +1,7 @@
 import "reflect-metadata";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PrismaService } from "../src/database/prisma.service.js";
+import type { PrismaService } from "../src/database/prisma.service.js";
 import { AuthenticationService } from "../src/auth/auth.service.js";
 
 const ENV_KEYS = [
