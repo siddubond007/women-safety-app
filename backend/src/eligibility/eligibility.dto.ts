@@ -1,15 +1,27 @@
-import { IsBoolean, IsIn, IsString, Length } from "class-validator";
+import {
+  IsBoolean,
+  IsIn,
+  IsOptional,
+  IsString,
+  Length,
+} from "class-validator";
 
 export class StartEligibilityVerificationDto {
+  // Optional at DTO level for backward compatibility with the old no-body
+  // client contract. The service requires explicit consent before any enabled
+  // provider can start.
+  @IsOptional()
   @IsBoolean()
-  consentAccepted!: boolean;
+  consentAccepted?: boolean;
 
+  @IsOptional()
   @IsString()
   @Length(1, 64)
-  consentVersion!: string;
+  consentVersion?: string;
 
+  @IsOptional()
   @IsBoolean()
-  biometricProcessingConsented!: boolean;
+  biometricProcessingConsented?: boolean;
 }
 
 export const ELIGIBILITY_SUPPORT_REQUEST_CATEGORIES = [
