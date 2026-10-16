@@ -156,7 +156,7 @@ class EligibilityInformationScreen extends StatelessWidget {
                       text: 'Sensitive records must have restricted access and defined retention and deletion periods.',
                     ),
                     EligibilityBullet(
-                      icon: Icons.support_outlined,
+                      icon: Icons.support_agent_outlined,
                       text: 'A technical error or provider timeout is not an eligibility rejection.',
                     ),
                   ],
