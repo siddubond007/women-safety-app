@@ -144,12 +144,23 @@ disabled when no approved provider/policy is configured. This preview route is
 built on the current `feat/eligibility-verification` UI branch so device tests
 exercise the latest consent-panel fix.
 
-**Local validation and physical-device visual testing for this route are
-pending.** Before advancing, run Dart formatting checks, `flutter analyze`,
-the full `flutter test` suite, then launch the app on the Android device. Review
-the screens at device size for clipping/overflow, readable disclosures, working
-back-navigation, disabled start action and the explicit no-real-verification
-warning. Fix any observed issues before marking the mobile UI checkpoint done.
+**Maintainer validation completed on 16 October 2026** at source commit
+`07317a3c0a1893139bb6a035163f35f19d3b56c5`:
+
+- Dart format check reported no changes required (the first check ran before
+  `flutter pub get`; the dependencies were subsequently resolved).
+- `flutter analyze` passed with no issues.
+- The full `flutter test` suite passed all 39 tests.
+- The app built and installed on the physical I2214 Android 16 device.
+- Screenshot review covered introduction, information disclosures, consent and
+  provider-unavailable status. No obvious layout overflow or clipped action was
+  visible. The Start verification action remained disabled when the provider
+  and policy were unavailable, the demo-only warning was visible, and the
+  final status screen explicitly stated that protected features remain
+  protected.
+
+The device build exercised the demo preview, not live backend integration or a
+real provider. The Git worktree was clean at the tested commit.
 
 ## Later work requires separate approval
 
