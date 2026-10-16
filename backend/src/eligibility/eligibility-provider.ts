@@ -9,6 +9,7 @@ export interface EligibilityProviderConfiguration {
   providerDisplayName: string | null;
   methodDescription: string | null;
   attributesCheckedDescription: string | null;
+  biometricProcessingSupported: boolean;
   biometricProcessingRequired: boolean;
   dataHandlingDescription: string | null;
   retentionAndDeletionDescription: string | null;
@@ -59,6 +60,7 @@ export class UnconfiguredEligibilityProviderAdapter
       providerDisplayName: null,
       methodDescription: null,
       attributesCheckedDescription: null,
+      biometricProcessingSupported: false,
       biometricProcessingRequired: false,
       dataHandlingDescription: null,
       retentionAndDeletionDescription: null,
