@@ -10,8 +10,15 @@ class _FakeProfileService implements ProfileService {
   final savedRequests = <Map<String, String?>>[];
   Object? saveError;
 
+  Object? loadError;
+  int loadCalls = 0;
+
   @override
-  Future<SakhiMemberProfile> getMyProfile() async => profile;
+  Future<SakhiMemberProfile> getMyProfile() async {
+    loadCalls++;
+    if (loadError != null) throw loadError!;
+    return profile;
+  }
 
   @override
   Future<SakhiMemberProfile> updateMyProfile({
@@ -97,16 +104,25 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('shows a retry action when profile loading fails', (tester) async {
+  testWidgets('retry reloads the profile after the first load fails', (tester) async {
     final service = _FakeProfileService(
-      const SakhiMemberProfile(displayName: 'Unused'),
-    )..saveError = const ProfileServiceException('Test connection issue.');
+      const SakhiMemberProfile(displayName: 'Asha Rao'),
+    )..loadError = const ProfileServiceException('Test connection issue.');
 
-    // Initial load succeeds; the retry path is only needed for a load error.
     await tester.pumpWidget(
       MaterialApp(home: SakhiMyProfileScreen(profileService: service)),
     );
     await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('profile-load-error')), findsOneWidget);
+    expect(find.byKey(const Key('profile-retry-button')), findsOneWidget);
+
+    service.loadError = null;
+    await tester.tap(find.byKey(const Key('profile-retry-button')));
+    await tester.pumpAndSettle();
+
+    expect(service.loadCalls, 2);
+    expect(find.byKey(const Key('profile-load-error')), findsNothing);
     expect(find.byKey(const Key('profile-save-button')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

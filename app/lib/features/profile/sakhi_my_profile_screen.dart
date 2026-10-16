@@ -229,12 +229,12 @@ class _SakhiMyProfileScreenState extends State<SakhiMyProfileScreen> {
                           children: [
                             Text(
                               'Your Sakhi profile',
-                              style: SakhiTypography.sectionTitle,
+                              style: SakhiTypography.onboardingTitle.copyWith(fontSize: 18),
                             ),
                             SizedBox(height: 5),
                             Text(
                               'Profile photo upload will be added in a later step.',
-                              style: SakhiTypography.caption,
+                              style: SakhiTypography.body.copyWith(fontSize: 12),
                             ),
                           ],
                         ),
@@ -245,7 +245,7 @@ class _SakhiMyProfileScreenState extends State<SakhiMyProfileScreen> {
                 const SizedBox(height: 22),
                 const Text(
                   'Personal details',
-                  style: SakhiTypography.sectionTitle,
+                  style: SakhiTypography.onboardingTitle.copyWith(fontSize: 20),
                 ),
                 const SizedBox(height: 6),
                 const Text(
@@ -305,7 +305,7 @@ class _SakhiMyProfileScreenState extends State<SakhiMyProfileScreen> {
                   _message(
                     _saveError!,
                     key: const Key('profile-save-error'),
-                    color: SakhiColors.error,
+                    color: const Color(0xFFB42318),
                   ),
                   const SizedBox(height: 12),
                 ],
@@ -313,7 +313,7 @@ class _SakhiMyProfileScreenState extends State<SakhiMyProfileScreen> {
                   _message(
                     _saveSuccess!,
                     key: const Key('profile-save-success'),
-                    color: SakhiColors.success,
+                    color: const Color(0xFF237A57),
                   ),
                   const SizedBox(height: 12),
                 ],
@@ -333,7 +333,7 @@ class _SakhiMyProfileScreenState extends State<SakhiMyProfileScreen> {
                 const Text(
                   'This screen edits your own profile only. Privacy settings for profile visibility, messaging and search will be introduced separately.',
                   textAlign: TextAlign.center,
-                  style: SakhiTypography.caption,
+                  style: SakhiTypography.body.copyWith(fontSize: 12),
                 ),
               ],
             ),
