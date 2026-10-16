@@ -5,17 +5,13 @@ import 'package:women_safety_app/features/eligibility/eligibility_verification_m
 
 class _FakeEligibilityApiClient extends BackendApiClient {
   _FakeEligibilityApiClient({
-    Map<String, Map<String, dynamic>> getResponses =
-        const <String, Map<String, dynamic>>{},
+    this.getResponses = const <String, Map<String, dynamic>>{},
     this.postResponse = const <String, dynamic>{},
-    this.getError,
     this.postError,
-  }) : getResponses = getResponses,
-       super(baseUrl: 'http://127.0.0.1:3001/api/v1');
+  }) : super(baseUrl: 'http://127.0.0.1:3001/api/v1');
 
   final Map<String, Map<String, dynamic>> getResponses;
   Map<String, dynamic> postResponse;
-  BackendApiException? getError;
   BackendApiException? postError;
 
   final getRequests = <({String path, bool authenticated})>[];
@@ -28,7 +24,6 @@ class _FakeEligibilityApiClient extends BackendApiClient {
     bool authenticated = false,
   }) async {
     getRequests.add((path: path, authenticated: authenticated));
-    if (getError != null) throw getError!;
     return getResponses[path] ?? const <String, dynamic>{};
   }
 
