@@ -192,7 +192,7 @@ Follow-up source fixes were committed to `feat/eligibility-domain-status` after 
 
 ## Implementation increment: scheduled session expiry sweep
 
-**Source branch:** `feat/eligibility-domain-status`. This increment is committed after the maintainer-validated expiry-recovery checkpoint and is awaiting validation.
+**Source branch:** `feat/eligibility-domain-status`. Maintainer validation completed on 16 October 2026 at commit `f82b690e00ba8a421dbca282989a130bb478b07e`.
 
 - Added an in-process Nest lifecycle worker that runs a sweep at application startup and every 60 seconds; it clears its timer during module shutdown and does not add a new runtime dependency.
 - The sweep finds accounts with expired or expiry-less `CREATED` / `REDIRECT_READY` sessions and calls the same account-scoped expiry recovery used by a member retry.
@@ -200,4 +200,4 @@ Follow-up source fixes were committed to `feat/eligibility-domain-status` after 
 - Each expired session becomes `EXPIRED`; when no active session remains, a stuck `VERIFICATION_IN_PROGRESS` status returns to `NOT_VERIFIED` with redacted audit metadata. The sweep never marks users verified or turns a timeout into an eligibility failure.
 - Added service coverage for cross-account stale-session discovery and worker lifecycle coverage for immediate startup sweep, periodic execution, shutdown cleanup and retry after a failed sweep.
 - This increment changes no schema and requires no migration. No real provider is enabled.
-- **Maintainer validation pending:** pull the latest branch and run Prisma validation, backend build and the complete test suite. The prior 51/51 result does not validate this new worker increment.
+- **Maintainer validation passed:** at commit `f82b690e00ba8a421dbca282989a130bb478b07e`, `npx.cmd prisma validate` passed, `scripts/build.ps1` passed, and `scripts/test.ps1 -Environment test` passed all 9 test files / 54 tests. The worktree was clean and `feat/eligibility-domain-status` matched `origin/feat/eligibility-domain-status`.
