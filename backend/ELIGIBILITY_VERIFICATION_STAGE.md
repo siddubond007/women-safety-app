@@ -180,11 +180,24 @@ Follow-up source fixes were committed to `feat/eligibility-domain-status` after 
 
 ## Follow-up implementation: expired-session recovery and safe retry
 
-**Source branch:** `feat/eligibility-domain-status`. This code/test increment is committed after the callback validation checkpoint and is awaiting maintainer validation.
+**Source branch:** `feat/eligibility-domain-status`. This code/test increment is committed after the callback validation checkpoint. Maintainer validation completed at commit `6d90d4c484f6612adbeca4be66eef3bad6fb9458` on 16 October 2026: Prisma validation and build passed, and all 8 test files / 51 tests passed.
 
 - A member starting a retry now invokes a database transaction that marks expired or expiry-less `CREATED` / `REDIRECT_READY` sessions as `EXPIRED`.
 - The transaction rechecks whether another non-expired session remains. Only when no active session remains, and the account is still `VERIFICATION_IN_PROGRESS`, does it restore `NOT_VERIFIED` through the allowed SYSTEM transition and write redacted audit metadata.
 - It never maps a timeout to `VERIFIED` or `VERIFICATION_FAILED`; it treats expiry as a lifecycle event, not an eligibility decision.
 - Added a synthetic regression test that begins with a stuck in-progress account and an expired session, then verifies that the service restores the retryable state and starts a new provider-neutral session.
 - This increment changes no database schema, so it requires no migration. The callback-event migration already applied to `sakhi_test` remains in place.
-- **Maintainer validation pending:** pull the latest branch, then run Prisma validation, the backend build, and the entire test suite. The earlier reported 50/50 pass applied to the preceding commit, not this follow-up increment.
+- **Validation evidence:** the maintainer pulled commit `6d90d4c484f6612adbeca4be66eef3bad6fb9458` into the isolated eligibility worktree and reported Prisma validation passed, backend build passed, and all 8 test files / 51 tests passed. This result predates the subsequent scheduled-worker increment below.
+
+
+## Implementation increment: scheduled session expiry sweep
+
+**Source branch:** `feat/eligibility-domain-status`. This increment is committed after the maintainer-validated expiry-recovery checkpoint and is awaiting validation.
+
+- Added an in-process Nest lifecycle worker that runs a sweep at application startup and every 60 seconds; it clears its timer during module shutdown and does not add a new runtime dependency.
+- The sweep finds accounts with expired or expiry-less `CREATED` / `REDIRECT_READY` sessions and calls the same account-scoped expiry recovery used by a member retry.
+- Expiry recovery locks the matching `member_accounts` row before changing sessions/status, preventing an expiry worker from resetting an account after a concurrent new verification session has been committed. Repeated and multi-instance runs are designed to be idempotent.
+- Each expired session becomes `EXPIRED`; when no active session remains, a stuck `VERIFICATION_IN_PROGRESS` status returns to `NOT_VERIFIED` with redacted audit metadata. The sweep never marks users verified or turns a timeout into an eligibility failure.
+- Added service coverage for cross-account stale-session discovery and worker lifecycle coverage for immediate startup sweep, periodic execution, shutdown cleanup and retry after a failed sweep.
+- This increment changes no schema and requires no migration. No real provider is enabled.
+- **Maintainer validation pending:** pull the latest branch and run Prisma validation, backend build and the complete test suite. The prior 51/51 result does not validate this new worker increment.
