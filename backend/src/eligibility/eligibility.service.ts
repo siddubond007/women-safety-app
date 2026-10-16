@@ -138,11 +138,13 @@ export class EligibilityService {
 
     // Check availability before validation so existing mobile callers that
     // do not yet submit consent continue to receive the safe 409 response.
+    const providerKey = provider.providerKey;
+    const consentVersion = provider.consentVersion;
     if (
       !provider.providerConfigured ||
       !provider.policyApproved ||
-      !provider.providerKey ||
-      !provider.consentVersion
+      !providerKey ||
+      !consentVersion
     ) {
       throw new ConflictException({
         statusCode: 409,
@@ -239,9 +241,9 @@ export class EligibilityService {
       const consent = await tx.eligibilityConsent.create({
         data: {
           accountId,
-          noticeVersion: provider.consentVersion as string,
+          noticeVersion: consentVersion,
           acceptedAt: new Date(),
-          biometricProcessingConsented: dto.biometricProcessingConsented,
+          biometricProcessingConsented: dto.biometricProcessingConsented === true,
           source: "sakhi_mobile",
         },
         select: { id: true },
@@ -252,7 +254,7 @@ export class EligibilityService {
           id: localSessionId,
           accountId,
           consentId: consent.id,
-          providerKey: provider.providerKey as string,
+          providerKey,
           status: "CREATED",
         },
         select: { id: true },
@@ -283,7 +285,7 @@ export class EligibilityService {
           requestId: localSessionId,
           redactedMetadata: {
             noticeVersion: provider.consentVersion,
-            biometricProcessingConsented: dto.biometricProcessingConsented,
+            biometricProcessingConsented: dto.biometricProcessingConsented === true,
           },
         },
         select: { id: true },
@@ -310,8 +312,8 @@ export class EligibilityService {
       providerSession = await this.provider.startSession({
         localSessionId,
         accountId,
-        consentVersion: provider.consentVersion,
-        biometricProcessingConsented: dto.biometricProcessingConsented,
+        consentVersion,
+        biometricProcessingConsented: dto.biometricProcessingConsented === true,
       });
       this.validateProviderSession(providerSession);
     } catch {
@@ -342,7 +344,7 @@ export class EligibilityService {
             outcome: "success",
             requestId: localSessionId,
             redactedMetadata: {
-              providerKey: provider.providerKey,
+              providerKey,
               expiresAt: providerSession.expiresAt.toISOString(),
             },
           },
@@ -350,9 +352,11 @@ export class EligibilityService {
         });
       });
     } catch {
-      await this.provider.cancelSession?.({
-        providerReference: providerSession.providerReference,
-      }).catch(() => undefined);
+      if (this.provider.cancelSession) {
+        await this.provider
+          .cancelSession({ providerReference: providerSession.providerReference })
+          .catch(() => undefined);
+      }
       await this.failProviderStart(localSessionId, accountId).catch(() => undefined);
       throw new ServiceUnavailableException({
         code: "eligibility_session_persistence_failed",
