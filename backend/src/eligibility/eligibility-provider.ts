@@ -6,6 +6,7 @@ export interface EligibilityProviderConfiguration {
   providerConfigured: boolean;
   policyApproved: boolean;
   providerKey: string | null;
+  redirectHosts: readonly string[];
   providerDisplayName: string | null;
   methodDescription: string | null;
   attributesCheckedDescription: string | null;
@@ -58,6 +59,7 @@ export class UnconfiguredEligibilityProviderAdapter
       providerConfigured: false,
       policyApproved: false,
       providerKey: null,
+      redirectHosts: [],
       providerDisplayName: null,
       methodDescription: null,
       attributesCheckedDescription: null,
