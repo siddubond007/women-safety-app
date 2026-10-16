@@ -7,6 +7,7 @@ import {
   Inject,
   Injectable,
   ServiceUnavailableException,
+  UnauthorizedException,
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { AuthenticationService } from "../auth/auth.service.js";
@@ -22,6 +23,9 @@ import {
   type EligibilityProviderAdapter,
   type EligibilityProviderConfiguration,
   type EligibilityProviderSession,
+  ELIGIBILITY_PROVIDER_CALLBACK_OUTCOMES,
+  type EligibilityProviderCallbackOutcome,
+  type NormalizedEligibilityProviderCallback,
 } from "./eligibility-provider.js";
 import type {
   CreateEligibilitySupportRequestDto,
@@ -64,6 +68,25 @@ class EligibilityRateLimitException extends HttpException {
 
 const SUPPORT_REQUEST_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MAX_SUPPORT_REQUESTS_PER_WINDOW = 5;
+
+const PROVIDER_CALLBACK_STATUS: Record<
+  EligibilityProviderCallbackOutcome,
+  EligibilityVerificationStatus
+> = {
+  VERIFIED: ELIGIBILITY_VERIFICATION_STATUS.VERIFIED,
+  PENDING_MANUAL_REVIEW:
+    ELIGIBILITY_VERIFICATION_STATUS.PENDING_MANUAL_REVIEW,
+  VERIFICATION_FAILED: ELIGIBILITY_VERIFICATION_STATUS.VERIFICATION_FAILED,
+};
+
+const PROVIDER_CALLBACK_SESSION_STATUS: Record<
+  EligibilityProviderCallbackOutcome,
+  "COMPLETED" | "FAILED"
+> = {
+  VERIFIED: "COMPLETED",
+  PENDING_MANUAL_REVIEW: "COMPLETED",
+  VERIFICATION_FAILED: "FAILED",
+};
 
 @Injectable()
 export class EligibilityService {
@@ -404,6 +427,219 @@ export class EligibilityService {
       message: "Continue with the approved provider. Eligibility is not granted until the backend validates the provider result.",
       isDemo: false,
     };
+  }
+
+  /**
+   * Processes only an event already authenticated and normalized by the
+   * configured provider adapter. The raw payload is transient and never
+   * stored or logged. Event claiming, session completion, status change, and
+   * audit record are committed in one transaction.
+   */
+  async processProviderCallback(
+    rawBody: Buffer | undefined,
+    headers: Readonly<Record<string, string | string[] | undefined>>,
+  ): Promise<{ accepted: true; duplicate: boolean }> {
+    const configuration = this.providerConfiguration();
+    if (
+      !configuration.providerConfigured ||
+      !configuration.policyApproved ||
+      !configuration.providerKey ||
+      !configuration.consentVersion ||
+      configuration.redirectHosts.length === 0
+    ) {
+      throw new ServiceUnavailableException({
+        code: "eligibility_provider_unavailable",
+        message: "Provider callbacks are unavailable because no approved provider is configured.",
+      });
+    }
+
+    if (
+      !Buffer.isBuffer(rawBody) ||
+      rawBody.length === 0 ||
+      rawBody.length > 64 * 1024
+    ) {
+      throw new BadRequestException({
+        code: "invalid_provider_callback_body",
+        message: "A bounded raw provider callback body is required.",
+      });
+    }
+
+    // Signature format and timestamp rules belong to the specific approved
+    // provider adapter. No generic or guessed signature convention is trusted.
+    const event = await this.provider.verifyAndNormalizeCallback({
+      rawBody,
+      headers,
+    });
+    this.validateNormalizedProviderCallback(event);
+
+    const providerKey = configuration.providerKey;
+    const receivedAt = new Date();
+
+    return this.prisma.$transaction(async (tx) => {
+      const priorEvent = await tx.eligibilityProviderCallbackEvent.findUnique({
+        where: {
+          providerKey_providerEventId: {
+            providerKey,
+            providerEventId: event.eventId,
+          },
+        },
+        select: { id: true },
+      });
+      if (priorEvent) {
+        return { accepted: true as const, duplicate: true as const };
+      }
+
+      const verificationSession =
+        await tx.eligibilityVerificationSession.findUnique({
+          where: {
+            providerKey_providerReference: {
+              providerKey,
+              providerReference: event.providerReference,
+            },
+          },
+          select: {
+            id: true,
+            accountId: true,
+            status: true,
+            expiresAt: true,
+            account: { select: { eligibilityStatus: true } },
+          },
+        });
+
+      // Do not disclose whether an unknown provider reference belongs to a member.
+      if (!verificationSession) {
+        throw new UnauthorizedException({
+          code: "eligibility_callback_untrusted",
+          message: "The provider callback could not be matched to an active session.",
+        });
+      }
+
+      if (
+        verificationSession.status !== "REDIRECT_READY" ||
+        !verificationSession.expiresAt ||
+        verificationSession.expiresAt.getTime() <= receivedAt.getTime()
+      ) {
+        throw new ConflictException({
+          code: "eligibility_callback_session_inactive",
+          message: "The provider callback session is no longer active.",
+        });
+      }
+
+      const currentStatus =
+        verificationSession.account
+          .eligibilityStatus as EligibilityVerificationStatus;
+      const nextStatus = PROVIDER_CALLBACK_STATUS[event.outcome];
+
+      if (
+        currentStatus !==
+          ELIGIBILITY_VERIFICATION_STATUS.VERIFICATION_IN_PROGRESS ||
+        !canTransitionEligibilityStatus(currentStatus, nextStatus, "PROVIDER")
+      ) {
+        throw new ConflictException({
+          code: "eligibility_callback_transition_not_allowed",
+          message: "The provider result cannot be applied to the current eligibility state.",
+        });
+      }
+
+      // The database's unique provider/event key is the concurrency-safe replay
+      // barrier. Only the transaction that claims the event may apply the result.
+      const claimedEvent = await tx.eligibilityProviderCallbackEvent.createMany({
+        data: [
+          {
+            id: randomUUID(),
+            providerKey,
+            providerEventId: event.eventId,
+            sessionId: verificationSession.id,
+            outcome: event.outcome,
+          },
+        ],
+        skipDuplicates: true,
+      });
+      if (claimedEvent.count !== 1) {
+        return { accepted: true as const, duplicate: true as const };
+      }
+
+      const accountUpdate = await tx.memberAccount.updateMany({
+        where: {
+          id: verificationSession.accountId,
+          eligibilityStatus: currentStatus,
+        },
+        data: { eligibilityStatus: nextStatus },
+      });
+      if (accountUpdate.count !== 1) {
+        throw new ConflictException({
+          code: "eligibility_callback_status_changed",
+          message: "The eligibility state changed before the provider result could be applied.",
+        });
+      }
+
+      const sessionUpdate =
+        await tx.eligibilityVerificationSession.updateMany({
+          where: {
+            id: verificationSession.id,
+            status: "REDIRECT_READY",
+            expiresAt: { gt: receivedAt },
+          },
+          data: {
+            status: PROVIDER_CALLBACK_SESSION_STATUS[event.outcome],
+            completedAt: receivedAt,
+          },
+        });
+      if (sessionUpdate.count !== 1) {
+        throw new ConflictException({
+          code: "eligibility_callback_session_changed",
+          message: "The provider session changed before the callback could be applied.",
+        });
+      }
+
+      await tx.auditEvent.create({
+        data: {
+          actorType: "PROVIDER",
+          action: "eligibility.provider_result.applied",
+          targetType: "eligibility_verification_session",
+          targetId: verificationSession.id,
+          outcome:
+            event.outcome === "VERIFIED"
+              ? "success"
+              : event.outcome === "PENDING_MANUAL_REVIEW"
+                ? "review_required"
+                : "failed",
+          requestId: randomUUID(),
+          redactedMetadata: {
+            providerKey,
+            providerOutcome: event.outcome,
+            from: currentStatus,
+            to: nextStatus,
+          },
+        },
+        select: { id: true },
+      });
+
+      return { accepted: true as const, duplicate: false as const };
+    });
+  }
+
+  private validateNormalizedProviderCallback(
+    event: NormalizedEligibilityProviderCallback,
+  ): void {
+    if (
+      !event ||
+      typeof event !== "object" ||
+      typeof event.eventId !== "string" ||
+      event.eventId.trim().length === 0 ||
+      event.eventId.length > 255 ||
+      typeof event.providerReference !== "string" ||
+      event.providerReference.trim().length === 0 ||
+      event.providerReference.length > 255 ||
+      !ELIGIBILITY_PROVIDER_CALLBACK_OUTCOMES.includes(
+        event.outcome as EligibilityProviderCallbackOutcome,
+      )
+    ) {
+      throw new UnauthorizedException({
+        code: "eligibility_callback_untrusted",
+        message: "The provider callback could not be authenticated and normalized.",
+      });
+    }
   }
 
   private validateProviderSession(
