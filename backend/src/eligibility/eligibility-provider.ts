@@ -21,7 +21,6 @@ export interface EligibilityProviderConfiguration {
 
 export interface CreateEligibilityProviderSession {
   localSessionId: string;
-  accountId: string;
   consentVersion: string;
   biometricProcessingConsented: boolean;
 }
