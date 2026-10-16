@@ -9,6 +9,13 @@ interface SafeExceptionDiagnostics {
   errorCode?: string;
   prismaModel?: string;
   prismaTarget?: string[];
+  driverErrorCode?: string;
+  driverErrorKind?: string;
+  driverSeverity?: string;
+  driverSchema?: string;
+  driverTable?: string;
+  driverColumn?: string;
+  driverConstraint?: string;
 }
 
 function safeExceptionDiagnostics(exception: unknown): SafeExceptionDiagnostics {
@@ -16,6 +23,11 @@ function safeExceptionDiagnostics(exception: unknown): SafeExceptionDiagnostics 
 
   const record = exception as Record<string, unknown>;
   const result: SafeExceptionDiagnostics = {};
+  const safeIdentifier = (value: unknown): string | undefined =>
+    typeof value === "string" &&
+    /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(value)
+      ? value
+      : undefined;
 
   // Log only stable error identifiers and schema metadata. Never log the raw
   // exception message, query, parameters, connection string, or request body.
@@ -26,27 +38,45 @@ function safeExceptionDiagnostics(exception: unknown): SafeExceptionDiagnostics 
   const meta = record.meta;
   if (typeof meta === "object" && meta !== null) {
     const metaRecord = meta as Record<string, unknown>;
-    if (
-      typeof metaRecord.modelName === "string" &&
-      /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(metaRecord.modelName)
-    ) {
-      result.prismaModel = metaRecord.modelName;
-    }
+    result.prismaModel = safeIdentifier(metaRecord.modelName);
     const target = metaRecord.target;
     if (
       Array.isArray(target) &&
       target.length <= 16 &&
-      target.every(
-        (item): item is string =>
-          typeof item === "string" && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(item),
-      )
+      target.every((item) => safeIdentifier(item) !== undefined)
     ) {
-      result.prismaTarget = target;
-    } else if (
-      typeof target === "string" &&
-      /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(target)
-    ) {
-      result.prismaTarget = [target];
+      result.prismaTarget = target as string[];
+    } else if (safeIdentifier(target)) {
+      result.prismaTarget = [target as string];
+    }
+
+    // Prisma 7 driver-adapter errors can wrap the original PostgreSQL error
+    // under meta.driverAdapterError.cause. Extract only SQLSTATE and
+    // allow-listed identifiers; do not log driver messages or SQL details.
+    const adapterError = metaRecord.driverAdapterError;
+    if (typeof adapterError === "object" && adapterError !== null) {
+      const cause = (adapterError as Record<string, unknown>).cause;
+      if (typeof cause === "object" && cause !== null) {
+        const driver = cause as Record<string, unknown>;
+        const code = driver.originalCode ?? driver.code ?? driver.sqlState;
+        if (typeof code === "string" && /^[0-9A-Z]{5}$/.test(code)) {
+          result.driverErrorCode = code;
+        }
+        result.driverErrorKind = safeIdentifier(driver.kind);
+        result.driverSeverity = safeIdentifier(driver.severity);
+        result.driverSchema = safeIdentifier(driver.schema);
+        result.driverTable = safeIdentifier(driver.table);
+        result.driverColumn = safeIdentifier(driver.column);
+        const constraint = driver.constraint;
+        if (typeof constraint === "string") {
+          result.driverConstraint = safeIdentifier(constraint);
+        } else if (typeof constraint === "object" && constraint !== null) {
+          const constraintRecord = constraint as Record<string, unknown>;
+          result.driverConstraint =
+            safeIdentifier(constraintRecord.name) ??
+            safeIdentifier(constraintRecord.index);
+        }
+      }
     }
   }
 
