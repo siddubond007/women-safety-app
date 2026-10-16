@@ -201,3 +201,18 @@ Follow-up source fixes were committed to `feat/eligibility-domain-status` after 
 - Added service coverage for cross-account stale-session discovery and worker lifecycle coverage for immediate startup sweep, periodic execution, shutdown cleanup and retry after a failed sweep.
 - This increment changes no schema and requires no migration. No real provider is enabled.
 - **Maintainer validation passed:** at commit `f82b690e00ba8a421dbca282989a130bb478b07e`, `npx.cmd prisma validate` passed, `scripts/build.ps1` passed, and `scripts/test.ps1 -Environment test` passed all 9 test files / 54 tests. The worktree was clean and `feat/eligibility-domain-status` matched `origin/feat/eligibility-domain-status`.
+
+## Mobile API contract increment: biometric consent readiness (validation pending)
+
+After the validated expiry-worker checkpoint, the configuration response now exposes
+`biometricProcessingSupported` and `biometricProcessingRequired` from the trusted
+provider configuration. When an approved method does not use selfie/liveness
+processing, the response explicitly says so in the disclosure field. This lets
+the mobile client render separate explicit biometric consent when required,
+without guessing from text or inferring requirements.
+
+This response-only change adds no schema or migration. The updated service and
+controller test assert both flags are false while the provider remains
+unconfigured. **Maintainer validation is pending** for the newer branch head
+`6902c5d7079fe778a926d0fb54411d8d5f471365`; the prior 54/54 result applies to
+the earlier `f82b690` checkpoint only.
