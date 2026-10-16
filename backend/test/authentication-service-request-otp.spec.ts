@@ -113,7 +113,6 @@ describe("AuthenticationService.requestOtp account checks", () => {
     expect(tx.auditEvent.createMany).not.toHaveBeenCalled();
   });
 
-
   it("rejects registration OTP requests when the number already has an account", async () => {
     const { service, tx } = createService({ id: "existing-account" });
 
