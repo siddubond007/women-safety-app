@@ -223,7 +223,7 @@ class _SakhiMyProfileScreenState extends State<SakhiMyProfileScreen> {
                         ),
                       ),
                       const SizedBox(width: 14),
-                      const Expanded(
+                      Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -243,7 +243,7 @@ class _SakhiMyProfileScreenState extends State<SakhiMyProfileScreen> {
                   ),
                 ),
                 const SizedBox(height: 22),
-                const Text(
+                Text(
                   'Personal details',
                   style: SakhiTypography.onboardingTitle.copyWith(fontSize: 20),
                 ),
@@ -330,7 +330,7 @@ class _SakhiMyProfileScreenState extends State<SakhiMyProfileScreen> {
                   label: Text(_isSaving ? 'Saving…' : 'Save changes'),
                 ),
                 const SizedBox(height: 10),
-                const Text(
+                Text(
                   'This screen edits your own profile only. Privacy settings for profile visibility, messaging and search will be introduced separately.',
                   textAlign: TextAlign.center,
                   style: SakhiTypography.body.copyWith(fontSize: 12),
