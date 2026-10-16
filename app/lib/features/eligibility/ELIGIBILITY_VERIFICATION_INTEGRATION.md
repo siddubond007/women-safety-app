@@ -1,170 +1,92 @@
 # Sakhi eligibility-verification integration contract
 
-**Status:** provider-neutral UI and planned service boundary only. No identity
-provider, legal method, eligibility policy, or production backend is configured.
+**Current implementation:** the Flutter feature is connected to the existing development-backend API boundary. The identity provider and eligibility policy remain unconfigured. No real identity-verification session may start from the mobile app yet.
 
-## Current Flutter boundary
+## Current mobile boundary
 
-The eligibility feature is isolated under `features/eligibility/`:
+The feature remains isolated under `features/eligibility/`:
 
-- `eligibility_verification_models.dart` holds typed status, configuration,
-  consent and result models.
-- `eligibility_verification_service.dart` defines the future service boundary.
-- The current `DemoEligibilityVerificationService` reports provider
-  unavailability and does not create sessions or persist consent.
-- Screens show information, preview consent interaction and separate result
-  states. A preview status never grants protected access.
-- `SakhiAuthStatusScreen` exposes a `Preview eligibility verification` entry
-  for `existingAccount` and `pendingVerification`. It is hidden before profile
-  completion and for restricted accounts. The entry routes to the current
-  Flutter-native introduction using `DemoEligibilityVerificationService`.
-- This is UI navigation only: it does not create an account session, invoke an
-  identity provider, persist consent or grant protected community access.
-  Existing registration, mobile OTP and account-creation behavior is unchanged.
+- `eligibility_verification_models.dart` holds typed provider configuration, consent and status/result models. The seven backend statuses remain distinct from UI-only states.
+- `eligibility_verification_service.dart` defines the contract and safe demo implementation.
+- `backend_eligibility_verification_service.dart` reads the backend configuration and authenticated status, and implements the server's explicit-consent request shape.
+- `SakhiAuthStatusScreen` exposes the eligibility entry only for `existingAccount` and `pendingVerification`. It is hidden before profile completion and for restricted accounts.
+- When the current auth service is the development backend, the eligibility feature reuses the same secure token-storage key and build-time API base URL as `BackendAuthService`. Demo builds use `DemoEligibilityVerificationService`.
+- The user-visible UI remains provider-unavailable while the server reports no approved provider/policy. No identity evidence is collected or sent.
 
-This contract defines candidates, not implemented HTTP endpoints.
+### Deliberate start-session gate
 
-## Decisions required before a real integration
+`EligibilityConfiguration.mobileHandoffSupported` remains false in this mobile implementation. Consequently, `Start verification` stays disabled even if a later server configuration reports an approved provider. Before enabling it, implement and test the secure hosted-provider handoff, return/deep-link handling, expiry/cancellation, and a fresh trusted status lookup after return. A provider redirect by itself is never proof of eligibility.
 
-Do not choose or infer these values in code:
+If biometric processing is required by a future approved provider, the API configuration exposes separate `biometricProcessingSupported` and `biometricProcessingRequired` flags. A separately worded consent control is available for that future flow; required biometric consent must be selected before the start action can be enabled. The server remains authoritative and must reject missing consent independently.
 
-1. Authorised identity provider and supported verification method.
-2. Legal basis, eligibility criteria and the exact permitted identity attributes.
+## Current API contract
+
+The existing backend exposes these versioned endpoints:
+
+- `GET /api/v1/eligibility/configuration` — returns provider/policy readiness and disclosure text. It does not collect identity evidence.
+- `GET /api/v1/eligibility/status` — requires the authenticated bearer token. Its `status` field describes provider readiness; `eligibilityStatus` is the canonical persisted account status. The mobile adapter keeps those meanings separate.
+- `POST /api/v1/eligibility/start` — requires authentication, `consentAccepted: true`, the current `consentVersion`, and `biometricProcessingConsented`. The mobile adapter sends only these DTO-supported fields; it does not send an `acceptedAt` client timestamp. The server records the consent timestamp. The current UI cannot invoke this request until the mobile handoff gate is deliberately enabled.
+
+A 409/503 provider-unavailable response is a normal fail-closed outcome, not a verification failure or an eligibility rejection. An unknown or absent backend status must never become `Verified`.
+
+## Decisions required before a real provider
+
+Do not invent or infer these values in code:
+
+1. An authorised identity provider and supported verification method.
+2. Legal basis, eligibility criteria and exact permitted identity attributes.
 3. Whether selfie matching or liveness checks are lawful, supported and approved.
 4. Final consent wording, notice/version and privacy disclosures.
 5. Data controller/processor roles, provider sharing, storage and retention.
 6. Deletion process, access/audit controls, incident handling and user rights.
-7. Approved alternative/manual-review workflow and its evidence requirements.
+7. An approved alternative/manual-review workflow and its evidence requirements.
 8. Approved production age policy and relevant safeguards.
-9. Backend ownership, endpoint contracts, authentication and deployment readiness.
 
-Before requesting production consent, the service must supply complete, approved
-disclosures for the provider, method, checked attributes, selfie/liveness use,
-data handling, retention/deletion, decline/failure outcome, and approved
-alternative/manual review. Missing fields mean the real start action stays
-disabled.
-
-## Future service operations
-
-The Dart interface names three design operations:
-
-- `loadConfiguration()`: return only approved, current verification
-  configuration and disclosure text.
-- `readStatus()`: return status from the trusted backend for the authenticated
-  account; do not infer status from local UI state.
-- `startVerification(consent)`: after backend-authenticated consent and
-  approved configuration, request creation of a provider transaction and return
-  a status confirmed by the trusted service.
-
-No live adapter or endpoint is implemented here. A future adapter must validate
-the authenticated account on the server and associate consent with the exact
-approved policy version and timestamp. Never trust a client-side redirect as
-confirmation.
+Before production consent is requested, the service must provide complete approved disclosures for provider, method, attributes checked, selfie/liveness use, data handling, retention/deletion, decline/failure outcome and an approved alternative/manual review. Missing disclosure fields mean the real start action stays disabled.
 
 ## Required server-side controls
 
-- The backend is authoritative for verification status.
-- Protected community APIs enforce eligibility on every relevant request;
-  hidden tabs and client-side Booleans are not access control.
-- Bind a provider transaction to the authenticated user and an unpredictable,
-  single-use transaction/state value. Validate callback authenticity, state,
-  nonce where applicable, transaction status, expiry and replay.
-- Process trusted provider callbacks/webhooks server-side and retrieve
-  authoritative status from the backend after handoff.
-- Apply rate limits, expiry, idempotency and audit controls to applicable
-  operations.
-- Never store raw identity documents, selfie images, face templates or raw
-  provider payloads by default. Collect the minimum approved result only.
-- Restrict and audit access if a future, approved manual-review process needs
-  sensitive evidence.
-- Do not log OTPs, tokens, raw provider responses, identity evidence or
-  unnecessary personal data.
-- A technical failure, cancellation, timeout or unavailable provider is not an
-  eligibility rejection.
-- Demo/test statuses must never create an authenticated session or grant
-  protected access.
+- The backend is authoritative for eligibility status.
+- Every protected community API must enforce eligibility server-side; hidden tabs and client-side Boolean flags are not access control.
+- Bind provider transactions to the authenticated user and an unpredictable, single-use transaction/state value. Validate callback authenticity, state, nonce where applicable, transaction status, expiry and replay.
+- Process trusted provider callbacks/webhooks server-side and retrieve authoritative status from the backend after handoff.
+- Apply rate limits, expiry, idempotency and audit controls to applicable operations.
+- Never store raw identity documents, selfie images, face templates or raw provider payloads by default. Collect only the minimum approved result.
+- Restrict and audit any future manual-review access.
+- Never log OTPs, tokens, raw provider responses, identity evidence or unnecessary personal data.
+- A technical failure, cancellation, timeout or unavailable provider is not an eligibility rejection.
+- Demo/test results must never create an authenticated session or grant protected access.
 
 ## Status semantics
 
-The UI exposes the same seven canonical eligibility statuses used by the
-backend, with readable labels:
+The UI maps the canonical backend statuses to these labels:
 
 - `notVerified` — Not Verified
-- `inProgress` — Verification In Progress
+- `verificationInProgress` — Verification In Progress
 - `pendingManualReview` — Pending Manual Review
 - `verified` — Verified
 - `verificationFailed` — Verification Failed
 - `temporarilyRestricted` — Temporarily Restricted
 - `reverificationRequired` — Reverification Required
 
-Additional screen/service states (`notStarted`, `consentRequired`,
-`consentNotGiven`, `cancelled`, and `providerUnavailable`) describe the
-flow rather than new persisted eligibility decisions. A technical error,
-cancellation, timeout or unavailable provider is not an eligibility rejection.
+Additional screen/service states (`notStarted`, `consentRequired`, `consentNotGiven`, `cancelled` and `providerUnavailable`) describe the flow, not new persisted eligibility decisions. A technical error, cancellation, timeout or unavailable provider is not an eligibility rejection.
 
-Only the trusted backend may establish a real final decision. Manual review is
-displayed as a possible status, not an implemented workflow. The app must not
-request documents or offer a working upload/review submission until its process,
-lawful basis, access controls and retention policy are approved.
+Only a trusted backend provider result or authorized review can establish a real final decision. Manual review is displayed as a possible status but is not an implemented reviewer workflow. Do not request documents or offer a working upload/review submission until its policy, lawful basis, access controls and retention rules are approved.
 
-## UI presentation checkpoint
+## UI and physical-device checkpoint
 
-The introduction, information, consent and status screens use Flutter-native
-layout, text, Material icons, gradients and vector-like geometric shapes. They
-do not crop or reuse images from reference screenshots. Existing standalone
-Sakhi branding/illustration assets remain separate source files and are only
-displayed as their original assets. The progress indicator, privacy cards,
-consent panel and status badge are responsive components built from code.
+The introduction, information, consent and status screens use Flutter-native layout, text, Material icons, gradients and vector-like geometric shapes. The screenshots were reviewed on the physical I2214 running Android 16. The screens were readable and showed no obvious clipping/overflow; the information screen scrolled through all disclosures, the consent action stayed disabled, and the final status explicitly stated that protected features remain protected.
 
-The interface communicates each of the seven canonical states, makes the
-provider-unavailable preview explicit, and never presents a simulated result as
-a real eligibility decision. Maintainer validation completed against the
-formatted source represented by UI branch head
-`bb1f1151a6b521b56d6ab32622ec7c9e8ffbe08f`: Dart formatting was applied;
-`flutter analyze` reported no issues; all 9 eligibility widget tests passed;
-and the full Flutter suite passed all 37 tests. The only changes made in the
-isolated worktree after checkout were the six formatter-produced source/test
-diffs now committed to this branch.
+At preview source commit `07317a3c0a1893139bb6a035163f35f19d3b56c5`, the maintainer reported:
 
-## Demo boundary
-
-The current preview has no identity provider, sends no identity data, records no
-valid production consent, creates no provider session, and does not persist
-eligibility status. Its `DEMO RESULT — no real identity verification occurred.`
-notice is mandatory on preview outcomes. App restart does not restore a real
-eligibility state because none exists in this stage.
-
-## Post-authentication UI and device-test checkpoint
-
-The current eligibility preview is reachable from `SakhiAuthStatusScreen`
-through `Preview eligibility verification` for existing/pending account states.
-The widget flow now covers introduction, disclosure, demo consent and the
-provider-unavailable status, and verifies that `Start verification` remains
-disabled when no approved provider/policy is configured. This preview route is
-built on the current `feat/eligibility-verification` UI branch so device tests
-exercise the latest consent-panel fix.
-
-**Maintainer validation completed on 16 October 2026** at source commit
-`07317a3c0a1893139bb6a035163f35f19d3b56c5`:
-
-- Dart format check reported no changes required (the first check ran before
-  `flutter pub get`; the dependencies were subsequently resolved).
+- Dart formatting check reported no changes needed after dependency resolution.
 - `flutter analyze` passed with no issues.
-- The full `flutter test` suite passed all 39 tests.
-- The app built and installed on the physical I2214 Android 16 device.
-- Screenshot review covered introduction, information disclosures, consent and
-  provider-unavailable status. No obvious layout overflow or clipped action was
-  visible. The Start verification action remained disabled when the provider
-  and policy were unavailable, the demo-only warning was visible, and the
-  final status screen explicitly stated that protected features remain
-  protected.
+- The full Flutter suite passed all 39 tests.
+- The debug APK built and installed on the physical device.
+- Introduction, information, consent and provider-unavailable status screenshots were reviewed.
 
-The device build exercised the demo preview, not live backend integration or a
-real provider. The Git worktree was clean at the tested commit.
+This validates the demo preview only. The new backend-mobile adapter changes and its additional unit tests still require a separate local Flutter validation run. Live API testing must use the test database, not `sakhi_dev`; do not reset any database.
 
-## Later work requires separate approval
+## Remaining work
 
-Real provider integration, backend persistence, database migrations, production
-eligibility decisions, Super Admin review tools and sensitive-evidence handling
-require an approved provider/method, legal policy and review process. Until then,
-the mobile preview must remain explicitly unavailable and fail closed.
+Still outstanding are local validation of the backend-mobile branch; integration testing against the local backend; secure provider handoff/return; actual provider and legal approval; protected community controller/route integration; authorized review/appeal workflows; and retention/deletion controls. The UI and server must remain fail-closed until the relevant external and security prerequisites are approved.
