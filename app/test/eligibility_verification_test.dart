@@ -238,6 +238,98 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('all seven canonical backend statuses have clear labels', (
+      tester,
+    ) async {
+      const labels = <EligibilityStatus, String>{
+        EligibilityStatus.notVerified: 'Not Verified',
+        EligibilityStatus.inProgress: 'Verification In Progress',
+        EligibilityStatus.pendingManualReview: 'Pending Manual Review',
+        EligibilityStatus.verified: 'Verified',
+        EligibilityStatus.verificationFailed: 'Verification Failed',
+        EligibilityStatus.temporarilyRestricted: 'Temporarily Restricted',
+        EligibilityStatus.reverificationRequired: 'Reverification Required',
+      };
+
+      for (final entry in labels.entries) {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: EligibilityStatusScreen(
+              result: EligibilityStatusResult(
+                status: entry.key,
+                message: 'Synthetic status fixture.',
+                isDemo: true,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text(entry.value), findsOneWidget);
+        expect(
+          find.textContaining(
+            'DEMO RESULT — no real identity verification occurred.',
+          ),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      }
+    });
+
+    testWidgets(
+      'information, consent and status screens fit a narrow phone viewport',
+      (tester) async {
+        tester.view.physicalSize = const Size(320, 640);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: EligibilityInformationScreen(
+              service: DemoEligibilityVerificationService(),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('eligibility-information-continue-button')),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: EligibilityConsentScreen(
+              service: DemoEligibilityVerificationService(),
+              configuration: EligibilityConfiguration.previewUnavailable(),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('eligibility-consent-checkbox')),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: EligibilityStatusScreen(
+              result: EligibilityStatusResult(
+                status: EligibilityStatus.temporarilyRestricted,
+                message: 'Synthetic status fixture.',
+                isDemo: true,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('Temporarily Restricted'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
     testWidgets('eligibility introduction fits a narrow phone viewport', (
       tester,
     ) async {
@@ -286,9 +378,6 @@ class _FakeEligibilityService implements EligibilityVerificationService {
   int startCalls = 0;
   int statusCalls = 0;
   EligibilityConsentRecord? lastConsent;
-
-  @override
-  bool get isDevelopmentBackend => false;
 
   @override
   Future<EligibilityConfiguration> loadConfiguration() async => configuration;
