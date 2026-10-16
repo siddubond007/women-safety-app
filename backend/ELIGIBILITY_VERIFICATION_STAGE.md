@@ -137,3 +137,21 @@ The adapter configuration must explicitly provide `redirectHosts`. Verification 
 - Human review decisions remain disabled until reviewer authorization and approved, fair review criteria exist. A category-only request records a request, not an accepted eligibility appeal.
 - Shared user/profile contract and schema/migration integration with PRs #13/#14 remains deferred. The profile workstream must not migrate `sakhi_test` while eligibility testing is underway.
 - The earlier 31-test passing result predates these source changes and is not validation of this increment. The latest source checkpoint is on `feat/eligibility-domain-status`; maintainer must pull the latest head, run the new migration on `sakhi_test`, then run Prisma validation/build and the complete backend test suite. Database migration history/column existence must be verified separately; no status should be inferred from an older “No pending migrations” message.
+
+
+## Latest maintainer test run and follow-up fixes — 16 October 2026
+
+The maintainer pulled commit `264c5d0` into the isolated worktree and reported:
+
+- Migration `20261016140000_eligibility_consent_sessions_support` applied successfully to `sakhi_test`.
+- Prisma schema validation passed.
+- Backend build passed.
+- Full test run: 42 passed, 2 failed, 44 total. Both failures were in the new support-request tests: invalid category accepted in the controller test setup, and a stale fixed-ID expectation in the audit assertion.
+
+Follow-up source fixes were committed to `feat/eligibility-domain-status` after that run:
+
+- Controller performs explicit runtime category validation and rejects unexpected body keys even if a bootstrap/test harness omits the global validation pipe.
+- The support audit test models the database-generated request ID consistently and checks that the request and audit event share the same ID.
+- A newly created provider-start session receives a five-minute startup deadline; stale `CREATED` sessions stop blocking retry after that deadline.
+
+**These follow-up commits have not been validated by the maintainer's local build/tests yet.** Pull the current branch head and rerun Prisma validation, build and the full test suite. The additive migration was reported applied to `sakhi_test` before these follow-up code/test fixes; because the follow-up changes do not alter the Prisma schema or migration, do not reset the database or reapply manually.
