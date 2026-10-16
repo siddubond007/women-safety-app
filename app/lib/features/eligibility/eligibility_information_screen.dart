@@ -39,7 +39,8 @@ class EligibilityInformationScreen extends StatelessWidget {
         }
 
         final config =
-            snapshot.data ?? const EligibilityConfiguration.previewUnavailable();
+            snapshot.data ??
+            const EligibilityConfiguration.previewUnavailable();
 
         return SakhiAuthScaffold(
           botanicalAsset: AppAssets.authBotanicalConsent,
@@ -204,10 +205,6 @@ class _DisclosureRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return EligibilityDisclosureTile(
-      icon: icon,
-      title: title,
-      value: value,
-    );
+    return EligibilityDisclosureTile(icon: icon, title: title, value: value);
   }
 }

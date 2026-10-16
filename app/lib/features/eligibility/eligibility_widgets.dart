@@ -46,7 +46,9 @@ class EligibilityStepIndicator extends StatelessWidget {
             final complete = index < step;
             return Expanded(
               child: Padding(
-                padding: EdgeInsets.only(right: index == totalSteps - 1 ? 0 : 6),
+                padding: EdgeInsets.only(
+                  right: index == totalSteps - 1 ? 0 : 6,
+                ),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 220),
                   height: 4,
@@ -300,7 +302,10 @@ class EligibilityDisclosureTile extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(value, style: SakhiTypography.body.copyWith(fontSize: 12.5)),
+                Text(
+                  value,
+                  style: SakhiTypography.body.copyWith(fontSize: 12.5),
+                ),
               ],
             ),
           ),
