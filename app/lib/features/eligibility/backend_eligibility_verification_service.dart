@@ -7,9 +7,16 @@ import 'eligibility_verification_service.dart';
 /// verified outcome or sends identity evidence.
 class BackendEligibilityVerificationService
     implements EligibilityVerificationService {
-  const BackendEligibilityVerificationService({required this.apiClient});
+  const BackendEligibilityVerificationService({
+    required this.apiClient,
+    this.mobileHandoffSupported = false,
+  });
 
   final BackendApiClient apiClient;
+
+  /// Must remain false until the hosted-provider redirect and safe return
+  /// flow are fully implemented and verified. The app never opts in today.
+  final bool mobileHandoffSupported;
 
   @override
   bool get isDevelopmentBackend => true;
@@ -30,9 +37,7 @@ class BackendEligibilityVerificationService
             data['biometricProcessingSupported'] == true,
         biometricProcessingRequired:
             data['biometricProcessingRequired'] == true,
-        // Keep session start disabled until provider redirect and app-return
-        // handling are implemented and tested.
-        mobileHandoffSupported: false,
+        mobileHandoffSupported: mobileHandoffSupported,
         providerDisplayName: _optionalString(data, 'providerDisplayName'),
         methodDescription: _optionalString(data, 'methodDescription'),
         attributesCheckedDescription: _optionalString(
@@ -148,6 +153,18 @@ class BackendEligibilityVerificationService
   Future<EligibilityStatusResult> startVerification({
     required EligibilityConsentRecord consent,
   }) async {
+    // Defence in depth: callers cannot start a backend session merely because
+    // remote configuration becomes enabled. The UI and service both gate the
+    // operation until safe provider handoff and return handling are supported.
+    if (!mobileHandoffSupported) {
+      return const EligibilityStatusResult(
+        status: EligibilityStatus.providerUnavailable,
+        message:
+            'The secure provider handoff and return flow is not implemented in this mobile build. No verification session was created.',
+        isDemo: true,
+      );
+    }
+
     try {
       final data = await apiClient.post(
         'eligibility/start',
