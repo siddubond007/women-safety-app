@@ -177,6 +177,75 @@ void main() {
     });
 
     testWidgets(
+      'required biometric consent is separate from general eligibility consent',
+      (tester) async {
+        const configuration = EligibilityConfiguration(
+          providerConfigured: true,
+          policyApproved: true,
+          biometricProcessingSupported: true,
+          biometricProcessingRequired: true,
+          mobileHandoffSupported: true,
+          providerDisplayName: 'Test-only fake provider',
+          methodDescription: 'Test-only fake verification method.',
+          attributesCheckedDescription: 'Test-only attributes description.',
+          selfieOrLivenessDescription: 'Biometric processing is required in this test.',
+          dataHandlingDescription: 'No data leaves this fake test service.',
+          retentionAndDeletionDescription: 'Not applicable to this fake test.',
+          declineOrFailureDescription: 'This test does not create a real request.',
+          manualReviewDescription: 'No manual review is implemented in this test.',
+          consentVersion: 'test-approved-v1',
+        );
+        final service = _FakeEligibilityService(
+          configuration: configuration,
+          result: const EligibilityStatusResult(
+            status: EligibilityStatus.inProgress,
+            message: 'Test service reports an in-progress state.',
+            isDemo: false,
+          ),
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: EligibilityConsentScreen(
+              service: service,
+              configuration: configuration,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final generalConsent = find.byKey(
+          const Key('eligibility-consent-checkbox'),
+        );
+        final biometricConsent = find.byKey(
+          const Key('eligibility-biometric-consent-checkbox'),
+        );
+        final start = find.byKey(
+          const Key('eligibility-start-verification-button'),
+        );
+
+        expect(biometricConsent, findsOneWidget);
+        await tester.ensureVisible(generalConsent);
+        await tester.tap(generalConsent);
+        await tester.pumpAndSettle();
+        expect(tester.widget<SakhiAuthSubmitButton>(start).onPressed, isNull);
+
+        await tester.ensureVisible(biometricConsent);
+        await tester.tap(biometricConsent);
+        await tester.pumpAndSettle();
+        expect(tester.widget<SakhiAuthSubmitButton>(start).onPressed, isNotNull);
+
+        await tester.ensureVisible(start);
+        await tester.tap(start);
+        await tester.pumpAndSettle();
+
+        expect(service.startCalls, 1);
+        expect(service.lastConsent?.biometricProcessingConsented, isTrue);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
       'provider-unavailable entry is reachable from registration consent',
       (tester) async {
         final profile = MemberProfileDraft(
@@ -359,6 +428,7 @@ void main() {
 const _approvedTestConfiguration = EligibilityConfiguration(
   providerConfigured: true,
   policyApproved: true,
+  mobileHandoffSupported: true,
   providerDisplayName: 'Test-only fake provider',
   methodDescription: 'Test-only fake verification method.',
   attributesCheckedDescription: 'Test-only attributes description.',
