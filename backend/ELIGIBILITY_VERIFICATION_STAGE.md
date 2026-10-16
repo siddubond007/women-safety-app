@@ -12,7 +12,7 @@ The feature builds on the existing provider-neutral Flutter preview and NestJS e
 - `POST /api/v1/eligibility/start` authenticates the caller but returns HTTP 409; it does not create a fake provider session.
 - The existing database `verification_status` field only represents the earlier `UNVERIFIED/VERIFIED` flag. It must not be interpreted as the full community eligibility decision.
 
-This increment adds a distinct persisted `eligibility_status`, exposes it separately from the unchanged `providerUnavailable` service result, and defines a transition policy for future trusted backend writers. It does not implement a status-setting endpoint, identity provider, verified outcome, manual-review console, or protected community routes. Those must not be claimed as complete.
+The first increment added a distinct persisted `eligibility_status`, exposed it separately from the existing provider-unavailable contract, and defined the transition policy. The follow-up increment adds a disabled-by-default provider adapter boundary, explicit notice-version/biometric-consent validation for any enabled adapter, minimum consent and provider-session metadata, category-only support/appeal intake, audit events, and an exported eligibility guard. It still does not include a real provider, authenticated callback verification, authorized manual-review decision API, or any actual protected community controller with the guard applied. Those remain incomplete and must not be claimed as shipped.
 
 ## Canonical internal states
 
@@ -104,3 +104,32 @@ The successful migration/build/test output from the original `women_safety_app-b
 - Git checkpoint before this verification: `c2d384d0dbb015612eed56cd64ee79ba63dd0ea6`.
 
 **Migration reconciliation still required:** the wrapper's `No pending migrations` output does not identify which migration records exist or prove the expected `member_accounts.eligibility_status` column is present. Run a read-only migration-history/schema check against `sakhi_test` before claiming database verification complete. Do not reset the database or apply the profile migration in this workstream.
+
+
+## Implementation increment: consent/session boundary and support intake
+
+**Source change checkpoint:** branch `feat/eligibility-domain-status`; current implementation commit is recorded by GitHub. Maintainer tests must be rerun after pulling this increment.
+
+### Added backend components
+
+- `EligibilityProviderAdapter` defines the boundary for an approved provider. The default `UnconfiguredEligibilityProviderAdapter` always reports `providerConfigured=false` and `policyApproved=false`; it cannot create an external session.
+- `POST /api/v1/eligibility/start` preserves the current HTTP 409 provider-unavailable response while no approved provider/policy exists. If an adapter is ever enabled, the service requires an authenticated account with a completed profile, an allowed status transition, explicit consent matching the current notice version, separate biometric consent when required, an HTTPS provider redirect, a nonempty opaque provider reference, and a future session expiry.
+- `eligibility_consents` records only notice version, server timestamp, biometric-consent boolean and source. `eligibility_verification_sessions` stores only local/provider references, session state and expiry/completion timestamps.
+- Provider-start or session-persistence failure marks the local session failed and restores the prior eligibility status, rather than treating a transport failure as an adverse eligibility decision. If supported by a future adapter, cancellation is attempted when a provider session was created but could not be safely persisted.
+- `POST /api/v1/eligibility/support-requests` and `GET /api/v1/eligibility/support-requests` are authenticated and scoped to the current session account. They accept only an enumerated category (verification help, manual-review request, accessibility alternative, appeal guidance), store no free-text identity claims/documents, and cap requests at five per account per rolling 24-hour window.
+- A support/manual-review request does **not** set `PENDING_MANUAL_REVIEW`, does not change eligibility, and grants no protected access. It is intake metadata only: authorized reviewers and actual decision processing are not implemented.
+- `VerifiedEligibilityGuard` checks the backend-loaded eligibility status and allows only `VERIFIED`; it is exported for future protected controllers. No protected community API exists in this increment, so there is not yet an endpoint demonstrating the guard wired end-to-end.
+- New migration `20261016140000_eligibility_consent_sessions_support` creates consent/session/support tables and grants the matching local app role only the required select/insert/update operations. It is additive, has account-delete cascade for these newly introduced records, and never stores Aadhaar numbers, OTPs, images or biometric templates.
+
+### API contracts
+
+Support request categories are `verificationHelp`, `manualReviewRequest`, `accessibilityAlternative`, and `appealGuidance`. The start request DTO uses `consentAccepted`, `consentVersion`, and `biometricProcessingConsented`. The consent fields are optional at the transport DTO layer only to maintain the old disabled-provider client contract; when an approved provider is configured, the service requires explicit, matching consent before making the provider call.
+
+### Remaining blockers and safety boundaries
+
+- No provider is selected/authorized; no provider credentials are present; no real identity data is collected. Production provider activation is blocked by provider and legal approval.
+- There is no webhook/callback validation, replay/idempotency handler, provider result mapper, authenticated reviewer/RBAC decision flow, appeal decision workflow, retention/deletion job, or active protected community endpoint. These must be implemented before representing the full SRS workflow as complete.
+- The adapter must not infer gender from a selfie, name, voice or facial appearance. Phone OTP or Aadhaar OTP success is not an eligibility result.
+- Human review decisions remain disabled until reviewer authorization and approved, fair review criteria exist. A category-only request records a request, not an accepted eligibility appeal.
+- Shared user/profile contract and schema/migration integration with PRs #13/#14 remains deferred. The profile workstream must not migrate `sakhi_test` while eligibility testing is underway.
+- The earlier 31-test passing result predates these source changes and is not validation of this increment. Maintainer must rerun the new migration, build and complete backend tests after pulling.
