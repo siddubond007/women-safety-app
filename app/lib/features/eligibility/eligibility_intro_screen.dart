@@ -5,6 +5,7 @@ import '../../core/theme/sakhi_design_system.dart';
 import '../auth/widgets/auth_widgets.dart';
 import 'eligibility_information_screen.dart';
 import 'eligibility_verification_service.dart';
+import 'eligibility_widgets.dart';
 
 class EligibilityIntroScreen extends StatelessWidget {
   const EligibilityIntroScreen({super.key, required this.service});
@@ -16,17 +17,27 @@ class EligibilityIntroScreen extends StatelessWidget {
     return SakhiAuthScaffold(
       botanicalAsset: AppAssets.authBotanicalConsent,
       authIsDemo: false,
-      authIsDevelopmentBackend: service.isDevelopmentBackend,
       botanicalHeight: 68,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const EligibilityStepIndicator(
+            step: 1,
+            totalSteps: 3,
+            label: 'A transparent process',
+          ),
+          const SizedBox(height: SakhiSpacing.md),
+          const EligibilityVectorHero(
+            icon: Icons.shield_outlined,
+            caption: 'Private by design. Clear by choice.',
+          ),
+          const SizedBox(height: SakhiSpacing.md),
           const Text(
             'ELIGIBILITY VERIFICATION',
             style: SakhiTypography.categoryLabel,
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: SakhiSpacing.sm),
+          const SizedBox(height: SakhiSpacing.xs),
           Text(
             'Help us keep Sakhi a trusted space',
             textAlign: TextAlign.center,
@@ -34,7 +45,7 @@ class EligibilityIntroScreen extends StatelessWidget {
           ),
           const SizedBox(height: SakhiSpacing.sm),
           const Text(
-            'Sakhi plans to use a separate eligibility check for community features reserved for verified members. This is different from confirming control of a mobile number.',
+            'Sakhi plans a separate eligibility check for community features reserved for verified members. It is different from confirming control of a mobile number.',
             textAlign: TextAlign.center,
             style: SakhiTypography.body,
           ),
@@ -43,24 +54,31 @@ class EligibilityIntroScreen extends StatelessWidget {
             message: 'DEVELOPMENT PREVIEW — no approved verification provider or production eligibility policy is configured. This screen does not verify identity or eligibility.',
           ),
           const SizedBox(height: SakhiSpacing.md),
-          const _PrincipleRow(
-            icon: Icons.privacy_tip_outlined,
-            title: 'Clear information before consent',
-            description: 'The method and data use must be explained before any real verification begins.',
+          const EligibilityPrincipleCard(
+            icon: Icons.menu_book_outlined,
+            title: 'Understand before you decide',
+            description: 'The approved method, information used and consequences must be explained before consent.',
           ),
-          const SizedBox(height: SakhiSpacing.sm),
-          const _PrincipleRow(
+          const SizedBox(height: SakhiSpacing.xs),
+          const EligibilityPrincipleCard(
             icon: Icons.lock_outline_rounded,
-            title: 'Only the minimum permitted result',
-            description: 'A future integration must limit identity data and protect verification records.',
+            title: 'Your information deserves care',
+            description: 'Only the minimum permitted result should be received, with access and retention controls.',
           ),
-          const SizedBox(height: SakhiSpacing.sm),
-          const _PrincipleRow(
+          const SizedBox(height: SakhiSpacing.xs),
+          const EligibilityPrincipleCard(
             icon: Icons.visibility_off_outlined,
-            title: 'No guessing from appearance',
-            description: 'Sakhi must never infer gender from a person’s face or appearance.',
+            title: 'No assumptions about appearance',
+            description:
+                'Sakhi must never infer gender from a face, name or voice.',
+            iconColor: SakhiColors.pinkAccent,
           ),
-          const SizedBox(height: SakhiSpacing.lg),
+          const SizedBox(height: SakhiSpacing.md),
+          const EligibilityBullet(
+            icon: Icons.fact_check_outlined,
+            text: 'A phone OTP or Aadhaar OTP alone does not establish eligibility.',
+          ),
+          const SizedBox(height: SakhiSpacing.md),
           SakhiAuthSubmitButton(
             key: const Key('eligibility-review-details-button'),
             label: 'Review verification details',
@@ -90,54 +108,6 @@ class EligibilityIntroScreen extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _PrincipleRow extends StatelessWidget {
-  const _PrincipleRow({
-    required this.icon,
-    required this.title,
-    required this.description,
-  });
-
-  final IconData icon;
-  final String title;
-  final String description;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: SakhiColors.lavender,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(icon, color: SakhiColors.purple, size: 21),
-        ),
-        const SizedBox(width: SakhiSpacing.sm),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  color: SakhiColors.plum,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(description, style: SakhiTypography.body),
-            ],
-          ),
-        ),
-      ],
     );
   }
 }
