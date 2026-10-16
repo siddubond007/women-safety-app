@@ -83,6 +83,7 @@ void main() {
       expect(configuration.policyApproved, isFalse);
       expect(configuration.biometricProcessingRequired, isFalse);
       expect(configuration.hasApprovedConfiguration, isFalse);
+      expect(configuration.mobileHandoffSupported, isFalse);
       expect(configuration.canStartVerification, isFalse);
     });
   });
@@ -139,6 +140,22 @@ void main() {
   });
 
   group('backend eligibility start contract', () {
+    test('does not POST a provider session while mobile handoff is disabled', () async {
+      final api = _FakeEligibilityApiClient();
+      final service = BackendEligibilityVerificationService(apiClient: api);
+
+      final result = await service.startVerification(
+        consent: EligibilityConsentRecord(
+          consentVersion: 'not-a-real-policy',
+          acceptedAt: DateTime.utc(2026, 10, 16),
+        ),
+      );
+
+      expect(api.postRequests, isEmpty);
+      expect(result.status, EligibilityStatus.providerUnavailable);
+      expect(result.isDemo, isTrue);
+    });
+
     test('sends explicit consent fields and omits client timestamp fields', () async {
       final api = _FakeEligibilityApiClient(
         postError: const BackendApiException(
@@ -147,7 +164,10 @@ void main() {
           message: 'No verification session was created.',
         ),
       );
-      final service = BackendEligibilityVerificationService(apiClient: api);
+      final service = BackendEligibilityVerificationService(
+        apiClient: api,
+        mobileHandoffSupported: true,
+      );
 
       final result = await service.startVerification(
         consent: EligibilityConsentRecord(
@@ -179,7 +199,10 @@ void main() {
           'isDemo': false,
         },
       );
-      final service = BackendEligibilityVerificationService(apiClient: api);
+      final service = BackendEligibilityVerificationService(
+        apiClient: api,
+        mobileHandoffSupported: true,
+      );
 
       final result = await service.startVerification(
         consent: EligibilityConsentRecord(
