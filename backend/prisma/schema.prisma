@@ -39,6 +39,35 @@ enum EligibilityVerificationStatus {
   @@map("eligibility_verification_status")
 }
 
+enum EligibilityVerificationSessionStatus {
+  CREATED
+  REDIRECT_READY
+  COMPLETED
+  FAILED
+  EXPIRED
+  CANCELLED
+
+  @@map("eligibility_verification_session_status")
+}
+
+enum EligibilitySupportRequestCategory {
+  VERIFICATION_HELP
+  MANUAL_REVIEW_REQUEST
+  ACCESSIBILITY_ALTERNATIVE
+  APPEAL_GUIDANCE
+
+  @@map("eligibility_support_request_category")
+}
+
+enum EligibilitySupportRequestStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+  CLOSED
+
+  @@map("eligibility_support_request_status")
+}
+
 enum OtpPurpose {
   LOGIN
   REGISTRATION
@@ -75,6 +104,9 @@ model MemberAccount {
   consents                MemberConsent[]
   sessions                AuthSession[]
   communicationPreference MemberCommunicationPreference?
+  eligibilityConsents    EligibilityConsent[]
+  eligibilitySessions    EligibilityVerificationSession[]
+  eligibilitySupportRequests EligibilitySupportRequest[]
 
   @@map("member_accounts")
 }
@@ -144,6 +176,57 @@ model MemberConsent {
   @@index([termsVersionId], map: "member_consents_terms_version_idx")
   @@index([privacyVersionId], map: "member_consents_privacy_version_idx")
   @@map("member_consents")
+}
+
+/// Minimal consent metadata for a specific eligibility notice. No identity evidence is stored.
+model EligibilityConsent {
+  id                           String                           @id @default(uuid()) @db.Uuid
+  accountId                    String                           @map("account_id") @db.Uuid
+  noticeVersion                String                           @map("notice_version") @db.VarChar(64)
+  acceptedAt                   DateTime                         @default(now()) @map("accepted_at") @db.Timestamptz(6)
+  biometricProcessingConsented Boolean                          @default(false) @map("biometric_processing_consented")
+  source                       String                           @db.VarChar(32)
+  account                      MemberAccount                    @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  sessions                     EligibilityVerificationSession[]
+
+  @@index([accountId, acceptedAt], map: "eligibility_consents_account_accepted_idx")
+  @@map("eligibility_consents")
+}
+
+/// Provider session metadata only. Do not store documents, Aadhaar numbers, OTPs, selfies or biometric templates.
+model EligibilityVerificationSession {
+  id                String                               @id @default(uuid()) @db.Uuid
+  accountId         String                               @map("account_id") @db.Uuid
+  consentId         String                               @map("consent_id") @db.Uuid
+  providerKey       String                               @map("provider_key") @db.VarChar(64)
+  providerReference String?                              @map("provider_reference") @db.VarChar(255)
+  status            EligibilityVerificationSessionStatus @default(CREATED)
+  expiresAt         DateTime?                            @map("expires_at") @db.Timestamptz(6)
+  completedAt       DateTime?                            @map("completed_at") @db.Timestamptz(6)
+  createdAt         DateTime                             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime                             @updatedAt @map("updated_at") @db.Timestamptz(6)
+  account           MemberAccount                        @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  consent           EligibilityConsent                   @relation(fields: [consentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([providerKey, providerReference], map: "eligibility_sessions_provider_reference_key")
+  @@index([accountId, createdAt], map: "eligibility_sessions_account_created_idx")
+  @@index([status, expiresAt], map: "eligibility_sessions_status_expiry_idx")
+  @@map("eligibility_verification_sessions")
+}
+
+/// A minimal support/appeal intake. Category only; no free-text identity claims or uploaded evidence.
+model EligibilitySupportRequest {
+  id        String                           @id @default(uuid()) @db.Uuid
+  accountId String                           @map("account_id") @db.Uuid
+  category  EligibilitySupportRequestCategory
+  status    EligibilitySupportRequestStatus  @default(OPEN)
+  createdAt DateTime                         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime                         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  account   MemberAccount                    @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([accountId, createdAt], map: "eligibility_support_account_created_idx")
+  @@index([status, createdAt], map: "eligibility_support_status_created_idx")
+  @@map("eligibility_support_requests")
 }
 
 /// Opaque bearer sessions. Only SHA-256 token digests are stored.
