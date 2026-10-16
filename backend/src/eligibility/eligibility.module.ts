@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { AuthModule } from "../auth/auth.module.js";
 import { EligibilityController } from "./eligibility.controller.js";
 import { EligibilityService } from "./eligibility.service.js";
+import { EligibilitySessionExpiryWorker } from "./eligibility-session-expiry.worker.js";
 import {
   ELIGIBILITY_PROVIDER,
   UnconfiguredEligibilityProviderAdapter,
@@ -13,6 +14,7 @@ import { VerifiedEligibilityGuard } from "./verified-eligibility.guard.js";
   controllers: [EligibilityController],
   providers: [
     EligibilityService,
+    EligibilitySessionExpiryWorker,
     VerifiedEligibilityGuard,
     {
       provide: ELIGIBILITY_PROVIDER,
