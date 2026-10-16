@@ -354,74 +354,71 @@ void main() {
   });
 
   group('authenticated eligibility entry', () {
-    testWidgets(
-      'post-auth status opens the safe eligibility preview flow',
-      (tester) async {
-        await tester.pumpWidget(
-          const MaterialApp(
-            home: SakhiAuthStatusScreen(
-              authService: DemoAuthService(),
-              accountState: AuthAccountState.existingAccount,
-            ),
+    testWidgets('post-auth status opens the safe eligibility preview flow', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: SakhiAuthStatusScreen(
+            authService: DemoAuthService(),
+            accountState: AuthAccountState.existingAccount,
           ),
-        );
-        await tester.pumpAndSettle();
+        ),
+      );
+      await tester.pumpAndSettle();
 
-        final entry = find.byKey(
-          const Key('auth-status-eligibility-button'),
-        );
-        expect(entry, findsOneWidget);
-        await tester.ensureVisible(entry);
-        await tester.tap(entry);
-        await tester.pumpAndSettle();
+      final entry = find.byKey(const Key('auth-status-eligibility-button'));
+      expect(entry, findsOneWidget);
+      await tester.ensureVisible(entry);
+      await tester.tap(entry);
+      await tester.pumpAndSettle();
 
-        expect(find.text('ELIGIBILITY VERIFICATION'), findsOneWidget);
-        await tester.ensureVisible(
-          find.byKey(const Key('eligibility-review-details-button')),
-        );
-        await tester.tap(
-          find.byKey(const Key('eligibility-review-details-button')),
-        );
-        await tester.pumpAndSettle();
-        expect(find.text('Verification information'), findsOneWidget);
+      expect(find.text('ELIGIBILITY VERIFICATION'), findsOneWidget);
+      await tester.ensureVisible(
+        find.byKey(const Key('eligibility-review-details-button')),
+      );
+      await tester.tap(
+        find.byKey(const Key('eligibility-review-details-button')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Verification information'), findsOneWidget);
 
-        final continueButton = find.byKey(
-          const Key('eligibility-information-continue-button'),
-        );
-        await tester.ensureVisible(continueButton);
-        await tester.tap(continueButton);
-        await tester.pumpAndSettle();
-        expect(find.text('Eligibility consent'), findsOneWidget);
+      final continueButton = find.byKey(
+        const Key('eligibility-information-continue-button'),
+      );
+      await tester.ensureVisible(continueButton);
+      await tester.tap(continueButton);
+      await tester.pumpAndSettle();
+      expect(find.text('Eligibility consent'), findsOneWidget);
 
-        final startButton = tester.widget<SakhiAuthSubmitButton>(
-          find.byKey(const Key('eligibility-start-verification-button')),
-        );
-        expect(startButton.onPressed, isNull);
+      final startButton = tester.widget<SakhiAuthSubmitButton>(
+        find.byKey(const Key('eligibility-start-verification-button')),
+      );
+      expect(startButton.onPressed, isNull);
 
-        final consentCheckbox = find.byKey(
-          const Key('eligibility-consent-checkbox'),
-        );
-        await tester.ensureVisible(consentCheckbox);
-        await tester.tap(consentCheckbox);
-        await tester.pumpAndSettle();
+      final consentCheckbox = find.byKey(
+        const Key('eligibility-consent-checkbox'),
+      );
+      await tester.ensureVisible(consentCheckbox);
+      await tester.tap(consentCheckbox);
+      await tester.pumpAndSettle();
 
-        await tester.ensureVisible(
-          find.byKey(const Key('eligibility-preview-status-button')),
-        );
-        await tester.tap(
-          find.byKey(const Key('eligibility-preview-status-button')),
-        );
-        await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('eligibility-preview-status-button')),
+      );
+      await tester.tap(
+        find.byKey(const Key('eligibility-preview-status-button')),
+      );
+      await tester.pumpAndSettle();
 
-        expect(find.text('Verification is not available yet'), findsOneWidget);
-        expect(
-          find.textContaining('no real identity verification occurred'),
-          findsOneWidget,
-        );
-        expect(find.text('Eligibility verified'), findsNothing);
-        expect(tester.takeException(), isNull);
-      },
-    );
+      expect(find.text('Verification is not available yet'), findsOneWidget);
+      expect(
+        find.textContaining('no real identity verification occurred'),
+        findsOneWidget,
+      );
+      expect(find.text('Eligibility verified'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
 
     testWidgets(
       'eligibility entry is hidden before profile completion and for restricted accounts',
