@@ -1,16 +1,53 @@
 import "reflect-metadata";
-import { ConflictException, type INestApplication } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  type INestApplication,
+  TooManyRequestsException,
+} from "@nestjs/common";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
 import { EligibilityController } from "../src/eligibility/eligibility.controller.js";
 import { EligibilityService } from "../src/eligibility/eligibility.service.js";
 import type { AuthenticationService } from "../src/auth/auth.service.js";
+import { PrismaService } from "../src/database/prisma.service.js";
+import { createGlobalValidationPipe } from "../src/common/validation/create-validation-pipe.js";
 import {
   ELIGIBILITY_STATUS_API_VALUE,
   ELIGIBILITY_VERIFICATION_STATUS,
   canTransitionEligibilityStatus,
 } from "../src/eligibility/eligibility-status.js";
+import type {
+  EligibilityProviderAdapter,
+  EligibilityProviderConfiguration,
+} from "../src/eligibility/eligibility-provider.js";
+
+const providerUnavailableConfiguration: EligibilityProviderConfiguration = {
+  providerConfigured: false,
+  policyApproved: false,
+  providerKey: null,
+  providerDisplayName: null,
+  methodDescription: null,
+  attributesCheckedDescription: null,
+  biometricProcessingSupported: false,
+  biometricProcessingRequired: false,
+  dataHandlingDescription: null,
+  retentionAndDeletionDescription: null,
+  declineOrFailureDescription: null,
+  manualReviewDescription: "Review decisions are not enabled.",
+  consentVersion: null,
+};
+
+function providerStub(
+  configuration: EligibilityProviderConfiguration = providerUnavailableConfiguration,
+  startSession = vi.fn(),
+): EligibilityProviderAdapter {
+  return {
+    configuration: () => configuration,
+    startSession,
+  };
+}
 
 describe("eligibility API fail-closed contract", () => {
   let app: INestApplication | undefined;
@@ -18,6 +55,8 @@ describe("eligibility API fail-closed contract", () => {
     configuration: vi.fn(),
     status: vi.fn(),
     start: vi.fn(),
+    createSupportRequest: vi.fn(),
+    listSupportRequests: vi.fn(),
   };
 
   afterEach(async () => {
@@ -40,12 +79,13 @@ describe("eligibility API fail-closed contract", () => {
     }).compile();
     const testApp = module.createNestApplication();
     testApp.setGlobalPrefix("api/v1");
+    testApp.useGlobalPipes(createGlobalValidationPipe());
     await testApp.init();
     app = testApp;
     return testApp;
   }
 
-  it("reports the provider configuration as unavailable without inferring a decision", async () => {
+  it("reports provider and policy as unconfigured", async () => {
     service.configuration.mockReturnValue({
       providerConfigured: false,
       policyApproved: false,
@@ -56,9 +96,12 @@ describe("eligibility API fail-closed contract", () => {
       dataHandlingDescription: null,
       retentionAndDeletionDescription: null,
       declineOrFailureDescription: null,
-      manualReviewDescription: null,
+      manualReviewDescription: "Review decisions are not enabled.",
       consentVersion: null,
       canStartVerification: false,
+      supportRequestsAvailable: true,
+      reviewDecisionsEnabled: false,
+      rawIdentityDataCollectedBySakhi: false,
       mode: "development_preview",
     });
     const app = await createApp();
@@ -70,7 +113,9 @@ describe("eligibility API fail-closed contract", () => {
       providerConfigured: false,
       policyApproved: false,
       canStartVerification: false,
-      mode: "development_preview",
+      supportRequestsAvailable: true,
+      reviewDecisionsEnabled: false,
+      rawIdentityDataCollectedBySakhi: false,
     });
   });
 
@@ -79,6 +124,8 @@ describe("eligibility API fail-closed contract", () => {
       status: "providerUnavailable",
       eligibilityStatus: "notVerified",
       providerConfigured: false,
+      canStartVerification: false,
+      supportRequestsAvailable: true,
       message: "No approved provider is configured.",
       isDemo: true,
     });
@@ -96,7 +143,7 @@ describe("eligibility API fail-closed contract", () => {
     );
   });
 
-  it("does not fabricate a verification session when starting is unavailable", async () => {
+  it("preserves the provider-unavailable start response for the existing no-body client", async () => {
     service.start.mockRejectedValue(
       new ConflictException({
         statusCode: 409,
@@ -115,10 +162,50 @@ describe("eligibility API fail-closed contract", () => {
     expect(response.body.code).toBe("eligibility_provider_unavailable");
     expect(service.start).toHaveBeenCalledWith(
       "Bearer a-valid-looking-test-token",
+      {},
+    );
+  });
+
+  it("validates support-request category and never accepts free-text identity evidence", async () => {
+    service.createSupportRequest.mockResolvedValue({
+      requestId: "support-1",
+      category: "manualReviewRequest",
+      status: "open",
+      isDemo: true,
+    });
+    const app = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/api/v1/eligibility/support-requests")
+      .set("Authorization", "Bearer a-valid-looking-test-token")
+      .send({ category: "arbitrary" })
+      .expect(400);
+
+    const response = await request(app.getHttpServer())
+      .post("/api/v1/eligibility/support-requests")
+      .set("Authorization", "Bearer a-valid-looking-test-token")
+      .send({ category: "manualReviewRequest" })
+      .expect(201);
+
+    expect(response.body.category).toBe("manualReviewRequest");
+    expect(service.createSupportRequest).toHaveBeenCalledWith(
+      "Bearer a-valid-looking-test-token",
+      { category: "manualReviewRequest" },
+    );
+  });
+
+  it("lists only through the authenticated service boundary", async () => {
+    service.listSupportRequests.mockResolvedValue({ requests: [], isDemo: true });
+    const app = await createApp();
+    await request(app.getHttpServer())
+      .get("/api/v1/eligibility/support-requests")
+      .set("Authorization", "Bearer a-valid-looking-test-token")
+      .expect(200);
+    expect(service.listSupportRequests).toHaveBeenCalledWith(
+      "Bearer a-valid-looking-test-token",
     );
   });
 });
-
 
 describe("canonical eligibility state", () => {
   it.each([
@@ -129,49 +216,192 @@ describe("canonical eligibility state", () => {
     ["VERIFICATION_FAILED", "verificationFailed"],
     ["TEMPORARILY_RESTRICTED", "temporarilyRestricted"],
     ["REVERIFICATION_REQUIRED", "reverificationRequired"],
-  ] as const)("returns the persisted state %s without claiming provider availability", async (storedStatus, apiStatus) => {
+  ] as const)(
+    "returns the persisted state %s without claiming provider availability",
+    async (storedStatus, apiStatus) => {
+      const fakeAuth = {
+        authenticateAuthorization: vi.fn().mockResolvedValue({
+          accountId: "account-id",
+          account: { eligibilityStatus: storedStatus },
+        }),
+      };
+      const realService = new EligibilityService(
+        fakeAuth as unknown as AuthenticationService,
+        {} as PrismaService,
+        providerStub(),
+      );
+
+      const response = await realService.status("Bearer synthetic-test-token");
+
+      expect(response).toMatchObject({
+        status: "providerUnavailable",
+        eligibilityStatus: apiStatus,
+        providerConfigured: false,
+        supportRequestsAvailable: true,
+        isDemo: true,
+      });
+      expect(fakeAuth.authenticateAuthorization).toHaveBeenCalledWith(
+        "Bearer synthetic-test-token",
+      );
+      expect(ELIGIBILITY_STATUS_API_VALUE[storedStatus]).toBe(apiStatus);
+    },
+  );
+
+  it("does not create a session or consent when the provider is unconfigured", async () => {
     const fakeAuth = {
       authenticateAuthorization: vi.fn().mockResolvedValue({
-        account: { eligibilityStatus: storedStatus },
+        accountId: "account-id",
+        account: {
+          eligibilityStatus: ELIGIBILITY_VERIFICATION_STATUS.NOT_VERIFIED,
+        },
       }),
     };
+    const startSession = vi.fn();
+    const fakePrisma = {
+      $transaction: vi.fn(),
+    } as unknown as PrismaService;
     const realService = new EligibilityService(
       fakeAuth as unknown as AuthenticationService,
-    );
-
-    const response = await realService.status("Bearer synthetic-test-token");
-
-    expect(response).toMatchObject({
-      status: "providerUnavailable",
-      eligibilityStatus: apiStatus,
-      providerConfigured: false,
-      isDemo: true,
-    });
-    expect(fakeAuth.authenticateAuthorization).toHaveBeenCalledWith(
-      "Bearer synthetic-test-token",
-    );
-    expect(ELIGIBILITY_STATUS_API_VALUE[storedStatus]).toBe(apiStatus);
-  });
-
-  it("keeps provider startup fail-closed and does not change the stored state", async () => {
-    const account = {
-      eligibilityStatus: ELIGIBILITY_VERIFICATION_STATUS.NOT_VERIFIED,
-    };
-    const fakeAuth = {
-      authenticateAuthorization: vi.fn().mockResolvedValue({ account }),
-    };
-    const realService = new EligibilityService(
-      fakeAuth as unknown as AuthenticationService,
+      fakePrisma,
+      providerStub(providerUnavailableConfiguration, startSession),
     );
 
     await expect(
       realService.start("Bearer synthetic-test-token"),
     ).rejects.toThrow(ConflictException);
-    expect(account.eligibilityStatus).toBe("NOT_VERIFIED");
-    expect(fakeAuth.authenticateAuthorization).toHaveBeenCalledOnce();
+    expect(startSession).not.toHaveBeenCalled();
+    expect(fakePrisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it("allows only explicitly defined status transitions and trusted authorities", () => {
+  it("requires explicit accepted notice/version before calling an enabled provider", async () => {
+    const fakeAuth = {
+      authenticateAuthorization: vi.fn().mockResolvedValue({
+        accountId: "account-id",
+        account: {
+          eligibilityStatus: ELIGIBILITY_VERIFICATION_STATUS.NOT_VERIFIED,
+        },
+      }),
+    };
+    const config = {
+      ...providerUnavailableConfiguration,
+      providerConfigured: true,
+      policyApproved: true,
+      providerKey: "synthetic-provider",
+      providerDisplayName: "Synthetic Test Provider",
+      consentVersion: "notice-v1",
+    };
+    const startSession = vi.fn();
+    const realService = new EligibilityService(
+      fakeAuth as unknown as AuthenticationService,
+      {} as PrismaService,
+      providerStub(config, startSession),
+    );
+
+    await expect(
+      realService.start("Bearer synthetic-test-token", {
+        consentAccepted: false,
+        consentVersion: "notice-v1",
+        biometricProcessingConsented: false,
+      }),
+    ).rejects.toThrow(BadRequestException);
+    expect(startSession).not.toHaveBeenCalled();
+  });
+
+  it("allows the provider-neutral flow to return a hosted HTTPS session only after consent", async () => {
+    const accountId = "account-id";
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    const fakeAuth = {
+      authenticateAuthorization: vi.fn().mockResolvedValue({
+        accountId,
+        account: {
+          eligibilityStatus: ELIGIBILITY_VERIFICATION_STATUS.NOT_VERIFIED,
+        },
+      }),
+    };
+    const tx = {
+      eligibilityConsent: {
+        create: vi.fn().mockResolvedValue({ id: "consent-id" }),
+      },
+      eligibilityVerificationSession: {
+        create: vi.fn().mockResolvedValue({ id: "session-id" }),
+        update: vi.fn().mockResolvedValue({ id: "session-id" }),
+      },
+      memberAccount: {
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      auditEvent: {
+        create: vi.fn().mockResolvedValue({ id: "audit-id" }),
+      },
+    };
+    const fakePrisma = {
+      memberProfile: {
+        findUnique: vi.fn().mockResolvedValue({ accountId }),
+      },
+      eligibilityVerificationSession: {
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+      $transaction: vi.fn(async (callback: (value: unknown) => Promise<unknown>) =>
+        callback(tx),
+      ),
+    } as unknown as PrismaService;
+    const providerSession = {
+      providerReference: "synthetic-provider-reference",
+      redirectUrl: "https://verify.example.test/session/opaque",
+      expiresAt,
+    };
+    const startSession = vi.fn().mockResolvedValue(providerSession);
+    const config: EligibilityProviderConfiguration = {
+      ...providerUnavailableConfiguration,
+      providerConfigured: true,
+      policyApproved: true,
+      providerKey: "synthetic-provider",
+      providerDisplayName: "Synthetic Test Provider",
+      methodDescription: "Synthetic provider fixture for unit testing.",
+      attributesCheckedDescription: "No real attributes; synthetic fixture only.",
+      consentVersion: "notice-v1",
+    };
+    const realService = new EligibilityService(
+      fakeAuth as unknown as AuthenticationService,
+      fakePrisma,
+      providerStub(config, startSession),
+    );
+
+    const response = await realService.start("Bearer synthetic-test-token", {
+      consentAccepted: true,
+      consentVersion: "notice-v1",
+      biometricProcessingConsented: false,
+    });
+
+    expect(response).toMatchObject({
+      status: "verificationInProgress",
+      eligibilityStatus: "verificationInProgress",
+      redirectUrl: providerSession.redirectUrl,
+      providerConfigured: true,
+      isDemo: false,
+    });
+    expect(tx.eligibilityConsent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          accountId,
+          noticeVersion: "notice-v1",
+          biometricProcessingConsented: false,
+        }),
+        select: { id: true },
+      }),
+    );
+    expect(tx.memberAccount.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: accountId,
+          eligibilityStatus: "NOT_VERIFIED",
+        },
+        data: { eligibilityStatus: "VERIFICATION_IN_PROGRESS" },
+      }),
+    );
+    expect(tx.auditEvent.create).toHaveBeenCalled();
+  });
+
+  it("requires a reviewer or trusted provider for sensitive status transitions", () => {
     const status = ELIGIBILITY_VERIFICATION_STATUS;
 
     expect(
@@ -211,10 +441,132 @@ describe("canonical eligibility state", () => {
     ).toBe(true);
     expect(
       canTransitionEligibilityStatus(
+        status.VERIFICATION_IN_PROGRESS,
+        status.NOT_VERIFIED,
+        "SYSTEM",
+      ),
+    ).toBe(true);
+    expect(
+      canTransitionEligibilityStatus(
         status.VERIFIED,
         status.NOT_VERIFIED,
         "REVIEWER",
       ),
     ).toBe(false);
+  });
+});
+
+describe("eligibility support request persistence", () => {
+  it("stores category-only requests under the authenticated account and audits creation", async () => {
+    const accountId = "account-id";
+    const createdAt = new Date("2026-10-16T08:00:00.000Z");
+    const tx = {
+      eligibilitySupportRequest: {
+        create: vi.fn().mockResolvedValue({
+          id: "request-id",
+          category: "MANUAL_REVIEW_REQUEST",
+          status: "OPEN",
+          createdAt,
+        }),
+      },
+      auditEvent: {
+        create: vi.fn().mockResolvedValue({ id: "audit-id" }),
+      },
+    };
+    const fakePrisma = {
+      eligibilitySupportRequest: {
+        count: vi.fn().mockResolvedValue(0),
+      },
+      $transaction: vi.fn(async (callback: (value: unknown) => Promise<unknown>) =>
+        callback(tx),
+      ),
+    } as unknown as PrismaService;
+    const fakeAuth = {
+      authenticateAuthorization: vi.fn().mockResolvedValue({
+        accountId,
+        account: { eligibilityStatus: "NOT_VERIFIED" },
+      }),
+    };
+    const realService = new EligibilityService(
+      fakeAuth as unknown as AuthenticationService,
+      fakePrisma,
+      providerStub(),
+    );
+
+    const result = await realService.createSupportRequest(
+      "Bearer synthetic-test-token",
+      { category: "manualReviewRequest" },
+    );
+
+    expect(result).toMatchObject({
+      requestId: "request-id",
+      category: "manualReviewRequest",
+      status: "open",
+      eligibilityStatus: "notVerified",
+      isDemo: true,
+    });
+    expect(tx.eligibilitySupportRequest.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: {
+          id: expect.any(String),
+          accountId,
+          category: "MANUAL_REVIEW_REQUEST",
+          status: "OPEN",
+        },
+        select: {
+          id: true,
+          category: true,
+          status: true,
+          createdAt: true,
+        },
+      }),
+    );
+    expect(tx.auditEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "eligibility.support_request.created",
+          targetId: "request-id",
+          redactedMetadata: { category: "MANUAL_REVIEW_REQUEST" },
+        }),
+        select: { id: true },
+      }),
+    );
+  });
+
+  it("rate-limits support requests per authenticated account", async () => {
+    const tx = {
+      eligibilitySupportRequest: {
+        create: vi.fn(),
+      },
+      auditEvent: {
+        create: vi.fn(),
+      },
+    };
+    const fakePrisma = {
+      eligibilitySupportRequest: {
+        count: vi.fn().mockResolvedValue(5),
+      },
+      $transaction: vi.fn(async (callback: (value: unknown) => Promise<unknown>) =>
+        callback(tx),
+      ),
+    } as unknown as PrismaService;
+    const fakeAuth = {
+      authenticateAuthorization: vi.fn().mockResolvedValue({
+        accountId: "account-id",
+        account: { eligibilityStatus: "NOT_VERIFIED" },
+      }),
+    };
+    const realService = new EligibilityService(
+      fakeAuth as unknown as AuthenticationService,
+      fakePrisma,
+      providerStub(),
+    );
+
+    await expect(
+      realService.createSupportRequest("Bearer synthetic-test-token", {
+        category: "verificationHelp",
+      }),
+    ).rejects.toThrow(TooManyRequestsException);
+    expect(tx.eligibilitySupportRequest.create).not.toHaveBeenCalled();
   });
 });
