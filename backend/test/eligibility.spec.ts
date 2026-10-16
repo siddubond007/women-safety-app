@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import type { INestApplication } from "@nestjs/common";
+import { ConflictException, type INestApplication } from "@nestjs/common";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
@@ -97,7 +97,6 @@ describe("eligibility API fail-closed contract", () => {
   });
 
   it("does not fabricate a verification session when starting is unavailable", async () => {
-    const { ConflictException } = await import("@nestjs/common");
     service.start.mockRejectedValue(
       new ConflictException({
         statusCode: 409,
