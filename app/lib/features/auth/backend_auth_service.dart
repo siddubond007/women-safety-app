@@ -74,6 +74,88 @@ class BackendAuthService implements AuthService {
     );
   }
 
+  AuthAccountState _restoredAccountState(Map<String, dynamic> data) {
+    final status = data['status'];
+    if (status is! String) {
+      throw const AuthServiceException(
+        'The backend returned an invalid saved-session status.',
+        code: 'invalid_response',
+      );
+    }
+
+    switch (status) {
+      case 'ACTIVE':
+        return AuthAccountState.existingAccount;
+      case 'RESTRICTED':
+      case 'SUSPENDED':
+      case 'DELETED':
+        return AuthAccountState.restricted;
+      case 'PENDING_VERIFICATION':
+        return data['profile'] == null
+            ? AuthAccountState.newAccount
+            : AuthAccountState.pendingVerification;
+      default:
+        throw const AuthServiceException(
+          'The backend returned an unknown saved-session status.',
+          code: 'invalid_response',
+        );
+    }
+  }
+
+  @override
+  Future<AuthAccountState?> restoreSession() async {
+    final token = await apiClient.readAccessToken();
+    if (token == null || token.isEmpty) return null;
+
+    try {
+      final data = await apiClient.get('auth/me', authenticated: true);
+      return _restoredAccountState(data);
+    } on BackendApiException catch (error) {
+      if (error.statusCode == 401) {
+        await apiClient.clearAccessToken();
+        return null;
+      }
+      throw _mapError(error);
+    } on AuthServiceException {
+      rethrow;
+    } catch (_) {
+      throw const AuthServiceException(
+        'The saved Sakhi session could not be checked. Check the local backend connection and retry.',
+        code: 'session_restore_failed',
+      );
+    }
+  }
+
+  @override
+  Future<void> logout() async {
+    AuthServiceException? failure;
+    try {
+      await apiClient.post('auth/logout', authenticated: true);
+    } on BackendApiException catch (error) {
+      // An already-invalid server session is effectively signed out.
+      if (error.statusCode != 401) failure = _mapError(error);
+    } on AuthServiceException catch (error) {
+      failure = error;
+    } catch (_) {
+      failure = const AuthServiceException(
+        'The server could not confirm session revocation.',
+        code: 'logout_revoke_failed',
+      );
+    }
+
+    // Clear the credential on this device even if server revocation failed.
+    try {
+      await apiClient.clearAccessToken();
+    } catch (_) {
+      failure ??= const AuthServiceException(
+        'The saved session could not be cleared from this device.',
+        code: 'logout_clear_failed',
+      );
+    }
+
+    if (failure != null) throw failure;
+  }
+
   @override
   Future<AuthOtpSession> requestOtp({
     required String countryCode,
