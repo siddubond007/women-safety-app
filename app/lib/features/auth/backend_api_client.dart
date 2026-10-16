@@ -85,6 +85,12 @@ class BackendApiClient {
     bool authenticated = false,
   }) => _send('POST', path, body: body, authenticated: authenticated);
 
+  Future<Map<String, dynamic>> patch(
+    String path, {
+    Map<String, Object?> body = const <String, Object?>{},
+    bool authenticated = false,
+  }) => _send('PATCH', path, body: body, authenticated: authenticated);
+
   Future<Map<String, dynamic>> _send(
     String method,
     String path, {

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../core/assets/app_assets.dart';
 import '../../core/theme/sakhi_design_system.dart';
+import '../profile/profile_service.dart';
+import '../profile/sakhi_my_profile_screen.dart';
 import 'auth_service.dart';
 import 'sakhi_login_screen.dart';
 import 'widgets/auth_widgets.dart';
@@ -12,6 +14,7 @@ class SakhiAuthStatusScreen extends StatefulWidget {
     required this.authService,
     required this.accountState,
     this.isRestoredSession = false,
+    this.profileService,
   });
 
   final AuthService authService;
@@ -19,6 +22,10 @@ class SakhiAuthStatusScreen extends StatefulWidget {
 
   /// True when this screen was restored from secure local storage on app start.
   final bool isRestoredSession;
+
+  /// Optional injectable service for widget tests. Normal navigation creates
+  /// the authenticated backend adapter only after this screen is opened.
+  final ProfileService? profileService;
 
   @override
   State<SakhiAuthStatusScreen> createState() => _SakhiAuthStatusScreenState();
@@ -104,6 +111,10 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final canViewProfile = widget.authService.isDevelopmentBackend &&
+        widget.accountState != AuthAccountState.newAccount &&
+        widget.accountState != AuthAccountState.restricted;
+
     return SakhiAuthScaffold(
       botanicalAsset: AppAssets.authBotanicalProfile,
       authIsDemo: widget.authService.isDemo,
@@ -139,6 +150,21 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
             const SizedBox(height: SakhiSpacing.md),
             const SakhiAuthStatusMessage(
               message: 'DEMO ONLY — no mobile number was verified by SMS, no account was created, and no authenticated session exists. The preview Home is not treated as a protected destination.',
+            ),
+          ],
+          if (canViewProfile) ...[
+            const SizedBox(height: SakhiSpacing.lg),
+            OutlinedButton.icon(
+              key: const Key('auth-status-my-profile-button'),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => SakhiMyProfileScreen(
+                    profileService: widget.profileService ?? BackendProfileService(),
+                  ),
+                ),
+              ),
+              icon: const Icon(Icons.person_outline_rounded),
+              label: const Text('My profile'),
             ),
           ],
           const SizedBox(height: SakhiSpacing.lg),
