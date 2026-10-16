@@ -8,6 +8,7 @@ import 'package:women_safety_app/features/auth/sakhi_consent_screen.dart';
 import 'package:women_safety_app/features/auth/sakhi_login_screen.dart';
 import 'package:women_safety_app/features/auth/sakhi_otp_screen.dart';
 import 'package:women_safety_app/features/auth/sakhi_profile_screen.dart';
+import 'package:women_safety_app/features/auth/sakhi_auth_status_screen.dart';
 import 'package:women_safety_app/features/auth/sakhi_registration_screen.dart';
 import 'package:women_safety_app/features/auth/widgets/auth_widgets.dart';
 import 'package:women_safety_app/main.dart';
@@ -350,6 +351,113 @@ void main() {
       expect(find.text('Welcome to Sakhi'), findsNothing);
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets(
+      'post-auth status opens eligibility preview and stays fail-closed',
+      (tester) async {
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: SakhiAuthStatusScreen(
+              authService: DemoAuthService(),
+              accountState: AuthAccountState.existingAccount,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final eligibilityEntry = find.byKey(
+          const Key('auth-status-eligibility-preview-button'),
+        );
+        expect(eligibilityEntry, findsOneWidget);
+        await tester.ensureVisible(eligibilityEntry);
+        await tester.tap(eligibilityEntry);
+        await tester.pumpAndSettle();
+
+        expect(find.text('ELIGIBILITY VERIFICATION'), findsOneWidget);
+        expect(find.textContaining('DEVELOPMENT PREVIEW'), findsOneWidget);
+
+        final detailsButton = find.byKey(
+          const Key('eligibility-review-details-button'),
+        );
+        await tester.ensureVisible(detailsButton);
+        await tester.tap(detailsButton);
+        await tester.pumpAndSettle();
+
+        expect(find.text('Verification information'), findsOneWidget);
+        expect(find.text('No authorised provider is configured.'), findsOneWidget);
+
+        final continueButton = find.byKey(
+          const Key('eligibility-information-continue-button'),
+        );
+        await tester.ensureVisible(continueButton);
+        await tester.tap(continueButton);
+        await tester.pumpAndSettle();
+
+        expect(find.text('Eligibility consent'), findsOneWidget);
+        final startButton = tester.widget<SakhiAuthSubmitButton>(
+          find.byKey(const Key('eligibility-start-verification-button')),
+        );
+        expect(startButton.onPressed, isNull);
+
+        final consentCheckbox = find.byKey(
+          const Key('eligibility-consent-checkbox'),
+        );
+        await tester.ensureVisible(consentCheckbox);
+        await tester.tap(consentCheckbox);
+        await tester.pumpAndSettle();
+
+        final previewStatusButton = tester.widget<OutlinedButton>(
+          find.byKey(const Key('eligibility-preview-status-button')),
+        );
+        expect(previewStatusButton.onPressed, isNotNull);
+        final startButtonAfterConsent = tester.widget<SakhiAuthSubmitButton>(
+          find.byKey(const Key('eligibility-start-verification-button')),
+        );
+        expect(startButtonAfterConsent.onPressed, isNull);
+
+        await tester.ensureVisible(
+          find.byKey(const Key('eligibility-preview-status-button')),
+        );
+        await tester.tap(
+          find.byKey(const Key('eligibility-preview-status-button')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Verification is not available yet'), findsOneWidget);
+        expect(
+          find.textContaining('no real identity verification occurred'),
+          findsOneWidget,
+        );
+        expect(find.text('Eligibility verified'), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'eligibility preview entry is hidden before profile completion and for restricted accounts',
+      (tester) async {
+        for (final state in [
+          AuthAccountState.newAccount,
+          AuthAccountState.restricted,
+        ]) {
+          await tester.pumpWidget(
+            MaterialApp(
+              home: SakhiAuthStatusScreen(
+                authService: const DemoAuthService(),
+                accountState: state,
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          expect(
+            find.byKey(const Key('auth-status-eligibility-preview-button')),
+            findsNothing,
+          );
+          expect(tester.takeException(), isNull);
+        }
+      },
+    );
   });
 
   group('profile and consent', () {
