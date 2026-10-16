@@ -42,6 +42,7 @@ export interface EligibilityProviderAdapter {
   startSession(
     input: CreateEligibilityProviderSession,
   ): Promise<EligibilityProviderSession>;
+  cancelSession?(input: { providerReference: string }): Promise<void>;
 }
 
 /**
