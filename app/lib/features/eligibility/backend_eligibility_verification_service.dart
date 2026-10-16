@@ -26,6 +26,13 @@ class BackendEligibilityVerificationService
       return EligibilityConfiguration(
         providerConfigured: data['providerConfigured'] == true,
         policyApproved: data['policyApproved'] == true,
+        biometricProcessingSupported:
+            data['biometricProcessingSupported'] == true,
+        biometricProcessingRequired:
+            data['biometricProcessingRequired'] == true,
+        // Keep session start disabled until provider redirect and app-return
+        // handling are implemented and tested.
+        mobileHandoffSupported: false,
         providerDisplayName: _optionalString(data, 'providerDisplayName'),
         methodDescription: _optionalString(data, 'methodDescription'),
         attributesCheckedDescription: _optionalString(
@@ -64,27 +71,37 @@ class BackendEligibilityVerificationService
       case 'notStarted':
       case 'not_started':
         return EligibilityStatus.notStarted;
+      case 'notVerified':
+      case 'NOT_VERIFIED':
+        return EligibilityStatus.notVerified;
       case 'consentRequired':
       case 'consent_required':
         return EligibilityStatus.consentRequired;
       case 'inProgress':
       case 'in_progress':
+      case 'verificationInProgress':
+      case 'VERIFICATION_IN_PROGRESS':
         return EligibilityStatus.inProgress;
       case 'pendingManualReview':
       case 'pending_manual_review':
+      case 'PENDING_MANUAL_REVIEW':
         return EligibilityStatus.pendingManualReview;
       case 'verified':
+      case 'VERIFIED':
         return EligibilityStatus.verified;
       case 'verificationFailed':
       case 'verification_failed':
+      case 'VERIFICATION_FAILED':
         return EligibilityStatus.verificationFailed;
-      case 'rejected':
-        return EligibilityStatus.rejected;
-      case 'cancelled':
-        return EligibilityStatus.cancelled;
+      case 'temporarilyRestricted':
+      case 'TEMPORARILY_RESTRICTED':
+        return EligibilityStatus.temporarilyRestricted;
       case 'reverificationRequired':
       case 'reverification_required':
+      case 'REVERIFICATION_REQUIRED':
         return EligibilityStatus.reverificationRequired;
+      case 'cancelled':
+        return EligibilityStatus.cancelled;
       case 'consentNotGiven':
       case 'consent_not_given':
         return EligibilityStatus.consentNotGiven;
@@ -103,8 +120,13 @@ class BackendEligibilityVerificationService
         authenticated: true,
       );
       final message = data['message'];
+      final providerUnavailable = data['canStartVerification'] != true;
       return EligibilityStatusResult(
-        status: _status(data['status']),
+        // The status field describes provider readiness; eligibilityStatus is
+        // the canonical persisted account decision. Keep them distinct.
+        status: providerUnavailable
+            ? EligibilityStatus.providerUnavailable
+            : _status(data['eligibilityStatus']),
         message: message is String
             ? message
             : 'No approved eligibility-verification provider is configured.',
@@ -131,16 +153,18 @@ class BackendEligibilityVerificationService
         'eligibility/start',
         authenticated: true,
         body: {
+          'consentAccepted': true,
           'consentVersion': consent.consentVersion,
-          'acceptedAt': consent.acceptedAt.toUtc().toIso8601String(),
+          'biometricProcessingConsented':
+              consent.biometricProcessingConsented,
         },
       );
       return EligibilityStatusResult(
-        status: _status(data['status']),
+        status: _status(data['eligibilityStatus'] ?? data['status']),
         message: data['message'] is String
             ? data['message'] as String
             : 'The backend did not confirm an eligibility session.',
-        isDemo: true,
+        isDemo: data['isDemo'] == true,
       );
     } on BackendApiException catch (error) {
       if (error.statusCode == 409 ||
