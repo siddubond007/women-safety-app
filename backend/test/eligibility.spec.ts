@@ -465,12 +465,17 @@ describe("eligibility support request persistence", () => {
     const createdAt = new Date("2026-10-16T08:00:00.000Z");
     const tx = {
       eligibilitySupportRequest: {
-        create: vi.fn().mockResolvedValue({
-          id: "request-id",
-          category: "MANUAL_REVIEW_REQUEST",
-          status: "OPEN",
-          createdAt,
-        }),
+        create: vi.fn().mockImplementation(
+          (input: {
+            data: { id: string; category: string; status: string };
+          }) =>
+            Promise.resolve({
+              id: input.data.id,
+              category: input.data.category,
+              status: input.data.status,
+              createdAt,
+            }),
+        ),
       },
       auditEvent: {
         create: vi.fn().mockResolvedValue({ id: "audit-id" }),
@@ -502,7 +507,7 @@ describe("eligibility support request persistence", () => {
     );
 
     expect(result).toMatchObject({
-      requestId: "request-id",
+      requestId: expect.any(String),
       category: "manualReviewRequest",
       status: "open",
       eligibilityStatus: "notVerified",
@@ -528,7 +533,8 @@ describe("eligibility support request persistence", () => {
       expect.objectContaining({
         data: expect.objectContaining({
           action: "eligibility.support_request.created",
-          targetId: "request-id",
+          targetId: result.requestId,
+          requestId: result.requestId,
           redactedMetadata: { category: "MANUAL_REVIEW_REQUEST" },
         }),
         select: { id: true },
