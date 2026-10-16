@@ -112,6 +112,13 @@ abstract interface class AuthService {
   /// authentication. This differs from the no-persistence demo simulator.
   bool get isDevelopmentBackend;
 
+  /// Restores a persisted session from the configured service. Returns null
+  /// when no valid session exists; implementations must not infer access.
+  Future<AuthAccountState?> restoreSession();
+
+  /// Revokes the current session where supported and clears local credentials.
+  Future<void> logout();
+
   Future<AuthOtpSession> requestOtp({
     required String countryCode,
     required String phoneNumber,
@@ -142,6 +149,12 @@ class DemoAuthService implements AuthService {
 
   @override
   bool get isDevelopmentBackend => false;
+
+  @override
+  Future<AuthAccountState?> restoreSession() async => null;
+
+  @override
+  Future<void> logout() async {}
 
   AuthOtpSession _newSession({
     required String countryCode,
@@ -227,6 +240,12 @@ class UnconfiguredAuthService implements AuthService {
 
   @override
   bool get isDevelopmentBackend => false;
+
+  @override
+  Future<AuthAccountState?> restoreSession() async => null;
+
+  @override
+  Future<void> logout() async {}
 
   @override
   Future<AuthOtpSession> requestOtp({
