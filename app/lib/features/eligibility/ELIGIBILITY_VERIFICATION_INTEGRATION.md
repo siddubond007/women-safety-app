@@ -113,8 +113,13 @@ consent panel and status badge are responsive components built from code.
 
 The interface communicates each of the seven canonical states, makes the
 provider-unavailable preview explicit, and never presents a simulated result as
-a real eligibility decision. The screen changes are awaiting maintainer Flutter
-analysis and widget-test validation.
+a real eligibility decision. Maintainer validation completed against the
+formatted source represented by UI branch head
+`bb1f1151a6b521b56d6ab32622ec7c9e8ffbe08f`: Dart formatting was applied;
+`flutter analyze` reported no issues; all 9 eligibility widget tests passed;
+and the full Flutter suite passed all 37 tests. The only changes made in the
+isolated worktree after checkout were the six formatter-produced source/test
+diffs now committed to this branch.
 
 ## Demo boundary
 
