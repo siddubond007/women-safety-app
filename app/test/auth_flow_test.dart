@@ -352,6 +352,54 @@ void main() {
     });
   });
 
+  group('session persistence and logout', () {
+    testWidgets('restores a valid saved session before onboarding', (
+      tester,
+    ) async {
+      final service = _FakeAuthService()
+        ..developmentBackend = true
+        ..restoredState = AuthAccountState.pendingVerification;
+
+      await tester.pumpWidget(
+        MaterialApp(home: SakhiStartupRouter(authService: service)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(service.restoreCalls, 1);
+      expect(find.text('One more step'), findsOneWidget);
+      expect(
+        find.textContaining('Your saved development session was checked'),
+        findsOneWidget,
+      );
+      expect(find.text('Welcome to Sakhi'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('sign out calls the service and returns to mobile login', (
+      tester,
+    ) async {
+      final service = _FakeAuthService()..developmentBackend = true;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SakhiAuthStatusScreen(
+            authService: service,
+            accountState: AuthAccountState.pendingVerification,
+            isRestoredSession: true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('auth-status-sign-out-button')));
+      await tester.pumpAndSettle();
+
+      expect(service.logoutCalls, 1);
+      expect(find.text('Welcome back'), findsOneWidget);
+      expect(find.byKey(const Key('auth-mobile-number-field')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   group('profile and consent', () {
     testWidgets('requires a name and date of birth; email is optional', (
       tester,
@@ -657,6 +705,10 @@ AuthOtpSession _session({
 
 class _FakeAuthService implements AuthService {
   bool demo = false;
+  bool developmentBackend = false;
+  AuthAccountState? restoredState;
+  int restoreCalls = 0;
+  int logoutCalls = 0;
   int requestCalls = 0;
   int resendCalls = 0;
   int verifyCalls = 0;
@@ -671,7 +723,19 @@ class _FakeAuthService implements AuthService {
   bool get isDemo => demo;
 
   @override
-  bool get isDevelopmentBackend => false;
+  bool get isDevelopmentBackend => developmentBackend;
+
+  @override
+  Future<AuthAccountState?> restoreSession() async {
+    restoreCalls++;
+    return restoredState;
+  }
+
+  @override
+  Future<void> logout() async {
+    logoutCalls++;
+    restoredState = null;
+  }
 
   @override
   Future<AuthOtpSession> requestOtp({
