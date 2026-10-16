@@ -26,10 +26,11 @@ class EligibilityInformationScreen extends StatelessWidget {
       future: service.loadConfiguration(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const SakhiAuthScaffold(
+          return SakhiAuthScaffold(
             botanicalAsset: AppAssets.authBotanicalConsent,
             authIsDemo: false,
-            child: Center(
+            authIsDevelopmentBackend: service.isDevelopmentBackend,
+            child: const Center(
               child: Padding(
                 padding: EdgeInsets.all(SakhiSpacing.lg),
                 child: CircularProgressIndicator(),
@@ -45,6 +46,7 @@ class EligibilityInformationScreen extends StatelessWidget {
         return SakhiAuthScaffold(
           botanicalAsset: AppAssets.authBotanicalConsent,
           authIsDemo: false,
+          authIsDevelopmentBackend: service.isDevelopmentBackend,
           botanicalHeight: 64,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
