@@ -100,6 +100,8 @@ describe("eligibility API fail-closed contract", () => {
     service.configuration.mockReturnValue({
       providerConfigured: false,
       policyApproved: false,
+      biometricProcessingSupported: false,
+      biometricProcessingRequired: false,
       providerDisplayName: null,
       methodDescription: null,
       attributesCheckedDescription: null,
@@ -123,6 +125,8 @@ describe("eligibility API fail-closed contract", () => {
     expect(response.body).toMatchObject({
       providerConfigured: false,
       policyApproved: false,
+      biometricProcessingSupported: false,
+      biometricProcessingRequired: false,
       canStartVerification: false,
       supportRequestsAvailable: true,
       reviewDecisionsEnabled: false,
