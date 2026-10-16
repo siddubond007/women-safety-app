@@ -14,8 +14,13 @@ The eligibility feature is isolated under `features/eligibility/`:
   unavailability and does not create sessions or persist consent.
 - Screens show information, preview consent interaction and separate result
   states. A preview status never grants protected access.
-- `SakhiConsentScreen` offers a clearly labelled demo-only entry point.
-  Existing registration, mobile OTP and account-creation logic are unchanged.
+- `SakhiAuthStatusScreen` exposes a `Preview eligibility verification` entry
+  for `existingAccount` and `pendingVerification`. It is hidden before profile
+  completion and for restricted accounts. The entry routes to the current
+  Flutter-native introduction using `DemoEligibilityVerificationService`.
+- This is UI navigation only: it does not create an account session, invoke an
+  identity provider, persist consent or grant protected community access.
+  Existing registration, mobile OTP and account-creation behavior is unchanged.
 
 This contract defines candidates, not implemented HTTP endpoints.
 
@@ -129,8 +134,26 @@ eligibility status. Its `DEMO RESULT — no real identity verification occurred.
 notice is mandatory on preview outcomes. App restart does not restore a real
 eligibility state because none exists in this stage.
 
+## Post-authentication UI and device-test checkpoint
+
+The current eligibility preview is reachable from `SakhiAuthStatusScreen`
+through `Preview eligibility verification` for existing/pending account states.
+The widget flow now covers introduction, disclosure, demo consent and the
+provider-unavailable status, and verifies that `Start verification` remains
+disabled when no approved provider/policy is configured. This preview route is
+built on the current `feat/eligibility-verification` UI branch so device tests
+exercise the latest consent-panel fix.
+
+**Local validation and physical-device visual testing for this route are
+pending.** Before advancing, run Dart formatting checks, `flutter analyze`,
+the full `flutter test` suite, then launch the app on the Android device. Review
+the screens at device size for clipping/overflow, readable disclosures, working
+back-navigation, disabled start action and the explicit no-real-verification
+warning. Fix any observed issues before marking the mobile UI checkpoint done.
+
 ## Later work requires separate approval
 
 Real provider integration, backend persistence, database migrations, production
 eligibility decisions, Super Admin review tools and sensitive-evidence handling
-are out of scope for this UI stage and require an approved implementation plan.
+require an approved provider/method, legal policy and review process. Until then,
+the mobile preview must remain explicitly unavailable and fail closed.
