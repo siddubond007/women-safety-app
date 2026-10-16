@@ -30,7 +30,9 @@ type FakeTx = {
   auditEvent: { create: ReturnType<typeof vi.fn> };
 };
 
-function createHarness(initialProfile = INITIAL_PROFILE) {
+function createHarness(
+  initialProfile: typeof INITIAL_PROFILE | null = INITIAL_PROFILE,
+) {
   let profile: typeof INITIAL_PROFILE | null = initialProfile;
   const tx: FakeTx = {
     memberProfile: {
