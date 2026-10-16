@@ -319,7 +319,6 @@ export class EligibilityService {
     try {
       const candidate = await this.provider.startSession({
         localSessionId,
-        accountId,
         consentVersion,
         biometricProcessingConsented: dto.biometricProcessingConsented === true,
       });
