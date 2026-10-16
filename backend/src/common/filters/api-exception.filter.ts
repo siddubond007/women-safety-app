@@ -5,6 +5,54 @@ import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 
 type RequestWithId = Request;
 
+interface SafeExceptionDiagnostics {
+  errorCode?: string;
+  prismaModel?: string;
+  prismaTarget?: string[];
+}
+
+function safeExceptionDiagnostics(exception: unknown): SafeExceptionDiagnostics {
+  if (typeof exception !== "object" || exception === null) return {};
+
+  const record = exception as Record<string, unknown>;
+  const result: SafeExceptionDiagnostics = {};
+
+  // Log only stable error identifiers and schema metadata. Never log the raw
+  // exception message, query, parameters, connection string, or request body.
+  if (typeof record.code === "string" && /^[A-Z][0-9]{4}$/.test(record.code)) {
+    result.errorCode = record.code;
+  }
+
+  const meta = record.meta;
+  if (typeof meta === "object" && meta !== null) {
+    const metaRecord = meta as Record<string, unknown>;
+    if (
+      typeof metaRecord.modelName === "string" &&
+      /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(metaRecord.modelName)
+    ) {
+      result.prismaModel = metaRecord.modelName;
+    }
+    const target = metaRecord.target;
+    if (
+      Array.isArray(target) &&
+      target.length <= 16 &&
+      target.every(
+        (item): item is string =>
+          typeof item === "string" && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(item),
+      )
+    ) {
+      result.prismaTarget = target;
+    } else if (
+      typeof target === "string" &&
+      /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(target)
+    ) {
+      result.prismaTarget = [target];
+    }
+  }
+
+  return result;
+}
+
 @Catch()
 @Injectable()
 export class ApiExceptionFilter implements ExceptionFilter {
@@ -57,6 +105,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
           statusCode,
           exceptionType:
             exception instanceof Error ? exception.name : "UnknownException",
+          ...safeExceptionDiagnostics(exception),
         },
         "Request failed",
       );
