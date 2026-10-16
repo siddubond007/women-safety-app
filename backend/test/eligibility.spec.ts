@@ -448,7 +448,6 @@ describe("canonical eligibility state", () => {
 
   it("expires abandoned sessions and allows retry after a stuck in-progress state", async () => {
     const accountId = "account-id";
-    const expiresAt = new Date(Date.now() - 1_000);
     const fakeAuth = {
       authenticateAuthorization: vi.fn().mockResolvedValue({
         accountId,
@@ -563,7 +562,6 @@ describe("canonical eligibility state", () => {
     });
     expect(expiryTx.auditEvent.create).toHaveBeenCalled();
     expect(transactionResults).toHaveLength(0);
-    expect(expiresAt.getTime()).toBeLessThan(Date.now());
   });
 
   it("requires a reviewer or trusted provider for sensitive status transitions", () => {
