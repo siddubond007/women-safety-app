@@ -589,6 +589,7 @@ export class AuthenticationService {
             optionalUpdatesAccepted: dto.optionalUpdatesAccepted,
           },
         },
+        select: { id: true },
       });
 
       return {
@@ -641,6 +642,7 @@ export class AuthenticationService {
         requestId: randomUUID(),
         redactedMetadata: { reason: "member_logout" },
       },
+      select: { id: true },
     });
     return { status: "signed_out" as const };
   }
