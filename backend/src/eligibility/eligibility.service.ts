@@ -151,7 +151,8 @@ export class EligibilityService {
       !provider.providerConfigured ||
       !provider.policyApproved ||
       !providerKey ||
-      !consentVersion
+      !consentVersion ||
+      provider.redirectHosts.length === 0
     ) {
       throw new ConflictException({
         statusCode: 409,
