@@ -391,7 +391,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('auth-status-sign-out-button')));
+      final signOutButton = find.byKey(
+        const Key('auth-status-sign-out-button'),
+      );
+      await tester.ensureVisible(signOutButton);
+      await tester.pumpAndSettle();
+      await tester.tap(signOutButton);
       await tester.pumpAndSettle();
 
       expect(service.logoutCalls, 1);
