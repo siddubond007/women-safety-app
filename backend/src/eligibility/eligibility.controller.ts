@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -15,6 +16,7 @@ import {
 } from "@nestjs/swagger";
 import {
   CreateEligibilitySupportRequestDto,
+  ELIGIBILITY_SUPPORT_REQUEST_CATEGORIES,
   StartEligibilityVerificationDto,
 } from "./eligibility.dto.js";
 import { EligibilityService } from "./eligibility.service.js";
@@ -61,6 +63,32 @@ export class EligibilityController {
     @Headers("authorization") authorization: string | undefined,
     @Body() dto: CreateEligibilitySupportRequestDto,
   ) {
+    // Keep this endpoint safe even if a test harness or an alternate Nest
+    // bootstrap omits the global ValidationPipe. Only a category is accepted;
+    // do not accept free-text claims or uploaded identity evidence here.
+    if (
+      !dto ||
+      typeof dto !== "object" ||
+      Array.isArray(dto) ||
+      typeof dto.category !== "string" ||
+      !ELIGIBILITY_SUPPORT_REQUEST_CATEGORIES.includes(
+        dto.category as (typeof ELIGIBILITY_SUPPORT_REQUEST_CATEGORIES)[number],
+      )
+    ) {
+      throw new BadRequestException({
+        code: "invalid_eligibility_support_category",
+        message: "Choose a supported eligibility support request category.",
+      });
+    }
+
+    const unexpectedKeys = Object.keys(dto).filter((key) => key !== "category");
+    if (unexpectedKeys.length > 0) {
+      throw new BadRequestException({
+        code: "unsupported_eligibility_support_fields",
+        message: "Only a support request category is accepted. Do not submit identity documents or free-text identity information.",
+      });
+    }
+
     return this.eligibility.createSupportRequest(authorization, dto);
   }
 
