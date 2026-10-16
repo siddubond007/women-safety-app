@@ -2,9 +2,9 @@ import '../auth/backend_api_client.dart';
 import 'eligibility_verification_models.dart';
 import 'eligibility_verification_service.dart';
 
-/// Connects the eligibility preview to the backend's fail-closed contract.
-/// This currently reads an explicit unavailable status; it never simulates a
-/// verified outcome or sends identity evidence.
+/// Maps the authenticated mobile eligibility screens to the current backend
+/// API contract. Provider status is server-sourced; the app still disables
+/// provider session start until a secure handoff and return flow are supported.
 class BackendEligibilityVerificationService
     implements EligibilityVerificationService {
   const BackendEligibilityVerificationService({
