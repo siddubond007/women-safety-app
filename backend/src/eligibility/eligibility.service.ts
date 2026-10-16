@@ -224,14 +224,18 @@ export class EligibilityService {
       });
     }
 
+    const now = new Date();
     const activeSession = await this.prisma.eligibilityVerificationSession.findFirst({
       where: {
         accountId,
         OR: [
-          { status: "CREATED" },
+          {
+            status: "CREATED",
+            expiresAt: { gt: now },
+          },
           {
             status: "REDIRECT_READY",
-            expiresAt: { gt: new Date() },
+            expiresAt: { gt: now },
           },
         ],
       },
@@ -245,6 +249,9 @@ export class EligibilityService {
     }
 
     const localSessionId = randomUUID();
+    // Bound a crash between session creation and provider redirect creation so
+    // stale CREATED rows cannot block a member from retrying indefinitely.
+    const providerStartDeadline = new Date(Date.now() + 5 * 60 * 1000);
     await this.prisma.$transaction(async (tx) => {
       const consent = await tx.eligibilityConsent.create({
         data: {
@@ -264,6 +271,7 @@ export class EligibilityService {
           consentId: consent.id,
           providerKey,
           status: "CREATED",
+          expiresAt: providerStartDeadline,
         },
         select: { id: true },
       });
