@@ -85,10 +85,12 @@ db-migrate.ps1 uses prisma migrate deploy; it does not call migrate reset, db pu
 | POST   | /api/v1/auth/profile              | Saves profile, draft Terms/Privacy acknowledgement, and separate optional update preference |
 | GET    | /api/v1/auth/me                   | Reads the account bound to a valid bearer session                                           |
 | POST   | /api/v1/auth/logout               | Revokes the current bearer session                                                          |
-| GET    | /api/v1/eligibility/configuration | Returns provider and policy as explicitly unavailable                                       |
-| GET    | /api/v1/eligibility/status        | Authenticated fail-closed status; no real eligibility decision                              |
-| POST   | /api/v1/eligibility/start         | Returns provider-unavailable and creates no verification session                            |
-| GET    | /api/docs                         | Development/test OpenAPI documentation                                                      |
+| GET    | /api/v1/eligibility/configuration     | Reports current provider/policy readiness; default implementation is unconfigured            |
+| GET    | /api/v1/eligibility/status            | Authenticated status separate from phone/authentication verification                         |
+| POST   | /api/v1/eligibility/start              | Requires current explicit consent and a legally approved provider; default returns 409       |
+| POST   | /api/v1/eligibility/support-requests   | Stores category-only support/manual-review/appeal guidance intake; does not change status     |
+| GET    | /api/v1/eligibility/support-requests   | Lists up to 20 support-request records belonging to the authenticated account                 |
+| GET    | /api/docs                              | Development/test OpenAPI documentation                                                      |
 
 The development OTP mode is deliberately restricted to SAKHI_ENV=dev or test, non-production runtime and HOST=127.0.0.1. The development start wrapper sets that mode for the process and labels its temporary age-13 rule; the API refuses to echo codes when it is disabled. A real phone can reach the host loopback API via adb reverse tcp:3000 tcp:3000, without exposing the API on the LAN. Do not change HOST to 0.0.0.0 for OTP echo.
 
@@ -102,5 +104,6 @@ The development OTP mode is deliberately restricted to SAKHI_ENV=dev or test, no
 - Development code echo is not SMS delivery and not carrier verification. It uses short expiry, per-challenge hashed codes, attempt limits and request throttling. It can run only on loopback in dev/test.
 - Bearer tokens are generated with cryptographic randomness; only SHA-256 digests are stored in PostgreSQL; sessions have a 12-hour expiry and can be revoked.
 - Profile writes require the authenticated development session, a real (non-future) accepted-at timestamp, matching draft policy metadata and only the temporary age-13 dev/test rule. Production startup is disabled.
-- Eligibility APIs always fail closed with provider unavailable. They do not create an external provider session, collect identity evidence, or infer a user's eligibility.
+- Eligibility provider adapter is disabled by default; a start request returns 409 without creating consent/session records or sending identity data. If a lawful, approved provider is later configured, the service requires versioned consent, separate biometric consent when required, HTTPS redirects to an explicit host allowlist, an opaque provider reference, and an unexpired session.
+- Eligibility support intake stores only a bounded category and audit metadata; it neither captures free-text identity claims nor sets a review/eligibility decision. An exported verified-status guard is ready for protected controllers, but no protected community controller is currently wired to it.
 - No external SMS provider, production identity provider, production credential, real person fixture, or production-sensitive feature storage is configured.
