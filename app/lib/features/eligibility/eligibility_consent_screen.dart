@@ -115,6 +115,7 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
     return SakhiAuthScaffold(
       botanicalAsset: AppAssets.authBotanicalConsent,
       authIsDemo: false,
+      authIsDevelopmentBackend: widget.service.isDevelopmentBackend,
       botanicalHeight: 58,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
