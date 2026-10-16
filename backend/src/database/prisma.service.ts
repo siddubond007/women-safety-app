@@ -18,6 +18,8 @@ export class PrismaService extends PrismaClient implements OnModuleDestroy {
     assertSakhiDatabaseTarget(connectionString, "app", environment);
     const adapter = new PrismaPg({
       connectionString,
+      // Keep PostgreSQL DateTime encoding/decoding consistent with UTC.
+      options: "-c timezone=UTC",
       max: 10,
       connectionTimeoutMillis: 5_000,
       idleTimeoutMillis: 30_000,

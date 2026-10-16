@@ -124,7 +124,7 @@ export class AuthenticationService {
       },
     });
 
-    await tx.auditEvent.create({
+    await tx.auditEvent.createMany({
       data: {
         actorType: "SYSTEM",
         action: "auth.otp.requested",
@@ -401,7 +401,7 @@ export class AuthenticationService {
         ? "newAccount"
         : this.accountState(account.status);
 
-      await tx.auditEvent.create({
+      await tx.auditEvent.createMany({
         data: {
           actorType: "MEMBER",
           actorId: account.id,
@@ -571,7 +571,7 @@ export class AuthenticationService {
         update: { productUpdatesAccepted: dto.optionalUpdatesAccepted },
       });
 
-      await tx.auditEvent.create({
+      await tx.auditEvent.createMany({
         data: {
           actorType: "MEMBER",
           actorId: session.accountId,
@@ -626,7 +626,7 @@ export class AuthenticationService {
       where: { id: session.id },
       data: { revokedAt: new Date() },
     });
-    await this.prisma.auditEvent.create({
+    await this.prisma.auditEvent.createMany({
       data: {
         actorType: "MEMBER",
         actorId: session.accountId,

@@ -9,11 +9,12 @@
   },
   "scripts": {
     "start": "node dist/main.js",
-    "start:dev": "tsx watch src/main.ts",
+    "start:dev": "npm run build && node dist/main.js",
     "build": "prisma generate && tsc -p tsconfig.build.json",
     "typecheck": "prisma generate && tsc --noEmit -p tsconfig.json",
     "test": "prisma generate && vitest run",
     "test:watch": "vitest",
+    "test:db-integration": "prisma generate && vitest run test/auth.database.integration.spec.ts",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\" \"prisma/**/*.ts\" \"*.ts\" \"*.json\" \"*.md\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"prisma/**/*.ts\" \"*.ts\" \"*.json\" \"*.md\"",
     "prisma:format": "prisma format",
