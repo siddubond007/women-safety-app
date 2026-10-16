@@ -81,17 +81,40 @@ confirmation.
 
 ## Status semantics
 
-The UI model deliberately separates:
+The UI exposes the same seven canonical eligibility statuses used by the
+backend, with readable labels:
 
-- `notStarted`, `consentRequired`, `consentNotGiven`
-- `inProgress`, `pendingManualReview`
-- `verified`, `rejected`, `reverificationRequired`
-- `verificationFailed`, `cancelled`, `providerUnavailable`
+- `notVerified` — Not Verified
+- `inProgress` — Verification In Progress
+- `pendingManualReview` — Pending Manual Review
+- `verified` — Verified
+- `verificationFailed` — Verification Failed
+- `temporarilyRestricted` — Temporarily Restricted
+- `reverificationRequired` — Reverification Required
+
+Additional screen/service states (`notStarted`, `consentRequired`,
+`consentNotGiven`, `cancelled`, and `providerUnavailable`) describe the
+flow rather than new persisted eligibility decisions. A technical error,
+cancellation, timeout or unavailable provider is not an eligibility rejection.
 
 Only the trusted backend may establish a real final decision. Manual review is
 displayed as a possible status, not an implemented workflow. The app must not
 request documents or offer a working upload/review submission until its process,
 lawful basis, access controls and retention policy are approved.
+
+## UI presentation checkpoint
+
+The introduction, information, consent and status screens use Flutter-native
+layout, text, Material icons, gradients and vector-like geometric shapes. They
+do not crop or reuse images from reference screenshots. Existing standalone
+Sakhi branding/illustration assets remain separate source files and are only
+displayed as their original assets. The progress indicator, privacy cards,
+consent panel and status badge are responsive components built from code.
+
+The interface communicates each of the seven canonical states, makes the
+provider-unavailable preview explicit, and never presents a simulated result as
+a real eligibility decision. The screen changes are awaiting maintainer Flutter
+analysis and widget-test validation.
 
 ## Demo boundary
 
