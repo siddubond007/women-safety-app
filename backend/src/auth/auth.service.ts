@@ -166,6 +166,14 @@ export class AuthenticationService {
         select: { id: true },
       });
 
+      // A login request must not issue a challenge for a number without an
+      // account. New numbers must use the explicit registration flow instead.
+      if (dto.purpose === "login" && !account) {
+        throw new BadRequestException(
+          "No Sakhi account was found for this number. Choose Create account to register.",
+        );
+      }
+
       const result = await this.createChallenge(tx, {
         phoneE164,
         purpose: dto.purpose === "login" ? "LOGIN" : "REGISTRATION",
