@@ -50,6 +50,14 @@ enum EligibilityVerificationSessionStatus {
   @@map("eligibility_verification_session_status")
 }
 
+enum EligibilityProviderCallbackOutcome {
+  VERIFIED
+  PENDING_MANUAL_REVIEW
+  VERIFICATION_FAILED
+
+  @@map("eligibility_provider_callback_outcome")
+}
+
 enum EligibilitySupportRequestCategory {
   VERIFICATION_HELP
   MANUAL_REVIEW_REQUEST
@@ -205,13 +213,30 @@ model EligibilityVerificationSession {
   completedAt       DateTime?                            @map("completed_at") @db.Timestamptz(6)
   createdAt         DateTime                             @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime                             @updatedAt @map("updated_at") @db.Timestamptz(6)
-  account           MemberAccount                        @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  consent           EligibilityConsent                   @relation(fields: [consentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  account                MemberAccount                        @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  consent                EligibilityConsent                   @relation(fields: [consentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  providerCallbackEvents EligibilityProviderCallbackEvent[]
 
   @@unique([providerKey, providerReference], map: "eligibility_sessions_provider_reference_key")
   @@index([accountId, createdAt], map: "eligibility_sessions_account_created_idx")
   @@index([status, expiresAt], map: "eligibility_sessions_status_expiry_idx")
   @@map("eligibility_verification_sessions")
+}
+
+/// Stores callback event identifiers and normalized outcomes only. Raw callback
+/// bodies and identity-provider payloads are never persisted.
+model EligibilityProviderCallbackEvent {
+  id              String                            @id @default(uuid()) @db.Uuid
+  providerKey     String                            @map("provider_key") @db.VarChar(64)
+  providerEventId String                            @map("provider_event_id") @db.VarChar(255)
+  sessionId       String                            @map("session_id") @db.Uuid
+  outcome         EligibilityProviderCallbackOutcome
+  receivedAt      DateTime                          @default(now()) @map("received_at") @db.Timestamptz(6)
+  session         EligibilityVerificationSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([providerKey, providerEventId], map: "eligibility_provider_callback_event_key")
+  @@index([sessionId, receivedAt], map: "eligibility_provider_callback_session_received_idx")
+  @@map("eligibility_provider_callback_events")
 }
 
 /// A minimal support/appeal intake. Category only; no free-text identity claims or uploaded evidence.
