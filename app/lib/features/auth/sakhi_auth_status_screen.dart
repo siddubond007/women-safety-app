@@ -86,7 +86,7 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
       MaterialPageRoute<void>(
         builder: (loginContext) {
           if (warning != null) {
-            final message = warning!;
+            final message = warning;
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (loginContext.mounted) {
                 ScaffoldMessenger.maybeOf(loginContext)?.showSnackBar(
