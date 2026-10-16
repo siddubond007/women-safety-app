@@ -3,15 +3,19 @@
 /// These types describe UI/service states only. They do not prove identity,
 /// gender, age, or community eligibility.
 enum EligibilityStatus {
-  notStarted,
-  consentRequired,
+  // Canonical persisted backend statuses (mapped below into user-facing labels).
+  notVerified,
   inProgress,
   pendingManualReview,
   verified,
   verificationFailed,
-  rejected,
-  cancelled,
+  temporarilyRestricted,
   reverificationRequired,
+
+  // Non-decision UI/service states that are not persisted eligibility outcomes.
+  notStarted,
+  consentRequired,
+  cancelled,
   providerUnavailable,
   consentNotGiven,
 }
