@@ -35,6 +35,6 @@ export type EligibilitySupportRequestCategoryApi =
   (typeof ELIGIBILITY_SUPPORT_REQUEST_CATEGORIES)[number];
 
 export class CreateEligibilitySupportRequestDto {
-  @IsIn(ELIGIBILITY_SUPPORT_REQUEST_CATEGORIES)
+  @IsIn([...ELIGIBILITY_SUPPORT_REQUEST_CATEGORIES])
   category!: EligibilitySupportRequestCategoryApi;
 }
