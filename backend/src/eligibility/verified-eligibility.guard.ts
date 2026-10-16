@@ -1,9 +1,5 @@
-import {
-  CanActivate,
-  ExecutionContext,
-  ForbiddenException,
-  Injectable,
-} from "@nestjs/common";
+import type { CanActivate, ExecutionContext } from "@nestjs/common";
+import { ForbiddenException, Injectable } from "@nestjs/common";
 import type { Request } from "express";
 import { AuthenticationService } from "../auth/auth.service.js";
 
