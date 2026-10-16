@@ -1,0 +1,179 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum AccountStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  RESTRICTED
+  SUSPENDED
+  DELETED
+
+  @@map("account_status")
+}
+
+enum VerificationStatus {
+  UNVERIFIED
+  VERIFIED
+
+  @@map("verification_status")
+}
+
+enum OtpPurpose {
+  LOGIN
+  REGISTRATION
+
+  @@map("otp_purpose")
+}
+
+enum PolicyDocumentType {
+  TERMS
+  PRIVACY
+
+  @@map("policy_document_type")
+}
+
+enum PolicyDocumentStatus {
+  DRAFT
+  PUBLISHED
+  RETIRED
+
+  @@map("policy_document_status")
+}
+
+model MemberAccount {
+  id                      String                         @id @default(uuid()) @db.Uuid
+  phoneE164               String                         @unique(map: "member_accounts_phone_e164_key") @map("phone_e164") @db.VarChar(16)
+  phoneVerifiedAt         DateTime?                      @map("phone_verified_at") @db.Timestamptz(6)
+  status                  AccountStatus                  @default(PENDING_VERIFICATION)
+  verificationStatus      VerificationStatus             @default(UNVERIFIED) @map("verification_status")
+  createdAt               DateTime                       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  profile                 MemberProfile?
+  otpChallenges           OtpChallenge[]
+  consents                MemberConsent[]
+  sessions                AuthSession[]
+  communicationPreference MemberCommunicationPreference?
+
+  @@map("member_accounts")
+}
+
+model MemberProfile {
+  accountId       String        @id @map("account_id") @db.Uuid
+  displayName     String        @map("display_name") @db.VarChar(100)
+  dateOfBirth     DateTime      @map("date_of_birth") @db.Date
+  email           String?       @db.VarChar(254)
+  profilePhotoRef String?       @map("profile_photo_ref") @db.VarChar(512)
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  account         MemberAccount @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@map("member_profiles")
+}
+
+model OtpChallenge {
+  id                String         @id @default(uuid()) @db.Uuid
+  accountId         String?        @map("account_id") @db.Uuid
+  phoneE164         String         @map("phone_e164") @db.VarChar(16)
+  purpose           OtpPurpose
+  providerReference String?        @map("provider_reference") @db.VarChar(255)
+  codeDigest        String?        @map("code_digest") @db.VarChar(255)
+  attemptCount      Int            @default(0) @map("attempt_count")
+  attemptLimit      Int            @map("attempt_limit")
+  expiresAt         DateTime       @map("expires_at") @db.Timestamptz(6)
+  resendAvailableAt DateTime       @map("resend_available_at") @db.Timestamptz(6)
+  consumedAt        DateTime?      @map("consumed_at") @db.Timestamptz(6)
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  account           MemberAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([phoneE164, purpose, createdAt], map: "otp_challenges_phone_purpose_created_idx")
+  @@index([expiresAt], map: "otp_challenges_expires_at_idx")
+  @@index([accountId], map: "otp_challenges_account_id_idx")
+  @@map("otp_challenges")
+}
+
+model PolicyDocumentVersion {
+  id           String               @id @default(uuid()) @db.Uuid
+  documentType PolicyDocumentType   @map("document_type")
+  version      String               @db.VarChar(64)
+  status       PolicyDocumentStatus @default(DRAFT)
+  contentHash  String?              @map("content_hash") @db.VarChar(128)
+  effectiveAt  DateTime?            @map("effective_at") @db.Timestamptz(6)
+  createdAt    DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  termsFor     MemberConsent[]      @relation("TermsAcceptedVersion")
+  privacyFor   MemberConsent[]      @relation("PrivacyAcceptedVersion")
+
+  @@unique([documentType, version], map: "policy_document_versions_type_version_key")
+  @@index([documentType, status], map: "policy_document_versions_type_status_idx")
+  @@map("policy_document_versions")
+}
+
+model MemberConsent {
+  id               String                @id @default(uuid()) @db.Uuid
+  accountId        String                @map("account_id") @db.Uuid
+  termsVersionId   String                @map("terms_version_id") @db.Uuid
+  privacyVersionId String                @map("privacy_version_id") @db.Uuid
+  acceptedAt       DateTime              @default(now()) @map("accepted_at") @db.Timestamptz(6)
+  source           String                @db.VarChar(64)
+  account          MemberAccount         @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  termsVersion     PolicyDocumentVersion @relation("TermsAcceptedVersion", fields: [termsVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  privacyVersion   PolicyDocumentVersion @relation("PrivacyAcceptedVersion", fields: [privacyVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([accountId, acceptedAt], map: "member_consents_account_accepted_idx")
+  @@index([termsVersionId], map: "member_consents_terms_version_idx")
+  @@index([privacyVersionId], map: "member_consents_privacy_version_idx")
+  @@map("member_consents")
+}
+
+/// Opaque bearer sessions. Only SHA-256 token digests are stored.
+model AuthSession {
+  id          String        @id @default(uuid()) @db.Uuid
+  accountId   String        @map("account_id") @db.Uuid
+  tokenDigest String        @unique(map: "auth_sessions_token_digest_key") @map("token_digest") @db.VarChar(64)
+  expiresAt   DateTime      @map("expires_at") @db.Timestamptz(6)
+  revokedAt   DateTime?     @map("revoked_at") @db.Timestamptz(6)
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSeenAt  DateTime?     @map("last_seen_at") @db.Timestamptz(6)
+  account     MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([accountId, expiresAt], map: "auth_sessions_account_expiry_idx")
+  @@index([expiresAt], map: "auth_sessions_expiry_idx")
+  @@map("auth_sessions")
+}
+
+/// Stores the current product-update preference separately from required
+/// Terms/Privacy acceptance. It is development/test only until its own
+/// purpose and policy are approved for production.
+model MemberCommunicationPreference {
+  accountId              String        @id @map("account_id") @db.Uuid
+  productUpdatesAccepted Boolean       @default(false) @map("product_updates_accepted")
+  createdAt              DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  account                MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@map("member_communication_preferences")
+}
+
+model AuditEvent {
+  id               String   @id @default(uuid()) @db.Uuid
+  actorType        String   @map("actor_type") @db.VarChar(32)
+  actorId          String?  @map("actor_id") @db.Uuid
+  action           String   @db.VarChar(128)
+  targetType       String?  @map("target_type") @db.VarChar(64)
+  targetId         String?  @map("target_id") @db.VarChar(128)
+  outcome          String   @db.VarChar(32)
+  requestId        String   @map("request_id") @db.VarChar(128)
+  redactedMetadata Json?    @map("redacted_metadata") @db.JsonB
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt], map: "audit_events_created_at_idx")
+  @@index([actorType, actorId, createdAt], map: "audit_events_actor_created_idx")
+  @@index([action, createdAt], map: "audit_events_action_created_idx")
+  @@map("audit_events")
+}

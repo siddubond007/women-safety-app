@@ -162,8 +162,9 @@ void main() {
 
     await tester.tap(find.byKey(const Key('get-started-button')));
     await tester.pumpAndSettle();
-    expect(find.text('Welcome to Sakhi'), findsOneWidget);
-    expect(find.text('Explore Sakhi'), findsOneWidget);
+    expect(find.text('Create your Sakhi account'), findsOneWidget);
+    expect(find.byKey(const Key('auth-mobile-number-field')), findsOneWidget);
+    expect(find.byKey(const Key('auth-send-otp-button')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
