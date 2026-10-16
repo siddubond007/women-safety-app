@@ -9,6 +9,7 @@ import 'package:women_safety_app/features/auth/sakhi_login_screen.dart';
 import 'package:women_safety_app/features/auth/sakhi_otp_screen.dart';
 import 'package:women_safety_app/features/auth/sakhi_profile_screen.dart';
 import 'package:women_safety_app/features/auth/sakhi_registration_screen.dart';
+import 'package:women_safety_app/features/auth/sakhi_auth_status_screen.dart';
 import 'package:women_safety_app/features/auth/widgets/auth_widgets.dart';
 import 'package:women_safety_app/main.dart';
 
