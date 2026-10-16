@@ -1,11 +1,11 @@
 # Sakhi Module 2 — User Profile and Account Management
 
-**Checkpoint updated:** 2026-10-16 12:37 IST (Asia/Kolkata)  
+**Checkpoint updated:** 2026-10-16 12:40 IST (Asia/Kolkata)  
 **Repository:** `siddubond007/women-safety-app`  
 **Primary Module 2 branch:** `feat/user-profile-account-management`  
 **Primary branch base:** `feat/auth-session-resume-logout` at `674afe4d8ed178d2b09a15af300184bb09739270`  
-**Primary branch head before this checkpoint refresh:** `87a55192734a065386fc8fada2f8891fd112165c` (the checkpoint-refresh commit will advance the branch one commit further; verify the exact current head via GitHub before resuming)  
-**Primary PR:** [#13 — feat(profile): add authenticated My Profile editing](https://github.com/siddubond007/women-safety-app/pull/13), open, draft, unmerged; base `feat/auth-session-resume-logout` at `674afe4d8ed178d2b09a15af300184bb09739270`; head `feat/user-profile-account-management` at `87a55192734a065386fc8fada2f8891fd112165c` before checkpoint refresh  
+**Primary branch head before this checkpoint refresh:** `12ef0e1db100f7cdfc816fc1946792a5c5f7006d` (the checkpoint-refresh commit will advance the branch one commit further; verify the exact current head via GitHub before resuming)  
+**Primary PR:** [#13 — feat(profile): add authenticated My Profile editing](https://github.com/siddubond007/women-safety-app/pull/13), open, draft, unmerged; base `feat/auth-session-resume-logout` at `674afe4d8ed178d2b09a15af300184bb09739270`; head `feat/user-profile-account-management` at `12ef0e1db100f7cdfc816fc1946792a5c5f7006d` before checkpoint refresh  
 **Backend companion branch:** `feat/user-profile-account-management-backend`  
 **Backend branch base:** `fix/backend-pino-logger-injection` at `9347dc1e555672fd06510849e939d12c8e5aac54`; **backend branch head:** `c3014b04100001056eb64b006ea0c3a2b1549710`  
 **Backend PR:** [#14 — feat(profile): add secure self-service profile API](https://github.com/siddubond007/women-safety-app/pull/14), open, draft, unmerged; base `fix/backend-pino-logger-injection` at `9347dc1e555672fd06510849e939d12c8e5aac54`; head `feat/user-profile-account-management-backend` at `c3014b04100001056eb64b006ea0c3a2b1549710`
@@ -98,7 +98,7 @@ Committed to `feat/user-profile-account-management`:
 - `app/lib/features/auth/sakhi_auth_status_screen.dart`: link to My Profile only for development-backend sessions in eligible account states; existing logout/session logic unchanged.
 - `app/test/profile_service_test.dart`: API adapter response/normalization tests.
 - `app/test/profile_screen_test.dart`: profile load/save and retry tests.
-- PR #13 is open, draft and unmerged. The raw GitHub pull-request API reported `mergeable=true` and `mergeable_state=clean` at the last refresh; no CI status entries were reported for the inspected feature commits.
+- PR #13 is open, draft and unmerged. At the latest raw GitHub refresh, `mergeable` was null and `mergeable_state` was `unknown` while GitHub recalculated mergeability after the checkpoint commit; this is not evidence of a conflict. No CI status entries were reported for the inspected feature commits.
 
 Relevant mobile commits before checkpoint refresh:
 - Initial checkpoint: `89ab8f05b4b569bb0f0f2d330be42e38355c25b8`.
