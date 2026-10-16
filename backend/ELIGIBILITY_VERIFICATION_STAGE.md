@@ -162,7 +162,7 @@ Follow-up source fixes were committed to `feat/eligibility-domain-status` after 
 
 **Source branch:** `feat/eligibility-domain-status`. This increment extends draft PR #12; no PR is merged.
 
-### Implemented in source (local maintainer validation pending)
+### Implementation and local validation — 16 October 2026
 
 - Added `POST /api/v1/eligibility/provider-callback`. It is not a member-authenticated route; trust is delegated to the approved provider adapter, which must validate provider-specific signature/authentication and freshness rules over exact raw request bytes before returning a normalized event.
 - The bootstrap preserves exact raw request bytes only for this callback route; the payload is not logged or persisted. The provider adapter is responsible for translating only trusted results to `VERIFIED`, `PENDING_MANUAL_REVIEW`, or `VERIFICATION_FAILED`. Ambiguous/unsupported results must map to manual review, not approval.
@@ -175,4 +175,4 @@ Follow-up source fixes were committed to `feat/eligibility-domain-status` after 
 
 - No real provider is selected/authorized. An approved adapter's actual signature algorithm, replay timestamp window, event schema and sandbox integration must be based on that provider's official contract before enabling the endpoint.
 - Reviewer authentication/RBAC, manual-review decisions/appeals, scheduled session expiry, retention/deletion jobs and wiring the eligibility guard into actual protected community endpoints remain outstanding.
-- This source change is not locally validated yet. The maintainer must pull, apply the new migration to `sakhi_test`, then run Prisma validation, build and the entire backend test suite. Test fixtures are synthetic and do not represent end-to-end verification with a real provider.
+- **Maintainer-reported local validation passed** from `D:\Development\Projects\women_safety_app-eligibility-domain-status\backend` at commit `08635b707e38211d7563858092b55cebae8507f7`: the additive callback-event migration applied successfully to `sakhi_test`; `npx.cmd prisma validate` passed; `scripts/build.ps1` passed; all 8 test files and 50/50 tests passed. The worktree reported clean and synchronized with origin. This verifies the provider-neutral boundary and synthetic fixtures only—not a real provider's signature contract or end-to-end identity result.
