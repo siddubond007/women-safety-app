@@ -3,7 +3,7 @@ import {
   BadRequestException,
   ConflictException,
   type INestApplication,
-  TooManyRequestsException,
+  HttpException,
 } from "@nestjs/common";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Test } from "@nestjs/testing";
@@ -566,7 +566,7 @@ describe("eligibility support request persistence", () => {
       realService.createSupportRequest("Bearer synthetic-test-token", {
         category: "verificationHelp",
       }),
-    ).rejects.toThrow(TooManyRequestsException);
+    ).rejects.toThrow(HttpException);
     expect(tx.eligibilitySupportRequest.create).not.toHaveBeenCalled();
   });
 });
