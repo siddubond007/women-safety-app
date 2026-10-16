@@ -6,16 +6,19 @@ import {
   ELIGIBILITY_PROVIDER,
   UnconfiguredEligibilityProviderAdapter,
 } from "./eligibility-provider.js";
+import { VerifiedEligibilityGuard } from "./verified-eligibility.guard.js";
 
 @Module({
   imports: [AuthModule],
   controllers: [EligibilityController],
   providers: [
     EligibilityService,
+    VerifiedEligibilityGuard,
     {
       provide: ELIGIBILITY_PROVIDER,
       useClass: UnconfiguredEligibilityProviderAdapter,
     },
   ],
+  exports: [VerifiedEligibilityGuard],
 })
 export class EligibilityModule {}
