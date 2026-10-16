@@ -86,6 +86,39 @@ void main() {
       expect(configuration.mobileHandoffSupported, isFalse);
       expect(configuration.canStartVerification, isFalse);
     });
+    test('approved configuration still cannot start before mobile handoff is supported', () async {
+      final api = _FakeEligibilityApiClient(
+        getResponses: {
+          'eligibility/configuration': <String, dynamic>{
+            'providerConfigured': true,
+            'policyApproved': true,
+            'biometricProcessingSupported': true,
+            'biometricProcessingRequired': true,
+            'providerDisplayName': 'Approved test-only provider',
+            'methodDescription': 'Approved test-only method.',
+            'attributesCheckedDescription': 'Approved attributes description.',
+            'selfieOrLivenessDescription':
+                'Biometric processing is required and separately consented.',
+            'dataHandlingDescription': 'Approved data handling description.',
+            'retentionAndDeletionDescription': 'Approved retention description.',
+            'declineOrFailureDescription': 'Approved failure description.',
+            'manualReviewDescription': 'Approved review description.',
+            'consentVersion': 'approved-test-v1',
+            'canStartVerification': true,
+            'mode': 'configured',
+          },
+        },
+      );
+      final service = BackendEligibilityVerificationService(apiClient: api);
+
+      final configuration = await service.loadConfiguration();
+
+      expect(configuration.hasApprovedConfiguration, isTrue);
+      expect(configuration.biometricProcessingSupported, isTrue);
+      expect(configuration.biometricProcessingRequired, isTrue);
+      expect(configuration.mobileHandoffSupported, isFalse);
+      expect(configuration.canStartVerification, isFalse);
+    });
   });
 
   group('backend eligibility status', () {
