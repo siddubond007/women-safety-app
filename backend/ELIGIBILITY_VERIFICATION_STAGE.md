@@ -69,3 +69,25 @@ No production credentials, real Aadhaar number, OTP, identity document, selfie, 
 - The current repository has no protected community API surface to guard yet. Before such endpoints are implemented, their backend authorization must explicitly require the trusted eligibility state `VERIFIED` and reject all other states; client-side UI state is never authorization.
 - The transition helper is not wired to a writer yet; a later provider/manual-review increment must use it together with callback authenticity, idempotency/replay protection, authorization, and audit logging.
 - The database change is additive and forward-only. Do not reset or recreate a database to apply it.
+
+
+## Parallel workstream checkpoint — Module 2
+
+**Checkpoint reviewed:** 16 October 2026. Module 2 (User Profile and Account Management) is being developed separately. Keep the two workstreams isolated until a deliberate, reviewed integration stage.
+
+- Mobile profile PR: [#13 — authenticated My Profile editing](https://github.com/siddubond007/women-safety-app/pull/13), head branch `feat/user-profile-account-management`, based on the PR #11 mobile lineage.
+- Backend profile PR: [#14 — secure self-service profile API](https://github.com/siddubond007/women-safety-app/pull/14), head branch `feat/user-profile-account-management-backend`, based on the PR #10 backend lineage.
+- Both profile PRs were open and unmerged when checked. Their PR descriptions say the tests have not yet been run by the authoring session and the profile migration has not been applied.
+- PR #14 does not include PR #12's eligibility-status migration. Its profile migration changes the profile schema independently. Reconcile both migrations, their Prisma schema definitions, and deployment order only during an explicit integration review.
+
+### Isolation rules
+
+- Eligibility work remains on `feat/eligibility-domain-status`; do not edit either Module 2 branch or its checkpoint.
+- Module 2 must not modify the eligibility test database `sakhi_test` or the development database `sakhi_dev`.
+- Do not independently duplicate the same schema changes in both branches or assume another workstream's commits exist here.
+- Keep shared contracts explicit during later integration: authenticated account identity, the profile relation, canonical eligibility status, protected-feature authorization, account deletion/deactivation, audit logging, and retention.
+- Preserve unrelated local worktrees and their uncommitted changes. No PR is to be merged without explicit owner approval.
+
+### Eligibility database verification status
+
+The successful migration/build/test output from the original `women_safety_app-backend-live-worktree` checkout was produced on `temp/sakhi-backend-checkpoint-20261016`, not on this eligibility branch. Its migration output reported no pending migrations across two discovered migrations and does not prove that the eligibility migration ran. The isolated eligibility worktree at `D:\Development\Projects\women_safety_app-eligibility-domain-status` was created at commit `3d9889fbc3bf34b833b4278014ed3e9037e6d3fe`; the first reported command was still running `npm ci`. The eligibility migration, build, and tests must be reported only after they are run from that isolated worktree.
