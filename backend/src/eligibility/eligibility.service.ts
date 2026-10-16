@@ -222,7 +222,7 @@ export class EligibilityService {
     // Recover only expired/incomplete sessions before deciding whether a retry
     // is permitted. The status is re-read inside the same transaction as cleanup.
     const currentStatus =
-      await this.expireStaleVerificationSessions(accountId);
+      await this.expireStaleVerificationSessionsForAccount(accountId);
 
     if (
       !canTransitionEligibilityStatus(
@@ -645,16 +645,57 @@ export class EligibilityService {
   }
 
   /**
+   * Expire every abandoned eligibility session across accounts. The periodic
+   * worker calls this method; retries also perform account-scoped recovery.
+   * Returns the number of distinct accounts that had stale sessions to inspect.
+   */
+  async expireStaleVerificationSessions(now = new Date()): Promise<number> {
+    const staleAccounts = await this.prisma.eligibilityVerificationSession.findMany({
+      where: {
+        status: { in: ["CREATED", "REDIRECT_READY"] },
+        OR: [{ expiresAt: { lte: now } }, { expiresAt: null }],
+      },
+      select: { accountId: true },
+      distinct: ["accountId"],
+    });
+
+    for (const { accountId } of staleAccounts) {
+      try {
+        await this.expireStaleVerificationSessionsForAccount(accountId, now);
+      } catch (error) {
+        // The account may have been deleted after candidate discovery. Other
+        // database errors must escape so the worker can log and retry later.
+        if (error instanceof UnauthorizedException) continue;
+        throw error;
+      }
+    }
+
+    return staleAccounts.length;
+  }
+
+  /**
    * Lazily expires abandoned startup/redirect sessions on a trusted member
    * start request. If no live session remains, a stuck in-progress state is
    * returned to NOT_VERIFIED so the member can retry. No provider outcome is
    * inferred and no session is automatically marked failed.
    */
-  private async expireStaleVerificationSessions(
+  private async expireStaleVerificationSessionsForAccount(
     accountId: string,
     now = new Date(),
   ): Promise<EligibilityVerificationStatus> {
     return this.prisma.$transaction(async (tx) => {
+      // Serialize expiry recovery with verification-start transactions so a
+      // sweep cannot reset an account after a new live session is committed.
+      const lockedAccounts = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM member_accounts WHERE id = ${accountId}::uuid FOR UPDATE
+      `;
+      if (lockedAccounts.length === 0) {
+        throw new UnauthorizedException({
+          code: "eligibility_account_unavailable",
+          message: "The authenticated account is no longer available.",
+        });
+      }
+
       const expired = await tx.eligibilityVerificationSession.updateMany({
         where: {
           accountId,
