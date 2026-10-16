@@ -170,6 +170,15 @@ export class AuthenticationService {
         select: { id: true },
       });
 
+      // This branch is used only by the local development/test OTP provider.
+      // Do not issue a sign-in challenge for a number without an account; guide
+      // the user to the explicit registration flow instead.
+      if (dto.purpose === "login" && !account) {
+        throw new BadRequestException(
+          "No Sakhi account was found for this number. Choose Create account to register.",
+        );
+      }
+
       const result = await this.createChallenge(tx, {
         phoneE164,
         purpose: dto.purpose === "login" ? "LOGIN" : "REGISTRATION",
