@@ -376,7 +376,7 @@ class _SakhiHomeScreenState extends State<SakhiHomeScreen> {
                     crossAxisCount: columns,
                     crossAxisSpacing: SakhiSpacing.sm,
                     mainAxisSpacing: SakhiSpacing.sm,
-                    childAspectRatio: constraints.maxWidth < 360 ? 0.78 : 1.05,
+                    childAspectRatio: constraints.maxWidth < 360 ? 0.78 : constraints.maxWidth < 860 ? 0.96 : 1.05,
                   ),
                   itemBuilder: (context, index) {
                     final feature = _features[index];
