@@ -16,7 +16,7 @@ class EligibilityInformationScreen extends StatelessWidget {
   });
 
   final EligibilityVerificationService service;
-  final VoidCallback? onVerified;
+  final ValueChanged<EligibilityStatusResult>? onVerified;
 
   String _disclosure(String? value) {
     if (value == null || value.trim().isEmpty) {
