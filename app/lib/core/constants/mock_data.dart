@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import 'app_assets.dart';
 import '../../features/module2/module2_models.dart';
 import '../../features/module2/module2_state.dart';
 
@@ -153,6 +152,7 @@ class SakhiPrototypeState extends ChangeNotifier {
   List<FeedPostModel> communityPosts = [];
   List<FeedPostModel> profilePosts = [];
   List<FeedPostModel> savedPosts = [];
+  List<FeedPostModel> get exploreRecommendedPosts => communityPosts;
   List<FollowerUserModel> followers = [];
   List<FollowerUserModel> following = [];
   List<PrivacySettingItem> privacySettings = [];
