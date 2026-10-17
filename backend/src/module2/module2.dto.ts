@@ -181,3 +181,47 @@ export class UpdateMarketingConsentDto {
   @IsBoolean()
   consentAccepted!: boolean;
 }
+
+export class CreateCommunityGroupDto {
+  @IsString()
+  @MinLength(2)
+  @MaxLength(120)
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(["VERIFIED_MEMBERS", "PRIVATE"])
+  visibility?: "VERIFIED_MEMBERS" | "PRIVATE";
+}
+
+export class CreateCommunityEventDto {
+  @IsUUID("4")
+  groupId!: string;
+
+  @IsString()
+  @MinLength(3)
+  @MaxLength(160)
+  title!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(3000)
+  description!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  locationCity?: string;
+
+  @IsISO8601({ strict: true })
+  startsAt!: string;
+
+  @IsISO8601({ strict: true })
+  endsAt!: string;
+}
+
