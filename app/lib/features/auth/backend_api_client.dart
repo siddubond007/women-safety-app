@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class BackendApiException implements Exception {
@@ -38,6 +39,10 @@ class BackendApiClient {
        _httpClient = httpClient ?? HttpClient(),
        _secureStorage = secureStorage ?? const FlutterSecureStorage() {
     _httpClient.connectionTimeout = const Duration(seconds: 8);
+    // The local Node backend closes idle keep-alive sockets quickly. Keep the
+    // client's idle timeout shorter so later form submissions don't reuse a
+    // socket the server has already closed.
+    _httpClient.idleTimeout = const Duration(seconds: 4);
   }
 
   static const _tokenStorageKey = 'sakhi.dev.auth.access_token';
@@ -91,10 +96,13 @@ class BackendApiClient {
     Map<String, Object?>? body,
     bool authenticated = false,
   }) async {
+    var requestStage = 'opening connection';
+    int? responseStatusCode;
     try {
       final request = await _httpClient
           .openUrl(method, _uri(path))
           .timeout(const Duration(seconds: 12));
+      requestStage = 'preparing request';
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
       if (body != null) {
         request.headers.contentType = ContentType.json;
@@ -112,13 +120,17 @@ class BackendApiClient {
         request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
       }
 
+      requestStage = 'waiting for response headers';
       final response = await request.close().timeout(
         const Duration(seconds: 15),
       );
+      responseStatusCode = response.statusCode;
+      requestStage = 'reading response body';
       final raw = await utf8.decoder
           .bind(response)
           .join()
           .timeout(const Duration(seconds: 15));
+      requestStage = 'decoding response body';
       final decoded = raw.isEmpty ? <String, dynamic>{} : jsonDecode(raw);
       final payload = decoded is Map<String, dynamic>
           ? decoded
@@ -154,11 +166,26 @@ class BackendApiClient {
         code: 'network_unavailable',
         message: 'Sakhi backend is unreachable. Start the local backend and check the USB connection.',
       );
-    } on HttpException {
-      throw const BackendApiException(
+    } on HttpException catch (error) {
+      final detail = error.message.trim();
+      final responseDescription = responseStatusCode == null
+          ? 'no response headers received'
+          : 'HTTP $responseStatusCode received';
+      final detailDescription = detail.isEmpty
+          ? 'unspecified HTTP transport error'
+          : detail;
+      // Log only the method, endpoint path and transport metadata. Never log
+      // request/response bodies, OTPs, access tokens, or profile details.
+      debugPrint(
+        'Sakhi API transport failure: $method $path; '
+        'stage=$requestStage; response=$responseDescription; '
+        'detail=$detailDescription',
+      );
+      throw BackendApiException(
         statusCode: 0,
         code: 'http_error',
-        message: 'Sakhi backend returned an unreadable response.',
+        message: 'Sakhi backend connection failed during $requestStage: '
+            '$detailDescription.',
       );
     } on FormatException {
       throw const BackendApiException(
