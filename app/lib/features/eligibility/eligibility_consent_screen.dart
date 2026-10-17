@@ -194,7 +194,7 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
             style: SakhiTypography.onboardingTitle.copyWith(fontSize: 25),
           ),
           const SizedBox(height: SakhiSpacing.sm),
-          const Text(
+          Text(
             manualReviewFlow
                 ? 'This request sends your consent and a manual-review request to the Sakhi development/test backend. This app does not capture or upload identity evidence.'
                 : 'In production, Sakhi must identify the approved method, explain what it checks, and disclose how the relevant information is handled before asking for valid consent.',
