@@ -30,8 +30,8 @@ export class AdminReviewService {
       throw new ForbiddenException("The shared-token admin review gate is available only when the backend binds to 127.0.0.1.");
     }
     const token = process.env.SAKHI_ADMIN_REVIEW_TOKEN?.trim();
-    if (!token || token.length < 32) {
-      throw new ServiceUnavailableException("Admin review is disabled. Configure a random SAKHI_ADMIN_REVIEW_TOKEN of at least 32 characters in the local backend process.");
+    if (!token || token.length < 16) {
+      throw new ServiceUnavailableException("Admin review is disabled. Configure a local-only SAKHI_ADMIN_REVIEW_TOKEN of at least 16 characters. A random 32+ character token is recommended; this gate is dev/test only.");
     }
     return token;
   }
