@@ -23,7 +23,22 @@ void main() {
     expect(find.text('For you today'), findsOneWidget);
     expect(find.text('Siddu'), findsOneWidget);
     expect(find.text('Community updates'), findsOneWidget);
+
+    final dashboardList = find.byKey(
+      const Key('sakhi-home-dashboard-list'),
+    );
+    await tester.scrollUntilVisible(
+      find.text('Wellness resources'),
+      220,
+      scrollable: dashboardList,
+    );
     expect(find.text('Wellness resources'), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.text('Safety guidance'),
+      220,
+      scrollable: dashboardList,
+    );
     expect(find.text('Safety guidance'), findsOneWidget);
     expect(find.text('Home-screen development preview'), findsNothing);
     expect(tester.takeException(), isNull);
@@ -75,7 +90,7 @@ void main() {
 
     expect(find.text('Safety & SOS preview'), findsOneWidget);
     expect(
-      find.text(
+      find.textContaining(
         'No call, SMS, GPS tracking, or alert has been started.',
       ),
       findsOneWidget,
