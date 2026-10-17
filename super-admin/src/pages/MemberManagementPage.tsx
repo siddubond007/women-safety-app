@@ -38,7 +38,6 @@ type MemberDirectory = {
   };
   items: Member[];
 };
-type EditableMemberState = { accountStatus: AccountStatus; verificationStatus: VerificationStatus };
 
 const accountLabels: Record<AccountStatus, string> = {
   PENDING_VERIFICATION: "Pending",
