@@ -9,6 +9,7 @@ import 'features/auth/sakhi_auth_status_screen.dart';
 import 'features/auth/sakhi_login_screen.dart';
 import 'features/auth/sakhi_registration_screen.dart';
 import 'features/onboarding/sakhi_onboarding_screen.dart';
+import 'features/module2/module2_navigation_shell.dart';
 
 const Color sakhiPlum = SakhiColors.plum;
 const Color sakhiPurple = SakhiColors.purple;
@@ -231,7 +232,7 @@ class _SakhiProtectedHomeGateState extends State<SakhiProtectedHomeGate> {
           );
         }
         if (snapshot.data == AuthAccountState.existingAccount && !snapshot.hasError) {
-          return const SakhiHomeScreen();
+          return Module2NavigationShell(authService: widget.authService);
         }
         return Scaffold(
           backgroundColor: SakhiColors.blush,
