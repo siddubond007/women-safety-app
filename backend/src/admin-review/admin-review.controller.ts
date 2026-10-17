@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, ParseUUIDPipe, Post } from "@nestjs/common";
+import { Body, Controller, Get, Headers, Param, ParseUUIDPipe, Post, Query } from "@nestjs/common";
 import { ApiHeader, ApiOkResponse, ApiTags } from "@nestjs/swagger";
 import { AdminReviewService } from "./admin-review.service.js";
 import { ManualEligibilityDecisionDto } from "./admin-review.dto.js";
@@ -18,8 +18,15 @@ export class AdminReviewController {
 
   @Get("members")
   @ApiOkResponse({ description: "Lists persisted member accounts from the development database." })
-  members(@Headers("x-sakhi-admin-token") token?: string) {
-    return this.review.members(token);
+  members(
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Query("page") page?: string,
+    @Query("pageSize") pageSize?: string,
+    @Query("search") search?: string,
+    @Query("accountStatus") accountStatus?: string,
+    @Query("verificationStatus") verificationStatus?: string,
+  ) {
+    return this.review.members(token, page, pageSize, search, accountStatus, verificationStatus);
   }
 
   @Post("members/:accountId/state")
