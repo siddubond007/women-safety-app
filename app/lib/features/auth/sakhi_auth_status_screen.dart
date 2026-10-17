@@ -85,10 +85,13 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
       MaterialPageRoute<void>(
         builder: (_) => EligibilityIntroScreen(
           service: _eligibilityServiceForCurrentSession(),
-          onVerified: () {
+          onVerified: (verifiedStatus) {
             Navigator.of(context).pushAndRemoveUntil(
               MaterialPageRoute<void>(
-                builder: (_) => SakhiHomeScreen(authService: widget.authService),
+                builder: (_) => SakhiHomeScreen(
+                  authService: widget.authService,
+                  verifiedStatus: verifiedStatus,
+                ),
               ),
               (_) => false,
             );
