@@ -47,6 +47,19 @@ describe("AdminReviewService reviewer-token boundary", () => {
     expect(() => service.session("b".repeat(64))).toThrow(UnauthorizedException);
   });
 
+  it("allows a 16-character reviewer token only in the local dev/test gate", () => {
+    process.env.SAKHI_ENV = "test";
+    process.env.NODE_ENV = "test";
+    process.env.HOST = "127.0.0.1";
+    process.env.SAKHI_ADMIN_REVIEW_TOKEN = "0123456789ABCDEF";
+    const service = new AdminReviewService({} as PrismaService);
+    expect(service.session("0123456789ABCDEF")).toEqual({
+      authenticated: true,
+      reviewerLabel: "Local Eligibility Reviewer",
+      mode: "local_dev_test_only",
+    });
+  });
+
   it("accepts the configured token and returns the server-configured local reviewer label", () => {
     configureLocalReviewer();
     const service = new AdminReviewService({} as PrismaService);
