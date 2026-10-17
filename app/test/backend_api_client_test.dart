@@ -10,6 +10,15 @@ import 'package:women_safety_app/features/auth/backend_api_client.dart';
 const _secureStorageChannel =
     MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
 
+// Flutter's test binding installs an HttpClient that returns synthetic 400s.
+// Use Dart's real implementation for this test's explicitly loopback-only server.
+class _RealHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) {
+    return super.createHttpClient(context);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final values = <String, String>{};
@@ -57,7 +66,10 @@ void main() {
     server.listen((request) {
       unawaited(handler(request));
     });
-    final httpClient = HttpClient();
+    final httpClient = HttpOverrides.runWithHttpOverrides(
+      () => HttpClient(),
+      _RealHttpOverrides(),
+    );
     return (server: server, httpClient: httpClient);
   }
 
