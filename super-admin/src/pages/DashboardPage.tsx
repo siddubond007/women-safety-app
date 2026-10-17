@@ -1,281 +1,104 @@
-import {
-  Activity,
-  ArrowDownRight,
-  ArrowRight,
-  ArrowUpRight,
-  Building2,
-  CircleAlert,
-  Clock3,
-  FileWarning,
-  Flag,
-  HeartPulse,
-  MessageSquareWarning,
-  ShieldAlert,
-  ShieldCheck,
-  Siren,
-  Users,
-  UserRoundCheck,
-  type LucideIcon,
-} from "lucide-react";
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
+import { Activity, AlertCircle, CheckCircle2, Clock3, RefreshCw, ShieldCheck, Users } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
 import { StatusPill } from "../components/StatusPill";
-import { getDashboardRepository } from "../services/repositories/dashboardRepository";
-import type { DashboardMetric, DashboardSnapshot, MetricTone, TrendPoint } from "../types/admin";
+import { adminAuthService } from "../services/auth/adminAuthService";
+import { adminApi, AdminApiError } from "../services/api/adminApi";
 
-const metricIconMap: Record<DashboardMetric["icon"], LucideIcon> = {
-  members: Users,
-  verified: ShieldCheck,
-  pending: Clock3,
-  activity: Activity,
+type MemberSummaryResponse = {
+  summary: {
+    totalAccounts: number;
+    activeAccounts: number;
+    pendingAccounts: number;
+    verifiedAccounts: number;
+    rejectedAccounts: number;
+    pendingManualReviews: number;
+  };
+};
+type ReviewQueueItem = {
+  id: string;
+  submissionId: string;
+  accountId: string;
+  reference: string;
+  displayName: string;
+  dateOfBirth: string;
+  emailMasked: string;
+  phoneMasked: string;
+  registeredAt: string;
+  submittedAt: string;
+  manualReviewConsent: { version: string; acceptedAt: string };
 };
 
-const indicatorIcons: Record<string, LucideIcon> = {
-  businesses: Building2,
-  content: Flag,
-  complaints: MessageSquareWarning,
-  sos: Siren,
-  media: HeartPulse,
-  closed: ShieldCheck,
-  failures: UserRoundCheck,
-  alerts: CircleAlert,
-};
+type OverviewData = { summary: MemberSummaryResponse["summary"]; queue: ReviewQueueItem[] };
 
 export function DashboardPage() {
-  const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
-  const [loadError, setLoadError] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
+  const navigate = useNavigate();
+  const [data, setData] = useState<OverviewData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [refresh, setRefresh] = useState(0);
 
-  useEffect(() => {
-    let active = true;
-    getDashboardRepository()
-      .getSnapshot()
-      .then((nextSnapshot) => {
-        if (active) {
-          setSnapshot(nextSnapshot);
-          setLoadError(false);
-        }
-      })
-      .catch(() => {
-        if (active) setLoadError(true);
-      });
-    return () => {
-      active = false;
-    };
-  }, [retryCount]);
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const [members, queue] = await Promise.all([
+        adminApi<MemberSummaryResponse>("/admin-review/members?page=1&pageSize=1"),
+        adminApi<ReviewQueueItem[]>("/admin-review/queue"),
+      ]);
+      setData({ summary: members.summary, queue });
+    } catch (cause) {
+      if (cause instanceof AdminApiError && cause.statusCode === 401) {
+        adminAuthService.signOut();
+        navigate("/login", { replace: true });
+        return;
+      }
+      setError(cause instanceof Error ? cause.message : "Live dashboard data could not be loaded.");
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [navigate]);
 
-  if (loadError) {
-    return (
-      <section className="panel dashboard-state" role="alert">
-        <div>
-          <CircleAlert size={26} />
-          <h2>Dashboard data unavailable</h2>
-          <p>The selected demo data adapter could not load. No backend API is configured.</p>
-          <button
-            className="button button--secondary"
-            type="button"
-            onClick={() => {
-              setSnapshot(null);
-              setLoadError(false);
-              setRetryCount((count) => count + 1);
-            }}
-          >
-            Retry demo data
-          </button>
-        </div>
-      </section>
-    );
-  }
+  useEffect(() => { void load(); }, [load, refresh]);
 
-  if (!snapshot) {
-    return (
-      <section className="panel dashboard-state" aria-busy="true">
-        <div>
-          <span className="dashboard-loading-mark"><Activity size={22} /></span>
-          <h2>Preparing the overview</h2>
-          <p>Loading fictional dashboard data for this demo workspace.</p>
-        </div>
-      </section>
-    );
-  }
+  const metrics = data ? [
+    { id: "accounts", label: "Registered accounts", value: data.summary.totalAccounts, detail: "Persisted in PostgreSQL", icon: Users, tone: "rose" },
+    { id: "active", label: "Active accounts", value: data.summary.activeAccounts, detail: "Account status ACTIVE", icon: CheckCircle2, tone: "green" },
+    { id: "verified", label: "Verified accounts", value: data.summary.verifiedAccounts, detail: "Verification status VERIFIED", icon: ShieldCheck, tone: "violet" },
+    { id: "pending", label: "Pending eligibility reviews", value: data.summary.pendingManualReviews, detail: "Real review submissions", icon: Clock3, tone: "amber" },
+  ] : [];
 
-  return <DashboardContent snapshot={snapshot} />;
-}
-
-function DashboardContent({ snapshot }: { snapshot: DashboardSnapshot }) {
   return (
     <div className="dashboard-page">
       <section className="page-heading">
-        <div>
-          <div className="eyebrow"><span className="eyebrow-line" /> THE BIG PICTURE</div>
-          <h1>Overview dashboard</h1>
-          <p>See the activity, review queues and operational work that needs attention.</p>
-        </div>
-        <div className="heading-meta">
-          <div className="date-chip"><span className="date-chip__dot" /> Sample period <strong>Last 30 days</strong></div>
-          <span className="sample-caption">Illustrative data only</span>
-        </div>
+        <div><div className="eyebrow"><span className="eyebrow-line" /> THE BIG PICTURE</div><h1>Overview dashboard</h1><p>Live account and eligibility information from the Sakhi development database.</p></div>
+        <div className="heading-meta"><StatusPill tone="green"><span className="status-pill__dot" /> LIVE DATABASE</StatusPill><button className="button button--secondary" type="button" onClick={() => setRefresh((value) => value + 1)} disabled={loading}><RefreshCw size={14} /> Refresh data</button></div>
       </section>
 
-      <section className="primary-metrics" aria-label="Primary sample metrics">
-        {snapshot.metrics.map((metric, index) => {
-          const Icon = metricIconMap[metric.icon];
-          const DeltaIcon = metric.direction === "down" ? ArrowDownRight : ArrowUpRight;
-          return (
-            <article className={"metric-card metric-card--" + metric.tone} key={metric.id}>
-              <div className="metric-card-top">
-                <span className="metric-icon"><Icon size={19} strokeWidth={1.9} /></span>
-                <span className="metric-index">0{index + 1}</span>
-              </div>
-              <p className="metric-label">{metric.label}</p>
-              <div className="metric-value-row"><strong className="metric-value">{metric.value}</strong></div>
-              <div className="metric-card-foot">
-                <span>{metric.detail}</span>
-                {metric.delta && <span className={"metric-delta metric-delta--" + (metric.direction ?? "neutral")}>{metric.direction === "neutral" ? <Clock3 size={12} /> : <DeltaIcon size={13} />}{metric.delta}</span>}
-              </div>
-            </article>
-          );
-        })}
-      </section>
+      {error && <section className="panel dashboard-state" role="alert"><div><AlertCircle size={26} /><h2>Live data unavailable</h2><p>{error}</p><p>The dashboard will not substitute fictional counts or sample records.</p><button className="button button--secondary" type="button" onClick={() => setRefresh((value) => value + 1)}>Retry connection</button></div></section>}
 
-      <div className="dashboard-grid dashboard-grid--top">
-        <section className="panel activity-panel">
-          <div className="panel-heading">
-            <div><span className="panel-kicker">MEMBER ACTIVITY</span><h2>Engagement overview</h2><p>Sample relative activity across seven days</p></div>
-            <StatusPill tone="demo">SAMPLE</StatusPill>
-          </div>
-          <div className="chart-legend"><span className="legend-mark" /> <span>Illustrative member activity</span><span className="legend-spacer" /><span className="chart-info">No live analytics connected</span></div>
-          <ActivityChart data={snapshot.trend} />
-          <div className="chart-footer">
-            <div><span className="chart-footer-dot chart-footer-dot--rose" /><span>Registrations</span><strong>1,284</strong></div>
-            <div><span className="chart-footer-dot chart-footer-dot--violet" /><span>Active members</span><strong>6,280</strong></div>
-            <div><span className="chart-footer-dot chart-footer-dot--amber" /><span>Verification started</span><strong>438</strong></div>
-          </div>
+      {loading && !data && !error && <section className="panel dashboard-state" aria-busy="true"><div><Activity size={24} /><h2>Loading database records</h2><p>Fetching live account counts and the actual eligibility-review queue.</p></div></section>}
+
+      {data && <>
+        <section className="primary-metrics" aria-label="Live database metrics">
+          {metrics.map(({ id, label, value, detail, icon: Icon, tone }, index) => <article className={"metric-card metric-card--" + tone} key={id}><div className="metric-card-top"><span className="metric-icon"><Icon size={19} /></span><span className="metric-index">0{index + 1}</span></div><p className="metric-label">{label}</p><div className="metric-value-row"><strong className="metric-value">{value.toLocaleString("en-IN")}</strong></div><div className="metric-card-foot"><span>{detail}</span></div></article>)}
         </section>
 
-        <section className="panel attention-panel">
-          <div className="panel-heading">
-            <div><span className="panel-kicker">PRIORITY QUEUE</span><h2>Needs attention</h2><p>Example operational follow-ups</p></div>
-            <span className="attention-count">03</span>
-          </div>
-          <div className="attention-list">
-            {snapshot.attentionItems.map((item) => {
-              const Icon = item.icon === "verification" ? UserRoundCheck : item.icon === "report" ? FileWarning : ShieldAlert;
-              return (
-                <Link className="attention-item" to={item.route} key={item.id}>
-                  <span className={"attention-icon attention-icon--" + item.severity}><Icon size={17} /></span>
-                  <span className="attention-copy"><strong>{item.title}</strong><small>{item.description}</small><span className="attention-age"><Clock3 size={12} /> {item.age}</span></span>
-                  <ArrowRight className="attention-arrow" size={16} />
-                </Link>
-              );
-            })}
-          </div>
-          <Link className="panel-link" to="/action-center">View action center <ArrowRight size={15} /></Link>
-        </section>
-      </div>
-
-      <section className="panel indicator-panel">
-        <div className="panel-heading panel-heading--compact">
-          <div><span className="panel-kicker">PLATFORM SNAPSHOT</span><h2>Other key indicators</h2></div>
-          <span className="panel-subnote">All values are fictional</span>
-        </div>
-        <div className="indicator-grid">
-          {snapshot.indicators.map((item) => {
-            const Icon = indicatorIcons[item.id] ?? CircleAlert;
-            const route = item.id === "businesses" ? "/businesses" : item.id === "content" ? "/moderation" : item.id === "complaints" || item.id === "closed" ? "/complaints" : item.id === "sos" ? "/emergency" : item.id === "failures" ? "/verification" : item.id === "media" ? "/community" : "/integrations";
-            return (
-              <Link className="indicator-item" to={route} key={item.id}>
-                <span className="indicator-icon"><Icon size={16} /></span>
-                <span className="indicator-copy"><span>{item.label}</span><strong>{item.value}</strong><small>{item.detail}</small></span>
-                <ArrowUpRight className="indicator-arrow" size={14} />
-              </Link>
-            );
-          })}
-        </div>
-      </section>
-
-      <div className="dashboard-grid dashboard-grid--bottom">
         <section className="panel queue-panel">
-          <div className="panel-heading">
-            <div><span className="panel-kicker">SAMPLE WORK QUEUE</span><h2>Operational items</h2><p>Fictional examples of review work</p></div>
-            <StatusPill tone="demo">DEMO</StatusPill>
-          </div>
-          <div className="table-scroll">
-            <table className="operations-table">
-              <thead><tr><th>Reference / category</th><th>Assigned team</th><th>Status</th><th>Age</th><th aria-label="Open item" /></tr></thead>
-              <tbody>
-                {snapshot.queueRows.map((row) => (
-                  <tr key={row.id}>
-                    <td><span className="table-ref">{row.reference}</span><span className="table-category">{row.category}</span></td>
-                    <td><span className="table-owner">{row.owner}</span></td>
-                    <td><StatusPill tone={row.severity === "urgent" ? "urgent" : row.severity === "high" ? "amber" : "neutral"}>{row.status}</StatusPill></td>
-                    <td><span className="table-age">{row.age}</span></td>
-                    <td><Link className="table-open" to={row.route} aria-label={"Open planned workflow for " + row.reference}><ArrowRight size={15} /></Link></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="table-note"><CircleAlert size={14} /><span>These queue entries are examples and are not assigned to real staff.</span></div>
+          <div className="panel-heading"><div><span className="panel-kicker">LIVE DATABASE</span><h2>Eligibility reviews awaiting a decision</h2><p>Only persisted submissions appear here; no sample queue items are generated.</p></div><Link className="panel-link" to="/verification">Open review queue</Link></div>
+          <div className="table-scroll"><table className="operations-table"><thead><tr><th>Member</th><th>Reference</th><th>Submitted</th><th>Status</th><th aria-label="Open review" /></tr></thead><tbody>
+            {data.queue.length === 0 && <tr><td colSpan={5} className="member-empty-cell">No actual pending eligibility submissions are in the database.</td></tr>}
+            {data.queue.slice(0, 8).map((item) => <tr key={item.submissionId}><td><span className="table-ref">{item.displayName}</span><span className="table-category">{item.phoneMasked}</span></td><td><span className="table-owner">{item.reference}</span></td><td><span className="table-age">{new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(item.submittedAt))}</span></td><td><StatusPill tone="amber">Pending review</StatusPill></td><td><Link className="table-open" to="/verification" aria-label={"Review " + item.reference}>→</Link></td></tr>)}
+          </tbody></table></div>
+          <div className="table-note"><ShieldCheck size={14} /><span>All counts and queue entries above come from the backend response. Unconnected platform modules are not represented with invented metrics.</span></div>
         </section>
 
-        <section className="panel integrations-panel">
-          <div className="panel-heading">
-            <div><span className="panel-kicker">DEPENDENCIES</span><h2>Integration status</h2><p>Connection setup has not started</p></div>
-            <StatusPill tone="neutral">4 NOT CONNECTED</StatusPill>
-          </div>
-          <div className="integration-list">
-            {snapshot.integrations.map((item) => (
-              <div className="integration-row" key={item.id}>
-                <span className="integration-status-icon"><CircleAlert size={16} /></span>
-                <span className="integration-copy"><strong>{item.name}</strong><small>{item.description}</small></span>
-                <StatusPill tone="neutral">Not connected</StatusPill>
-              </div>
-            ))}
-          </div>
-          <Link className="panel-link" to="/integrations">Integration setup <ArrowRight size={15} /></Link>
+        <section className="panel">
+          <div className="panel-heading"><div><span className="panel-kicker">ACCOUNT MANAGEMENT</span><h2>Real member records</h2><p>Search accounts and change development-only account/verification status with an audit reason.</p></div><Link className="button button--secondary" to="/members">Open member directory</Link></div>
         </section>
-      </div>
-
-      <div className="dashboard-footnote"><ShieldCheck size={15} /><span>{snapshot.dataNotice}</span><Link to="/settings">About this environment <ArrowRight size={13} /></Link></div>
+        <div className="dashboard-footnote"><ShieldCheck size={15} /><span>Local development/test environment. Manual state overrides are not real-world eligibility decisions.</span><Link to="/settings">About this environment →</Link></div>
+      </>}
     </div>
   );
-}
-
-function ActivityChart({ data }: { data: TrendPoint[] }) {
-  const points = data.map((point, index) => ({
-    ...point,
-    x: 34 + index * (532 / (data.length - 1)),
-    y: 154 - ((point.value - 20) / 70) * 108,
-  }));
-  const polyline = points.map((point) => point.x + "," + point.y).join(" ");
-  const polygon = "34,172 " + polyline + " 566,172";
-
-  return (
-    <div className="activity-chart" role="img" aria-label="Illustrative member activity chart for seven days. Sample values only.">
-      <svg viewBox="0 0 600 202" preserveAspectRatio="none" aria-hidden="true">
-        <defs>
-          <linearGradient id="activity-area" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#C44F7E" stopOpacity=".19" />
-            <stop offset="100%" stopColor="#C44F7E" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        {[46, 82, 118, 154].map((y) => <line key={y} x1="34" y1={y} x2="566" y2={y} stroke="#EEE8EF" strokeDasharray="3 5" />)}
-        <polygon points={polygon} fill="url(#activity-area)" />
-        <polyline points={polyline} fill="none" stroke="#BC4D7A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-        {points.map((point) => <circle key={point.label} cx={point.x} cy={point.y} r="3.5" fill="#FFFFFF" stroke="#BC4D7A" strokeWidth="2" />)}
-        {points.map((point) => <text key={point.label + "-label"} x={point.x} y="193" fontSize="11" fill="#958A98" textAnchor="middle">{point.label}</text>)}
-      </svg>
-    </div>
-  );
-}
-
-export function MetricTrendIcon({ direction }: { direction?: DashboardMetric["direction"] }) {
-  if (direction === "down") return <ArrowDownRight size={13} />;
-  if (direction === "up") return <ArrowUpRight size={13} />;
-  return <Clock3 size={12} />;
-}
-
-export function ToneLabel({ tone }: { tone: MetricTone }) {
-  return <span className={"tone-label tone-label--" + tone}>{tone}</span>;
 }
