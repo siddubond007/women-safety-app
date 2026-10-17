@@ -16,7 +16,7 @@ class EligibilityStatusScreen extends StatelessWidget {
 
   final EligibilityStatusResult result;
   final bool isDevelopmentBackend;
-  final VoidCallback? onOpenVerifiedHome;
+  final ValueChanged<EligibilityStatusResult>? onOpenVerifiedHome;
 
   String get _heading => switch (result.status) {
     EligibilityStatus.notVerified => 'Not verified yet',
@@ -234,7 +234,7 @@ class EligibilityStatusScreen extends StatelessWidget {
               key: const Key('eligibility-open-verified-home-button'),
               label: 'Continue to Sakhi Home',
               icon: Icons.home_rounded,
-              onPressed: onOpenVerifiedHome,
+              onPressed: () => onOpenVerifiedHome?.call(result),
             ),
             const SizedBox(height: SakhiSpacing.xs),
           ],
