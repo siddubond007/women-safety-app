@@ -213,12 +213,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
                     ),
                   )),
               ],
-              if (_filter == 'Groups' || _filter == 'Events')
-                const Module2EmptyPanel(
-                  icon: Icons.groups_2_outlined,
-                  title: 'Nothing published yet',
-                  message: 'There are no published items in this category for your account yet.',
-                ),
               if (_filter == 'Groups') ...[
                 const SizedBox(height: 22),
                 const SakhiSectionHeader(title: 'Discover groups'),
