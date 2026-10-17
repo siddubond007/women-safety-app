@@ -18,6 +18,34 @@ async function bootstrap(): Promise<void> {
   // Swagger is enabled only for the local development/test foundation; production
   // startup is rejected by environment validation.
   app.use(helmet({ contentSecurityPolicy: false }));
+  // Local Super Admin Vite origins only. CORS is not authorization; each
+  // admin endpoint independently validates the server-side reviewer token.
+  const adminCorsOrigins = (process.env.SAKHI_ADMIN_CORS_ORIGIN ?? "http://127.0.0.1:5173,http://localhost:5173")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  for (const origin of adminCorsOrigins) {
+    let parsed: URL;
+    try {
+      parsed = new URL(origin);
+    } catch {
+      throw new Error("SAKHI_ADMIN_CORS_ORIGIN contains an invalid origin.");
+    }
+    if (
+      parsed.protocol !== "http:" ||
+      !["localhost", "127.0.0.1"].includes(parsed.hostname) ||
+      parsed.origin !== origin
+    ) {
+      throw new Error("Admin CORS origins must be exact localhost/127.0.0.1 HTTP origins.");
+    }
+  }
+  app.enableCors({
+    origin: adminCorsOrigins,
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Sakhi-Admin-Token"],
+    credentials: false,
+    maxAge: 600,
+  });
   app.use(json({ limit: "64kb", strict: true }));
   app.use(urlencoded({ extended: false, limit: "64kb", parameterLimit: 100 }));
 

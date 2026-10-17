@@ -71,6 +71,20 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
         ),
       );
       if (!mounted) return;
+      if (widget.authService is BackendAuthService) {
+        // A successful database-backed registration proceeds directly to the
+        // verification stage. The eligibility page still reads canonical
+        // status from the backend and does not grant access on its own.
+        final eligibilityService = BackendEligibilityVerificationService(
+          apiClient: (widget.authService as BackendAuthService).apiClient,
+        );
+        await Navigator.of(context).pushReplacement(
+          MaterialPageRoute<void>(
+            builder: (_) => EligibilityIntroScreen(service: eligibilityService),
+          ),
+        );
+        return;
+      }
       setState(() {
         _isSuccess = true;
         _createdAccountState = result.accountState;

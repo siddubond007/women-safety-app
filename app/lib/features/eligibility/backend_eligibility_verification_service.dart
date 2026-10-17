@@ -2,9 +2,8 @@ import '../auth/backend_api_client.dart';
 import 'eligibility_verification_models.dart';
 import 'eligibility_verification_service.dart';
 
-/// Maps the authenticated mobile eligibility screens to the current backend
-/// API contract. Provider status is server-sourced; the app still disables
-/// provider session start until a secure handoff and return flow are supported.
+/// Maps the authenticated mobile screens to the backend eligibility API.
+/// Hosted-provider handoff and manual review have independent gates.
 class BackendEligibilityVerificationService
     implements EligibilityVerificationService {
   const BackendEligibilityVerificationService({
@@ -14,8 +13,7 @@ class BackendEligibilityVerificationService
 
   final BackendApiClient apiClient;
 
-  /// Must remain false until the hosted-provider redirect and safe return
-  /// flow are fully implemented and verified. The app never opts in today.
+  /// Must remain false until the hosted-provider handoff/return flow is implemented.
   final bool mobileHandoffSupported;
 
   @override
@@ -48,10 +46,7 @@ class BackendEligibilityVerificationService
           data,
           'selfieOrLivenessDescription',
         ),
-        dataHandlingDescription: _optionalString(
-          data,
-          'dataHandlingDescription',
-        ),
+        dataHandlingDescription: _optionalString(data, 'dataHandlingDescription'),
         retentionAndDeletionDescription: _optionalString(
           data,
           'retentionAndDeletionDescription',
@@ -65,6 +60,23 @@ class BackendEligibilityVerificationService
           'manualReviewDescription',
         ),
         consentVersion: _optionalString(data, 'consentVersion'),
+        manualReviewEnabled: data['manualReviewEnabled'] == true,
+        manualReviewConsentVersion: _optionalString(
+          data,
+          'manualReviewConsentVersion',
+        ),
+        manualReviewConsentText: _optionalString(
+          data,
+          'manualReviewConsentText',
+        ),
+        manualReviewDataHandlingDescription: _optionalString(
+          data,
+          'manualReviewDataHandlingDescription',
+        ),
+        manualReviewRetentionDescription: _optionalString(
+          data,
+          'manualReviewRetentionDescription',
+        ),
       );
     } on BackendApiException catch (error) {
       throw Exception(error.message);
@@ -78,6 +90,7 @@ class BackendEligibilityVerificationService
         return EligibilityStatus.notStarted;
       case 'notVerified':
       case 'NOT_VERIFIED':
+      case 'UNVERIFIED':
         return EligibilityStatus.notVerified;
       case 'consentRequired':
       case 'consent_required':
@@ -94,6 +107,9 @@ class BackendEligibilityVerificationService
       case 'verified':
       case 'VERIFIED':
         return EligibilityStatus.verified;
+      case 'rejected':
+      case 'REJECTED':
+        return EligibilityStatus.rejected;
       case 'verificationFailed':
       case 'verification_failed':
       case 'VERIFICATION_FAILED':
@@ -125,16 +141,42 @@ class BackendEligibilityVerificationService
         authenticated: true,
       );
       final message = data['message'];
-      final providerUnavailable = data['canStartVerification'] != true;
+      final rawEligibilityStatus = data['eligibilityStatus'];
+      const canonicalStatuses = <String>{
+        'notVerified',
+        'NOT_VERIFIED',
+        'UNVERIFIED',
+        'inProgress',
+        'in_progress',
+        'verificationInProgress',
+        'VERIFICATION_IN_PROGRESS',
+        'pendingManualReview',
+        'pending_manual_review',
+        'PENDING_MANUAL_REVIEW',
+        'verified',
+        'VERIFIED',
+        'rejected',
+        'REJECTED',
+        'verificationFailed',
+        'verification_failed',
+        'VERIFICATION_FAILED',
+        'temporarilyRestricted',
+        'TEMPORARILY_RESTRICTED',
+        'reverificationRequired',
+        'reverification_required',
+        'REVERIFICATION_REQUIRED',
+      };
+      final hasCanonicalStatus = rawEligibilityStatus is String &&
+          canonicalStatuses.contains(rawEligibilityStatus);
       return EligibilityStatusResult(
-        // The status field describes provider readiness; eligibilityStatus is
-        // the canonical persisted account decision. Keep them distinct.
-        status: providerUnavailable
-            ? EligibilityStatus.providerUnavailable
-            : _status(data['eligibilityStatus']),
+        // Provider readiness is not an eligibility decision. Keep the account's
+        // persisted eligibilityStatus visible even when no provider can start.
+        status: hasCanonicalStatus
+            ? _status(rawEligibilityStatus)
+            : _status(data['status']),
         message: message is String
             ? message
-            : 'No approved eligibility-verification provider is configured.',
+            : 'The backend did not return an eligibility status.',
         isDemo: data['isDemo'] == true,
       );
     } on BackendApiException catch (error) {
@@ -153,9 +195,8 @@ class BackendEligibilityVerificationService
   Future<EligibilityStatusResult> startVerification({
     required EligibilityConsentRecord consent,
   }) async {
-    // Defence in depth: callers cannot start a backend session merely because
-    // remote configuration becomes enabled. The UI and service both gate the
-    // operation until safe provider handoff and return handling are supported.
+    // The hosted provider stays disabled until safe provider handoff and return
+    // handling are implemented and verified.
     if (!mobileHandoffSupported) {
       return const EligibilityStatusResult(
         status: EligibilityStatus.providerUnavailable,
@@ -178,7 +219,7 @@ class BackendEligibilityVerificationService
         status: _status(data['eligibilityStatus'] ?? data['status']),
         message: data['message'] is String
             ? data['message'] as String
-            : 'The backend did not confirm an eligibility session.',
+            : 'The backend did not confirm a verification session.',
         isDemo: data['isDemo'] == true,
       );
     } on BackendApiException catch (error) {
@@ -189,6 +230,56 @@ class BackendEligibilityVerificationService
           message: error.message,
           isDemo: true,
         );
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  Future<EligibilityStatusResult> submitManualReview({
+    required EligibilityConsentRecord consent,
+  }) async {
+    // Re-check the server-owned policy immediately before creating the request;
+    // a client-side consent checkbox never enables the backend on its own.
+    final configuration = await loadConfiguration();
+    if (!configuration.canRequestManualReview ||
+        configuration.manualReviewConsentVersion != consent.consentVersion) {
+      return const EligibilityStatusResult(
+        status: EligibilityStatus.providerUnavailable,
+        message: 'Manual review is not currently enabled by the backend policy. No request was created.',
+        isDemo: true,
+      );
+    }
+
+    try {
+      final data = await apiClient.post(
+        'eligibility/start',
+        authenticated: true,
+        body: {
+          'consentAccepted': true,
+          'consentVersion': consent.consentVersion,
+        },
+      );
+      return EligibilityStatusResult(
+        status: _status(data['eligibilityStatus'] ?? data['status']),
+        message: data['message'] is String
+            ? data['message'] as String
+            : 'The backend did not confirm the manual-review request.',
+        isDemo: data['isDemo'] == true,
+      );
+    } on BackendApiException catch (error) {
+      if (error.statusCode == 503 ||
+          error.code == 'manual_review_not_configured') {
+        return EligibilityStatusResult(
+          status: EligibilityStatus.providerUnavailable,
+          message: error.message,
+          isDemo: true,
+        );
+      }
+      if (error.statusCode == 409) {
+        // An existing submission is not a failed eligibility decision. Ask the
+        // backend for the canonical current state rather than masking it.
+        return readStatus();
       }
       rethrow;
     }

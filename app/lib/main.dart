@@ -6,6 +6,7 @@ import 'core/theme/sakhi_design_system.dart';
 import 'features/auth/auth_service.dart';
 import 'features/auth/auth_service_factory.dart';
 import 'features/auth/sakhi_auth_status_screen.dart';
+import 'features/auth/sakhi_login_screen.dart';
 import 'features/auth/sakhi_registration_screen.dart';
 import 'features/onboarding/sakhi_onboarding_screen.dart';
 
@@ -33,6 +34,7 @@ class SakhiApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final authService = authServiceForCurrentBuild();
     return MaterialApp(
       title: AppBrand.appName,
       debugShowCheckedModeBanner: false,
@@ -50,9 +52,10 @@ class SakhiApp extends StatelessWidget {
           elevation: 0,
         ),
       ),
-      home: SakhiStartupRouter(
-        authService: authServiceForCurrentBuild(),
-      ),
+      routes: {
+        '/home': (_) => SakhiProtectedHomeGate(authService: authService),
+      },
+      home: SakhiStartupRouter(authService: authService),
     );
   }
 }
@@ -179,6 +182,100 @@ class _SakhiStartupRouterState extends State<SakhiStartupRouter> {
         }
 
         return _onboarding(context);
+      },
+    );
+  }
+}
+
+/// Named home route that rechecks the authoritative backend session.
+class SakhiProtectedHomeGate extends StatefulWidget {
+  const SakhiProtectedHomeGate({super.key, required this.authService});
+
+  final AuthService authService;
+
+  @override
+  State<SakhiProtectedHomeGate> createState() => _SakhiProtectedHomeGateState();
+}
+
+class _SakhiProtectedHomeGateState extends State<SakhiProtectedHomeGate> {
+  late Future<AuthAccountState?> _state;
+
+  @override
+  void initState() {
+    super.initState();
+    _state = widget.authService.restoreSession();
+  }
+
+  void _recheck() {
+    setState(() => _state = widget.authService.restoreSession());
+  }
+
+  void _returnToLogin() {
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute<void>(
+        builder: (_) => SakhiLoginScreen(authService: widget.authService),
+      ),
+      (_) => false,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<AuthAccountState?>(
+      future: _state,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Scaffold(
+            backgroundColor: SakhiColors.blush,
+            body: Center(child: CircularProgressIndicator(color: SakhiColors.purple)),
+          );
+        }
+        if (snapshot.data == AuthAccountState.existingAccount && !snapshot.hasError) {
+          return const SakhiHomeScreen();
+        }
+        return Scaffold(
+          backgroundColor: SakhiColors.blush,
+          body: SafeArea(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(28),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 440),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.lock_outline_rounded, size: 44, color: SakhiColors.purple),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Home access is still locked',
+                        textAlign: TextAlign.center,
+                        style: SakhiTypography.onboardingTitle,
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        snapshot.hasError
+                            ? 'Sakhi could not confirm the current account state with the backend.'
+                            : 'The backend has not confirmed that this account is active and verified. Update the development account state in Super Admin, then check again.',
+                        textAlign: TextAlign.center,
+                        style: SakhiTypography.body,
+                      ),
+                      const SizedBox(height: 20),
+                      FilledButton.icon(
+                        onPressed: _recheck,
+                        icon: const Icon(Icons.refresh_rounded),
+                        label: const Text('Check account state again'),
+                      ),
+                      TextButton(
+                        onPressed: _returnToLogin,
+                        child: const Text('Return to mobile login'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
       },
     );
   }
@@ -311,7 +408,7 @@ class SakhiHomeScreen extends StatelessWidget {
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: const Text(
-                  'Preview build: service integrations and the backend are not connected yet. Do not rely on this prototype for emergency assistance.',
+                  'Home-screen development preview: feature-level services are still being integrated. Do not rely on this development build for emergency assistance.',
                   style: TextStyle(
                     color: sakhiMutedPlum,
                     fontSize: 12.5,

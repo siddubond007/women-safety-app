@@ -1,13 +1,55 @@
-import { ConflictException, Injectable } from "@nestjs/common";
+import {
+  ConflictException,
+  Injectable,
+  ServiceUnavailableException,
+} from "@nestjs/common";
+import { randomUUID } from "node:crypto";
 import { AuthenticationService } from "../auth/auth.service.js";
+import { PrismaService } from "../database/prisma.service.js";
+import type { StartManualReviewDto } from "./eligibility.dto.js";
+
+type ManualReviewPolicy = {
+  enabled: boolean;
+  consentVersion: string | null;
+  consentText: string | null;
+  description: string | null;
+  dataHandlingDescription: string | null;
+  retentionDescription: string | null;
+};
 
 @Injectable()
 export class EligibilityService {
-  constructor(private readonly auth: AuthenticationService) {}
+  constructor(
+    private readonly auth: AuthenticationService,
+    private readonly prisma: PrismaService,
+  ) {}
+
+  private manualReviewPolicy(): ManualReviewPolicy {
+    const environment = process.env.SAKHI_ENV ?? "dev";
+    const consentVersion = process.env.SAKHI_MANUAL_REVIEW_CONSENT_VERSION?.trim() || null;
+    const consentText = process.env.SAKHI_MANUAL_REVIEW_CONSENT_TEXT?.trim() || null;
+    const description = process.env.SAKHI_MANUAL_REVIEW_DESCRIPTION?.trim() || null;
+    const dataHandlingDescription = process.env.SAKHI_MANUAL_REVIEW_DATA_HANDLING_DESCRIPTION?.trim() || null;
+    const retentionDescription = process.env.SAKHI_MANUAL_REVIEW_RETENTION_DESCRIPTION?.trim() || null;
+    const enabled =
+      process.env.NODE_ENV !== "production" &&
+      (environment === "dev" || environment === "test") &&
+      process.env.SAKHI_MANUAL_REVIEW_POLICY_APPROVED === "true" &&
+      process.env.SAKHI_MANUAL_REVIEW_EVIDENCE_PROCEDURE_APPROVED === "true" &&
+      Boolean(consentVersion && consentText && description && dataHandlingDescription && retentionDescription);
+
+    return {
+      enabled,
+      consentVersion,
+      consentText,
+      description,
+      dataHandlingDescription,
+      retentionDescription,
+    };
+  }
 
   configuration() {
-    // Deliberately unconfigured until an authorised provider, lawful method,
-    // policy and reviewed disclosures have been approved.
+    const policy = this.manualReviewPolicy();
     return {
       providerConfigured: false,
       policyApproved: false,
@@ -18,34 +60,154 @@ export class EligibilityService {
       dataHandlingDescription: null,
       retentionAndDeletionDescription: null,
       declineOrFailureDescription: null,
-      manualReviewDescription: null,
       consentVersion: null,
       canStartVerification: false,
       mode: "development_preview" as const,
+      manualReviewEnabled: policy.enabled,
+      manualReviewConsentVersion: policy.consentVersion,
+      manualReviewConsentText: policy.consentText,
+      manualReviewDescription: policy.description,
+      manualReviewDataHandlingDescription: policy.dataHandlingDescription,
+      manualReviewRetentionDescription: policy.retentionDescription,
+      message: policy.enabled
+        ? "Provider-based verification is unavailable. The separately approved local manual-review route is configured."
+        : "Neither provider verification nor manual review is enabled. Explicit policy and external evidence-procedure configuration is required.",
     };
   }
 
   async status(authorization?: string) {
     const session = await this.auth.authenticateAuthorization(authorization);
+    const latestSubmission = await this.prisma.eligibilitySubmission.findFirst({
+      where: { accountId: session.accountId },
+      orderBy: { submittedAt: "desc" },
+      select: { id: true, status: true, submittedAt: true, reviewedAt: true },
+    });
+
+    let eligibilityStatus: "UNVERIFIED" | "VERIFIED" | "REJECTED" | "PENDING_MANUAL_REVIEW";
+    if (latestSubmission?.status === "PENDING_MANUAL_REVIEW") {
+      eligibilityStatus = "PENDING_MANUAL_REVIEW";
+    } else if (session.account.verificationStatus === "VERIFIED") {
+      eligibilityStatus = "VERIFIED";
+    } else if (session.account.verificationStatus === "REJECTED") {
+      eligibilityStatus = "REJECTED";
+    } else {
+      eligibilityStatus = "UNVERIFIED";
+    }
+
+    const policy = this.manualReviewPolicy();
     return {
+      // Provider readiness and canonical account decision are deliberately distinct.
       status: "providerUnavailable" as const,
+      eligibilityStatus,
+      manualReviewStatus: latestSubmission?.status ?? null,
+      manualReviewSubmissionId: latestSubmission?.id ?? null,
+      manualReviewSubmittedAt: latestSubmission?.submittedAt.toISOString() ?? null,
+      manualReviewReviewedAt: latestSubmission?.reviewedAt?.toISOString() ?? null,
+      canStartVerification: false,
+      canRequestManualReview:
+        policy.enabled &&
+        session.account.status === "PENDING_VERIFICATION" &&
+        session.account.verificationStatus !== "VERIFIED" &&
+        latestSubmission === null,
       message:
-        "No approved eligibility provider or policy is configured. No verification session exists.",
+        eligibilityStatus === "VERIFIED"
+          ? "An authorized manual reviewer approved this account."
+          : eligibilityStatus === "REJECTED"
+            ? "The last manual eligibility request was rejected. Follow the separately approved resubmission process."
+            : eligibilityStatus === "PENDING_MANUAL_REVIEW"
+              ? "Your manual eligibility request is awaiting review."
+              : policy.enabled
+                ? "Provider verification is unavailable. An explicit request for the approved manual-review process may be submitted."
+                : "No approved provider or enabled manual-review policy is configured. No identity evidence is being collected.",
       isDemo: true,
     };
   }
 
-  async start(authorization?: string) {
-    await this.auth.authenticateAuthorization(authorization);
-    // Never create a fake transaction or store a preview consent as production
-    // consent. The same fail-closed result is returned until integration is approved.
-    throw new ConflictException({
-      statusCode: 409,
-      code: "eligibility_provider_unavailable",
-      status: "providerUnavailable",
-      message:
-        "Eligibility verification has not been configured. No session was created and no identity data was collected.",
-      isDemo: true,
+  async start(authorization: string | undefined, dto: StartManualReviewDto) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const policy = this.manualReviewPolicy();
+    if (!policy.enabled || !policy.consentVersion) {
+      throw new ServiceUnavailableException({
+        code: "manual_review_not_configured",
+        message: "Manual review is disabled until its policy, consent wording, data handling, retention statement and external evidence procedure are explicitly configured.",
+        isDemo: true,
+      });
+    }
+    if (!dto?.consentAccepted || dto.consentVersion !== policy.consentVersion) {
+      throw new ConflictException({
+        code: "manual_review_consent_required",
+        message: "Accept the current manual-review consent before submitting a request.",
+        expectedConsentVersion: policy.consentVersion,
+      });
+    }
+
+    const account = await this.prisma.memberAccount.findUnique({
+      where: { id: session.accountId },
+      select: {
+        id: true,
+        status: true,
+        verificationStatus: true,
+        profile: { select: { accountId: true } },
+        consents: { select: { id: true }, take: 1 },
+      },
+    });
+    if (!account || !account.profile || account.consents.length === 0) {
+      throw new ConflictException("Complete registration and the required Terms/Privacy acknowledgement before requesting manual review.");
+    }
+    if (account.status !== "PENDING_VERIFICATION" || account.verificationStatus === "VERIFIED") {
+      throw new ConflictException("This account is not eligible to submit a new manual-review request.");
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const previousSubmission = await tx.eligibilitySubmission.findFirst({
+        where: { accountId: session.accountId },
+        orderBy: { submittedAt: "desc" },
+        select: { id: true, status: true },
+      });
+      if (previousSubmission?.status === "PENDING_MANUAL_REVIEW") {
+        throw new ConflictException("A manual eligibility review is already pending.");
+      }
+      if (previousSubmission) {
+        throw new ConflictException("A previous manual-review request exists. Resubmission and appeals are not enabled in this version.");
+      }
+
+      const now = new Date();
+      const submission = await tx.eligibilitySubmission.create({
+        data: {
+          accountId: session.accountId,
+          status: "PENDING_MANUAL_REVIEW",
+          consentVersion: policy.consentVersion!,
+          consentAcceptedAt: now,
+        },
+        select: { id: true, submittedAt: true, status: true },
+      });
+
+      await tx.memberAccount.update({
+        where: { id: session.accountId },
+        data: { verificationStatus: "UNVERIFIED" },
+      });
+
+      await tx.auditEvent.create({
+        data: {
+          actorType: "MEMBER",
+          actorId: session.accountId,
+          action: "eligibility.manual_review.submitted",
+          targetType: "eligibility_submission",
+          targetId: submission.id,
+          outcome: "pending",
+          requestId: randomUUID(),
+          redactedMetadata: { consentVersion: policy.consentVersion, consentAccepted: true },
+        },
+      });
+
+      return {
+        status: "pendingManualReview" as const,
+        eligibilityStatus: "PENDING_MANUAL_REVIEW" as const,
+        submissionId: submission.id,
+        submittedAt: submission.submittedAt.toISOString(),
+        message: "Your manual-review request was saved. Evidence is not uploaded to this portal and must be reviewed only through the separately approved evidence procedure.",
+        isDemo: true,
+      };
     });
   }
 }

@@ -100,6 +100,15 @@ class EligibilityIntroScreen extends StatelessWidget {
             ),
             child: const Text('Read the current draft Privacy Policy'),
           ),
+          if (service.isDevelopmentBackend) ...[
+            const SizedBox(height: SakhiSpacing.xs),
+            OutlinedButton.icon(
+              key: const Key('eligibility-home-access-button'),
+              onPressed: () => Navigator.of(context).pushNamed('/home'),
+              icon: const Icon(Icons.home_outlined),
+              label: const Text('Check development home access'),
+            ),
+          ],
           Center(
             child: TextButton(
               key: const Key('eligibility-intro-back-button'),

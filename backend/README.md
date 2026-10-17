@@ -1,12 +1,12 @@
 # Sakhi Backend — Stage 1 Foundation
 
-**Status:** Initial implementation in the isolated **feature/backend-stage1-foundation** worktree. This is a development/test foundation, not production authentication.
+**Status:** Development/test backend. The local `sakhi_test` database has the tracked migrations through the manual-review submission schema applied as of 2026-10-17. The admin-review API is local dev/test only and is not production authentication or evidence review.
 
 ## Scope
 
 This stage includes the NestJS + TypeScript foundation, PostgreSQL 17/Prisma 7 schema and health checks, plus a **development-only authentication API** and the Flutter debug adapter. Local test OTPs, profile/draft-consent persistence and short-lived revocable development sessions are implemented. This is not production authentication.
 
-It implements OTP request/resend/verify, development session validation/logout, profile and draft-policy acknowledgement persistence, opt-in product-update preference storage, and fail-closed eligibility configuration/status/start endpoints. The Flutter integration is opt-in with a debug-only build define. It does **not** send SMS, prove phone possession through a carrier, provide real eligibility verification, grant protected production access, or implement admin authentication/RBAC, SOS dispatch, location persistence, complaints, messaging, commerce, or wellness data.
+It implements OTP request/resend/verify, development session validation/logout, profile and draft-policy acknowledgement persistence, opt-in product-update preference storage, fail-closed provider configuration, explicit consent-gated manual-review submissions, a local shared-token reviewer queue/history/decision API, account eligibility-status updates and decision audit records. The Flutter integration remains opt-in with a debug-only build define. It does **not** send SMS, prove phone possession through a carrier, provide real provider-based eligibility verification, collect/store identity evidence, or grant protected production access. Individual admin accounts, RBAC/MFA, production auth, SOS dispatch, location persistence, complaints, messaging, commerce, and wellness data are outside this stage.
 
 The follow-up migration adds hashed bearer-session records and a separate optional product-update preference. The seed still does not create **MemberConsent** rows because fixture data must never imply that a user accepted legal terms. The profile API only records the app's explicitly submitted draft acknowledgement in dev/test; it does not publish draft policies or mark them approved.
 
@@ -86,8 +86,12 @@ db-migrate.ps1 uses prisma migrate deploy; it does not call migrate reset, db pu
 | GET    | /api/v1/auth/me                   | Reads the account bound to a valid bearer session                                           |
 | POST   | /api/v1/auth/logout               | Revokes the current bearer session                                                          |
 | GET    | /api/v1/eligibility/configuration | Returns provider and policy as explicitly unavailable                                       |
-| GET    | /api/v1/eligibility/status        | Authenticated fail-closed status; no real eligibility decision                              |
-| POST   | /api/v1/eligibility/start         | Returns provider-unavailable and creates no verification session                            |
+| GET    | /api/v1/eligibility/status        | Authenticated provider readiness and canonical manual-review/account status                 |
+| POST   | /api/v1/eligibility/start         | Creates an explicit consented submission only when the local manual-review policy is enabled |
+| GET    | /api/v1/admin-review/session      | Validates the local dev/test reviewer token                                                 |
+| GET    | /api/v1/admin-review/queue        | Lists explicit pending submissions with masked contact details                              |
+| GET    | /api/v1/admin-review/history      | Returns persisted decision audit history                                                   |
+| POST   | /api/v1/admin-review/submissions/{submissionId}/decision | Persists an approval/rejection and updates account status                 |
 | GET    | /api/docs                         | Development/test OpenAPI documentation                                                      |
 
 The development OTP mode is deliberately restricted to SAKHI_ENV=dev or test, non-production runtime and HOST=127.0.0.1. The development start wrapper sets that mode for the process and labels its temporary age-13 rule; the API refuses to echo codes when it is disabled. A real phone can reach the host loopback API via adb reverse tcp:3000 tcp:3000, without exposing the API on the LAN. Do not change HOST to 0.0.0.0 for OTP echo.
@@ -104,3 +108,14 @@ The development OTP mode is deliberately restricted to SAKHI_ENV=dev or test, no
 - Profile writes require the authenticated development session, a real (non-future) accepted-at timestamp, matching draft policy metadata and only the temporary age-13 dev/test rule. Production startup is disabled.
 - Eligibility APIs always fail closed with provider unavailable. They do not create an external provider session, collect identity evidence, or infer a user's eligibility.
 - No external SMS provider, production identity provider, production credential, real person fixture, or production-sensitive feature storage is configured.
+
+
+## Manual eligibility-review database integration test
+
+The test database is migrated through the explicit eligibility-submission schema. To exercise the actual NestJS routes against `sakhi_test`, run this from the repository root in PowerShell:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\backend\scripts\Test-AdminReviewDatabaseIntegration.ps1"
+```
+
+The runner checks the feature branch, performs only the idempotent synthetic seed in `sakhi_test`, configures ephemeral test-only policy/reviewer values inside the test process, and exercises submission, queue, approval, rejection, status and audit history through HTTP routes. It deletes the synthetic accounts, sessions, consents, submissions and test audit events afterward using the local `sakhi_test_migrator` role. It does not reset/drop a database, touch `sakhi_dev`/`marketplacedb`, enable a live backend policy, or create any identity evidence. These synthetic settings are test fixtures, not actual policy/legal approval.

@@ -8,6 +8,7 @@ enum EligibilityStatus {
   inProgress,
   pendingManualReview,
   verified,
+  rejected,
   verificationFailed,
   temporarilyRestricted,
   reverificationRequired,
@@ -20,8 +21,8 @@ enum EligibilityStatus {
   consentNotGiven,
 }
 
-/// Configuration is usable only when the provider and its legal/policy setup
-/// have both been explicitly approved and supplied by a trusted service.
+/// Provider and manual-review configuration returned by the trusted backend.
+/// Provider handoff and manual review are separate workflows with separate gates.
 class EligibilityConfiguration {
   const EligibilityConfiguration({
     required this.providerConfigured,
@@ -38,6 +39,11 @@ class EligibilityConfiguration {
     this.declineOrFailureDescription,
     this.manualReviewDescription,
     this.consentVersion,
+    this.manualReviewEnabled = false,
+    this.manualReviewConsentVersion,
+    this.manualReviewConsentText,
+    this.manualReviewDataHandlingDescription,
+    this.manualReviewRetentionDescription,
   });
 
   const EligibilityConfiguration.previewUnavailable()
@@ -54,16 +60,19 @@ class EligibilityConfiguration {
       retentionAndDeletionDescription = null,
       declineOrFailureDescription = null,
       manualReviewDescription = null,
-      consentVersion = null;
+      consentVersion = null,
+      manualReviewEnabled = false,
+      manualReviewConsentVersion = null,
+      manualReviewConsentText = null,
+      manualReviewDataHandlingDescription = null,
+      manualReviewRetentionDescription = null;
 
   final bool providerConfigured;
   final bool policyApproved;
-
-  /// Provider disclosures are still required if a supported method needs them.
   final bool biometricProcessingSupported;
   final bool biometricProcessingRequired;
 
-  /// False until this client can safely launch the provider handoff and handle return.
+  /// False until this client can safely launch the hosted provider and handle return.
   final bool mobileHandoffSupported;
 
   final String? providerDisplayName;
@@ -75,8 +84,17 @@ class EligibilityConfiguration {
   final String? declineOrFailureDescription;
   final String? manualReviewDescription;
 
-  /// A version supplied by approved configuration, not a client-side guess.
+  /// Version of the approved provider consent, not a client-side guess.
   final String? consentVersion;
+
+  /// True only when the backend enables the separate manual-review pathway.
+  final bool manualReviewEnabled;
+  final String? manualReviewConsentVersion;
+  final String? manualReviewConsentText;
+  final String? manualReviewDataHandlingDescription;
+  final String? manualReviewRetentionDescription;
+
+  bool _hasText(String? value) => value != null && value.trim().isNotEmpty;
 
   bool get hasApprovedConfiguration {
     final requiredDisclosures = <String?>[
@@ -93,19 +111,24 @@ class EligibilityConfiguration {
     return providerConfigured &&
         policyApproved &&
         (!biometricProcessingRequired || biometricProcessingSupported) &&
-        requiredDisclosures.every(
-          (value) => value != null && value.trim().isNotEmpty,
-        );
+        requiredDisclosures.every(_hasText);
   }
 
-  /// Do not start a provider session until a secure app-to-provider handoff
-  /// and safe return/status-retrieval flow are implemented.
+  /// A server-enabled, separately disclosed manual review can be requested
+  /// without enabling a hosted identity-provider handoff.
+  bool get canRequestManualReview =>
+      manualReviewEnabled &&
+      _hasText(manualReviewConsentVersion) &&
+      _hasText(manualReviewConsentText) &&
+      _hasText(manualReviewDescription) &&
+      _hasText(manualReviewDataHandlingDescription) &&
+      _hasText(manualReviewRetentionDescription);
+
   bool get canStartVerification =>
       hasApprovedConfiguration && mobileHandoffSupported;
 }
 
-/// A future trusted service associates this record with an authenticated
-/// account. The current demo never persists this record.
+/// Explicit consent captured by the mobile UI. The server timestamps receipt.
 class EligibilityConsentRecord {
   const EligibilityConsentRecord({
     required this.consentVersion,
@@ -128,6 +151,6 @@ class EligibilityStatusResult {
   final EligibilityStatus status;
   final String message;
 
-  /// True means this is a preview state and must never grant access.
+  /// True means this is a dev/test or preview result and must never grant access.
   final bool isDemo;
 }

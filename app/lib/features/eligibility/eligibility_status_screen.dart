@@ -24,6 +24,7 @@ class EligibilityStatusScreen extends StatelessWidget {
     EligibilityStatus.pendingManualReview => 'Pending manual review',
     EligibilityStatus.verified =>
       result.isDemo ? 'Demo status: verified' : 'Eligibility verified',
+    EligibilityStatus.rejected => 'Eligibility review rejected',
     EligibilityStatus.verificationFailed => 'Unable to verify right now',
     EligibilityStatus.temporarilyRestricted => 'Access temporarily restricted',
     EligibilityStatus.reverificationRequired => 'Further verification required',
@@ -43,8 +44,9 @@ class EligibilityStatusScreen extends StatelessWidget {
     EligibilityStatus.pendingManualReview => 'The result is awaiting review. It is not a rejection or a verified decision.',
     EligibilityStatus.verified =>
       result.isDemo
-          ? 'This is only a simulated status. It does not verify identity or eligibility and does not grant protected access.'
+          ? 'This is only a local dev/test status. It does not grant protected access.'
           : 'This status must be confirmed by the trusted backend. Protected APIs must still enforce access server-side.',
+    EligibilityStatus.rejected => 'The backend reports that the manual eligibility review was rejected. This is distinct from a technical failure. Contact Sakhi support for any approved alternative or appeal process.',
     EligibilityStatus.verificationFailed => 'A technical or provider problem prevented completion. A failure or timeout does not establish ineligibility.',
     EligibilityStatus.temporarilyRestricted => 'A trusted backend has temporarily restricted access. The reason and any resolution steps must follow the approved policy.',
     EligibilityStatus.reverificationRequired => 'Further verification may be required only under an approved policy and confirmed backend status.',
@@ -62,6 +64,7 @@ class EligibilityStatusScreen extends StatelessWidget {
     EligibilityStatus.inProgress => Icons.sync_rounded,
     EligibilityStatus.pendingManualReview => Icons.hourglass_top_rounded,
     EligibilityStatus.verified => Icons.verified_user_outlined,
+    EligibilityStatus.rejected => Icons.gpp_bad_outlined,
     EligibilityStatus.verificationFailed => Icons.cloud_off_outlined,
     EligibilityStatus.temporarilyRestricted => Icons.lock_clock_outlined,
     EligibilityStatus.reverificationRequired => Icons.refresh_rounded,
@@ -76,6 +79,7 @@ class EligibilityStatusScreen extends StatelessWidget {
       EligibilityStatus.pendingManualReview ||
       EligibilityStatus.inProgress ||
       EligibilityStatus.reverificationRequired => const Color(0xFF8B5A17),
+      EligibilityStatus.rejected ||
       EligibilityStatus.verificationFailed ||
       EligibilityStatus.temporarilyRestricted ||
       EligibilityStatus.cancelled => const Color(0xFF9B2948),
@@ -94,6 +98,7 @@ class EligibilityStatusScreen extends StatelessWidget {
     EligibilityStatus.inProgress => 'Verification In Progress',
     EligibilityStatus.pendingManualReview => 'Pending Manual Review',
     EligibilityStatus.verified => 'Verified',
+    EligibilityStatus.rejected => 'Rejected',
     EligibilityStatus.verificationFailed => 'Verification Failed',
     EligibilityStatus.temporarilyRestricted => 'Temporarily Restricted',
     EligibilityStatus.reverificationRequired => 'Reverification Required',

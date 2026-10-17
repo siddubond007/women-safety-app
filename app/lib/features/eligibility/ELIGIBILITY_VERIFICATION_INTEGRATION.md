@@ -11,7 +11,8 @@ The feature remains isolated under `features/eligibility/`:
 - `backend_eligibility_verification_service.dart` reads the backend configuration and authenticated status, and implements the server's explicit-consent request shape.
 - `SakhiAuthStatusScreen` exposes the eligibility entry only for `existingAccount` and `pendingVerification`. It is hidden before profile completion and for restricted accounts.
 - When the current auth service is the development backend, the eligibility feature reuses the same secure token-storage key and build-time API base URL as `BackendAuthService`. Demo builds use `DemoEligibilityVerificationService`.
-- The user-visible UI remains provider-unavailable while the server reports no approved provider/policy. No identity evidence is collected or sent.
+- The mobile adapter keeps persisted account/manual-review status distinct from provider readiness. If the server enables a fully disclosed manual-review policy, the mobile consent screen can submit a metadata-only request without enabling hosted-provider handoff. If policy/disclosures are absent, the request action remains unavailable.
+- The mobile app does not capture or upload identity evidence.
 
 ### Deliberate start-session gate
 
@@ -25,7 +26,7 @@ The existing backend exposes these versioned endpoints:
 
 - `GET /api/v1/eligibility/configuration` — returns provider/policy readiness and disclosure text. It does not collect identity evidence.
 - `GET /api/v1/eligibility/status` — requires the authenticated bearer token. Its `status` field describes provider readiness; `eligibilityStatus` is the canonical persisted account status. The mobile adapter keeps those meanings separate.
-- `POST /api/v1/eligibility/start` — requires authentication, `consentAccepted: true`, the current `consentVersion`, and `biometricProcessingConsented`. The mobile adapter sends only these DTO-supported fields; it does not send an `acceptedAt` client timestamp. The server records the consent timestamp. The current UI cannot invoke this request until the mobile handoff gate is deliberately enabled.
+- `POST /api/v1/eligibility/start` — requires authentication and an explicit consent/version. The hosted-provider route remains gated by secure handoff support. The distinct manual-review route sends only `consentAccepted: true` and the backend-supplied `manualReviewConsentVersion`; the server rechecks its own policy and records its own receipt timestamp. The mobile app sends no evidence file.
 
 A 409/503 provider-unavailable response is a normal fail-closed outcome, not a verification failure or an eligibility rejection. An unknown or absent backend status must never become `Verified`.
 
@@ -71,7 +72,7 @@ The UI maps the canonical backend statuses to these labels:
 
 Additional screen/service states (`notStarted`, `consentRequired`, `consentNotGiven`, `cancelled` and `providerUnavailable`) describe the flow, not new persisted eligibility decisions. A technical error, cancellation, timeout or unavailable provider is not an eligibility rejection.
 
-Only a trusted backend provider result or authorized review can establish a real final decision. Manual review is displayed as a possible status but is not an implemented reviewer workflow. Do not request documents or offer a working upload/review submission until its policy, lawful basis, access controls and retention rules are approved.
+Only a trusted backend provider result or authorized review can establish a final decision. The local dev/test manual-review workflow supports consented metadata submission, a reviewer queue, persisted decisions and audit history. It remains disabled unless backend policy/evidence-procedure gates and all disclosures are configured. Do not collect or upload identity evidence until the method, lawful basis, access controls, retention/deletion and alternative path are explicitly approved.
 
 ## UI and physical-device checkpoint
 
@@ -89,4 +90,4 @@ This validates the demo preview only. The new backend-mobile adapter changes and
 
 ## Remaining work
 
-Still outstanding are local validation of the backend-mobile branch; integration testing against the local backend; secure provider handoff/return; actual provider and legal approval; protected community controller/route integration; authorized review/appeal workflows; and retention/deletion controls. The UI and server must remain fail-closed until the relevant external and security prerequisites are approved.
+Still outstanding are local validation of the current app/backend/admin integration; running the database-backed manual-review integration test; secure hosted-provider handoff/return; actual provider and legal approval; protected community controller/route integration; production administrator accounts/MFA/RBAC; an approved appeal/resubmission path; private evidence storage if later approved; and enforceable retention/deletion controls. The UI and server must remain fail-closed until the relevant external and security prerequisites are approved.
