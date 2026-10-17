@@ -4,14 +4,20 @@ import '../../core/branding/app_brand.dart';
 import '../../core/theme/sakhi_design_system.dart';
 import '../auth/auth_service.dart';
 import '../auth/sakhi_login_screen.dart';
+import '../eligibility/eligibility_verification_models.dart';
 
 /// The verified-member landing shell. It intentionally does not imply that
 /// preview cards are live emergency, community, location, or wellness services.
 /// Server APIs must independently enforce eligibility and authorization.
 class SakhiHomeScreen extends StatefulWidget {
-  const SakhiHomeScreen({super.key, required this.authService});
+  const SakhiHomeScreen({
+    super.key,
+    required this.authService,
+    required this.verifiedStatus,
+  });
 
   final AuthService authService;
+  final EligibilityStatusResult verifiedStatus;
 
   @override
   State<SakhiHomeScreen> createState() => _SakhiHomeScreenState();
@@ -28,7 +34,7 @@ class _SakhiHomeScreenState extends State<SakhiHomeScreen> {
       icon: Icons.shield_outlined,
       accent: Color(0xFF8B4D9C),
       previewDetails:
-          'This area will bring together safety guidance and support resources. Emergency SOS, live location sharing and dispatch are not active in this build.',
+          'This is a UI preview only. The related service and backend integration are not implemented yet. Emergency SOS, live location sharing and dispatch are not active in this build.',
     ),
     _HomeFeature(
       keyName: 'home-feature-trusted-contacts',
@@ -120,8 +126,54 @@ class _SakhiHomeScreenState extends State<SakhiHomeScreen> {
     );
   }
 
+  bool get _hasTrustedVerifiedStatus =>
+      verifiedStatus.status == EligibilityStatus.verified &&
+      !verifiedStatus.isDemo;
+
   @override
   Widget build(BuildContext context) {
+    if (!_hasTrustedVerifiedStatus) {
+      return Scaffold(
+        backgroundColor: SakhiColors.blush,
+        appBar: AppBar(
+          backgroundColor: SakhiColors.blush,
+          title: const Text(AppBrand.appName),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(SakhiSpacing.lg),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.lock_outline_rounded,
+                  color: SakhiColors.purple,
+                  size: 44,
+                ),
+                const SizedBox(height: SakhiSpacing.md),
+                const Text(
+                  'Sakhi Home is not available',
+                  textAlign: TextAlign.center,
+                  style: SakhiTypography.onboardingTitle,
+                ),
+                const SizedBox(height: SakhiSpacing.sm),
+                const Text(
+                  'This screen requires a current, non-demo Verified status from the trusted backend. No protected area was opened.',
+                  textAlign: TextAlign.center,
+                  style: SakhiTypography.body,
+                ),
+                const SizedBox(height: SakhiSpacing.md),
+                OutlinedButton(
+                  onPressed: () => Navigator.of(context).maybePop(),
+                  child: const Text('Go back'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: SakhiColors.blush,
       appBar: AppBar(
@@ -324,7 +376,7 @@ class _SakhiHomeScreenState extends State<SakhiHomeScreen> {
                     crossAxisCount: columns,
                     crossAxisSpacing: SakhiSpacing.sm,
                     mainAxisSpacing: SakhiSpacing.sm,
-                    childAspectRatio: constraints.maxWidth < 360 ? 0.91 : 1.05,
+                    childAspectRatio: constraints.maxWidth < 360 ? 0.78 : 1.05,
                   ),
                   itemBuilder: (context, index) {
                     final feature = _features[index];
@@ -488,7 +540,7 @@ class _HomeFeaturePreviewScreen extends StatelessWidget {
       backgroundColor: SakhiColors.blush,
       appBar: AppBar(
         backgroundColor: SakhiColors.blush,
-        title: Text(feature.title),
+        title: Text('${feature.title} preview'),
       ),
       body: Center(
         child: SingleChildScrollView(
