@@ -1,418 +1,239 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import {
-  AlertCircle,
-  ArrowDownUp,
-  ArrowLeft,
-  ArrowRight,
-  Ban,
-  Check,
-  CheckCircle2,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  Clock3,
-  Filter,
-  LockKeyhole,
-  MoreHorizontal,
-  Search,
-  ShieldAlert,
-  ShieldCheck,
-  UserRound,
-  UserRoundCheck,
-  Users,
-  X,
-} from "lucide-react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, RefreshCw, Search, ShieldCheck, Users, X } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
 import { StatusPill } from "../components/StatusPill";
-import { getMemberRepository } from "../services/repositories/members/memberRepository";
-import { memberDataNotice } from "../services/mock/members/members";
-import type {
-  DemoMemberAction,
-  MemberAccountStatus,
-  MemberActionType,
-  MemberAuditEntry,
-  MemberQuery,
-  MemberRecord,
-  MemberSortField,
-  MemberVerificationStatus,
-  RegistrationPeriod,
-} from "../types/member";
+import { adminApi, AdminApiError } from "../services/api/adminApi";
+import { adminAuthService } from "../services/auth/adminAuthService";
 
-const PAGE_SIZE = 8;
-const DEMO_REFERENCE_TIME = Date.parse("2026-10-15T12:00:00Z");
-
-const accountLabels: Record<MemberAccountStatus, string> = {
-  active: "Active",
-  restricted: "Restricted",
-  suspended: "Suspended",
-  banned: "Banned",
+type AccountStatus = "PENDING_VERIFICATION" | "ACTIVE" | "RESTRICTED" | "SUSPENDED" | "DELETED";
+type VerificationStatus = "UNVERIFIED" | "VERIFIED" | "REJECTED";
+type EligibilityStatus = "UNVERIFIED" | "VERIFIED" | "REJECTED" | "PENDING_MANUAL_REVIEW" | "APPROVED";
+type Member = {
+  id: string;
+  reference: string;
+  displayName: string;
+  emailMasked: string;
+  phoneMasked: string;
+  registeredAt: string;
+  lastActiveAt: string | null;
+  accountStatus: AccountStatus;
+  verificationStatus: VerificationStatus;
+  eligibilityStatus: EligibilityStatus;
+  profileComplete: boolean;
+  eligibilitySubmissionStatus: string | null;
+  eligibilitySubmittedAt: string | null;
+  eligibilityReviewedAt: string | null;
 };
-
-const verificationLabels: Record<MemberVerificationStatus, string> = {
-  verified: "Verified",
-  pending: "Pending review",
-  "in-progress": "In progress",
-  failed: "Failed",
-  "not-verified": "Not verified",
+type MemberDirectory = {
+  total: number;
+  page: number;
+  pageSize: number;
+  summary: {
+    totalAccounts: number;
+    activeAccounts: number;
+    pendingAccounts: number;
+    verifiedAccounts: number;
+    rejectedAccounts: number;
+    pendingManualReviews: number;
+  };
+  items: Member[];
 };
+type EditableMemberState = { accountStatus: AccountStatus; verificationStatus: VerificationStatus };
 
-function accountTone(status: MemberAccountStatus): "green" | "amber" | "urgent" | "neutral" {
-  if (status === "active") return "green";
-  if (status === "restricted") return "amber";
-  if (status === "suspended" || status === "banned") return "urgent";
-  return "neutral";
-}
-
-function verificationTone(status: MemberVerificationStatus): "green" | "amber" | "urgent" | "neutral" {
-  if (status === "verified") return "green";
-  if (status === "pending" || status === "in-progress") return "amber";
-  if (status === "failed") return "urgent";
-  return "neutral";
-}
-
-function formatDate(value: string | null): string {
-  if (!value) return "No recent activity";
-  return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(value));
-}
-
-function formatDateTime(value: string): string {
-  return new Intl.DateTimeFormat("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
+const accountLabels: Record<AccountStatus, string> = {
+  PENDING_VERIFICATION: "Pending",
+  ACTIVE: "Active",
+  RESTRICTED: "Restricted",
+  SUSPENDED: "Suspended",
+  DELETED: "Deleted",
+};
+const verificationLabels: Record<VerificationStatus, string> = {
+  UNVERIFIED: "Unverified",
+  VERIFIED: "Verified",
+  REJECTED: "Rejected",
+};
+const eligibilityLabels: Record<EligibilityStatus, string> = {
+  UNVERIFIED: "Not verified",
+  VERIFIED: "Verified",
+  REJECTED: "Rejected",
+  PENDING_MANUAL_REVIEW: "Pending review",
+  APPROVED: "Approved",
+};
+const accountTone = (status: AccountStatus): "green" | "amber" | "urgent" | "neutral" =>
+  status === "ACTIVE" ? "green" : status === "PENDING_VERIFICATION" ? "amber" : status === "RESTRICTED" || status === "SUSPENDED" || status === "DELETED" ? "urgent" : "neutral";
+const verificationTone = (status: VerificationStatus): "green" | "amber" | "urgent" =>
+  status === "VERIFIED" ? "green" : status === "REJECTED" ? "urgent" : "amber";
+const eligibilityTone = (status: EligibilityStatus): "green" | "amber" | "urgent" | "neutral" =>
+  status === "VERIFIED" || status === "APPROVED" ? "green" : status === "REJECTED" ? "urgent" : status === "UNVERIFIED" ? "neutral" : "amber";
+const formatDate = (value: string | null) => value ? new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(value)) : "Never";
+const formatDateTime = (value: string) => new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("") || "SK";
 
 export function MemberManagementPage() {
-  const [members, setMembers] = useState<MemberRecord[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
-  const [query, setQuery] = useState("");
-  const [accountStatus, setAccountStatus] = useState<MemberQuery["accountStatus"]>("all");
-  const [verificationStatus, setVerificationStatus] = useState<MemberQuery["verificationStatus"]>("all");
-  const [registrationPeriod, setRegistrationPeriod] = useState<RegistrationPeriod>("all");
-  const [sortField, setSortField] = useState<MemberSortField>("registeredAt");
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+  const navigate = useNavigate();
+  const [data, setData] = useState<MemberDirectory | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [searchDraft, setSearchDraft] = useState("");
+  const [search, setSearch] = useState("");
+  const [accountFilter, setAccountFilter] = useState("");
+  const [verificationFilter, setVerificationFilter] = useState("");
   const [page, setPage] = useState(1);
-  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
-  const [pendingAction, setPendingAction] = useState<MemberActionType | null>(null);
-  const [actionReason, setActionReason] = useState("");
-  const [durationHours, setDurationHours] = useState("168");
+  const [refresh, setRefresh] = useState(0);
+  const [selected, setSelected] = useState<Member | null>(null);
+  const [accountStatus, setAccountStatus] = useState<AccountStatus>("PENDING_VERIFICATION");
+  const [verificationStatus, setVerificationStatus] = useState<VerificationStatus>("UNVERIFIED");
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState("");
-  const [isActing, setIsActing] = useState(false);
-  const [auditEntries, setAuditEntries] = useState<MemberAuditEntry[]>([]);
   const [notice, setNotice] = useState("");
 
-  useEffect(() => {
-    let active = true;
-    getMemberRepository()
-      .list()
-      .then((items) => {
-        if (active) setMembers(items);
-      })
-      .catch(() => {
-        if (active) setLoadError(true);
-      })
-      .finally(() => {
-        if (active) setIsLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [retryCount]);
-
-  const filteredMembers = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    const cutoff = registrationPeriod === "all"
-      ? null
-      : DEMO_REFERENCE_TIME - Number(registrationPeriod) * 24 * 60 * 60 * 1000;
-
-    return members
-      .filter((member) => {
-        const matchesSearch = !normalizedQuery || [
-          member.reference,
-          member.displayName,
-          member.emailMasked,
-          member.phoneMasked,
-        ].some((value) => value.toLowerCase().includes(normalizedQuery));
-        const matchesAccount = accountStatus === "all" || member.accountStatus === accountStatus;
-        const matchesVerification = verificationStatus === "all" || member.verificationStatus === verificationStatus;
-        const matchesPeriod = cutoff === null || new Date(member.registeredAt).getTime() >= cutoff;
-        return matchesSearch && matchesAccount && matchesVerification && matchesPeriod;
-      })
-      .sort((a, b) => {
-        let comparison = 0;
-        if (sortField === "name") comparison = a.displayName.localeCompare(b.displayName);
-        else if (sortField === "lastActiveAt") comparison = (a.lastActiveAt ?? "").localeCompare(b.lastActiveAt ?? "");
-        else comparison = a.registeredAt.localeCompare(b.registeredAt);
-        return sortDirection === "asc" ? comparison : -comparison;
-      });
-  }, [members, query, accountStatus, verificationStatus, registrationPeriod, sortField, sortDirection]);
-
-  const totalPages = Math.max(1, Math.ceil(filteredMembers.length / PAGE_SIZE));
-  const currentPage = Math.min(page, totalPages);
-  const pageMembers = filteredMembers.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-  const selectedMember = members.find((member) => member.id === selectedMemberId) ?? null;
-  const selectedAudit = selectedMember ? auditEntries.filter((entry) => entry.memberId === selectedMember.id) : [];
-  const activeCount = members.filter((member) => member.accountStatus === "active").length;
-  const pendingCount = members.filter((member) => member.verificationStatus === "pending" || member.verificationStatus === "in-progress").length;
-  const restrictedCount = members.filter((member) => member.accountStatus === "restricted" || member.accountStatus === "suspended").length;
-
-  function resetFilters() {
-    setQuery("");
-    setAccountStatus("all");
-    setVerificationStatus("all");
-    setRegistrationPeriod("all");
-    setSortField("registeredAt");
-    setSortDirection("desc");
-    setPage(1);
-  }
-
-  function startAction(type: MemberActionType) {
-    if (!selectedMember) return;
-    setPendingAction(type);
-    setActionReason("");
-    setDurationHours("168");
-    setActionError("");
-  }
-
-  async function confirmAction(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!selectedMember || !pendingAction) return;
-    const reason = actionReason.trim();
-    if (reason.length < 10) {
-      setActionError("Enter a reason with at least 10 characters.");
-      return;
-    }
-    if ((pendingAction === "restrict" || pendingAction === "suspend") && !durationHours) {
-      setActionError("Choose a duration for this simulated action.");
-      return;
-    }
-
-    setIsActing(true);
-    setActionError("");
-    const performedAt = new Date().toISOString();
-    const action: DemoMemberAction = {
-      memberId: selectedMember.id,
-      type: pendingAction,
-      reason,
-      ...(pendingAction === "restrict" || pendingAction === "suspend" ? { durationHours: Number(durationHours) } : {}),
-      performedAt,
-      performedBy: "Demo Super Admin",
-    };
-
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
     try {
-      const updated = await getMemberRepository().simulateAction(action);
-      setMembers((current) => current.map((member) => member.id === updated.id ? updated : member));
-      const descriptions: Record<MemberActionType, string> = {
-        warning: "Warning recorded in demo session",
-        restrict: "Restriction simulated in demo session",
-        suspend: "Suspension simulated in demo session",
-        reinstate: "Reinstatement simulated in demo session",
-      };
-      const auditEntry: MemberAuditEntry = {
-        ...action,
-        id: "demo-audit-" + String(Date.now()),
-        memberReference: updated.reference,
-        description: descriptions[pendingAction],
-        demoOnly: true,
-      };
-      setAuditEntries((current) => [auditEntry, ...current]);
-      setPendingAction(null);
-      setActionReason("");
-      setNotice(descriptions[action.type] + " for " + updated.displayName + ". No production record was changed.");
-    } catch {
-      setActionError("The demo action could not be completed. No production record was changed.");
+      const params = new URLSearchParams({ page: String(page), pageSize: "25" });
+      if (search) params.set("search", search);
+      if (accountFilter) params.set("accountStatus", accountFilter);
+      if (verificationFilter) params.set("verificationStatus", verificationFilter);
+      const result = await adminApi<MemberDirectory>("/admin-review/members?" + params.toString());
+      setData(result);
+    } catch (cause) {
+      if (cause instanceof AdminApiError && cause.statusCode === 401) {
+        adminAuthService.signOut();
+        navigate("/login", { replace: true });
+        return;
+      }
+      setError(cause instanceof Error ? cause.message : "The member directory could not be loaded.");
     } finally {
-      setIsActing(false);
+      setLoading(false);
+    }
+  }, [page, search, accountFilter, verificationFilter, refresh, navigate]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  function openEditor(member: Member) {
+    setSelected(member);
+    setAccountStatus(member.accountStatus);
+    setVerificationStatus(member.verificationStatus);
+    setReason("");
+    setActionError("");
+  }
+
+  function applyQuickApproval() {
+    setAccountStatus("ACTIVE");
+    setVerificationStatus("VERIFIED");
+    setReason("Development test approval to continue home-screen development.");
+  }
+
+  async function saveState(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selected) return;
+    if (reason.trim().length < 10) {
+      setActionError("Provide a reason containing at least 10 characters.");
+      return;
+    }
+    setSaving(true);
+    setActionError("");
+    try {
+      await adminApi("/admin-review/members/" + encodeURIComponent(selected.id) + "/state", {
+        method: "POST",
+        body: { accountStatus, verificationStatus, reason: reason.trim() },
+      });
+      setNotice("Development account state saved to the database. Refreshing the directory.");
+      setSelected(null);
+      await load();
+    } catch (cause) {
+      if (cause instanceof AdminApiError && cause.statusCode === 401) {
+        adminAuthService.signOut();
+        navigate("/login", { replace: true });
+        return;
+      }
+      setActionError(cause instanceof Error ? cause.message : "The state change was not saved.");
+    } finally {
+      setSaving(false);
     }
   }
+
+  const summary = data?.summary;
+  const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
   return (
     <div className="members-page">
-      <div className="members-breadcrumb"><Link to="/dashboard"><ArrowLeft size={14} /> Overview dashboard</Link><span>/</span><span>People &amp; trust</span><span>/</span><strong>Members &amp; accounts</strong></div>
-
+      <div className="members-breadcrumb"><Link to="/dashboard">Overview dashboard</Link><span>/</span><strong>Members &amp; accounts</strong></div>
       <section className="page-heading members-page-heading">
         <div>
           <div className="eyebrow"><span className="eyebrow-line" /> PEOPLE &amp; TRUST</div>
           <h1>Members &amp; accounts</h1>
-          <p>Find member records, review account states and follow an auditable action workflow.</p>
+          <p>Live member records from the Sakhi development database. Changes persist through the backend.</p>
         </div>
-        <div className="members-heading-meta"><StatusPill tone="demo"><span className="status-pill__dot" /> DEMO DATA</StatusPill><span>Contact details are masked</span></div>
+        <div className="members-heading-meta"><StatusPill tone="green"><span className="status-pill__dot" /> LIVE DATABASE</StatusPill><span>Mobile numbers and email addresses are masked</span></div>
       </section>
 
-      {notice && (
-        <div className="member-toast" role="status">
-          <CheckCircle2 size={17} /><span>{notice}</span><button type="button" onClick={() => setNotice("")} aria-label="Dismiss demo action notice"><X size={15} /></button>
-        </div>
-      )}
+      {notice && <div className="member-toast" role="status"><CheckCircle2 size={17} /><span>{notice}</span><button type="button" onClick={() => setNotice("")} aria-label="Dismiss notice"><X size={15} /></button></div>}
+      {error && <div className="admin-error-banner" role="alert"><AlertCircle size={17} /><span>{error}</span><button type="button" className="button button--secondary" onClick={() => setRefresh((value) => value + 1)}>Retry</button></div>}
 
-      <section className="member-summary" aria-label="Member summary">
-        <SummaryCard icon={Users} label="Total sample members" value={members.length.toString()} tone="rose" />
-        <SummaryCard icon={UserRoundCheck} label="Active accounts" value={activeCount.toString()} tone="green" />
-        <SummaryCard icon={Clock3} label="Awaiting verification" value={pendingCount.toString()} tone="amber" />
-        <SummaryCard icon={ShieldAlert} label="Restricted or suspended" value={restrictedCount.toString()} tone="violet" />
+      <section className="member-summary" aria-label="Live database summary">
+        <SummaryCard icon={Users} label="Total database accounts" value={summary?.totalAccounts} tone="rose" />
+        <SummaryCard icon={CheckCircle2} label="Active accounts" value={summary?.activeAccounts} tone="green" />
+        <SummaryCard icon={ShieldCheck} label="Verified accounts" value={summary?.verifiedAccounts} tone="violet" />
+        <SummaryCard icon={AlertCircle} label="Pending eligibility reviews" value={summary?.pendingManualReviews} tone="amber" />
       </section>
 
       <section className="panel member-directory-panel">
         <div className="member-directory-heading">
-          <div><span className="panel-kicker">DIRECTORY</span><h2>Member directory</h2><p>Search and filter fictional member records. Sensitive contact data remains masked.</p></div>
-          <span className="member-total-pill"><Users size={14} /> {filteredMembers.length} results</span>
+          <div><span className="panel-kicker">POSTGRESQL RECORDS</span><h2>Member directory</h2><p>{data ? `Showing ${data.items.length} of ${data.total} matching records` : "Loading database records…"}</p></div>
+          <button className="button button--secondary" type="button" onClick={() => setRefresh((value) => value + 1)} disabled={loading}><RefreshCw size={14} /> Refresh</button>
         </div>
+        <form className="member-filter-toolbar" onSubmit={(event) => { event.preventDefault(); setPage(1); setSearch(searchDraft.trim()); }}>
+          <label className="member-search-field"><Search size={15} /><input type="search" value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="Search name, email, mobile or ID" aria-label="Search members" /></label>
+          <label className="member-filter-select"><span>Account state</span><select value={accountFilter} onChange={(event) => { setPage(1); setAccountFilter(event.target.value); }}><option value="">All accounts</option><option value="PENDING_VERIFICATION">Pending</option><option value="ACTIVE">Active</option><option value="RESTRICTED">Restricted</option><option value="SUSPENDED">Suspended</option><option value="DELETED">Deleted</option></select></label>
+          <label className="member-filter-select"><span>Verification</span><select value={verificationFilter} onChange={(event) => { setPage(1); setVerificationFilter(event.target.value); }}><option value="">All verification states</option><option value="UNVERIFIED">Unverified</option><option value="VERIFIED">Verified</option><option value="REJECTED">Rejected</option></select></label>
+          <button className="button button--primary" type="submit"><Search size={14} /> Search</button>
+        </form>
 
-        <div className="member-filter-toolbar">
-          <label className="member-search-field">
-            <Search size={17} />
-            <input
-              type="search"
-              aria-label="Search members"
-              placeholder="Search name, member ID or masked contact"
-              value={query}
-              onChange={(event) => { setQuery(event.target.value); setPage(1); }}
-            />
-            {query && <button type="button" aria-label="Clear member search" onClick={() => { setQuery(""); setPage(1); }}><X size={14} /></button>}
-          </label>
-          <label className="member-filter-select"><span>Account status</span><select aria-label="Filter by account status" value={accountStatus} onChange={(event) => { setAccountStatus(event.target.value as MemberQuery["accountStatus"]); setPage(1); }}><option value="all">All statuses</option><option value="active">Active</option><option value="restricted">Restricted</option><option value="suspended">Suspended</option><option value="banned">Banned</option></select><ChevronDown size={14} /></label>
-          <label className="member-filter-select"><span>Verification</span><select aria-label="Filter by verification status" value={verificationStatus} onChange={(event) => { setVerificationStatus(event.target.value as MemberQuery["verificationStatus"]); setPage(1); }}><option value="all">All verification</option><option value="verified">Verified</option><option value="pending">Pending review</option><option value="in-progress">In progress</option><option value="failed">Failed</option><option value="not-verified">Not verified</option></select><ChevronDown size={14} /></label>
-          <label className="member-filter-select member-filter-select--period"><span>Registered</span><select aria-label="Filter by registration period" value={registrationPeriod} onChange={(event) => { setRegistrationPeriod(event.target.value as RegistrationPeriod); setPage(1); }}><option value="all">Any time</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option></select><ChevronDown size={14} /></label>
-          <button className="button button--filter-reset" type="button" onClick={resetFilters}><Filter size={14} /> Reset</button>
+        <div className="member-table-scroll">
+          <table className="member-table">
+            <thead><tr><th>Member</th><th>Mobile</th><th>Registered</th><th>Account</th><th>Verification</th><th>Eligibility / review</th><th>Development access</th></tr></thead>
+            <tbody>
+              {loading && <tr><td colSpan={7} className="member-empty-cell">Loading records from the database…</td></tr>}
+              {!loading && !error && data?.items.length === 0 && <tr><td colSpan={7} className="member-empty-cell">No database records matched these filters.</td></tr>}
+              {!loading && data?.items.map((member) => (
+                <tr key={member.id}>
+                  <td><button className="member-identity-button" type="button" onClick={() => openEditor(member)}><span className="member-avatar">{initials(member.displayName)}</span><span><strong>{member.displayName}</strong><small>{member.reference}</small></span></button></td>
+                  <td>{member.phoneMasked}</td>
+                  <td>{formatDate(member.registeredAt)}</td>
+                  <td><StatusPill tone={accountTone(member.accountStatus)}>{accountLabels[member.accountStatus]}</StatusPill></td>
+                  <td><StatusPill tone={verificationTone(member.verificationStatus)}>{verificationLabels[member.verificationStatus]}</StatusPill></td>
+                  <td><StatusPill tone={eligibilityTone(member.eligibilityStatus)}>{eligibilityLabels[member.eligibilityStatus] ?? member.eligibilityStatus}</StatusPill><small className="member-subline">{member.eligibilitySubmittedAt ? "Submitted " + formatDate(member.eligibilitySubmittedAt) : member.profileComplete ? "No review submission" : "Profile incomplete"}</small></td>
+                  <td><button className="button button--secondary" type="button" onClick={() => openEditor(member)}>Manage state</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-
-        <div className="member-directory-subbar"><span><span className="member-subbar-dot" /> Fictional data</span><label>Sort by <select aria-label="Sort member directory" value={sortField + ":" + sortDirection} onChange={(event) => { const [field, direction] = event.target.value.split(":") as [MemberSortField, "asc" | "desc"]; setSortField(field); setSortDirection(direction); setPage(1); }}><option value="registeredAt:desc">Newest registered</option><option value="registeredAt:asc">Oldest registered</option><option value="name:asc">Name A–Z</option><option value="name:desc">Name Z–A</option><option value="lastActiveAt:desc">Recently active</option><option value="lastActiveAt:asc">Least recently active</option></select><ArrowDownUp size={13} /></label></div>
-
-        {isLoading ? (
-          <div className="member-directory-state" aria-busy="true"><span className="dashboard-loading-mark"><Users size={22} /></span><h3>Loading sample members</h3><p>Preparing fictional directory records.</p></div>
-        ) : loadError ? (
-          <div className="member-directory-state" role="alert"><AlertCircle size={25} /><h3>Could not load member records</h3><p>The mock member source did not respond. No backend is configured.</p><button type="button" className="button button--secondary" onClick={() => { setIsLoading(true); setLoadError(false); setRetryCount((count) => count + 1); }}>Retry</button></div>
-        ) : filteredMembers.length === 0 ? (
-          <div className="member-directory-state"><Search size={24} /><h3>No members match these filters</h3><p>Try a different search term or clear your filters.</p><button type="button" className="button button--secondary" onClick={resetFilters}>Clear filters</button></div>
-        ) : (
-          <>
-            <div className="member-table-scroll">
-              <table className="member-table">
-                <thead><tr><th>Member</th><th>Verification</th><th>Account status</th><th>Registered</th><th>Last active</th><th aria-label="View member details" /></tr></thead>
-                <tbody>
-                  {pageMembers.map((member) => (
-                    <tr key={member.id}>
-                      <td>
-                        <button className="member-identity-button" type="button" onClick={() => setSelectedMemberId(member.id)}>
-                          <span className="member-avatar">{member.initials}</span>
-                          <span className="member-identity-copy"><strong>{member.displayName}</strong><small>{member.reference}</small></span>
-                        </button>
-                      </td>
-                      <td><StatusPill tone={verificationTone(member.verificationStatus)}>{verificationLabels[member.verificationStatus]}</StatusPill></td>
-                      <td><StatusPill tone={accountTone(member.accountStatus)} dot>{accountLabels[member.accountStatus]}</StatusPill></td>
-                      <td><span className="member-table-date">{formatDate(member.registeredAt)}</span></td>
-                      <td><span className={member.lastActiveAt ? "member-table-date" : "member-table-date member-table-date--empty"}>{formatDate(member.lastActiveAt)}</span></td>
-                      <td><button className="member-row-open" type="button" onClick={() => setSelectedMemberId(member.id)} aria-label={"View " + member.displayName}><ArrowRight size={15} /></button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="member-pagination">
-              <span>Showing <strong>{(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filteredMembers.length)}</strong> of <strong>{filteredMembers.length}</strong> sample members</span>
-              <div className="pagination-controls">
-                <button type="button" className="pagination-arrow" disabled={currentPage <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))} aria-label="Previous page"><ChevronLeft size={16} /></button>
-                {Array.from({ length: totalPages }, (_, index) => index + 1).map((pageNumber) => <button type="button" className={"pagination-number" + (pageNumber === currentPage ? " pagination-number--active" : "")} aria-current={pageNumber === currentPage ? "page" : undefined} key={pageNumber} onClick={() => setPage(pageNumber)}>{pageNumber}</button>)}
-                <button type="button" className="pagination-arrow" disabled={currentPage >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))} aria-label="Next page"><ChevronRight size={16} /></button>
-              </div>
-            </div>
-          </>
-        )}
+        <div className="member-pagination"><span>Page {data?.page ?? page} of {totalPages}{data && data.total > 500 ? " · Results are paginated" : ""}</span><div><button className="button button--secondary" type="button" disabled={loading || page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={14} /> Previous</button><button className="button button--secondary" type="button" disabled={loading || page >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>Next <ChevronRight size={14} /></button></div></div>
       </section>
 
-      <div className="member-privacy-note"><LockKeyhole size={15} /><span>{memberDataNotice}</span></div>
-
-      {selectedMember && (
-        <MemberDetailDrawer
-          member={selectedMember}
-          auditEntries={selectedAudit}
-          onClose={() => setSelectedMemberId(null)}
-          onAction={startAction}
-        />
-      )}
-
-      {pendingAction && selectedMember && (
-        <div className="member-modal-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !isActing) setPendingAction(null); }}>
-          <section className="member-action-modal" role="dialog" aria-modal="true" aria-labelledby="member-action-title">
-            <div className="member-modal-heading"><span className={"member-modal-icon member-modal-icon--" + pendingAction}><ActionIcon action={pendingAction} size={20} /></span><button className="member-modal-close" type="button" aria-label="Close action dialog" disabled={isActing} onClick={() => setPendingAction(null)}><X size={18} /></button></div>
-            <div className="member-modal-kicker">DEMO ACTION CONFIRMATION</div>
-            <h2 id="member-action-title">{actionTitle(pendingAction)}</h2>
-            <p className="member-modal-description">This will simulate an action for <strong>{selectedMember.displayName}</strong> ({selectedMember.reference}) in the current demo session only.</p>
-            <div className="member-action-warning"><AlertCircle size={15} /><span>No real account will be changed, no notification will be sent and nothing will be persisted to a server.</span></div>
-            <form onSubmit={confirmAction}>
-              <label className="member-form-label" htmlFor="member-action-reason">Reason <span>Required</span></label>
-              <textarea id="member-action-reason" value={actionReason} onChange={(event) => { setActionReason(event.target.value); setActionError(""); }} minLength={10} maxLength={500} rows={3} placeholder="Describe the reason for this administrative action…" required />
-              <div className="member-form-helper"><span>Minimum 10 characters</span><span>{actionReason.length}/500</span></div>
-              {(pendingAction === "restrict" || pendingAction === "suspend") && (
-                <>
-                  <label className="member-form-label" htmlFor="member-action-duration">Demo duration <span>Required</span></label>
-                  <select id="member-action-duration" value={durationHours} onChange={(event) => setDurationHours(event.target.value)} required>
-                    <option value="24">24 hours</option><option value="168">7 days</option><option value="720">30 days</option>
-                  </select>
-                  <p className="member-duration-note">Temporary duration only; permanent bans are deliberately excluded from this prototype.</p>
-                </>
-              )}
-              {actionError && <p className="member-action-error" role="alert">{actionError}</p>}
-              <div className="member-action-modal-footer"><button className="button button--secondary" type="button" disabled={isActing} onClick={() => setPendingAction(null)}>Cancel</button><button className="button button--primary" type="submit" disabled={isActing || actionReason.trim().length < 10}>{isActing ? "Simulating…" : "Confirm demo action"} <ArrowRight size={15} /></button></div>
-            </form>
-          </section>
-        </div>
-      )}
+      {selected && <div className="member-drawer-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) setSelected(null); }}>
+        <aside className="member-detail-drawer" role="dialog" aria-modal="true" aria-labelledby="state-editor-title">
+          <header className="member-drawer-header"><div><span className="panel-kicker">LOCAL DEV / TEST ONLY</span><span className="member-drawer-ref">{selected.reference}</span></div><button className="member-drawer-close" type="button" onClick={() => setSelected(null)} aria-label="Close state editor" disabled={saving}><X size={19} /></button></header>
+          <form onSubmit={saveState} className="member-drawer-scroll">
+            <div className="member-detail-profile"><span className="member-avatar member-avatar--large">{initials(selected.displayName)}</span><h2 id="state-editor-title">{selected.displayName}</h2><p>{selected.phoneMasked} · {selected.emailMasked}</p><StatusPill tone={selected.profileComplete ? "green" : "amber"}>{selected.profileComplete ? "Profile complete" : "Profile incomplete"}</StatusPill></div>
+            <section className="member-detail-section"><h3>Persisted account state</h3><label className="member-filter-select"><span>Account status</span><select value={accountStatus} onChange={(event) => setAccountStatus(event.target.value as AccountStatus)}><option value="PENDING_VERIFICATION">Pending verification</option><option value="ACTIVE">Active</option><option value="RESTRICTED">Restricted</option><option value="SUSPENDED">Suspended</option><option value="DELETED">Deleted</option></select></label><label className="member-filter-select"><span>Verification status</span><select value={verificationStatus} onChange={(event) => setVerificationStatus(event.target.value as VerificationStatus)}><option value="UNVERIFIED">Unverified</option><option value="VERIFIED">Verified</option><option value="REJECTED">Rejected</option></select></label>
+              <button className="button button--secondary" type="button" onClick={applyQuickApproval} disabled={saving}><CheckCircle2 size={14} /> Set development approval</button>
+              <p className="member-section-description">This updates the database and writes an audit event. It is a development override, not a real-world eligibility determination. A real pending submission must be reviewed from the Eligibility Review page.</p>
+              <label className="member-filter-select"><span>Reason for audit log (required)</span><textarea minLength={10} maxLength={500} required value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Explain why this test account state is changing." rows={4} /></label>
+              {actionError && <div className="admin-error-banner" role="alert"><AlertCircle size={16} /><span>{actionError}</span></div>}
+            </section>
+            <footer className="member-drawer-footer"><button className="button button--secondary" type="button" onClick={() => setSelected(null)} disabled={saving}>Cancel</button><button className="button button--primary" type="submit" disabled={saving}>{saving ? "Saving…" : "Save database state"}</button></footer>
+          </form>
+        </aside>
+      </div>}
     </div>
   );
 }
 
-function SummaryCard({ icon: Icon, label, value, tone }: { icon: typeof Users; label: string; value: string; tone: "rose" | "green" | "amber" | "violet" }) {
-  return <article className={"member-summary-card member-summary-card--" + tone}><span className="member-summary-icon"><Icon size={18} /></span><span className="member-summary-copy"><small>{label}</small><strong>{value}</strong></span></article>;
-}
-
-function ActionIcon({ action, size = 16 }: { action: MemberActionType; size?: number }) {
-  if (action === "warning") return <AlertCircle size={size} />;
-  if (action === "restrict") return <LockKeyhole size={size} />;
-  if (action === "suspend") return <Ban size={size} />;
-  return <CheckCircle2 size={size} />;
-}
-
-function actionTitle(action: MemberActionType): string {
-  const titles: Record<MemberActionType, string> = {
-    warning: "Issue a warning",
-    restrict: "Restrict account",
-    suspend: "Temporarily suspend account",
-    reinstate: "Reinstate account",
-  };
-  return titles[action];
-}
-
-function MemberDetailDrawer({ member, auditEntries, onClose, onAction }: {
-  member: MemberRecord;
-  auditEntries: MemberAuditEntry[];
-  onClose: () => void;
-  onAction: (action: MemberActionType) => void;
-}) {
-  const canRestrict = member.accountStatus === "active";
-  const canReinstate = member.accountStatus === "restricted" || member.accountStatus === "suspended";
-
-  return (
-    <div className="member-drawer-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <aside className="member-detail-drawer" role="dialog" aria-modal="true" aria-labelledby="member-detail-title">
-        <header className="member-drawer-header"><div><span className="panel-kicker">MEMBER RECORD</span><span className="member-drawer-ref">{member.reference}</span></div><button className="member-drawer-close" type="button" aria-label="Close member details" onClick={onClose}><X size={19} /></button></header>
-        <div className="member-drawer-scroll">
-          <div className="member-detail-profile"><span className="member-avatar member-avatar--large">{member.initials}</span><h2 id="member-detail-title">{member.displayName}</h2><p>{member.reference}</p><div className="member-detail-status"><StatusPill tone={accountTone(member.accountStatus)} dot>{accountLabels[member.accountStatus]}</StatusPill><StatusPill tone={verificationTone(member.verificationStatus)}>{verificationLabels[member.verificationStatus]}</StatusPill></div></div>
-
-          <section className="member-detail-section"><h3><UserRound size={15} /> Account overview</h3><dl className="member-detail-list"><div><dt>Member reference</dt><dd>{member.reference}</dd></div><div><dt>Email</dt><dd>{member.emailMasked}</dd></div><div><dt>Phone</dt><dd>{member.phoneMasked}</dd></div><div><dt>Registered</dt><dd>{formatDateTime(member.registeredAt)}</dd></div><div><dt>Last active</dt><dd>{member.lastActiveAt ? formatDateTime(member.lastActiveAt) : "No recent activity"}</dd></div><div><dt>Warnings in demo</dt><dd>{member.warningCount}</dd></div>{member.restrictionReason && <div><dt>Latest restriction reason</dt><dd>{member.restrictionReason}</dd></div>}{member.restrictionExpiresAt && <div><dt>Demo expiry</dt><dd>{formatDateTime(member.restrictionExpiresAt)}</dd></div>}</dl></section>
-
-          <section className="member-detail-section"><h3><ShieldCheck size={15} /> Account actions</h3><p className="member-section-description">Actions are simulated in memory and reset when the app session is refreshed.</p><div className="member-action-buttons"><button type="button" className="member-action-button member-action-button--warning" onClick={() => onAction("warning")}><AlertCircle size={16} /><span><strong>Issue warning</strong><small>Increment demo warning count</small></span><ArrowRight size={14} /></button>{canRestrict && <button type="button" className="member-action-button" onClick={() => onAction("restrict")}><LockKeyhole size={16} /><span><strong>Restrict account</strong><small>Simulate a time-limited restriction</small></span><ArrowRight size={14} /></button>}{canRestrict && <button type="button" className="member-action-button member-action-button--danger" onClick={() => onAction("suspend")}><Ban size={16} /><span><strong>Temporarily suspend</strong><small>Simulate a temporary suspension</small></span><ArrowRight size={14} /></button>}{canReinstate && <button type="button" className="member-action-button member-action-button--success" onClick={() => onAction("reinstate")}><Check size={16} /><span><strong>Reinstate account</strong><small>Simulate restoring active status</small></span><ArrowRight size={14} /></button>}</div></section>
-
-          <section className="member-detail-section member-detail-audit"><h3><Clock3 size={15} /> Demo action history</h3>{auditEntries.length ? <div className="member-audit-list">{auditEntries.map((entry) => <article className="member-audit-item" key={entry.id}><div><strong>{entry.description}</strong><small>{formatDateTime(entry.performedAt)} · {entry.performedBy}</small><p>{entry.reason}</p></div><StatusPill tone="demo">DEMO</StatusPill></article>)}</div> : <div className="member-audit-empty"><MoreHorizontal size={18} /><span>No actions have been simulated for this record in the current session.</span></div>}</section>
-          <div className="member-drawer-security-note"><LockKeyhole size={14} /><span>Contact details are masked. Identity evidence, private messages, health data and precise location are not available in this view.</span></div>
-        </div>
-        <footer className="member-drawer-footer"><button className="button button--secondary" type="button" onClick={onClose}>Close details</button></footer>
-      </aside>
-    </div>
-  );
+function SummaryCard({ icon: Icon, label, value, tone }: { icon: typeof Users; label: string; value?: number; tone: "rose" | "green" | "amber" | "violet" }) {
+  return <article className={"member-summary-card member-summary-card--" + tone}><span className="member-summary-icon"><Icon size={18} /></span><span className="member-summary-copy"><small>{label}</small><strong>{value === undefined ? "—" : value.toLocaleString("en-IN")}</strong></span></article>;
 }
