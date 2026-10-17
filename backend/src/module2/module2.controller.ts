@@ -21,6 +21,7 @@ import {
   DeactivateAccountDto,
   ReportMemberDto,
   RequestAccountDeletionDto,
+  UpdateMarketingConsentDto,
   UpdateNotificationPreferencesDto,
   UpdatePrivacySettingsDto,
   UpdateProfileDto,
@@ -198,6 +199,14 @@ export class Module2Controller {
     @Body() dto: UpdatePrivacySettingsDto,
   ) {
     return this.module2.updatePrivacySettings(authorization, dto);
+  }
+
+  @Put("marketing-consent")
+  updateMarketingConsent(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: UpdateMarketingConsentDto,
+  ) {
+    return this.module2.updateMarketingConsent(authorization, dto);
   }
 
   @Get("notification-preferences")
