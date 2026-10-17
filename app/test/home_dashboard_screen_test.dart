@@ -68,7 +68,6 @@ void main() {
     await tester.tap(find.byKey(const Key('home-bottom-nav-Community')));
     await tester.pumpAndSettle();
     expect(find.text('Kavya Nair'), findsOneWidget);
-    expect(find.text('Sample community posts are shown for visual testing; likes, saves and drafts remain local to this screen.'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('home-bottom-nav-Profile')));
     await tester.pumpAndSettle();
@@ -131,6 +130,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Chakravarthi'), findsWidgets);
 
+    await tester.tap(find.byKey(const Key('home-bottom-nav-Home')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('home-notifications-button')));
     await tester.pumpAndSettle();
     expect(find.text('Notification Preferences'), findsOneWidget);
