@@ -177,7 +177,9 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
           email: "integration-test@example.com",
           termsVersion: "draft",
           privacyVersion: "draft",
-          acceptedAt: new Date().toISOString(),
+          // Deliberately simulate the emulator clock being ahead of the API host.
+          // The server must use its own receipt time for the persisted consent.
+          acceptedAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
           optionalUpdatesAccepted: false,
         })
         .expect(200);
