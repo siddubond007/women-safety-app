@@ -16,6 +16,7 @@ class UserProfileModel {
   int followersCount;
   int followingCount;
   List<String> interests;
+  String? email;
 
   UserProfileModel({
     required this.displayName,
@@ -27,6 +28,7 @@ class UserProfileModel {
     required this.followersCount,
     required this.followingCount,
     required this.interests,
+    this.email,
   });
 }
 
@@ -152,6 +154,7 @@ class SakhiPrototypeState extends ChangeNotifier {
   List<FeedPostModel> communityPosts = [];
   List<FeedPostModel> profilePosts = [];
   List<FeedPostModel> savedPosts = [];
+  bool showSavedPostsFirst = false;
   List<FeedPostModel> get exploreRecommendedPosts => communityPosts;
   List<FollowerUserModel> followers = [];
   List<FollowerUserModel> following = [];
