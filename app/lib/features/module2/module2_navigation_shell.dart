@@ -178,6 +178,14 @@ class _Module2NavigationShellState extends State<Module2NavigationShell> {
     _ => 'Sakhi',
   };
 
+  Widget _scopedScreen() => Module2Scope(
+    state: _state,
+    route: _route,
+    onNavigate: (route) => _navigate(route),
+    onOpenCreatePost: _openCreatePost,
+    child: _screenForRoute(),
+  );
+
   @override
   Widget build(BuildContext context) {
     return Theme(
@@ -187,7 +195,7 @@ class _Module2NavigationShellState extends State<Module2NavigationShell> {
         body: SafeArea(
           bottom: false,
           child: _isMainTab
-              ? _screenForRoute()
+              ? _scopedScreen()
               : Column(
                   children: [
                     Material(
@@ -218,7 +226,7 @@ class _Module2NavigationShellState extends State<Module2NavigationShell> {
                         ],
                       ),
                     ),
-                    Expanded(child: _screenForRoute()),
+                    Expanded(child: _scopedScreen()),
                   ],
                 ),
         ),
