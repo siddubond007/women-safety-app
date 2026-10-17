@@ -32,6 +32,16 @@ void main() {
     expect(find.text('For You Today'), findsOneWidget);
     expect(find.text('5 new posts'), findsOneWidget);
     expect(find.text('2 community updates'), findsOneWidget);
+
+    final dashboardScrollable = find.descendant(
+      of: find.byKey(const Key('sakhi-home-dashboard-list')),
+      matching: find.byType(Scrollable),
+    ).first;
+    await tester.scrollUntilVisible(
+      find.text('Featured resources'),
+      180,
+      scrollable: dashboardScrollable,
+    );
     expect(find.text('Featured resources'), findsOneWidget);
     expect(find.byKey(const Key('home-create-post-button')), findsOneWidget);
     expect(find.textContaining('not connected yet'), findsNothing);
