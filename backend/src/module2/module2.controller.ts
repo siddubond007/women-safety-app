@@ -16,6 +16,8 @@ import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { Module2Service } from "./module2.service.js";
 import {
   CreateBusinessProfileDto,
+  CreateCommunityEventDto,
+  CreateCommunityGroupDto,
   CreatePostCommentDto,
   CreatePostDto,
   DeactivateAccountDto,
@@ -44,6 +46,91 @@ export class Module2Controller {
     @Body() dto: UpdateProfileDto,
   ) {
     return this.module2.updateProfile(authorization, dto);
+  }
+
+  @Get("experts")
+  getVerifiedExperts(
+    @Headers("authorization") authorization: string | undefined,
+    @Query("q") query?: string,
+    @Query("limit") limit?: string,
+  ) {
+    return this.module2.listVerifiedExperts(authorization, query ?? "", limit);
+  }
+
+  @Get("groups")
+  listGroups(
+    @Headers("authorization") authorization: string | undefined,
+    @Query("mine") mine?: string,
+    @Query("q") query?: string,
+    @Query("limit") limit?: string,
+  ) {
+    return this.module2.listGroups(authorization, { mine: mine === "true", query, limit });
+  }
+
+  @Post("groups")
+  createGroup(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: CreateCommunityGroupDto,
+  ) {
+    return this.module2.createGroup(authorization, dto);
+  }
+
+  @Post("groups/:groupId/join")
+  joinGroup(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("groupId", new ParseUUIDPipe({ version: "4" })) groupId: string,
+  ) {
+    return this.module2.joinGroup(authorization, groupId);
+  }
+
+  @Delete("groups/:groupId/join")
+  leaveGroup(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("groupId", new ParseUUIDPipe({ version: "4" })) groupId: string,
+  ) {
+    return this.module2.leaveGroup(authorization, groupId);
+  }
+
+  @Post("groups/:groupId/members/:memberAccountId/approve")
+  approveGroupMember(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("groupId", new ParseUUIDPipe({ version: "4" })) groupId: string,
+    @Param("memberAccountId", new ParseUUIDPipe({ version: "4" })) memberAccountId: string,
+  ) {
+    return this.module2.approveGroupMember(authorization, groupId, memberAccountId);
+  }
+
+  @Get("events")
+  listEvents(
+    @Headers("authorization") authorization: string | undefined,
+    @Query("q") query?: string,
+    @Query("limit") limit?: string,
+  ) {
+    return this.module2.listEvents(authorization, query ?? "", limit);
+  }
+
+  @Post("events")
+  createEvent(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: CreateCommunityEventDto,
+  ) {
+    return this.module2.createEvent(authorization, dto);
+  }
+
+  @Post("events/:eventId/register")
+  registerForEvent(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("eventId", new ParseUUIDPipe({ version: "4" })) eventId: string,
+  ) {
+    return this.module2.registerForEvent(authorization, eventId);
+  }
+
+  @Delete("events/:eventId/register")
+  cancelEventRegistration(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("eventId", new ParseUUIDPipe({ version: "4" })) eventId: string,
+  ) {
+    return this.module2.cancelEventRegistration(authorization, eventId);
   }
 
   @Get("discover")
