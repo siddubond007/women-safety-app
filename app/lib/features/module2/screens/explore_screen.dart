@@ -45,6 +45,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
     await Future.wait([
       state.loadDiscover(query: value),
       state.loadFeed(query: value),
+      state.backend?.loadGroups(query: value) ?? Future<bool>.value(false),
+      state.backend?.loadEvents(query: value) ?? Future<bool>.value(false),
+      state.backend?.loadExperts(query: value) ?? Future<bool>.value(false),
     ]);
   }
 
@@ -143,7 +146,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   ],
                 ),
               ],
-              if (_filter == 'All' || _filter == 'Experts') ...[
+              if (_filter == 'All') ...[
                 const SizedBox(height: 22),
                 SakhiSectionHeader(
                   title: _filter == 'Experts' ? 'Verified member profiles' : 'Recommended for you',
@@ -216,6 +219,104 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   title: 'Nothing published yet',
                   message: 'There are no published items in this category for your account yet.',
                 ),
+              if (_filter == 'Groups') ...[
+                const SizedBox(height: 22),
+                const SakhiSectionHeader(title: 'Discover groups'),
+                const SizedBox(height: 10),
+                if (state.backend?.isLoadingMembers == true)
+                  const Center(child: Padding(padding: EdgeInsets.all(18), child: CircularProgressIndicator()))
+                else if ((state.backend?.discoverGroups ?? []).isEmpty)
+                  Module2EmptyPanel(
+                    icon: Icons.groups_outlined,
+                    title: 'No discoverable groups yet',
+                    message: 'Verified members can create groups from My Groups. Public groups will appear here; private groups only appear for members with access.',
+                    actionLabel: 'Open My Groups',
+                    onAction: () => _navigate(AppRoutes.groups),
+                  )
+                else
+                  ...state.backend!.discoverGroups.take(8).map((group) => Padding(
+                    padding: const EdgeInsets.only(bottom: 9),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.borderSubtle)),
+                      child: Row(children: [
+                        Container(width: 43, height: 43, decoration: const BoxDecoration(color: AppColors.pastelLavender, shape: BoxShape.circle), child: const Icon(Icons.groups_rounded, color: AppColors.primaryPurple)),
+                        const SizedBox(width: 10),
+                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(group.name, style: AppTypography.cardTitle.copyWith(fontSize: 13)),
+                          Text('${group.memberCount} members · ${group.visibility == 'PRIVATE' ? 'Private' : 'Verified members'}', style: AppTypography.subtitle),
+                        ])),
+                        OutlinedButton(
+                          onPressed: () async {
+                            final ok = group.membershipStatus == 'ACTIVE' || group.membershipStatus == 'PENDING'
+                                ? await state.backend!.leaveGroup(group)
+                                : await state.backend!.joinGroup(group);
+                            if (mounted && !ok) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.backend?.errorMessage ?? 'Membership update failed.')));
+                          },
+                          child: Text(group.membershipStatus == 'PENDING' ? 'Pending' : (group.membershipStatus == 'ACTIVE' ? 'Joined' : 'Join')),
+                        ),
+                      ]),
+                    ),
+                  )),
+              ],
+              if (_filter == 'Events') ...[
+                const SizedBox(height: 22),
+                const SakhiSectionHeader(title: 'Upcoming events'),
+                const SizedBox(height: 10),
+                if ((state.backend?.upcomingEvents ?? []).isEmpty)
+                  const Module2EmptyPanel(
+                    icon: Icons.event_available_outlined,
+                    title: 'No upcoming events',
+                    message: 'Published events from active Sakhi groups will appear here.',
+                  )
+                else
+                  ...state.backend!.upcomingEvents.map((event) => Padding(
+                    padding: const EdgeInsets.only(bottom: 9),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.borderSubtle)),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(event.title, style: AppTypography.cardTitle),
+                        const SizedBox(height: 4),
+                        Text(event.groupName, style: AppTypography.subtitle),
+                        if (event.startsAt != null) Text(event.startsAt!.toLocal().toString().split('.').first, style: AppTypography.subtitle),
+                        const SizedBox(height: 8),
+                        Text(event.description, style: AppTypography.bodyRegular.copyWith(fontSize: 13)),
+                        Align(alignment: Alignment.centerRight, child: OutlinedButton(
+                          onPressed: () => state.backend!.registerForEvent(event, register: !event.isRegistered),
+                          child: Text(event.isRegistered ? 'Cancel registration' : 'Register'),
+                        )),
+                      ]),
+                    ),
+                  )),
+              ],
+              if (_filter == 'Experts') ...[
+                const SizedBox(height: 22),
+                const SakhiSectionHeader(title: 'Verified business profiles'),
+                const SizedBox(height: 10),
+                if ((state.backend?.verifiedExperts ?? []).isEmpty)
+                  const Module2EmptyPanel(
+                    icon: Icons.workspace_premium_outlined,
+                    title: 'No verified expert profiles yet',
+                    message: 'Only business profiles that have completed review will appear here.',
+                  )
+                else
+                  ...state.backend!.verifiedExperts.map((expert) => Padding(
+                    padding: const EdgeInsets.only(bottom: 9),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.borderSubtle)),
+                      child: Row(children: [
+                        CircleAvatar(backgroundColor: AppColors.pastelMint, child: Text(expert.businessName.isNotEmpty ? expert.businessName.substring(0, 1).toUpperCase() : 'E', style: const TextStyle(color: AppColors.wellnessGreen, fontWeight: FontWeight.w800))),
+                        const SizedBox(width: 10),
+                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(expert.businessName, style: AppTypography.cardTitle.copyWith(fontSize: 13)),
+                          Text(expert.description ?? expert.displayName, style: AppTypography.subtitle),
+                        ])),
+                      ]),
+                    ),
+                  )),
+              ],
               if (state.backend?.errorMessage != null) ...[
                 const SizedBox(height: 12),
                 Text(state.backend!.errorMessage!, style: const TextStyle(color: AppColors.sosRed, fontSize: 12)),
