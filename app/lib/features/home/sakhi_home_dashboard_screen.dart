@@ -43,7 +43,7 @@ class _SakhiHomeDashboardScreenState extends State<SakhiHomeDashboardScreen> {
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _editNameController = TextEditingController();
   final TextEditingController _editBioController = TextEditingController();
-  late Future<String?> _displayNameFuture;
+  String? _apiDisplayName;
 
   _HomePage _page = _HomePage.home;
   int _selectedTab = 0;
@@ -87,7 +87,13 @@ class _SakhiHomeDashboardScreenState extends State<SakhiHomeDashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _displayNameFuture = _readDisplayName();
+    _loadDisplayName();
+  }
+
+  Future<void> _loadDisplayName() async {
+    final displayName = await _readDisplayName();
+    if (!mounted) return;
+    setState(() => _apiDisplayName = displayName);
   }
 
   @override
@@ -220,45 +226,10 @@ class _SakhiHomeDashboardScreenState extends State<SakhiHomeDashboardScreen> {
   }
 
   Future<void> _showCreatePost() async {
-    final controller = TextEditingController();
     final post = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: const Text('Create a post'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'Write a local preview post. It will appear in this prototype only.',
-              style: TextStyle(color: SakhiColors.mutedPlum, fontSize: 13),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              maxLines: 4,
-              decoration: const InputDecoration(
-                hintText: 'What would you like to share?',
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(controller.text.trim()),
-            child: const Text('Add to preview'),
-          ),
-        ],
-      ),
+      builder: (_) => const _CreatePostDialog(),
     );
-    controller.dispose();
     if (!mounted || post == null || post.isEmpty) return;
     setState(() {
       _localPosts.insert(0, post);
@@ -269,28 +240,23 @@ class _SakhiHomeDashboardScreenState extends State<SakhiHomeDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<String?>(
-      future: _displayNameFuture,
-      builder: (context, snapshot) {
-        final name = _name(snapshot.data);
-        return Scaffold(
-          backgroundColor: SakhiColors.blush,
-          body: SafeArea(
-            bottom: false,
-            child: Column(
-              children: [
-                _buildHeader(name),
-                Expanded(child: _buildCurrentPage(name)),
-              ],
-            ),
-          ),
-          bottomNavigationBar: _DashboardBottomBar(
-            currentIndex: _selectedTab,
-            onSelect: _selectTab,
-            onCenterAddTap: _showCreatePost,
-          ),
-        );
-      },
+    final name = _name(_apiDisplayName);
+    return Scaffold(
+      backgroundColor: SakhiColors.blush,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            _buildHeader(name),
+            Expanded(child: _buildCurrentPage(name)),
+          ],
+        ),
+      ),
+      bottomNavigationBar: _DashboardBottomBar(
+        currentIndex: _selectedTab,
+        onSelect: _selectTab,
+        onCenterAddTap: _showCreatePost,
+      ),
     );
   }
 
@@ -1569,6 +1535,67 @@ class _ForYouCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _CreatePostDialog extends StatefulWidget {
+  const _CreatePostDialog();
+
+  @override
+  State<_CreatePostDialog> createState() => _CreatePostDialogState();
+}
+
+class _CreatePostDialogState extends State<_CreatePostDialog> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: Colors.white,
+      scrollable: true,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      title: const Text('Create a post'),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Write a local preview post. It will appear in this prototype only.',
+              style: TextStyle(color: SakhiColors.mutedPlum, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _controller,
+              autofocus: true,
+              minLines: 2,
+              maxLines: 4,
+              decoration: const InputDecoration(
+                hintText: 'What would you like to share?',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+          child: const Text('Add to preview'),
+        ),
+      ],
     );
   }
 }
