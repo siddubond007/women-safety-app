@@ -201,23 +201,19 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
             </div>
 
             <div className="notification-wrap">
-              <button className={"icon-button notification-button" + (notificationsOpen ? " icon-button--active" : "")} type="button" onClick={() => setNotificationsOpen(!notificationsOpen)} aria-label="Show demo notifications" aria-expanded={notificationsOpen}>
+              <button className={"icon-button notification-button" + (notificationsOpen ? " icon-button--active" : "")} type="button" onClick={() => setNotificationsOpen(!notificationsOpen)} aria-label="Show notification integration status" aria-expanded={notificationsOpen}>
                 <Bell size={19} />
-                <span className="notification-count">3</span>
               </button>
               {notificationsOpen && (
                 <div className="notification-popover">
-                  <div className="popover-heading"><strong>Demo notifications</strong><span>3 examples</span></div>
-                  <div className="popover-item"><span className="popover-dot popover-dot--amber" /><div><strong>Verification backlog</strong><p>Sample queue has 26 aging requests.</p><small>Illustrative alert</small></div></div>
-                  <div className="popover-item"><span className="popover-dot popover-dot--rose" /><div><strong>Complaint review</strong><p>Sample escalation needs supervisor review.</p><small>Illustrative alert</small></div></div>
-                  <div className="popover-item"><span className="popover-dot popover-dot--violet" /><div><strong>Integrations not connected</strong><p>Connect backend services in a later stage.</p><small>Configuration notice</small></div></div>
-                  <div className="popover-foot">No live events are being received.</div>
+                  <div className="popover-heading"><strong>Notifications</strong><span>Not connected</span></div>
+                  <div className="popover-foot">No notification feed is configured. No synthetic alerts or unread counts are shown.</div>
                 </div>
               )}
             </div>
 
             <div className="topbar-divider" />
-            <button className="admin-profile" type="button" onClick={onSignOut} title="End demo session">
+            <button className="admin-profile" type="button" onClick={onSignOut} title="End local reviewer session">
               <span className="admin-avatar">SA</span>
               <span className="admin-profile-copy"><strong>Local reviewer</strong><small>Dev/test session</small></span>
               <ChevronDown size={15} />
@@ -229,13 +225,13 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
         <main className="page-content">
           <div className="demo-banner" role="status">
             <span className="demo-banner__icon"><AlertTriangle size={16} /></span>
-            <div><strong>DEMO ENVIRONMENT</strong><span>Fictional sample data - No production API connected - Actions do not alter real records</span></div>
+            <div><strong>DEMO ENVIRONMENT</strong><span>Live database records - Local development/test environment - State changes are persisted and audited</span></div>
             <StatusPill tone="demo">STAGE 1</StatusPill>
           </div>
           <Outlet />
           <footer className="page-footer">
             <span>SAKHI ADMIN CONTROL CENTER</span>
-            <span>Stage 1 prototype <span className="footer-dot">-</span> Demo data only</span>
+            <span>Local development/test <span className="footer-dot">-</span> Connected backend data</span>
           </footer>
         </main>
       </div>
