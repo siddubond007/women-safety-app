@@ -373,7 +373,7 @@ class _DashboardHeader extends StatelessWidget {
             height: 43,
             fit: BoxFit.contain,
             alignment: Alignment.centerLeft,
-            errorBuilder: (_, __, ___) => const Text(
+            errorBuilder: (_, _, _) => const Text(
               AppBrand.appName,
               style: TextStyle(
                 color: SakhiColors.plum,
@@ -464,7 +464,7 @@ class _GreetingHero extends StatelessWidget {
                       'assets/images/home/greeting_hero_illustration.webp',
                       fit: BoxFit.contain,
                       alignment: Alignment.bottomRight,
-                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
                     ),
                   ),
                 ),
