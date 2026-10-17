@@ -242,6 +242,7 @@ class SakhiPrototypeState extends ChangeNotifier {
         followersCount: profile.followersCount,
         followingCount: profile.followingCount,
         interests: List<String>.from(profile.interests),
+        email: profile.email,
       );
     }
 
@@ -404,6 +405,7 @@ class SakhiPrototypeState extends ChangeNotifier {
     required String bio,
     required String location,
     required List<String> interests,
+    String? email,
   }) async {
     final backend = _backend;
     if (backend == null) return false;
@@ -412,6 +414,7 @@ class SakhiPrototypeState extends ChangeNotifier {
       bio: bio,
       locationCity: location,
       interests: interests,
+      email: email,
     );
     _syncFromBackend();
     return success;
@@ -522,6 +525,38 @@ class SakhiPrototypeState extends ChangeNotifier {
     }[id];
     if (key == null) return false;
     final success = await backend.updateNotificationPreference(key, value);
+    _syncFromBackend();
+    return success;
+  }
+
+  Future<List<Module2Comment>> loadComments(String postId) async {
+    final backend = _backend;
+    if (backend == null) return <Module2Comment>[];
+    final success = await backend.loadComments(postId);
+    if (!success) return <Module2Comment>[];
+    return backend.commentsByPost[postId] ?? <Module2Comment>[];
+  }
+
+  Future<bool> addComment(String postId, String body) async {
+    final backend = _backend;
+    if (backend == null) return false;
+    final success = await backend.createComment(postId, body);
+    _syncFromBackend();
+    return success;
+  }
+
+  Future<bool> removeComment(String postId, String commentId) async {
+    final backend = _backend;
+    if (backend == null) return false;
+    final success = await backend.deleteComment(commentId, postId);
+    _syncFromBackend();
+    return success;
+  }
+
+  Future<bool> setMarketingConsent(bool accepted) async {
+    final backend = _backend;
+    if (backend == null) return false;
+    final success = await backend.updateMarketingConsent(accepted);
     _syncFromBackend();
     return success;
   }
