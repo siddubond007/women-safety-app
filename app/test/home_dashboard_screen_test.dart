@@ -24,22 +24,15 @@ void main() {
     expect(find.text('Siddu'), findsOneWidget);
     expect(find.text('Community updates'), findsOneWidget);
 
-    final dashboardList = find.byKey(
-      const Key('sakhi-home-dashboard-list'),
-    );
-    await tester.scrollUntilVisible(
-      find.text('Wellness resources'),
-      220,
-      scrollable: dashboardList,
-    );
-    expect(find.text('Wellness resources'), findsOneWidget);
+    final wellnessResources = find.text('Wellness resources');
+    await tester.ensureVisible(wellnessResources);
+    await tester.pumpAndSettle();
+    expect(wellnessResources, findsOneWidget);
 
-    await tester.scrollUntilVisible(
-      find.text('Safety guidance'),
-      220,
-      scrollable: dashboardList,
-    );
-    expect(find.text('Safety guidance'), findsOneWidget);
+    final safetyGuidance = find.text('Safety guidance');
+    await tester.ensureVisible(safetyGuidance);
+    await tester.pumpAndSettle();
+    expect(safetyGuidance, findsOneWidget);
     expect(find.text('Home-screen development preview'), findsNothing);
     expect(tester.takeException(), isNull);
   });
