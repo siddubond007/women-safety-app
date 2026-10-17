@@ -249,3 +249,100 @@ BEGIN
     EXECUTE format('GRANT INSERT ON TABLE audit_events TO %I', app_role);
 END
 $grant_module2_runtime_permissions$;
+
+
+-- Groups and events used by Explore, Community and More Options.
+CREATE TYPE "group_visibility" AS ENUM ('VERIFIED_MEMBERS', 'PRIVATE');
+CREATE TYPE "community_group_status" AS ENUM ('ACTIVE', 'ARCHIVED');
+CREATE TYPE "group_member_role" AS ENUM ('OWNER', 'MODERATOR', 'MEMBER');
+CREATE TYPE "group_member_status" AS ENUM ('ACTIVE', 'PENDING');
+CREATE TYPE "community_event_status" AS ENUM ('DRAFT', 'PUBLISHED', 'CANCELLED');
+CREATE TYPE "event_registration_status" AS ENUM ('REGISTERED', 'CANCELLED');
+
+CREATE TABLE "community_groups" (
+    "id" UUID NOT NULL,
+    "created_by_account_id" UUID NOT NULL,
+    "name" VARCHAR(120) NOT NULL,
+    "slug" VARCHAR(160) NOT NULL,
+    "description" VARCHAR(2000),
+    "visibility" "group_visibility" NOT NULL DEFAULT 'VERIFIED_MEMBERS',
+    "status" "community_group_status" NOT NULL DEFAULT 'ACTIVE',
+    "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ(6) NOT NULL,
+    CONSTRAINT "community_groups_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "community_groups_slug_key" UNIQUE ("slug"),
+    CONSTRAINT "community_groups_creator_fkey" FOREIGN KEY ("created_by_account_id")
+      REFERENCES "member_accounts"("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+CREATE TABLE "group_memberships" (
+    "group_id" UUID NOT NULL,
+    "account_id" UUID NOT NULL,
+    "role" "group_member_role" NOT NULL DEFAULT 'MEMBER',
+    "status" "group_member_status" NOT NULL DEFAULT 'ACTIVE',
+    "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ(6) NOT NULL,
+    CONSTRAINT "group_memberships_pkey" PRIMARY KEY ("group_id", "account_id"),
+    CONSTRAINT "group_memberships_group_fkey" FOREIGN KEY ("group_id")
+      REFERENCES "community_groups"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "group_memberships_account_fkey" FOREIGN KEY ("account_id")
+      REFERENCES "member_accounts"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE "community_events" (
+    "id" UUID NOT NULL,
+    "group_id" UUID NOT NULL,
+    "host_account_id" UUID NOT NULL,
+    "title" VARCHAR(160) NOT NULL,
+    "description" VARCHAR(3000) NOT NULL,
+    "location_city" VARCHAR(100),
+    "starts_at" TIMESTAMPTZ(6) NOT NULL,
+    "ends_at" TIMESTAMPTZ(6) NOT NULL,
+    "status" "community_event_status" NOT NULL DEFAULT 'PUBLISHED',
+    "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ(6) NOT NULL,
+    CONSTRAINT "community_events_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "community_events_time_check" CHECK ("ends_at" > "starts_at"),
+    CONSTRAINT "community_events_group_fkey" FOREIGN KEY ("group_id")
+      REFERENCES "community_groups"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "community_events_host_fkey" FOREIGN KEY ("host_account_id")
+      REFERENCES "member_accounts"("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+CREATE TABLE "event_registrations" (
+    "event_id" UUID NOT NULL,
+    "account_id" UUID NOT NULL,
+    "status" "event_registration_status" NOT NULL DEFAULT 'REGISTERED',
+    "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ(6) NOT NULL,
+    CONSTRAINT "event_registrations_pkey" PRIMARY KEY ("event_id", "account_id"),
+    CONSTRAINT "event_registrations_event_fkey" FOREIGN KEY ("event_id")
+      REFERENCES "community_events"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "event_registrations_account_fkey" FOREIGN KEY ("account_id")
+      REFERENCES "member_accounts"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE INDEX "community_groups_status_visibility_created_idx" ON "community_groups"("status", "visibility", "created_at");
+CREATE INDEX "community_groups_creator_created_idx" ON "community_groups"("created_by_account_id", "created_at");
+CREATE INDEX "group_memberships_account_status_created_idx" ON "group_memberships"("account_id", "status", "created_at");
+CREATE INDEX "group_memberships_group_status_role_idx" ON "group_memberships"("group_id", "status", "role");
+CREATE INDEX "community_events_status_starts_idx" ON "community_events"("status", "starts_at");
+CREATE INDEX "community_events_group_status_starts_idx" ON "community_events"("group_id", "status", "starts_at");
+CREATE INDEX "event_registrations_account_status_created_idx" ON "event_registrations"("account_id", "status", "created_at");
+
+DO $grant_module2_community_permissions$
+DECLARE app_role TEXT;
+BEGIN
+    IF current_database() = 'sakhi_dev' THEN
+        app_role := 'sakhi_dev_app';
+    ELSIF current_database() = 'sakhi_test' THEN
+        app_role := 'sakhi_test_app';
+    ELSE
+        RAISE EXCEPTION 'Sakhi migrations may only run on sakhi_dev or sakhi_test';
+    END IF;
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE community_groups TO %I', app_role);
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE group_memberships TO %I', app_role);
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE community_events TO %I', app_role);
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE event_registrations TO %I', app_role);
+END
+$grant_module2_community_permissions$;
