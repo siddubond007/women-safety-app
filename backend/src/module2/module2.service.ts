@@ -11,6 +11,8 @@ import { AuthenticationService } from "../auth/auth.service.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type {
   CreateBusinessProfileDto,
+  CreateCommunityEventDto,
+  CreateCommunityGroupDto,
   CreatePostCommentDto,
   CreatePostDto,
   ReportMemberDto,
@@ -963,6 +965,358 @@ export class Module2Service {
       postIncluded: Boolean(dto.postId),
     });
     return { reportId: report.id, status: report.status, createdAt: report.createdAt.toISOString() };
+  }
+
+  async listGroups(
+    authorization: string | undefined,
+    options: { mine?: boolean; query?: string; limit?: string } = {},
+  ) {
+    const session = await this.requireMember(authorization);
+    const take = this.pageSize(options.limit);
+    const query = options.query?.trim();
+    const groups = await this.prisma.communityGroup.findMany({
+      where: {
+        status: "ACTIVE",
+        ...(options.mine
+          ? { members: { some: { accountId: session.accountId, status: "ACTIVE" } } }
+          : {
+              OR: [
+                { visibility: "VERIFIED_MEMBERS" },
+                { members: { some: { accountId: session.accountId } } },
+              ],
+            }),
+        ...(query
+          ? {
+              OR: [
+                { name: { contains: query, mode: "insensitive" } },
+                { description: { contains: query, mode: "insensitive" } },
+              ],
+            }
+          : {}),
+      },
+      include: {
+        creator: { include: { profile: { select: profilePublicSelect } } },
+        members: {
+          where: { accountId: session.accountId },
+          select: { accountId: true, role: true, status: true },
+          take: 1,
+        },
+        _count: {
+          select: { members: { where: { status: "ACTIVE" } }, events: { where: { status: "PUBLISHED", startsAt: { gte: new Date() } } } },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take,
+    });
+    return {
+      groups: groups.map((group) => ({
+        id: group.id,
+        name: group.name,
+        slug: group.slug,
+        description: group.description,
+        visibility: group.visibility,
+        createdAt: group.createdAt.toISOString(),
+        creator: {
+          accountId: group.createdByAccountId,
+          displayName: group.creator.profile?.displayName ?? "Sakhi member",
+        },
+        memberCount: group._count.members,
+        upcomingEventsCount: group._count.events,
+        membershipStatus: group.members[0]?.status ?? null,
+        membershipRole: group.members[0]?.role ?? null,
+        isOwner: group.createdByAccountId === session.accountId,
+      })),
+      limit: take,
+    };
+  }
+
+  async createGroup(
+    authorization: string | undefined,
+    dto: CreateCommunityGroupDto,
+  ) {
+    const session = await this.requireMember(authorization);
+    const name = dto.name.trim();
+    if (!name) throw new BadRequestException("Group name cannot be blank.");
+    const slugBase = name
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 120) || "sakhi-group";
+    const slug = slugBase + "-" + randomUUID().slice(0, 8);
+    const group = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.communityGroup.create({
+        data: {
+          createdByAccountId: session.accountId,
+          name,
+          slug,
+          description: dto.description?.trim() || null,
+          visibility: dto.visibility ?? "VERIFIED_MEMBERS",
+          status: "ACTIVE",
+        },
+      });
+      await tx.groupMembership.create({
+        data: {
+          groupId: created.id,
+          accountId: session.accountId,
+          role: "OWNER",
+          status: "ACTIVE",
+        },
+      });
+      await tx.auditEvent.createMany({
+        data: {
+          actorType: "MEMBER",
+          actorId: session.accountId,
+          action: "module2.group.created",
+          targetType: "community_group",
+          targetId: created.id,
+          outcome: "success",
+          requestId: randomUUID(),
+          redactedMetadata: { visibility: created.visibility },
+        },
+      });
+      return created;
+    });
+    return { group: { id: group.id, name: group.name, slug: group.slug, visibility: group.visibility, createdAt: group.createdAt.toISOString() } };
+  }
+
+  async joinGroup(authorization: string | undefined, groupId: string) {
+    const session = await this.requireMember(authorization);
+    const group = await this.prisma.communityGroup.findFirst({
+      where: { id: groupId, status: "ACTIVE" },
+      select: { id: true, visibility: true, createdByAccountId: true },
+    });
+    if (!group) throw new NotFoundException("This group is unavailable.");
+    if (group.createdByAccountId !== session.accountId) {
+      await this.ensureNotBlocked(session.accountId, group.createdByAccountId);
+    }
+    const current = await this.prisma.groupMembership.findUnique({
+      where: { groupId_accountId: { groupId, accountId: session.accountId } },
+      select: { status: true, role: true },
+    });
+    if (current) return { groupId, status: current.status, role: current.role, alreadyMember: true };
+    const membershipStatus = group.visibility === "PRIVATE" ? "PENDING" : "ACTIVE";
+    const membership = await this.prisma.groupMembership.create({
+      data: { groupId, accountId: session.accountId, role: "MEMBER", status: membershipStatus },
+      select: { status: true, role: true },
+    });
+    await this.recordAudit(session.accountId, "module2.group.join_requested", "community_group", groupId, "success", { membershipStatus });
+    return { groupId, status: membership.status, role: membership.role, alreadyMember: false };
+  }
+
+  async leaveGroup(authorization: string | undefined, groupId: string) {
+    const session = await this.requireMember(authorization);
+    const membership = await this.prisma.groupMembership.findUnique({
+      where: { groupId_accountId: { groupId, accountId: session.accountId } },
+      select: { role: true },
+    });
+    if (!membership) return { groupId, left: true };
+    if (membership.role === "OWNER") {
+      await this.prisma.communityGroup.update({
+        where: { id: groupId },
+        data: { status: "ARCHIVED" },
+      });
+      await this.recordAudit(session.accountId, "module2.group.archived", "community_group", groupId);
+      return { groupId, left: true, archived: true };
+    }
+    await this.prisma.groupMembership.delete({
+      where: { groupId_accountId: { groupId, accountId: session.accountId } },
+    });
+    await this.recordAudit(session.accountId, "module2.group.left", "community_group", groupId);
+    return { groupId, left: true, archived: false };
+  }
+
+  async approveGroupMember(
+    authorization: string | undefined,
+    groupId: string,
+    memberAccountId: string,
+  ) {
+    const session = await this.requireMember(authorization);
+    const ownerMembership = await this.prisma.groupMembership.findFirst({
+      where: {
+        groupId,
+        accountId: session.accountId,
+        status: "ACTIVE",
+        role: { in: ["OWNER", "MODERATOR"] },
+      },
+      select: { groupId: true },
+    });
+    if (!ownerMembership) throw new ForbiddenException("Only group owners or moderators can approve membership requests.");
+    const target = await this.prisma.groupMembership.updateMany({
+      where: { groupId, accountId: memberAccountId, status: "PENDING" },
+      data: { status: "ACTIVE" },
+    });
+    if (target.count === 0) throw new NotFoundException("This pending membership request is unavailable.");
+    await this.recordAudit(session.accountId, "module2.group.member_approved", "community_group", groupId, "success", { memberAccountId });
+    return { groupId, memberAccountId, status: "ACTIVE" };
+  }
+
+  async listEvents(
+    authorization: string | undefined,
+    query = "",
+    limit?: string,
+  ) {
+    const session = await this.requireMember(authorization);
+    const take = this.pageSize(limit);
+    const startsAt = new Date();
+    const normalized = query.trim();
+    const events = await this.prisma.communityEvent.findMany({
+      where: {
+        status: "PUBLISHED",
+        endsAt: { gte: startsAt },
+        group: {
+          is: {
+            status: "ACTIVE",
+            OR: [
+              { visibility: "VERIFIED_MEMBERS" },
+              { members: { some: { accountId: session.accountId, status: "ACTIVE" } } },
+            ],
+          },
+        },
+        ...(normalized
+          ? {
+              OR: [
+                { title: { contains: normalized, mode: "insensitive" } },
+                { description: { contains: normalized, mode: "insensitive" } },
+                { locationCity: { contains: normalized, mode: "insensitive" } },
+              ],
+            }
+          : {}),
+      },
+      include: {
+        group: { select: { id: true, name: true, visibility: true } },
+        registrations: { where: { accountId: session.accountId, status: "REGISTERED" }, select: { accountId: true }, take: 1 },
+        _count: { select: { registrations: { where: { status: "REGISTERED" } } } },
+      },
+      orderBy: { startsAt: "asc" },
+      take,
+    });
+    return {
+      events: events.map((event) => ({
+        id: event.id,
+        title: event.title,
+        description: event.description,
+        locationCity: event.locationCity,
+        startsAt: event.startsAt.toISOString(),
+        endsAt: event.endsAt.toISOString(),
+        group: event.group,
+        isRegistered: event.registrations.length > 0,
+        registrationCount: event._count.registrations,
+      })),
+      limit: take,
+    };
+  }
+
+  async createEvent(authorization: string | undefined, dto: CreateCommunityEventDto) {
+    const session = await this.requireMember(authorization);
+    const startsAt = new Date(dto.startsAt);
+    const endsAt = new Date(dto.endsAt);
+    if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime()) || endsAt <= startsAt) {
+      throw new BadRequestException("Event end time must be after its start time.");
+    }
+    if (startsAt <= new Date()) throw new BadRequestException("Events must start in the future.");
+    const membership = await this.prisma.groupMembership.findFirst({
+      where: { groupId: dto.groupId, accountId: session.accountId, status: "ACTIVE", role: { in: ["OWNER", "MODERATOR"] } },
+      select: { groupId: true },
+    });
+    if (!membership) throw new ForbiddenException("Only a group owner or moderator can publish an event for this group.");
+    const event = await this.prisma.communityEvent.create({
+      data: {
+        groupId: dto.groupId,
+        hostAccountId: session.accountId,
+        title: dto.title.trim(),
+        description: dto.description.trim(),
+        locationCity: dto.locationCity?.trim() || null,
+        startsAt,
+        endsAt,
+        status: "PUBLISHED",
+      },
+      select: { id: true, title: true, startsAt: true, endsAt: true },
+    });
+    await this.recordAudit(session.accountId, "module2.event.created", "community_event", event.id);
+    return { event: { ...event, startsAt: event.startsAt.toISOString(), endsAt: event.endsAt.toISOString() } };
+  }
+
+  async registerForEvent(authorization: string | undefined, eventId: string) {
+    const session = await this.requireMember(authorization);
+    const event = await this.prisma.communityEvent.findFirst({
+      where: {
+        id: eventId,
+        status: "PUBLISHED",
+        endsAt: { gte: new Date() },
+        group: {
+          is: {
+            status: "ACTIVE",
+            OR: [
+              { visibility: "VERIFIED_MEMBERS" },
+              { members: { some: { accountId: session.accountId, status: "ACTIVE" } } },
+            ],
+          },
+        },
+      },
+      select: { id: true, startsAt: true, groupId: true },
+    });
+    if (!event) throw new NotFoundException("This event is unavailable.");
+    await this.prisma.eventRegistration.upsert({
+      where: { eventId_accountId: { eventId, accountId: session.accountId } },
+      create: { eventId, accountId: session.accountId, status: "REGISTERED" },
+      update: { status: "REGISTERED" },
+    });
+    await this.recordAudit(session.accountId, "module2.event.registered", "community_event", eventId);
+    return { eventId, registered: true };
+  }
+
+  async cancelEventRegistration(authorization: string | undefined, eventId: string) {
+    const session = await this.requireMember(authorization);
+    await this.prisma.eventRegistration.updateMany({
+      where: { eventId, accountId: session.accountId, status: "REGISTERED" },
+      data: { status: "CANCELLED" },
+    });
+    return { eventId, registered: false };
+  }
+
+  async listVerifiedExperts(authorization: string | undefined, query = "", limit?: string) {
+    const session = await this.requireMember(authorization);
+    const take = this.pageSize(limit);
+    const normalized = query.trim();
+    const businesses = await this.prisma.businessProfile.findMany({
+      where: {
+        status: "VERIFIED",
+        account: {
+          is: {
+            status: "ACTIVE",
+            verificationStatus: "VERIFIED",
+            id: { not: session.accountId },
+            AND: [
+              { NOT: { blockedAccounts: { some: { blockedAccountId: session.accountId } } } },
+              { NOT: { blockedByAccounts: { some: { blockerAccountId: session.accountId } } } },
+            ],
+          },
+        },
+        ...(normalized
+          ? {
+              OR: [
+                { displayName: { contains: normalized, mode: "insensitive" } },
+                { description: { contains: normalized, mode: "insensitive" } },
+              ],
+            }
+          : {}),
+      },
+      include: { account: { include: { profile: { select: profilePublicSelect } } } },
+      orderBy: { updatedAt: "desc" },
+      take,
+    });
+    return {
+      experts: businesses.map((business) => ({
+        accountId: business.accountId,
+        businessName: business.displayName,
+        description: business.description,
+        websiteUrl: business.websiteUrl,
+        displayName: business.account.profile?.displayName ?? "Verified professional",
+        profilePhotoRef: business.account.profile?.profilePhotoRef ?? null,
+      })),
+      limit: take,
+    };
   }
 
   async getBusinessProfile(authorization?: string) {
