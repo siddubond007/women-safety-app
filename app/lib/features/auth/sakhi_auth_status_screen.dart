@@ -97,11 +97,9 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
     try {
       await widget.authService.logout();
     } on AuthServiceException {
-      warning =
-          'Signed out on this device, but the backend could not confirm server-session revocation.';
+      warning = 'Signed out on this device, but the backend could not confirm server-session revocation.';
     } catch (_) {
-      warning =
-          'Signed out on this device, but the backend could not confirm server-session revocation.';
+      warning = 'Signed out on this device, but the backend could not confirm server-session revocation.';
     }
 
     if (!mounted) return;
@@ -114,9 +112,8 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
             final message = warning;
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (loginContext.mounted) {
-                ScaffoldMessenger.maybeOf(loginContext)?.showSnackBar(
-                  SnackBar(content: Text(message)),
-                );
+                ScaffoldMessenger.maybeOf(loginContext)
+                    ?.showSnackBar(SnackBar(content: Text(message)));
               }
             });
           }
@@ -220,9 +217,8 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
                   ? null
                   : () => Navigator.of(context).pushReplacement(
                       MaterialPageRoute<void>(
-                        builder: (_) => SakhiLoginScreen(
-                          authService: widget.authService,
-                        ),
+                        builder: (_) =>
+                            SakhiLoginScreen(authService: widget.authService),
                       ),
                     ),
               child: const Text('Go to mobile sign in'),

@@ -159,8 +159,7 @@ class BackendEligibilityVerificationService
     if (!mobileHandoffSupported) {
       return const EligibilityStatusResult(
         status: EligibilityStatus.providerUnavailable,
-        message:
-            'The secure provider handoff and return flow is not implemented in this mobile build. No verification session was created.',
+        message: 'The secure provider handoff and return flow is not implemented in this mobile build. No verification session was created.',
         isDemo: true,
       );
     }
@@ -172,8 +171,7 @@ class BackendEligibilityVerificationService
         body: {
           'consentAccepted': true,
           'consentVersion': consent.consentVersion,
-          'biometricProcessingConsented':
-              consent.biometricProcessingConsented,
+          'biometricProcessingConsented': consent.biometricProcessingConsented,
         },
       );
       return EligibilityStatusResult(

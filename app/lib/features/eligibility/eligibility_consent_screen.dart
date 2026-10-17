@@ -322,7 +322,8 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
                 : 'Start verification',
             icon: Icons.verified_user_outlined,
             isLoading: _isWorking,
-            onPressed: _consentSelected &&
+            onPressed:
+                _consentSelected &&
                     canStart &&
                     (!biometricConsentRequired || _biometricConsentSelected) &&
                     !_isWorking

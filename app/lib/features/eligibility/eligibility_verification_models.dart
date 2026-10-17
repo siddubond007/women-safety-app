@@ -100,7 +100,8 @@ class EligibilityConfiguration {
 
   /// Do not start a provider session until a secure app-to-provider handoff
   /// and safe return/status-retrieval flow are implemented.
-  bool get canStartVerification => hasApprovedConfiguration && mobileHandoffSupported;
+  bool get canStartVerification =>
+      hasApprovedConfiguration && mobileHandoffSupported;
 }
 
 /// A future trusted service associates this record with an authenticated
