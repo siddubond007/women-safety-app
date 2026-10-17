@@ -1,0 +1,527 @@
+import 'package:flutter/foundation.dart';
+
+import '../auth/auth_service.dart';
+import '../auth/backend_api_client.dart';
+import 'module2_models.dart';
+
+class Module2State extends ChangeNotifier {
+  Module2State({required this.authService, BackendApiClient? api})
+      : api = api ?? BackendApiClient();
+
+  final AuthService authService;
+  final BackendApiClient api;
+
+  Module2Profile? profile;
+  List<Module2Post> feedPosts = [];
+  List<Module2Post> profilePosts = [];
+  List<Module2Post> savedPosts = [];
+  List<Module2Member> discoveredMembers = [];
+  List<Module2Member> followers = [];
+  List<Module2Member> following = [];
+  List<Module2Member> blockedMembers = [];
+  List<Map<String, dynamic>> sessions = [];
+  Map<String, dynamic>? businessProfile;
+  Map<String, dynamic> privacySettings = <String, dynamic>{
+    'profileVisibility': 'VERIFIED_MEMBERS',
+    'messagePermission': 'VERIFIED_MEMBERS',
+    'defaultPostAudience': 'VERIFIED_MEMBERS',
+    'locationSharing': 'HIDDEN',
+    'appearInSearch': true,
+    'businessEnquiryPermission': 'VERIFIED_BUSINESSES',
+  };
+  Map<String, dynamic> notificationPreferences = <String, dynamic>{
+    'communityUpdates': true,
+    'groupActivity': true,
+    'wellnessReminders': true,
+    'safetyAlerts': true,
+    'messages': true,
+    'businessEnquiries': true,
+    'marketingUpdates': false,
+    'marketingConsentAccepted': false,
+  };
+
+  bool initialized = false;
+  bool isLoading = false;
+  bool isLoadingFeed = false;
+  bool isLoadingMembers = false;
+  bool isSaving = false;
+  String? errorMessage;
+  String? actionMessage;
+
+  Future<Map<String, dynamic>?> _safe(
+    Future<Map<String, dynamic>> Function() operation,
+  ) async {
+    try {
+      errorMessage = null;
+      return await operation();
+    } on BackendApiException catch (error) {
+      errorMessage = error.message;
+      notifyListeners();
+      return null;
+    } catch (_) {
+      errorMessage = 'Sakhi could not complete this request. Check your connection and retry.';
+      notifyListeners();
+      return null;
+    }
+  }
+
+  void clearMessages() {
+    errorMessage = null;
+    actionMessage = null;
+    notifyListeners();
+  }
+
+  Future<void> initialize() async {
+    if (initialized || isLoading) return;
+    isLoading = true;
+    notifyListeners();
+    final payload = await _safe(
+      () => api.get('module2/profile', authenticated: true),
+    );
+    if (payload != null) {
+      profile = Module2Profile.fromPayload(payload);
+      if (jsonMap(payload['privacySettings']).isNotEmpty) {
+        privacySettings = jsonMap(payload['privacySettings']);
+      }
+      if (jsonMap(payload['notificationPreferences']).isNotEmpty) {
+        notificationPreferences = jsonMap(payload['notificationPreferences']);
+      }
+      await Future.wait([loadFeed(), loadDiscover()]);
+    }
+    isLoading = false;
+    initialized = true;
+    notifyListeners();
+  }
+
+  Future<bool> loadProfile() async {
+    final payload = await _safe(
+      () => api.get('module2/profile', authenticated: true),
+    );
+    if (payload == null) return false;
+    profile = Module2Profile.fromPayload(payload);
+    if (jsonMap(payload['privacySettings']).isNotEmpty) {
+      privacySettings = jsonMap(payload['privacySettings']);
+    }
+    if (jsonMap(payload['notificationPreferences']).isNotEmpty) {
+      notificationPreferences = jsonMap(payload['notificationPreferences']);
+    }
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> updateProfile({
+    required String displayName,
+    required String bio,
+    required String locationCity,
+    required List<String> interests,
+  }) async {
+    isSaving = true;
+    notifyListeners();
+    final payload = await _safe(
+      () => api.patch(
+        'module2/profile',
+        authenticated: true,
+        body: <String, Object?>{
+          'displayName': displayName.trim(),
+          'bio': bio.trim().isEmpty ? null : bio.trim(),
+          'locationCity': locationCity.trim().isEmpty ? null : locationCity.trim(),
+          'interests': interests,
+        },
+      ),
+    );
+    isSaving = false;
+    if (payload == null) {
+      notifyListeners();
+      return false;
+    }
+    actionMessage = 'Profile changes saved to your Sakhi account.';
+    final refreshed = await _safe(
+      () => api.get('module2/profile', authenticated: true),
+    );
+    if (refreshed != null) profile = Module2Profile.fromPayload(refreshed);
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> loadFeed({String query = '', String? accountId}) async {
+    isLoadingFeed = true;
+    notifyListeners();
+    final params = <String, String>{};
+    if (query.trim().isNotEmpty) params['q'] = query.trim();
+    if (accountId != null && accountId.isNotEmpty) {
+      params['accountId'] = accountId;
+    }
+    final base = accountId == null ? 'module2/feed' : 'module2/posts';
+    final suffix = params.isEmpty ? '' : '?' + Uri(queryParameters: params).query;
+    final payload = await _safe(
+      () => api.get(base + suffix, authenticated: true),
+    );
+    isLoadingFeed = false;
+    if (payload == null) {
+      notifyListeners();
+      return false;
+    }
+    final posts = jsonMapList(payload['posts']).map(Module2Post.fromMap).toList();
+    if (accountId != null) {
+      profilePosts = posts;
+    } else {
+      feedPosts = posts;
+    }
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> loadDiscover({String query = ''}) async {
+    isLoadingMembers = true;
+    notifyListeners();
+    final params = <String, String>{'limit': '30'};
+    if (query.trim().isNotEmpty) params['q'] = query.trim();
+    final path = 'module2/discover?' + Uri(queryParameters: params).query;
+    final payload = await _safe(
+      () => api.get(path, authenticated: true),
+    );
+    isLoadingMembers = false;
+    if (payload == null) {
+      notifyListeners();
+      return false;
+    }
+    discoveredMembers = jsonMapList(payload['members']).map(Module2Member.fromMap).toList();
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> createPost(
+    String text, {
+    String audience = 'VERIFIED_MEMBERS',
+    List<String> selectedAccountIds = const [],
+  }) async {
+    final body = text.trim();
+    if (body.isEmpty) {
+      errorMessage = 'Write something before publishing.';
+      notifyListeners();
+      return false;
+    }
+    if (audience == 'SELECTED_MEMBERS' && selectedAccountIds.isEmpty) {
+      errorMessage = 'Choose at least one member for a selected-audience post.';
+      notifyListeners();
+      return false;
+    }
+    isSaving = true;
+    notifyListeners();
+    final payload = await _safe(
+      () => api.post(
+        'module2/posts',
+        authenticated: true,
+        body: <String, Object?>{
+          'body': body,
+          'audience': audience,
+          if (audience == 'SELECTED_MEMBERS')
+            'selectedAudienceAccountIds': selectedAccountIds,
+        },
+      ),
+    );
+    isSaving = false;
+    if (payload == null) {
+      notifyListeners();
+      return false;
+    }
+    actionMessage = 'Your post was published.';
+    await loadFeed();
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> toggleLike(Module2Post post) async {
+    final result = await _safe(
+      () => post.isLiked
+          ? api.delete('module2/posts/' + post.id + '/like', authenticated: true)
+          : api.post('module2/posts/' + post.id + '/like', authenticated: true),
+    );
+    if (result == null) return false;
+    final newLiked = !post.isLiked;
+    final count = jsonInt(result['likeCount']);
+    feedPosts = feedPosts.map((item) => item.id == post.id
+        ? item.copyWith(isLiked: newLiked, likeCount: count)
+        : item).toList();
+    profilePosts = profilePosts.map((item) => item.id == post.id
+        ? item.copyWith(isLiked: newLiked, likeCount: count)
+        : item).toList();
+    savedPosts = savedPosts.map((item) => item.id == post.id
+        ? item.copyWith(isLiked: newLiked, likeCount: count)
+        : item).toList();
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> toggleBookmark(Module2Post post) async {
+    final result = await _safe(
+      () => post.isSaved
+          ? api.delete('module2/posts/' + post.id + '/bookmark', authenticated: true)
+          : api.post('module2/posts/' + post.id + '/bookmark', authenticated: true),
+    );
+    if (result == null) return false;
+    final saved = result['saved'] == true;
+    feedPosts = feedPosts.map((item) => item.id == post.id
+        ? item.copyWith(isSaved: saved)
+        : item).toList();
+    profilePosts = profilePosts.map((item) => item.id == post.id
+        ? item.copyWith(isSaved: saved)
+        : item).toList();
+    await loadSavedPosts();
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> loadSavedPosts() async {
+    final payload = await _safe(
+      () => api.get('module2/posts/saved', authenticated: true),
+    );
+    if (payload == null) return false;
+    savedPosts = jsonMapList(payload['posts']).map(Module2Post.fromMap).toList();
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> loadFollowers({
+    required bool showFollowing,
+    String query = '',
+  }) async {
+    isLoadingMembers = true;
+    notifyListeners();
+    final params = <String, String>{
+      'direction': showFollowing ? 'following' : 'followers',
+      'limit': '50',
+    };
+    if (query.trim().isNotEmpty) params['q'] = query.trim();
+    final payload = await _safe(
+      () => api.get(
+        'module2/followers?' + Uri(queryParameters: params).query,
+        authenticated: true,
+      ),
+    );
+    isLoadingMembers = false;
+    if (payload == null) {
+      notifyListeners();
+      return false;
+    }
+    final members = jsonMapList(payload['members']).map(Module2Member.fromMap).toList();
+    if (showFollowing) {
+      following = members;
+    } else {
+      followers = members;
+    }
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> setFollowing(Module2Member member, bool follow) async {
+    final result = await _safe(
+      () => follow
+          ? api.post('module2/members/' + member.accountId + '/follow', authenticated: true)
+          : api.delete('module2/members/' + member.accountId + '/follow', authenticated: true),
+    );
+    if (result == null) return false;
+    actionMessage = follow
+        ? 'You are now following ' + member.displayName + '.'
+        : 'You unfollowed ' + member.displayName + '.';
+    await Future.wait([loadDiscover(), loadFollowers(showFollowing: true), loadProfile()]);
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> loadPrivacySettings() async {
+    final payload = await _safe(
+      () => api.get('module2/privacy-settings', authenticated: true),
+    );
+    if (payload == null) return false;
+    privacySettings = payload;
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> updatePrivacySetting(String key, Object value) async {
+    final payload = await _safe(
+      () => api.patch(
+        'module2/privacy-settings',
+        authenticated: true,
+        body: <String, Object?>{key: value},
+      ),
+    );
+    if (payload == null) return false;
+    privacySettings = payload;
+    actionMessage = 'Privacy setting updated.';
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> loadNotificationPreferences() async {
+    final payload = await _safe(
+      () => api.get('module2/notification-preferences', authenticated: true),
+    );
+    if (payload == null) return false;
+    notificationPreferences = payload;
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> updateNotificationPreference(String key, bool value) async {
+    final payload = await _safe(
+      () => api.patch(
+        'module2/notification-preferences',
+        authenticated: true,
+        body: <String, Object?>{key: value},
+      ),
+    );
+    if (payload == null) return false;
+    notificationPreferences = payload;
+    actionMessage = 'Notification preference updated.';
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> loadBlockedMembers() async {
+    final payload = await _safe(
+      () => api.get('module2/blocks', authenticated: true),
+    );
+    if (payload == null) return false;
+    blockedMembers = jsonMapList(payload['members']).map(Module2Member.fromMap).toList();
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> blockMember(Module2Member member) async {
+    final payload = await _safe(
+      () => api.post('module2/blocks/' + member.accountId, authenticated: true),
+    );
+    if (payload == null) return false;
+    actionMessage = member.displayName + ' has been blocked.';
+    await Future.wait([loadBlockedMembers(), loadDiscover(), loadFeed()]);
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> unblockMember(Module2Member member) async {
+    final payload = await _safe(
+      () => api.delete('module2/blocks/' + member.accountId, authenticated: true),
+    );
+    if (payload == null) return false;
+    actionMessage = 'Member unblocked.';
+    await loadBlockedMembers();
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> reportMember({
+    required String accountId,
+    required String reason,
+    String? postId,
+    String? details,
+  }) async {
+    final payload = await _safe(
+      () => api.post(
+        'module2/reports',
+        authenticated: true,
+        body: <String, Object?>{
+          'reportedAccountId': accountId,
+          'reason': reason,
+          if (postId != null) 'postId': postId,
+          if (details != null && details.trim().isNotEmpty) 'details': details.trim(),
+        },
+      ),
+    );
+    if (payload == null) return false;
+    actionMessage = 'Report submitted for review.';
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> loadBusinessProfile() async {
+    final payload = await _safe(
+      () => api.get('module2/business-profile', authenticated: true),
+    );
+    if (payload == null) return false;
+    final business = jsonMap(payload['businessProfile']);
+    businessProfile = business.isEmpty ? null : business;
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> saveBusinessProfile({
+    required String displayName,
+    required String description,
+    required String websiteUrl,
+  }) async {
+    final payload = await _safe(
+      () => api.put(
+        'module2/business-profile',
+        authenticated: true,
+        body: <String, Object?>{
+          'displayName': displayName.trim(),
+          if (description.trim().isNotEmpty) 'description': description.trim(),
+          if (websiteUrl.trim().isNotEmpty) 'websiteUrl': websiteUrl.trim(),
+        },
+      ),
+    );
+    if (payload == null) return false;
+    businessProfile = jsonMap(payload['businessProfile']);
+    actionMessage = 'Business profile submitted for review.';
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> loadSessions() async {
+    final payload = await _safe(
+      () => api.get('module2/sessions', authenticated: true),
+    );
+    if (payload == null) return false;
+    sessions = jsonMapList(payload['sessions']);
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> revokeSession(String sessionId) async {
+    final payload = await _safe(
+      () => api.delete('module2/sessions/' + sessionId, authenticated: true),
+    );
+    if (payload == null) return false;
+    final current = payload['currentSession'] == true;
+    actionMessage = current ? 'This device session was revoked.' : 'Login session revoked.';
+    await loadSessions();
+    if (current) await authService.logout();
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> deactivateAccount() async {
+    final payload = await _safe(
+      () => api.post(
+        'module2/account/deactivate',
+        authenticated: true,
+        body: const <String, Object?>{'confirmation': 'DEACTIVATE'},
+      ),
+    );
+    if (payload == null) return false;
+    await authService.logout();
+    actionMessage = 'Your account has been deactivated.';
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> requestAccountDeletion({String? reason}) async {
+    final payload = await _safe(
+      () => api.post(
+        'module2/account/deletion-request',
+        authenticated: true,
+        body: <String, Object?>{
+          'confirmation': 'DELETE',
+          if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim(),
+        },
+      ),
+    );
+    if (payload == null) return false;
+    await authService.logout();
+    actionMessage = 'Account deletion request submitted.';
+    notifyListeners();
+    return true;
+  }
+}
