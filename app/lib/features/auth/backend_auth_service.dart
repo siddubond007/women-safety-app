@@ -83,9 +83,12 @@ class BackendAuthService implements AuthService {
       );
     }
 
+    final verificationStatus = data['verificationStatus'];
     switch (status) {
       case 'ACTIVE':
-        return AuthAccountState.existingAccount;
+        return verificationStatus == 'VERIFIED'
+            ? AuthAccountState.existingAccount
+            : AuthAccountState.pendingVerification;
       case 'RESTRICTED':
       case 'SUSPENDED':
       case 'DELETED':
