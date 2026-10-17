@@ -142,12 +142,16 @@ class _SakhiHomeDashboardScreenState extends State<SakhiHomeDashboardScreen> {
     switch (index) {
       case 0:
         _navigate(_HomePage.home);
+        return;
       case 1:
         _navigate(_HomePage.explore);
+        return;
       case 2:
         _navigate(_HomePage.community);
+        return;
       case 3:
         _navigate(_HomePage.profile);
+        return;
     }
   }
 
@@ -1114,7 +1118,7 @@ class _SakhiHomeDashboardScreenState extends State<SakhiHomeDashboardScreen> {
                 spacing: 7,
                 runSpacing: 6,
                 children: ['Mental Wellness', 'Travel', 'Reading', 'WomenInTech', 'Art', 'Fitness']
-                    .map((tag) => const _PreviewPill()).toList(),
+                    .map((tag) => _LabelChip(label: tag)).toList(),
               ),
               const SizedBox(height: 16),
               Row(
@@ -1898,6 +1902,32 @@ class _SwitchSettingTile extends StatelessWidget {
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5, color: SakhiColors.plum)),
         subtitle: Text(subtitle, style: const TextStyle(fontSize: 11, color: SakhiColors.mutedPlum)),
         secondary: const Icon(Icons.tune_rounded, color: SakhiColors.purple),
+      ),
+    );
+  }
+}
+
+
+class _LabelChip extends StatelessWidget {
+  const _LabelChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF2E6FA),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 10.5,
+          color: SakhiColors.purple,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
