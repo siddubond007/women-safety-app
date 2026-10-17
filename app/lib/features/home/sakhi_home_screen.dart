@@ -127,8 +127,8 @@ class _SakhiHomeScreenState extends State<SakhiHomeScreen> {
   }
 
   bool get _hasTrustedVerifiedStatus =>
-      verifiedStatus.status == EligibilityStatus.verified &&
-      !verifiedStatus.isDemo;
+      widget.verifiedStatus.status == EligibilityStatus.verified &&
+      !widget.verifiedStatus.isDemo;
 
   @override
   Widget build(BuildContext context) {
