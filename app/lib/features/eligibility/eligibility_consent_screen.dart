@@ -13,10 +13,12 @@ class EligibilityConsentScreen extends StatefulWidget {
     super.key,
     required this.service,
     required this.configuration,
+    this.onVerified,
   });
 
   final EligibilityVerificationService service;
   final EligibilityConfiguration configuration;
+  final VoidCallback? onVerified;
 
   @override
   State<EligibilityConsentScreen> createState() =>
@@ -56,6 +58,7 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
           builder: (_) => EligibilityStatusScreen(
             result: result,
             isDevelopmentBackend: widget.service.isDevelopmentBackend,
+            onOpenVerifiedHome: widget.onVerified,
           ),
         ),
       );
@@ -65,6 +68,7 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
         MaterialPageRoute<void>(
           builder: (_) => EligibilityStatusScreen(
             isDevelopmentBackend: widget.service.isDevelopmentBackend,
+            onOpenVerifiedHome: widget.onVerified,
             result: const EligibilityStatusResult(
               status: EligibilityStatus.verificationFailed,
               message: 'The status could not be confirmed. This technical problem is not an eligibility decision.',
@@ -99,6 +103,7 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
         builder: (_) => EligibilityStatusScreen(
           result: result,
           isDevelopmentBackend: widget.service.isDevelopmentBackend,
+          onOpenVerifiedHome: widget.onVerified,
         ),
       ));
     } catch (_) {
@@ -106,6 +111,7 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
       await Navigator.of(context).push(MaterialPageRoute<void>(
         builder: (_) => EligibilityStatusScreen(
           isDevelopmentBackend: widget.service.isDevelopmentBackend,
+          onOpenVerifiedHome: widget.onVerified,
           result: const EligibilityStatusResult(
             status: EligibilityStatus.verificationFailed,
             message: 'The manual-review request could not be confirmed. No eligibility conclusion can be drawn; check the connection and current status.',
@@ -129,6 +135,7 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
           builder: (_) => EligibilityStatusScreen(
             result: result,
             isDevelopmentBackend: widget.service.isDevelopmentBackend,
+            onOpenVerifiedHome: widget.onVerified,
           ),
         ),
       );

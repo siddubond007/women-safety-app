@@ -9,9 +9,14 @@ import 'eligibility_verification_service.dart';
 import 'eligibility_widgets.dart';
 
 class EligibilityInformationScreen extends StatelessWidget {
-  const EligibilityInformationScreen({super.key, required this.service});
+  const EligibilityInformationScreen({
+    super.key,
+    required this.service,
+    this.onVerified,
+  });
 
   final EligibilityVerificationService service;
+  final VoidCallback? onVerified;
 
   String _disclosure(String? value) {
     if (value == null || value.trim().isEmpty) {
@@ -189,6 +194,7 @@ class EligibilityInformationScreen extends StatelessWidget {
                     builder: (_) => EligibilityConsentScreen(
                       service: service,
                       configuration: config,
+                      onVerified: onVerified,
                     ),
                   ),
                 ),

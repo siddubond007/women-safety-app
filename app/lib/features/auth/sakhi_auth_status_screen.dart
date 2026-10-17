@@ -8,6 +8,7 @@ import '../eligibility/eligibility_verification_service.dart';
 import 'auth_service.dart';
 import 'backend_api_client.dart';
 import 'sakhi_login_screen.dart';
+import '../home/sakhi_home_screen.dart';
 import 'widgets/auth_widgets.dart';
 
 class SakhiAuthStatusScreen extends StatefulWidget {
@@ -84,6 +85,14 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
       MaterialPageRoute<void>(
         builder: (_) => EligibilityIntroScreen(
           service: _eligibilityServiceForCurrentSession(),
+          onVerified: () {
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute<void>(
+                builder: (_) => SakhiHomeScreen(authService: widget.authService),
+              ),
+              (_) => false,
+            );
+          },
         ),
       ),
     );

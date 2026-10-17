@@ -8,9 +8,14 @@ import 'eligibility_verification_service.dart';
 import 'eligibility_widgets.dart';
 
 class EligibilityIntroScreen extends StatelessWidget {
-  const EligibilityIntroScreen({super.key, required this.service});
+  const EligibilityIntroScreen({
+    super.key,
+    required this.service,
+    this.onVerified,
+  });
 
   final EligibilityVerificationService service;
+  final VoidCallback? onVerified;
 
   @override
   Widget build(BuildContext context) {
@@ -85,7 +90,7 @@ class EligibilityIntroScreen extends StatelessWidget {
             label: 'Review verification details',
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) => EligibilityInformationScreen(service: service),
+                builder: (_) => EligibilityInformationScreen(service: service, onVerified: onVerified),
               ),
             ),
           ),

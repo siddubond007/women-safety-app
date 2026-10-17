@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:women_safety_app/core/branding/app_brand.dart';
 import 'package:women_safety_app/core/theme/sakhi_design_system.dart';
+import 'package:women_safety_app/features/auth/auth_service.dart';
+import 'package:women_safety_app/features/home/sakhi_home_screen.dart';
 import 'package:women_safety_app/main.dart';
 
 void main() {
@@ -171,7 +173,11 @@ void main() {
   testWidgets('shared home feature cards retain their existing navigation', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const MaterialApp(home: SakhiHomeScreen()));
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: SakhiHomeScreen(authService: UnconfiguredAuthService()),
+      ),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Safety & support'));

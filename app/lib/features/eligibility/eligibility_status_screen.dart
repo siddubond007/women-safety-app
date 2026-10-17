@@ -11,10 +11,12 @@ class EligibilityStatusScreen extends StatelessWidget {
     super.key,
     required this.result,
     this.isDevelopmentBackend = false,
+    this.onOpenVerifiedHome,
   });
 
   final EligibilityStatusResult result;
   final bool isDevelopmentBackend;
+  final VoidCallback? onOpenVerifiedHome;
 
   String get _heading => switch (result.status) {
     EligibilityStatus.notVerified => 'Not verified yet',
@@ -110,6 +112,10 @@ class EligibilityStatusScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final statusColor = _statusColor;
+    final canOpenVerifiedHome =
+        result.status == EligibilityStatus.verified &&
+        !result.isDemo &&
+        onOpenVerifiedHome != null;
 
     return SakhiAuthScaffold(
       botanicalAsset: AppAssets.authBotanicalConsent,
@@ -223,6 +229,15 @@ class EligibilityStatusScreen extends StatelessWidget {
             description: 'Only a trusted backend-confirmed Verified status may allow access. A demo or a hidden UI control never grants access.',
           ),
           const SizedBox(height: SakhiSpacing.lg),
+          if (canOpenVerifiedHome) ...[
+            SakhiAuthSubmitButton(
+              key: const Key('eligibility-open-verified-home-button'),
+              label: 'Continue to Sakhi Home',
+              icon: Icons.home_rounded,
+              onPressed: onOpenVerifiedHome,
+            ),
+            const SizedBox(height: SakhiSpacing.xs),
+          ],
           SakhiAuthSubmitButton(
             key: const Key('eligibility-status-back-button'),
             label: 'Back to eligibility consent',
