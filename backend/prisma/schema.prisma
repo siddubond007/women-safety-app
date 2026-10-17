@@ -324,6 +324,7 @@ model MemberPost {
   bookmarks       MemberPostBookmark[]
   comments        MemberPostComment[]
   audienceMembers PostAudienceMember[]
+  reports         MemberReport[]
 
   @@index([status, createdAt], map: "member_posts_status_created_idx")
   @@index([accountId, status, createdAt], map: "member_posts_account_status_created_idx")
