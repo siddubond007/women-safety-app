@@ -225,7 +225,7 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
         <main className="page-content">
           <div className="demo-banner" role="status">
             <span className="demo-banner__icon"><AlertTriangle size={16} /></span>
-            <div><strong>DEMO ENVIRONMENT</strong><span>Live database records - Local development/test environment - State changes are persisted and audited</span></div>
+            <div><strong>LOCAL DEV / TEST ENVIRONMENT</strong><span>Live database records - Local development/test environment - State changes are persisted and audited</span></div>
             <StatusPill tone="demo">STAGE 1</StatusPill>
           </div>
           <Outlet />
