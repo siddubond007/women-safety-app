@@ -71,9 +71,9 @@ This is the handoff checkpoint for the Sakhi women-safety app. Continue future i
 - OTP is a temporary local development code. No SMS is sent and the code does not prove carrier possession of a phone number.
 - The API must stay bound to `127.0.0.1`; the development OTP echo and local shared-token reviewer gate must never be opened on a LAN or used in production.
 - The admin code on `develop` now accepts configured local dev/test reviewer tokens of at least 16 characters; 32+ random characters remain recommended.
-- The requested memorable local token is `ADMIN2026SAKI007`. It must **not** be committed into source code. Persist it only in the current Windows user's environment, then start the backend from a new PowerShell process:
+- The user may choose a memorable local dev/test token. Its literal value must **not** be committed into source code or this checkpoint. Persist the chosen value only in the current Windows user's environment, then start the backend from a new PowerShell process:
   ```powershell
-  [Environment]::SetEnvironmentVariable('SAKHI_ADMIN_REVIEW_TOKEN', 'ADMIN2026SAKI007', 'User')
+  [Environment]::SetEnvironmentVariable('SAKHI_ADMIN_REVIEW_TOKEN', '<your chosen local dev token>', 'User')
   ```
   This token is for local development only, and it is weaker than a random 32+ character token.
 - Restart PowerShell/backend after setting the user environment variable. Start the backend via `backend\\scripts\\start-dev.ps1 -Environment dev`. Keep its terminal running.
