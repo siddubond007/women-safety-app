@@ -28,6 +28,11 @@ export class UpdateProfileDto {
   displayName?: string;
 
   @IsOptional()
+  @IsEmail()
+  @MaxLength(254)
+  email?: string | null;
+
+  @IsOptional()
   @IsString()
   @MaxLength(500)
   bio?: string | null;
@@ -170,4 +175,9 @@ export class DeactivateAccountDto {
   @IsString()
   @IsIn(["DEACTIVATE"])
   confirmation!: "DEACTIVATE";
+}
+
+export class UpdateMarketingConsentDto {
+  @IsBoolean()
+  consentAccepted!: boolean;
 }
