@@ -223,3 +223,40 @@ class Module2Member {
     );
   }
 }
+
+
+class Module2Comment {
+  const Module2Comment({
+    required this.id,
+    required this.body,
+    required this.authorAccountId,
+    required this.authorName,
+    required this.authorPhotoRef,
+    required this.createdAt,
+    required this.isOwnComment,
+  });
+
+  final String id;
+  final String body;
+  final String authorAccountId;
+  final String authorName;
+  final String? authorPhotoRef;
+  final DateTime? createdAt;
+  final bool isOwnComment;
+
+  factory Module2Comment.fromMap(Map<String, dynamic> json) {
+    final author = jsonMap(json['author']);
+    final createdAt = json['createdAt'] is String
+        ? DateTime.tryParse(json['createdAt'] as String)
+        : null;
+    return Module2Comment(
+      id: json['id'] is String ? json['id'] as String : '',
+      body: json['body'] is String ? json['body'] as String : '',
+      authorAccountId: author['accountId'] is String ? author['accountId'] as String : '',
+      authorName: author['displayName'] is String ? author['displayName'] as String : 'Sakhi member',
+      authorPhotoRef: author['profilePhotoRef'] is String ? author['profilePhotoRef'] as String : null,
+      createdAt: createdAt,
+      isOwnComment: json['isOwnComment'] == true,
+    );
+  }
+}
