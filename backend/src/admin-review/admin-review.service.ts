@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -9,6 +10,7 @@ import {
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { PrismaService } from "../database/prisma.service.js";
 import type { ManualEligibilityDecisionDto } from "./admin-review.dto.js";
+import type { DevelopmentMemberStateDto } from "./admin-member-state.dto.js";
 
 @Injectable()
 export class AdminReviewService {
@@ -129,6 +131,197 @@ export class AdminReviewService {
         createdAt: event.createdAt.toISOString(),
         reviewerLabel: typeof metadata.reviewerLabel === "string" ? metadata.reviewerLabel : "Reviewer unavailable",
         reason: typeof metadata.reason === "string" ? metadata.reason : "No reason recorded",
+      };
+    });
+  }
+
+  private assertDevelopmentMemberOverrides(): void {
+    if (
+      process.env.NODE_ENV === "production" ||
+      (process.env.SAKHI_ENV !== "dev" && process.env.SAKHI_ENV !== "test") ||
+      (process.env.HOST ?? "127.0.0.1") !== "127.0.0.1"
+    ) {
+      throw new ForbiddenException(
+        "Member-state overrides are available only on the local development/test backend.",
+      );
+    }
+  }
+
+  private maskedPhone(phone: string): string {
+    return phone.length <= 4
+      ? "****"
+      : `${"*".repeat(Math.max(0, phone.length - 4))}${phone.slice(-4)}`;
+  }
+
+  private maskedMemberEmail(email: string | null): string {
+    if (!email) return "Not provided";
+    const [local = "", domain] = email.split("@", 2);
+    if (!local || !domain) return "Hidden";
+    const prefix = local.slice(0, 1);
+    return `${prefix}${"*".repeat(Math.min(Math.max(local.length - 1, 2), 8))}@${domain}`;
+  }
+
+  async members(token?: string) {
+    this.assertReviewer(token);
+    this.assertDevelopmentMemberOverrides();
+    const [accounts, total] = await Promise.all([
+      this.prisma.memberAccount.findMany({
+        include: {
+          profile: true,
+          eligibilitySubmissions: {
+            orderBy: { submittedAt: "desc" },
+            take: 1,
+            select: { status: true, submittedAt: true, reviewedAt: true },
+          },
+          sessions: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: { lastSeenAt: true },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 500,
+      }),
+      this.prisma.memberAccount.count(),
+    ]);
+
+    return {
+      total,
+      limit: 500,
+      items: accounts.map((account) => {
+        const latestSubmission = account.eligibilitySubmissions[0] ?? null;
+        const eligibilityStatus =
+          latestSubmission?.status === "PENDING_MANUAL_REVIEW"
+            ? "PENDING_MANUAL_REVIEW"
+            : account.verificationStatus;
+        return {
+          id: account.id,
+          reference: `SK-${account.id.slice(0, 8).toUpperCase()}`,
+          displayName: account.profile?.displayName ?? "Profile incomplete",
+          emailMasked: this.maskedMemberEmail(account.profile?.email ?? null),
+          phoneMasked: this.maskedPhone(account.phoneE164),
+          registeredAt: account.createdAt.toISOString(),
+          lastActiveAt: account.sessions[0]?.lastSeenAt?.toISOString() ?? null,
+          accountStatus: account.status,
+          verificationStatus: account.verificationStatus,
+          eligibilityStatus,
+          profileComplete: Boolean(account.profile),
+          eligibilitySubmissionStatus: latestSubmission?.status ?? null,
+          eligibilitySubmittedAt: latestSubmission?.submittedAt.toISOString() ?? null,
+          eligibilityReviewedAt: latestSubmission?.reviewedAt?.toISOString() ?? null,
+        };
+      }),
+    };
+  }
+
+  async updateMemberState(
+    accountId: string,
+    dto: DevelopmentMemberStateDto,
+    token?: string,
+  ) {
+    const reviewerLabel = this.assertReviewer(token);
+    this.assertDevelopmentMemberOverrides();
+    if (dto.accountStatus === undefined && dto.verificationStatus === undefined) {
+      throw new BadRequestException(
+        "Choose an account status, a verification status, or both.",
+      );
+    }
+    const reason = dto.reason.trim();
+    if (reason.length < 10 || reason.length > 500) {
+      throw new BadRequestException(
+        "Enter a development-state change reason of 10 to 500 characters.",
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const account = await tx.memberAccount.findUnique({
+        where: { id: accountId },
+        include: {
+          eligibilitySubmissions: {
+            orderBy: { submittedAt: "desc" },
+            take: 1,
+          },
+        },
+      });
+      if (!account) throw new NotFoundException("Member account was not found.");
+
+      const before = {
+        accountStatus: account.status,
+        verificationStatus: account.verificationStatus,
+      };
+      const nextAccountStatus = dto.accountStatus ?? account.status;
+      const nextVerificationStatus = dto.verificationStatus ?? account.verificationStatus;
+      const latestSubmission = account.eligibilitySubmissions[0] ?? null;
+      const now = new Date();
+
+      if (
+        nextVerificationStatus === "UNVERIFIED" &&
+        latestSubmission?.status === "PENDING_MANUAL_REVIEW"
+      ) {
+        throw new ConflictException(
+          "This member has a real pending review submission. Use the Eligibility Review page to decide it instead of overriding its state.",
+        );
+      }
+
+      if (
+        dto.verificationStatus !== undefined &&
+        latestSubmission &&
+        dto.verificationStatus !== "UNVERIFIED"
+      ) {
+        const submissionStatus =
+          dto.verificationStatus === "VERIFIED" ? "APPROVED" : "REJECTED";
+        await tx.eligibilitySubmission.update({
+          where: { id: latestSubmission.id },
+          data: {
+            status: submissionStatus,
+            reviewedAt: now,
+            reviewerLabel,
+            decisionReason: `Development admin state override: ${reason}`.slice(0, 500),
+          },
+        });
+      }
+
+      const updated = await tx.memberAccount.update({
+        where: { id: accountId },
+        data: {
+          status: nextAccountStatus,
+          verificationStatus: nextVerificationStatus,
+        },
+        select: {
+          id: true,
+          status: true,
+          verificationStatus: true,
+          updatedAt: true,
+        },
+      });
+
+      await tx.auditEvent.create({
+        data: {
+          actorType: "ADMIN",
+          action: "admin.dev_member_state.updated",
+          targetType: "member_account",
+          targetId: accountId,
+          outcome: "success",
+          requestId: randomUUID(),
+          redactedMetadata: {
+            mode: "local_dev_test_only",
+            reviewerLabel,
+            reason,
+            before,
+            after: {
+              accountStatus: updated.status,
+              verificationStatus: updated.verificationStatus,
+            },
+          },
+        },
+      });
+
+      return {
+        accountId: updated.id,
+        accountStatus: updated.status,
+        verificationStatus: updated.verificationStatus,
+        updatedAt: updated.updatedAt.toISOString(),
+        mode: "local_dev_test_only" as const,
       };
     });
   }
