@@ -91,7 +91,7 @@ void main() {
     await tester.tap(find.text('Add to preview'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Community'), findsOneWidget);
+    expect(find.byKey(const Key('sakhi-community-list')), findsOneWidget);
     expect(find.text('A test post from the preview'), findsOneWidget);
     expect(find.textContaining('not connected yet'), findsNothing);
     expect(tester.takeException(), isNull);
