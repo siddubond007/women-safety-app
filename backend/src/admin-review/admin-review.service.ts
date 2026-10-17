@@ -280,7 +280,10 @@ export class AdminReviewService {
   ) {
     const reviewerLabel = this.assertReviewer(token);
     this.assertDevelopmentMemberOverrides();
-    if (dto.accountStatus === undefined && dto.verificationStatus === undefined) {
+    if (
+      (dto.accountStatus === undefined || dto.accountStatus === null) &&
+      (dto.verificationStatus === undefined || dto.verificationStatus === null)
+    ) {
       throw new BadRequestException(
         "Choose an account status, a verification status, or both.",
       );
@@ -325,6 +328,7 @@ export class AdminReviewService {
 
       if (
         dto.verificationStatus !== undefined &&
+        dto.verificationStatus !== null &&
         latestSubmission &&
         dto.verificationStatus !== "UNVERIFIED"
       ) {
