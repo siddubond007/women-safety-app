@@ -104,10 +104,8 @@ class BackendApiClient {
           .timeout(const Duration(seconds: 12));
       requestStage = 'preparing request';
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      if (body != null) {
-        request.headers.contentType = ContentType.json;
-        request.write(jsonEncode(body));
-      }
+      // Configure every header before writing any body bytes. Dart can make
+      // request headers immutable as soon as request.write() begins.
       if (authenticated) {
         final token = await readAccessToken();
         if (token == null || token.isEmpty) {
@@ -118,6 +116,12 @@ class BackendApiClient {
           );
         }
         request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+      }
+      if (body != null) {
+        request.headers.contentType = ContentType.json;
+      }
+      if (body != null) {
+        request.write(jsonEncode(body));
       }
 
       requestStage = 'waiting for response headers';
