@@ -82,17 +82,22 @@ class EligibilityInformationScreen extends StatelessWidget {
               const SizedBox(height: SakhiSpacing.md),
               if (snapshot.hasError)
                 const SakhiAuthStatusMessage(
-                  message: 'The approved verification configuration could not be loaded. Treat verification as unavailable; no session will be created.',
+                  message: 'The eligibility configuration could not be loaded. No review request can be submitted until the backend policy is available.',
+                )
+              else if (config.canRequestManualReview)
+                const SakhiAuthStatusMessage(
+                  message: 'A separately configured manual-review request is available for this local dev/test backend. The app submits account and consent metadata only; it does not upload evidence.',
                 )
               else if (!config.hasApprovedConfiguration)
                 const SakhiAuthStatusMessage(
-                  message: 'DEVELOPMENT PREVIEW — the provider, approved method, policy and complete disclosures are not configured. No real verification can start.',
+                  message: 'DEVELOPMENT PREVIEW — no approved provider flow or enabled manual-review request is configured. No request can be created.',
                 )
               else if (!config.mobileHandoffSupported)
                 const SakhiAuthStatusMessage(
-                  message: 'The approved configuration was received, but this mobile build does not yet support the secure provider handoff and return flow. No verification session will be started.',
+                  message: 'The approved provider configuration was received, but this mobile build does not yet support the secure provider handoff and return flow. No provider session will be started.',
                 ),
               const SizedBox(height: SakhiSpacing.md),
+              if (!config.canRequestManualReview || config.canStartVerification) ...[
               _DisclosureRow(
                 icon: Icons.verified_user_outlined,
                 title: 'Provider',
@@ -135,6 +140,12 @@ class EligibilityInformationScreen extends StatelessWidget {
                 title: 'Approved alternative or manual review',
                 value: _disclosure(config.manualReviewDescription),
               ),
+              ],
+              if (config.canRequestManualReview) ...[
+                _DisclosureRow(icon: Icons.fact_check_outlined, title: 'Manual-review consent', value: _disclosure(config.manualReviewConsentText)),
+                _DisclosureRow(icon: Icons.shield_outlined, title: 'Manual-review data handling', value: _disclosure(config.manualReviewDataHandlingDescription)),
+                _DisclosureRow(icon: Icons.delete_sweep_outlined, title: 'Manual-review retention', value: _disclosure(config.manualReviewRetentionDescription)),
+              ],
               const SizedBox(height: SakhiSpacing.sm),
               Container(
                 padding: const EdgeInsets.all(SakhiSpacing.md),

@@ -78,8 +78,48 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
     }
   }
 
+  Future<void> _submitManualReview() async {
+    if (!_consentSelected ||
+        !widget.configuration.canRequestManualReview ||
+        _isWorking) {
+      return;
+    }
+    final version = widget.configuration.manualReviewConsentVersion;
+    if (version == null || version.trim().isEmpty) return;
+    setState(() => _isWorking = true);
+    try {
+      final result = await widget.service.submitManualReview(
+        consent: EligibilityConsentRecord(
+          consentVersion: version,
+          acceptedAt: _consentSelectedAt ?? DateTime.now(),
+        ),
+      );
+      if (!mounted) return;
+      await Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => EligibilityStatusScreen(
+          result: result,
+          isDevelopmentBackend: widget.service.isDevelopmentBackend,
+        ),
+      ));
+    } catch (_) {
+      if (!mounted) return;
+      await Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => EligibilityStatusScreen(
+          isDevelopmentBackend: widget.service.isDevelopmentBackend,
+          result: const EligibilityStatusResult(
+            status: EligibilityStatus.verificationFailed,
+            message: 'The manual-review request could not be confirmed. No eligibility conclusion can be drawn; check the connection and current status.',
+            isDemo: true,
+          ),
+        ),
+      ));
+    } finally {
+      if (mounted) setState(() => _isWorking = false);
+    }
+  }
+
   Future<void> _viewStatus() async {
-    if (!_consentSelected || _isWorking) return;
+    if (_isWorking) return;
     setState(() => _isWorking = true);
     try {
       final result = await widget.service.readStatus();
@@ -113,8 +153,11 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final configurationReady = widget.configuration.hasApprovedConfiguration;
+    final providerConfigurationReady = widget.configuration.hasApprovedConfiguration;
     final canStart = widget.configuration.canStartVerification;
+    final canRequestManualReview = widget.configuration.canRequestManualReview;
+    final manualReviewFlow = canRequestManualReview && !canStart;
+    final configurationReady = providerConfigurationReady || canRequestManualReview;
     final biometricConsentRequired =
         widget.configuration.biometricProcessingRequired;
     final showBiometricConsent =
@@ -152,18 +195,24 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
           ),
           const SizedBox(height: SakhiSpacing.sm),
           const Text(
-            'In production, Sakhi must identify the approved method, explain what it checks, and disclose how the relevant information is handled before asking for valid consent.',
+            manualReviewFlow
+                ? 'This request sends your consent and a manual-review request to the Sakhi development/test backend. This app does not capture or upload identity evidence.'
+                : 'In production, Sakhi must identify the approved method, explain what it checks, and disclose how the relevant information is handled before asking for valid consent.',
             textAlign: TextAlign.center,
             style: SakhiTypography.body,
           ),
           const SizedBox(height: SakhiSpacing.md),
-          if (!configurationReady)
+          if (manualReviewFlow)
             const SakhiAuthStatusMessage(
-              message: 'DEMO CONSENT PREVIEW — the provider and approved policy are not configured. This screen tests the consent interaction only; your selection is not recorded as valid production consent.',
+              message: 'Manual review is enabled by the backend for this local dev/test deployment. Only request and consent metadata are sent; no selfie, identity document or evidence file is uploaded from this app.',
             )
-          else if (!widget.configuration.mobileHandoffSupported)
+          else if (!configurationReady)
             const SakhiAuthStatusMessage(
-              message: 'The provider configuration is available, but this app cannot yet complete the secure provider handoff and return flow. No real verification session or production consent will be started from this screen.',
+              message: 'DEMO CONSENT PREVIEW — no approved provider or manual-review process is configured. Your selection is not recorded as valid production consent.',
+            )
+          else if (!canStart)
+            const SakhiAuthStatusMessage(
+              message: 'The provider configuration is available, but this app cannot yet complete the secure provider handoff and return flow. No provider session will be started.',
             )
           else
             const SakhiAuthStatusMessage(
@@ -179,29 +228,36 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
                 color: SakhiColors.progressInactive.withValues(alpha: 0.8),
               ),
             ),
-            child: const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Before you continue',
-                  style: TextStyle(
-                    color: SakhiColors.plum,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
+            child: manualReviewFlow
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Before you submit', style: TextStyle(
+                        color: SakhiColors.plum,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                      )),
+                      const SizedBox(height: SakhiSpacing.sm),
+                      EligibilityBullet(text: widget.configuration.manualReviewDescription!),
+                      EligibilityBullet(text: widget.configuration.manualReviewDataHandlingDescription!),
+                      EligibilityBullet(text: widget.configuration.manualReviewRetentionDescription!),
+                      const EligibilityBullet(text: 'This app does not capture or upload identity evidence. Reviewers use only the separately approved evidence procedure outside this portal.'),
+                    ],
+                  )
+                : const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Before you continue', style: TextStyle(
+                        color: SakhiColors.plum,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                      )),
+                      SizedBox(height: SakhiSpacing.sm),
+                      EligibilityBullet(text: 'You can read the verification method and data-use details before deciding.'),
+                      EligibilityBullet(text: 'A future provider must return a trusted result; a redirect or OTP alone is not proof of eligibility.'),
+                      EligibilityBullet(text: 'A failure or timeout is not an eligibility decision.'),
+                    ],
                   ),
-                ),
-                SizedBox(height: SakhiSpacing.sm),
-                EligibilityBullet(
-                  text: 'You can read the verification method and data-use details before deciding.',
-                ),
-                EligibilityBullet(
-                  text: 'A future provider must return a trusted result; a redirect or OTP alone is not proof of eligibility.',
-                ),
-                EligibilityBullet(
-                  text: 'A failure or timeout is not an eligibility decision.',
-                ),
-              ],
-            ),
           ),
           const SizedBox(height: SakhiSpacing.md),
           Material(
@@ -241,7 +297,9 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
                               : null;
                         }),
                   title: Text(
-                    canStart
+                    manualReviewFlow
+                        ? widget.configuration.manualReviewConsentText!
+                        : canStart
                         ? 'I have read the approved verification details above and explicitly consent to this eligibility-verification process.'
                         : 'I select this control for the demo preview and understand that no real verification will occur.',
                     style: const TextStyle(
@@ -301,35 +359,40 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
           ],
           const SizedBox(height: SakhiSpacing.xs),
           if (!configurationReady)
-            const SakhiAuthStatusMessage(
-              message: 'Start verification is unavailable because an authorised provider, approved method, complete disclosures and consent version have not been configured.',
-            )
-          else if (!widget.configuration.mobileHandoffSupported)
-            const SakhiAuthStatusMessage(
-              message: 'Start verification remains disabled until the secure provider handoff and return flow are implemented and tested.',
-            )
+            const SakhiAuthStatusMessage(message: 'Neither a provider flow nor an approved manual-review request is configured. No request can be sent.')
+          else if (manualReviewFlow)
+            const SakhiAuthStatusMessage(message: 'Manual-review requests contain consent and account metadata only. No identity evidence is uploaded in this mobile flow.')
+          else if (!canStart)
+            const SakhiAuthStatusMessage(message: 'The provider flow stays disabled until secure handoff and return handling are implemented and tested.')
           else if (biometricConsentRequired && !_biometricConsentSelected)
-            const SakhiAuthStatusMessage(
-              message: 'Separate explicit biometric consent is required before the verification session can start.',
-            ),
+            const SakhiAuthStatusMessage(message: 'Separate explicit biometric consent is required before the verification session can start.'),
           const SizedBox(height: SakhiSpacing.md),
-          SakhiAuthSubmitButton(
-            key: const Key('eligibility-start-verification-button'),
-            label: !canStart
-                ? 'Start verification · Not configured'
-                : biometricConsentRequired && !_biometricConsentSelected
-                ? 'Separate biometric consent required'
-                : 'Start verification',
-            icon: Icons.verified_user_outlined,
-            isLoading: _isWorking,
-            onPressed:
-                _consentSelected &&
-                    canStart &&
-                    (!biometricConsentRequired || _biometricConsentSelected) &&
-                    !_isWorking
-                ? _startVerification
-                : null,
-          ),
+          if (manualReviewFlow)
+            SakhiAuthSubmitButton(
+              key: const Key('eligibility-submit-manual-review-button'),
+              label: 'Submit manual-review request',
+              icon: Icons.support_agent_outlined,
+              isLoading: _isWorking,
+              onPressed: _consentSelected && !_isWorking ? _submitManualReview : null,
+            )
+          else
+            SakhiAuthSubmitButton(
+              key: const Key('eligibility-start-verification-button'),
+              label: !canStart
+                  ? 'Start verification · Not configured'
+                  : biometricConsentRequired && !_biometricConsentSelected
+                  ? 'Separate biometric consent required'
+                  : 'Start verification',
+              icon: Icons.verified_user_outlined,
+              isLoading: _isWorking,
+              onPressed:
+                  _consentSelected &&
+                      canStart &&
+                      (!biometricConsentRequired || _biometricConsentSelected) &&
+                      !_isWorking
+                  ? _startVerification
+                  : null,
+            ),
           const SizedBox(height: SakhiSpacing.xs),
           OutlinedButton(
             key: const Key('eligibility-preview-status-button'),
@@ -342,7 +405,7 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
               ),
             ),
             child: Text(
-              canStart
+              manualReviewFlow || canStart
                   ? 'View current eligibility status'
                   : 'View provider-unavailable preview',
             ),

@@ -58,6 +58,9 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
 
       const appUrl = process.env.SAKHI_APP_DATABASE_URL;
       const migratorUrl = process.env.SAKHI_MIGRATOR_DATABASE_URL;
+      if (!appUrl || !migratorUrl) {
+        throw new Error("The test runner did not load both local sakhi_test URLs.");
+      }
       assertSakhiDatabaseTarget(appUrl, "app", "test");
       assertSakhiDatabaseTarget(migratorUrl, "migrator", "test");
 

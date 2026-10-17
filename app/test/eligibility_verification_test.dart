@@ -475,4 +475,13 @@ class _FakeEligibilityService implements EligibilityVerificationService {
     lastConsent = consent;
     return result;
   }
+
+  @override
+  Future<EligibilityStatusResult> submitManualReview({
+    required EligibilityConsentRecord consent,
+  }) async {
+    startCalls++;
+    lastConsent = consent;
+    return result;
+  }
 }
