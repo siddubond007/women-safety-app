@@ -187,12 +187,17 @@ export class AdminReviewService {
       where.verificationStatus = verificationStatusRaw as Prisma.MemberAccountWhereInput["verificationStatus"];
     }
     if (search) {
-      where.OR = [
-        { id: { contains: search, mode: "insensitive" } },
+      const searchFilters: Prisma.MemberAccountWhereInput[] = [
         { phoneE164: { contains: search } },
         { profile: { is: { displayName: { contains: search, mode: "insensitive" } } } },
         { profile: { is: { email: { contains: search, mode: "insensitive" } } } },
       ];
+      // PostgreSQL UUID columns support equality, not arbitrary substring
+      // searches. Avoid issuing an invalid LIKE predicate against the UUID.
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(search)) {
+        searchFilters.push({ id: search });
+      }
+      where.OR = searchFilters;
     }
     const [
       accounts,
