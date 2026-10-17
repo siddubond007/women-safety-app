@@ -13,6 +13,7 @@ import 'screens/community_screen.dart';
 import 'screens/edit_profile_screen.dart';
 import 'screens/explore_screen.dart';
 import 'screens/followers_following_screen.dart';
+import 'screens/groups_screen.dart';
 import 'screens/more_options_screen.dart';
 import 'screens/notification_preferences_screen.dart';
 import 'screens/privacy_settings_screen.dart';
@@ -149,10 +150,12 @@ class _Module2NavigationShellState extends State<Module2NavigationShell> {
         return const NotificationPreferencesScreen();
       case AppRoutes.followers:
         return const FollowersFollowingScreen();
+      case AppRoutes.groups:
+        return const GroupsScreen();
       case AppRoutes.accountSecurity:
         return AccountSecurityScreen(onSignOut: _signOut);
       case AppRoutes.moreOptions:
-        return MoreOptionsScreen(onSignOut: _signOut);
+        return MoreOptionsScreen(onSignOut: _signOut, onNavigateRoute: _navigate);
       default:
         return HomeScreen(onNavigateTab: _selectTab, onNavigateRoute: _navigate);
     }
