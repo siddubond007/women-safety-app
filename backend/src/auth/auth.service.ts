@@ -541,7 +541,11 @@ export class AuthenticationService {
         "The profile does not meet the temporary development age rule.",
       );
     }
-    if (Number.isNaN(acceptedAt.getTime()) || acceptedAt > new Date()) {
+    // acceptedAt is supplied by the client and its clock may be ahead of
+    // the API host. Validate that it is parseable, but never use it as the
+    // authoritative persisted acknowledgement time; below, the server records
+    // its own receipt time with new Date().
+    if (Number.isNaN(acceptedAt.getTime())) {
       throw new BadRequestException(
         "The draft policy acknowledgement time is invalid.",
       );
