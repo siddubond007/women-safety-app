@@ -6,6 +6,7 @@ import { ApiExceptionFilter } from "./common/filters/api-exception.filter.js";
 import { validateRuntimeEnvironment } from "./config/database-target.js";
 import { AuthModule } from "./auth/auth.module.js";
 import { EligibilityModule } from "./eligibility/eligibility.module.js";
+import { AdminReviewModule } from "./admin-review/admin-review.module.js";
 import { PrismaModule } from "./database/prisma.module.js";
 import { HealthController } from "./health/health.controller.js";
 import { HealthService } from "./health/health.service.js";
@@ -63,6 +64,7 @@ import { HealthService } from "./health/health.service.js";
     PrismaModule,
     AuthModule,
     EligibilityModule,
+    AdminReviewModule,
   ],
   controllers: [HealthController],
   providers: [HealthService, ApiExceptionFilter],

@@ -39,30 +39,23 @@ describe("eligibility API fail-closed contract", () => {
     return testApp;
   }
 
-  it("reports the provider configuration as unavailable without inferring a decision", async () => {
+  it("reports provider configuration as unavailable without inferring a decision", async () => {
     service.configuration.mockReturnValue({
       providerConfigured: false,
       policyApproved: false,
-      providerDisplayName: null,
-      methodDescription: null,
-      attributesCheckedDescription: null,
-      selfieOrLivenessDescription: null,
-      dataHandlingDescription: null,
-      retentionAndDeletionDescription: null,
-      declineOrFailureDescription: null,
-      manualReviewDescription: null,
-      consentVersion: null,
+      manualReviewEnabled: false,
       canStartVerification: false,
       mode: "development_preview",
     });
-    const app = await createApp();
-    const response = await request(app.getHttpServer())
+    const testApp = await createApp();
+    const response = await request(testApp.getHttpServer())
       .get("/api/v1/eligibility/configuration")
       .expect(200);
 
     expect(response.body).toMatchObject({
       providerConfigured: false,
       policyApproved: false,
+      manualReviewEnabled: false,
       canStartVerification: false,
       mode: "development_preview",
     });
@@ -71,41 +64,51 @@ describe("eligibility API fail-closed contract", () => {
   it("routes authenticated status lookups through the service boundary", async () => {
     service.status.mockResolvedValue({
       status: "providerUnavailable",
-      message: "No approved provider is configured.",
+      eligibilityStatus: "UNVERIFIED",
+      message: "No provider or manual-review policy is configured.",
       isDemo: true,
     });
-    const app = await createApp();
-    const response = await request(app.getHttpServer())
+    const testApp = await createApp();
+    const response = await request(testApp.getHttpServer())
       .get("/api/v1/eligibility/status")
       .set("Authorization", "Bearer a-valid-looking-test-token")
       .expect(200);
 
-    expect(response.body.status).toBe("providerUnavailable");
+    expect(response.body.eligibilityStatus).toBe("UNVERIFIED");
     expect(service.status).toHaveBeenCalledWith(
       "Bearer a-valid-looking-test-token",
     );
   });
 
-  it("does not fabricate a verification session when starting is unavailable", async () => {
-    const { ConflictException } = await import("@nestjs/common");
+  it("does not create a manual request when configuration is unavailable", async () => {
+    const { ServiceUnavailableException } = await import("@nestjs/common");
     service.start.mockRejectedValue(
-      new ConflictException({
-        statusCode: 409,
-        code: "eligibility_provider_unavailable",
-        status: "providerUnavailable",
-        message: "No verification session was created.",
+      new ServiceUnavailableException({
+        statusCode: 503,
+        code: "manual_review_not_configured",
+        message: "No approved manual-review policy is configured.",
         isDemo: true,
       }),
     );
-    const app = await createApp();
-    const response = await request(app.getHttpServer())
+    const testApp = await createApp();
+    const response = await request(testApp.getHttpServer())
       .post("/api/v1/eligibility/start")
       .set("Authorization", "Bearer a-valid-looking-test-token")
-      .expect(409);
+      .send({
+        consentAccepted: true,
+        consentVersion: "test-version",
+        biometricProcessingConsented: false,
+      })
+      .expect(503);
 
-    expect(response.body.code).toBe("eligibility_provider_unavailable");
+    expect(response.body.code).toBe("manual_review_not_configured");
     expect(service.start).toHaveBeenCalledWith(
       "Bearer a-valid-looking-test-token",
+      {
+        consentAccepted: true,
+        consentVersion: "test-version",
+        biometricProcessingConsented: false,
+      },
     );
   });
 });

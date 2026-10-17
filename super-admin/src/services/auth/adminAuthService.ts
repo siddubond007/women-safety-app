@@ -1,28 +1,43 @@
-/**
- * Auth service contract for the admin UI. A production implementation must
- * come from a server-backed auth/session design; the browser demo is not
- * authorization and must never be used to protect production data.
- */
-export interface AdminAuthService {
-  hasActiveSession(): boolean;
-  enterDemoSession(): void;
-  signOut(): void;
+const TOKEN_KEY = "sakhi-admin-review-token";
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3000/api/v1").replace(/\/+$/, "");
+
+export interface AdminSession {
+  authenticated: true;
+  reviewerLabel: string;
+  mode: "local_dev_test_only";
 }
 
-const DEMO_SESSION_KEY = "sakhi-admin-demo-session";
+async function requestSession(token: string): Promise<AdminSession> {
+  const response = await fetch(`${API_BASE_URL}/admin-review/session`, {
+    method: "GET",
+    headers: { "X-Sakhi-Admin-Token": token },
+    cache: "no-store",
+  });
+  const data = await response.json().catch(() => ({})) as { message?: string | string[]; reviewerLabel?: string; mode?: string; authenticated?: boolean };
+  if (!response.ok) {
+    const message = Array.isArray(data.message) ? data.message.join(" ") : data.message;
+    throw new Error(message || "Reviewer token was not accepted by the backend.");
+  }
+  return data as AdminSession;
+}
 
-class BrowserDemoAuthService implements AdminAuthService {
+export const adminAuthService = {
   hasActiveSession(): boolean {
-    return window.sessionStorage.getItem(DEMO_SESSION_KEY) === "active";
-  }
-
-  enterDemoSession(): void {
-    window.sessionStorage.setItem(DEMO_SESSION_KEY, "active");
-  }
-
+    return Boolean(sessionStorage.getItem(TOKEN_KEY));
+  },
+  getToken(): string | null {
+    return sessionStorage.getItem(TOKEN_KEY);
+  },
+  async validateToken(token: string): Promise<AdminSession> {
+    if (!token) throw new Error("Enter the reviewer token.");
+    return requestSession(token);
+  },
+  async authenticate(token: string): Promise<AdminSession> {
+    const session = await requestSession(token);
+    sessionStorage.setItem(TOKEN_KEY, token);
+    return session;
+  },
   signOut(): void {
-    window.sessionStorage.removeItem(DEMO_SESSION_KEY);
-  }
-}
-
-export const adminAuthService: AdminAuthService = new BrowserDemoAuthService();
+    sessionStorage.removeItem(TOKEN_KEY);
+  },
+};

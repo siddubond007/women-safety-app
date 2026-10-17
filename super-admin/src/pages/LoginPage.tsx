@@ -1,53 +1,63 @@
-import { ArrowRight, CheckCircle2, LockKeyhole, ShieldCheck, Sparkles } from "lucide-react";
+import { useState, type FormEvent } from "react";
+import { ArrowRight, LockKeyhole, ShieldCheck, Sparkles } from "lucide-react";
 import { BrandMark } from "../components/BrandMark";
 import { StatusPill } from "../components/StatusPill";
 
 interface LoginPageProps {
-  onEnterDemo: () => void;
+  onAuthenticate: (token: string) => Promise<void>;
 }
 
-export function LoginPage({ onEnterDemo }: LoginPageProps) {
+export function LoginPage({ onAuthenticate }: LoginPageProps) {
+  const [token, setToken] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setIsSubmitting(true);
+    try {
+      await onAuthenticate(token.trim());
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Reviewer authentication failed.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   return (
     <main className="login-page">
       <div className="login-orb login-orb--one" aria-hidden="true" />
       <div className="login-orb login-orb--two" aria-hidden="true" />
-      <header className="login-topbar">
-        <BrandMark />
-        <StatusPill tone="demo"><span className="status-pill__dot" /> DEMO PREVIEW</StatusPill>
-      </header>
-
+      <header className="login-topbar"><BrandMark /><StatusPill tone="demo"><span className="status-pill__dot" /> DEV / TEST ONLY</StatusPill></header>
       <div className="login-layout">
         <section className="login-story">
           <div className="login-eyebrow"><span className="login-eyebrow__star"><Sparkles size={14} /></span> THE SAKHI OPERATIONS SPACE</div>
           <h1>Care begins with<br /><em>clarity.</em></h1>
-          <p className="login-story-copy">A focused workspace for the teams working behind Sakhi's safety, community, wellbeing and business experiences.</p>
+          <p className="login-story-copy">A focused workspace for the team responsible for careful, accountable manual eligibility review.</p>
           <div className="login-feature-list">
-            <div><span className="login-feature-icon"><ShieldCheck size={18} /></span><span><strong>Safety with accountability</strong><small>Clear operational queues and review pathways.</small></span></div>
-            <div><span className="login-feature-icon"><LockKeyhole size={18} /></span><span><strong>Privacy by design</strong><small>Restricted information stays out of general views.</small></span></div>
-            <div><span className="login-feature-icon"><CheckCircle2 size={18} /></span><span><strong>One considered workspace</strong><small>Consistent patterns for everyday administration.</small></span></div>
+            <div><span className="login-feature-icon"><ShieldCheck size={18} /></span><span><strong>Server-checked reviewer access</strong><small>Each review API request is checked by the backend.</small></span></div>
+            <div><span className="login-feature-icon"><LockKeyhole size={18} /></span><span><strong>Private by design</strong><small>Only masked member contact details appear in the queue.</small></span></div>
+            <div><span className="login-feature-icon"><ShieldCheck size={18} /></span><span><strong>Auditable decisions</strong><small>Decision, reason, reviewer label and timestamp are persisted.</small></span></div>
           </div>
-          <div className="login-quote"><span aria-hidden="true">“</span><p>Built around the people who depend on us to get the details right.</p></div>
         </section>
-
         <section className="login-card" aria-labelledby="login-title">
           <div className="login-card-mark"><ShieldCheck size={24} /></div>
-          <div className="login-card-kicker">PRIVATE ADMIN PORTAL</div>
-          <h2 id="login-title">Welcome to Sakhi</h2>
-          <p className="login-card-description">Enter the local demo workspace to preview the admin foundation.</p>
-          <div className="demo-notice">
-            <span className="demo-notice-icon"><LockKeyhole size={17} /></span>
-            <div><strong>Demo session only</strong><p>No password is requested or stored. This preview is not real authentication and does not protect production data.</p></div>
-          </div>
-          <button className="button button--primary login-submit" type="button" onClick={onEnterDemo}>
-            Enter demo environment <ArrowRight size={17} />
-          </button>
-          <div className="login-divider"><span>PREVIEW MODE</span></div>
-          <div className="login-protection"><ShieldCheck size={16} /><span>Real admin authentication and MFA are planned for backend integration.</span></div>
-          <div className="login-card-footer">Sakhi Super Admin <span>·</span> Stage 1 prototype</div>
+          <div className="login-card-kicker">LOCAL REVIEWER PORTAL</div>
+          <h2 id="login-title">Reviewer sign in</h2>
+          <p className="login-card-description">Enter the reviewer token configured in the local backend process.</p>
+          <form onSubmit={submit}>
+            <label className="member-form-label" htmlFor="reviewer-token">Reviewer token <span>Required</span></label>
+            <input id="reviewer-token" className="admin-review-token-input" type="password" autoComplete="current-password" value={token} onChange={(event) => setToken(event.target.value)} minLength={32} required aria-describedby="reviewer-token-help" />
+            <p id="reviewer-token-help" className="admin-review-help">The token is validated by the server and held in this browser tab's session storage. Never commit it or put it in a VITE_* variable.</p>
+            {error && <p className="admin-review-error" role="alert">{error}</p>}
+            <button className="button button--primary login-submit" type="submit" disabled={isSubmitting || token.trim().length < 32}>{isSubmitting ? "Checking reviewer access..." : "Sign in to review"} <ArrowRight size={17} /></button>
+          </form>
+          <div className="demo-notice"><span className="demo-notice-icon"><LockKeyhole size={17} /></span><div><strong>Development-only reviewer gate</strong><p>This backend does not yet have individual admin accounts or MFA. The configured shared token is for local dev/test only; production startup is disabled.</p></div></div>
+          <div className="login-card-footer">Sakhi Super Admin <span>-</span> Manual eligibility review</div>
         </section>
       </div>
-
-      <footer className="login-footer"><span>© Sakhi · Private administration UI</span><span><LockKeyhole size={13} /> Demo only — not for production use</span></footer>
+      <footer className="login-footer"><span>SAKHI - PRIVATE ADMINISTRATION UI</span><span><LockKeyhole size={13} /> Dev/test only</span></footer>
     </main>
   );
 }

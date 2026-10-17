@@ -64,3 +64,13 @@ Stage 2 was also exercised in a local Chromium smoke test for search, filtering/
 - Values from `VITE_*` environment variables are public browser configuration, not secret storage.
 - Eligibility criteria, minimum age, lawful identity-verification method/provider, manual fallback and related retention policies need explicit product/legal approval.
 - Keep the Stage 2 changes isolated to this directory; `app/` and `backend/` are preserved.
+
+## Manual eligibility review - local dev/test stage
+
+The `Eligibility & verification` page uses the NestJS API. The dashboard and member-management pages remain mock-backed. Reviewer access uses a shared token only for the local dev/test prototype; it is not individual administrator authentication and must never be deployed to production.
+
+The queue contains explicit `EligibilitySubmission` records, not every profile with Terms/Privacy consent. Manual submission is disabled unless the local backend receives all of these approved settings: `SAKHI_MANUAL_REVIEW_POLICY_APPROVED=true`, `SAKHI_MANUAL_REVIEW_EVIDENCE_PROCEDURE_APPROVED=true`, `SAKHI_MANUAL_REVIEW_CONSENT_VERSION`, `SAKHI_MANUAL_REVIEW_CONSENT_TEXT`, `SAKHI_MANUAL_REVIEW_DESCRIPTION`, `SAKHI_MANUAL_REVIEW_DATA_HANDLING_DESCRIPTION` and `SAKHI_MANUAL_REVIEW_RETENTION_DESCRIPTION`. These settings are configuration gates, not a substitute for product, privacy or legal approval.
+
+This stage does not collect, upload, store or display selfie/identity evidence. Review decisions may be recorded only after a reviewer follows the separately approved evidence procedure configured for this deployment. Never infer eligibility from a face, name or profile fields alone. Selfie capture/upload, private evidence storage, retention/deletion enforcement and appeal/resubmission remain outside this stage and must be designed and approved before identity evidence is collected in Sakhi.
+
+The shared `SAKHI_ADMIN_REVIEW_TOKEN` and configured `SAKHI_ADMIN_REVIEWER_LABEL` identify a local reviewer session only; the label is not a unique or independently authenticated person. Production authentication, MFA, identity-bound reviewer accounts and production deployment remain out of scope. Source changes do not execute database migrations.

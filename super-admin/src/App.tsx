@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { adminAuthService } from "./services/auth/adminAuthService";
 import { AdminLayout } from "./layouts/AdminLayout";
@@ -6,34 +6,46 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
 import { PlannedPage } from "./pages/PlannedPage";
 import { MemberManagementPage } from "./pages/MemberManagementPage";
+import { EligibilityReviewPage } from "./pages/EligibilityReviewPage";
 
 function AppRoutes() {
-  const [isDemoSignedIn, setIsDemoSignedIn] = useState(
-    () => adminAuthService.hasActiveSession(),
-  );
+  const [isSignedIn, setIsSignedIn] = useState(() => adminAuthService.hasActiveSession());
+  const [checkingSession, setCheckingSession] = useState(() => Boolean(adminAuthService.getToken()));
 
-  function enterDemo() {
-    adminAuthService.enterDemoSession();
-    setIsDemoSignedIn(true);
+  useEffect(() => {
+    const token = adminAuthService.getToken();
+    if (!token) return;
+    adminAuthService.validateToken(token)
+      .then(() => setIsSignedIn(true))
+      .catch(() => {
+        adminAuthService.signOut();
+        setIsSignedIn(false);
+      })
+      .finally(() => setCheckingSession(false));
+  }, []);
+
+  async function enterAdmin(token: string) {
+    await adminAuthService.authenticate(token);
+    setIsSignedIn(true);
   }
 
-  function endDemo() {
+  function endSession() {
     adminAuthService.signOut();
-    setIsDemoSignedIn(false);
+    setIsSignedIn(false);
+  }
+
+  if (checkingSession) {
+    return <main className="admin-session-check" role="status">Checking local reviewer session...</main>;
   }
 
   return (
     <Routes>
-      <Route
-        path="/login"
-        element={isDemoSignedIn ? <Navigate to="/dashboard" replace /> : <LoginPage onEnterDemo={enterDemo} />}
-      />
+      <Route path="/login" element={isSignedIn ? <Navigate to="/dashboard" replace /> : <LoginPage onAuthenticate={enterAdmin} />} />
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
-      <Route
-        element={isDemoSignedIn ? <AdminLayout onSignOut={endDemo} /> : <Navigate to="/login" replace />}
-      >
+      <Route element={isSignedIn ? <AdminLayout onSignOut={endSession} /> : <Navigate to="/login" replace />}>
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/members" element={<MemberManagementPage />} />
+        <Route path="/verification" element={<EligibilityReviewPage />} />
         <Route path="*" element={<PlannedPage />} />
       </Route>
     </Routes>
@@ -41,9 +53,5 @@ function AppRoutes() {
 }
 
 export default function App() {
-  return (
-    <BrowserRouter>
-      <AppRoutes />
-    </BrowserRouter>
-  );
+  return <BrowserRouter><AppRoutes /></BrowserRouter>;
 }

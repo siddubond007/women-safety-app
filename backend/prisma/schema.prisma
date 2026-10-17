@@ -21,8 +21,17 @@ enum AccountStatus {
 enum VerificationStatus {
   UNVERIFIED
   VERIFIED
+  REJECTED
 
   @@map("verification_status")
+}
+
+enum EligibilitySubmissionStatus {
+  PENDING_MANUAL_REVIEW
+  APPROVED
+  REJECTED
+
+  @@map("eligibility_submission_status")
 }
 
 enum OtpPurpose {
@@ -60,6 +69,7 @@ model MemberAccount {
   consents                MemberConsent[]
   sessions                AuthSession[]
   communicationPreference MemberCommunicationPreference?
+  eligibilitySubmissions EligibilitySubmission[]
 
   @@map("member_accounts")
 }
@@ -158,6 +168,23 @@ model MemberCommunicationPreference {
   account                MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@map("member_communication_preferences")
+}
+
+model EligibilitySubmission {
+  id                String                     @id @default(uuid()) @db.Uuid
+  accountId         String                     @map("account_id") @db.Uuid
+  status            EligibilitySubmissionStatus @default(PENDING_MANUAL_REVIEW)
+  consentVersion    String                     @map("consent_version") @db.VarChar(64)
+  consentAcceptedAt DateTime                   @map("consent_accepted_at") @db.Timestamptz(6)
+  submittedAt       DateTime                   @default(now()) @map("submitted_at") @db.Timestamptz(6)
+  reviewedAt        DateTime?                  @map("reviewed_at") @db.Timestamptz(6)
+  reviewerLabel     String?                    @map("reviewer_label") @db.VarChar(80)
+  decisionReason    String?                    @map("decision_reason") @db.VarChar(500)
+  account           MemberAccount              @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([status, submittedAt], map: "eligibility_submissions_status_submitted_idx")
+  @@index([accountId, submittedAt], map: "eligibility_submissions_account_submitted_idx")
+  @@map("eligibility_submissions")
 }
 
 model AuditEvent {

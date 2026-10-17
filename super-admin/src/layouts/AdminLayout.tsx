@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -49,7 +49,7 @@ const navigationItems: NavigationItem[] = [
   { label: "Overview dashboard", path: "/dashboard", icon: LayoutDashboard, group: "Workspace" },
   { label: "Action center", path: "/action-center", icon: Activity, group: "Workspace", planned: true },
   { label: "Members & accounts", path: "/members", icon: Users, group: "People & trust" },
-  { label: "Eligibility & verification", path: "/verification", icon: UserRoundCheck, group: "People & trust", planned: true },
+  { label: "Eligibility & verification", path: "/verification", icon: UserRoundCheck, group: "People & trust" },
   { label: "Trust & safety", path: "/moderation", icon: ShieldAlert, group: "People & trust", planned: true },
   { label: "Complaints & cases", path: "/complaints", icon: MessageSquareWarning, group: "People & trust", planned: true },
   { label: "SOS & emergency", path: "/emergency", icon: Siren, group: "People & trust", planned: true },
@@ -106,8 +106,8 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
         <div className="environment-card">
           <span className="environment-icon"><ShieldCheckIcon /></span>
           <span className="environment-copy">
-            <strong>Demo workspace</strong>
-            <small>No live systems connected</small>
+            <strong>Local dev/test workspace</strong>
+            <small>Eligibility review uses the configured local API</small>
           </span>
           <span className="environment-dot" aria-hidden="true" />
         </div>
@@ -125,7 +125,7 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
                     end
                     onClick={closeOverlays}
                     className={({ isActive }) => "nav-link" + (isActive ? " nav-link--active" : "")}
-                    title={item.planned ? item.label + " â€” planned" : item.label}
+                    title={item.planned ? item.label + " - planned" : item.label}
                   >
                     <Icon size={17} strokeWidth={1.8} />
                     <span className="nav-link-label">{item.label}</span>
@@ -152,7 +152,7 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
               <strong>Sakhi Operations</strong>
               <span>Private admin portal</span>
             </div>
-            <StatusPill tone="demo">DEMO</StatusPill>
+            <StatusPill tone="demo">DEV / TEST</StatusPill>
           </div>
         </div>
       </aside>
@@ -219,7 +219,7 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
             <div className="topbar-divider" />
             <button className="admin-profile" type="button" onClick={onSignOut} title="End demo session">
               <span className="admin-avatar">SA</span>
-              <span className="admin-profile-copy"><strong>Super Admin</strong><small>Demo session</small></span>
+              <span className="admin-profile-copy"><strong>Local reviewer</strong><small>Dev/test session</small></span>
               <ChevronDown size={15} />
               <span className="profile-signout"><LogOut size={13} /> Sign out</span>
             </button>
@@ -229,13 +229,13 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
         <main className="page-content">
           <div className="demo-banner" role="status">
             <span className="demo-banner__icon"><AlertTriangle size={16} /></span>
-            <div><strong>DEMO ENVIRONMENT</strong><span>Fictional sample data Â· No production API connected Â· Actions do not alter real records</span></div>
+            <div><strong>DEMO ENVIRONMENT</strong><span>Fictional sample data - No production API connected - Actions do not alter real records</span></div>
             <StatusPill tone="demo">STAGE 1</StatusPill>
           </div>
           <Outlet />
           <footer className="page-footer">
             <span>SAKHI ADMIN CONTROL CENTER</span>
-            <span>Stage 1 prototype <span className="footer-dot">Â·</span> Demo data only</span>
+            <span>Stage 1 prototype <span className="footer-dot">-</span> Demo data only</span>
           </footer>
         </main>
       </div>
