@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/admin-eligibility-review-backend
+      - feat/mobile-home-dashboard
     paths:
       - "backend/**"
       - "super-admin/**"
@@ -12,6 +13,7 @@ on:
   pull_request:
     branches:
       - feat/admin-eligibility-review-backend
+      - feat/mobile-home-dashboard
     paths:
       - "backend/**"
       - "super-admin/**"
