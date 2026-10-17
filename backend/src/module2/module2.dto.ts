@@ -165,3 +165,9 @@ export class RequestAccountDeletionDto {
   @MaxLength(500)
   reason?: string;
 }
+
+export class DeactivateAccountDto {
+  @IsString()
+  @IsIn(["DEACTIVATE"])
+  confirmation!: "DEACTIVATE";
+}
