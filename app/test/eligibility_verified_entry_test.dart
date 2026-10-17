@@ -18,7 +18,7 @@ void main() {
         MaterialApp(
           home: EligibilityStatusScreen(
             result: verifiedBackendResult,
-            onOpenVerifiedHome: () => openedHome = true,
+            onOpenVerifiedHome: (_) => openedHome = true,
           ),
         ),
       );
@@ -41,7 +41,7 @@ void main() {
               message: 'This is a demo result.',
               isDemo: true,
             ),
-            onOpenVerifiedHome: () => openedHome = true,
+            onOpenVerifiedHome: (_) => openedHome = true,
           ),
         ),
       );
