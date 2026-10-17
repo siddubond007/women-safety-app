@@ -9,6 +9,7 @@ import {
 } from "@nestjs/common";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { PrismaService } from "../database/prisma.service.js";
+import type { Prisma } from "../generated/prisma/client.js";
 import type { ManualEligibilityDecisionDto } from "./admin-review.dto.js";
 import type { DevelopmentMemberStateDto } from "./admin-member-state.dto.js";
 
@@ -161,11 +162,41 @@ export class AdminReviewService {
     return `${prefix}${"*".repeat(Math.min(Math.max(local.length - 1, 2), 8))}@${domain}`;
   }
 
-  async members(token?: string) {
+  async members(
+    token?: string,
+    pageRaw?: string,
+    pageSizeRaw?: string,
+    searchRaw?: string,
+    accountStatusRaw?: string,
+    verificationStatusRaw?: string,
+  ) {
     this.assertReviewer(token);
     this.assertDevelopmentMemberOverrides();
+    const pageValue = Number.parseInt(pageRaw ?? "1", 10);
+    const sizeValue = Number.parseInt(pageSizeRaw ?? "50", 10);
+    const page = Number.isInteger(pageValue) && pageValue > 0 ? pageValue : 1;
+    const pageSize = Number.isInteger(sizeValue) ? Math.min(Math.max(sizeValue, 1), 100) : 50;
+    const search = searchRaw?.trim() ?? "";
+    const validAccountStatuses = ["PENDING_VERIFICATION", "ACTIVE", "RESTRICTED", "SUSPENDED", "DELETED"];
+    const validVerificationStatuses = ["UNVERIFIED", "VERIFIED", "REJECTED"];
+    const where: Prisma.MemberAccountWhereInput = {};
+    if (accountStatusRaw && validAccountStatuses.includes(accountStatusRaw)) {
+      where.status = accountStatusRaw as Prisma.MemberAccountWhereInput["status"];
+    }
+    if (verificationStatusRaw && validVerificationStatuses.includes(verificationStatusRaw)) {
+      where.verificationStatus = verificationStatusRaw as Prisma.MemberAccountWhereInput["verificationStatus"];
+    }
+    if (search) {
+      where.OR = [
+        { id: { contains: search, mode: "insensitive" } },
+        { phoneE164: { contains: search } },
+        { profile: { is: { displayName: { contains: search, mode: "insensitive" } } } },
+        { profile: { is: { email: { contains: search, mode: "insensitive" } } } },
+      ];
+    }
     const [accounts, total] = await Promise.all([
       this.prisma.memberAccount.findMany({
+        where,
         include: {
           profile: true,
           eligibilitySubmissions: {
@@ -180,14 +211,16 @@ export class AdminReviewService {
           },
         },
         orderBy: { createdAt: "desc" },
-        take: 500,
+        skip: (page - 1) * pageSize,
+        take: pageSize,
       }),
-      this.prisma.memberAccount.count(),
+      this.prisma.memberAccount.count({ where }),
     ]);
 
     return {
       total,
-      limit: 500,
+      page,
+      pageSize,
       items: accounts.map((account) => {
         const latestSubmission = account.eligibilitySubmissions[0] ?? null;
         const eligibilityStatus =
