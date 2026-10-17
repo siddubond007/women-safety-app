@@ -15,6 +15,7 @@ import type {
   CreatePostDto,
   ReportMemberDto,
   RequestAccountDeletionDto,
+  UpdateMarketingConsentDto,
   UpdateNotificationPreferencesDto,
   UpdatePrivacySettingsDto,
   UpdateProfileDto,
@@ -278,6 +279,7 @@ export class Module2Service {
       if (!value) throw new BadRequestException("Display name cannot be blank.");
       update.displayName = value;
     }
+    if (dto.email !== undefined) update.email = dto.email?.trim().toLowerCase() || null;
     if (dto.bio !== undefined) update.bio = dto.bio?.trim() || null;
     if (dto.locationCity !== undefined) update.locationCity = dto.locationCity?.trim() || null;
     if (dto.profilePhotoRef !== undefined) update.profilePhotoRef = dto.profilePhotoRef || null;
@@ -782,6 +784,40 @@ export class Module2Service {
       fields: Object.keys(dto).join(","),
     });
     return updated;
+  }
+
+  async updateMarketingConsent(
+    authorization: string | undefined,
+    dto: UpdateMarketingConsentDto,
+  ) {
+    const session = await this.requireMember(authorization);
+    const preference = await this.prisma.memberCommunicationPreference.upsert({
+      where: { accountId: session.accountId },
+      create: {
+        accountId: session.accountId,
+        productUpdatesAccepted: dto.consentAccepted,
+      },
+      update: { productUpdatesAccepted: dto.consentAccepted },
+      select: { productUpdatesAccepted: true, updatedAt: true },
+    });
+    if (!dto.consentAccepted) {
+      await this.prisma.memberNotificationPreferences.updateMany({
+        where: { accountId: session.accountId },
+        data: { marketingUpdates: false },
+      });
+    }
+    await this.recordAudit(
+      session.accountId,
+      "module2.marketing_consent.updated",
+      "member_communication_preference",
+      session.accountId,
+      "success",
+      { consentAccepted: dto.consentAccepted },
+    );
+    return {
+      marketingConsentAccepted: preference.productUpdatesAccepted,
+      updatedAt: preference.updatedAt.toISOString(),
+    };
   }
 
   async getNotificationPreferences(authorization?: string) {
