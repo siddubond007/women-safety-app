@@ -18,7 +18,7 @@ class EligibilityConsentScreen extends StatefulWidget {
 
   final EligibilityVerificationService service;
   final EligibilityConfiguration configuration;
-  final VoidCallback? onVerified;
+  final ValueChanged<EligibilityStatusResult>? onVerified;
 
   @override
   State<EligibilityConsentScreen> createState() =>
