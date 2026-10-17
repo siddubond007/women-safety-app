@@ -145,6 +145,7 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
         MaterialPageRoute<void>(
           builder: (_) => EligibilityStatusScreen(
             isDevelopmentBackend: widget.service.isDevelopmentBackend,
+            onOpenVerifiedHome: widget.onVerified,
             result: const EligibilityStatusResult(
               status: EligibilityStatus.providerUnavailable,
               message: 'A trusted eligibility status is unavailable. No conclusion about eligibility can be drawn.',
