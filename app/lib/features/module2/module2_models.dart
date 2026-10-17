@@ -260,3 +260,121 @@ class Module2Comment {
     );
   }
 }
+
+
+class Module2Group {
+  const Module2Group({
+    required this.id,
+    required this.name,
+    required this.slug,
+    required this.description,
+    required this.visibility,
+    required this.createdAt,
+    required this.creatorName,
+    required this.memberCount,
+    required this.upcomingEventsCount,
+    required this.membershipStatus,
+    required this.membershipRole,
+    required this.isOwner,
+  });
+
+  final String id;
+  final String name;
+  final String slug;
+  final String? description;
+  final String visibility;
+  final DateTime? createdAt;
+  final String creatorName;
+  final int memberCount;
+  final int upcomingEventsCount;
+  final String? membershipStatus;
+  final String? membershipRole;
+  final bool isOwner;
+
+  factory Module2Group.fromMap(Map<String, dynamic> json) {
+    final creator = jsonMap(json['creator']);
+    return Module2Group(
+      id: json['id'] is String ? json['id'] as String : '',
+      name: json['name'] is String ? json['name'] as String : 'Sakhi group',
+      slug: json['slug'] is String ? json['slug'] as String : '',
+      description: json['description'] is String ? json['description'] as String : null,
+      visibility: json['visibility'] is String ? json['visibility'] as String : 'VERIFIED_MEMBERS',
+      createdAt: json['createdAt'] is String ? DateTime.tryParse(json['createdAt'] as String) : null,
+      creatorName: creator['displayName'] is String ? creator['displayName'] as String : 'Sakhi member',
+      memberCount: jsonInt(json['memberCount']),
+      upcomingEventsCount: jsonInt(json['upcomingEventsCount']),
+      membershipStatus: json['membershipStatus'] is String ? json['membershipStatus'] as String : null,
+      membershipRole: json['membershipRole'] is String ? json['membershipRole'] as String : null,
+      isOwner: json['isOwner'] == true,
+    );
+  }
+}
+
+class Module2Event {
+  const Module2Event({
+    required this.id,
+    required this.title,
+    required this.description,
+    required this.locationCity,
+    required this.startsAt,
+    required this.endsAt,
+    required this.groupId,
+    required this.groupName,
+    required this.isRegistered,
+    required this.registrationCount,
+  });
+
+  final String id;
+  final String title;
+  final String description;
+  final String? locationCity;
+  final DateTime? startsAt;
+  final DateTime? endsAt;
+  final String groupId;
+  final String groupName;
+  final bool isRegistered;
+  final int registrationCount;
+
+  factory Module2Event.fromMap(Map<String, dynamic> json) {
+    final group = jsonMap(json['group']);
+    return Module2Event(
+      id: json['id'] is String ? json['id'] as String : '',
+      title: json['title'] is String ? json['title'] as String : 'Sakhi community event',
+      description: json['description'] is String ? json['description'] as String : '',
+      locationCity: json['locationCity'] is String ? json['locationCity'] as String : null,
+      startsAt: json['startsAt'] is String ? DateTime.tryParse(json['startsAt'] as String) : null,
+      endsAt: json['endsAt'] is String ? DateTime.tryParse(json['endsAt'] as String) : null,
+      groupId: group['id'] is String ? group['id'] as String : '',
+      groupName: group['name'] is String ? group['name'] as String : '',
+      isRegistered: json['isRegistered'] == true,
+      registrationCount: jsonInt(json['registrationCount']),
+    );
+  }
+}
+
+class Module2Expert {
+  const Module2Expert({
+    required this.accountId,
+    required this.businessName,
+    required this.description,
+    required this.websiteUrl,
+    required this.displayName,
+    required this.profilePhotoRef,
+  });
+
+  final String accountId;
+  final String businessName;
+  final String? description;
+  final String? websiteUrl;
+  final String displayName;
+  final String? profilePhotoRef;
+
+  factory Module2Expert.fromMap(Map<String, dynamic> json) => Module2Expert(
+    accountId: json['accountId'] is String ? json['accountId'] as String : '',
+    businessName: json['businessName'] is String ? json['businessName'] as String : 'Verified business',
+    description: json['description'] is String ? json['description'] as String : null,
+    websiteUrl: json['websiteUrl'] is String ? json['websiteUrl'] as String : null,
+    displayName: json['displayName'] is String ? json['displayName'] as String : 'Verified member',
+    profilePhotoRef: json['profilePhotoRef'] is String ? json['profilePhotoRef'] as String : null,
+  );
+}
