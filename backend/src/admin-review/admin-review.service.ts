@@ -246,10 +246,7 @@ export class AdminReviewService {
       },
       items: accounts.map((account) => {
         const latestSubmission = account.eligibilitySubmissions[0] ?? null;
-        const eligibilityStatus =
-          latestSubmission?.status === "PENDING_MANUAL_REVIEW"
-            ? "PENDING_MANUAL_REVIEW"
-            : account.verificationStatus;
+        const eligibilityStatus = latestSubmission?.status ?? account.verificationStatus;
         return {
           id: account.id,
           reference: `SK-${account.id.slice(0, 8).toUpperCase()}`,
@@ -311,7 +308,8 @@ export class AdminReviewService {
       const now = new Date();
 
       if (
-        nextVerificationStatus === "UNVERIFIED" &&
+        dto.verificationStatus === "UNVERIFIED" &&
+        account.verificationStatus !== "UNVERIFIED" &&
         latestSubmission?.status === "PENDING_MANUAL_REVIEW"
       ) {
         throw new ConflictException(
