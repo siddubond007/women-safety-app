@@ -408,7 +408,7 @@ class SakhiHomeScreen extends StatelessWidget {
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: const Text(
-                  'Preview build: service integrations and the backend are not connected yet. Do not rely on this prototype for emergency assistance.',
+                  'Home-screen development preview: feature-level services are still being integrated. Do not rely on this development build for emergency assistance.',
                   style: TextStyle(
                     color: sakhiMutedPlum,
                     fontSize: 12.5,
