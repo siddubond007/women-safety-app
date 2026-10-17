@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -160,7 +161,7 @@ export class Module2Controller {
     @Query("limit") limit?: string,
   ) {
     if (direction !== undefined && direction !== "followers" && direction !== "following") {
-      throw new TypeError('direction must be "followers" or "following".');
+      throw new BadRequestException('direction must be "followers" or "following".');
     }
     return this.module2.listFollowers(
       authorization,
@@ -273,7 +274,7 @@ export class Module2Controller {
     @Body() dto: DeactivateAccountDto,
   ) {
     if (dto.confirmation !== "DEACTIVATE") {
-      throw new TypeError('confirmation must be "DEACTIVATE".');
+      throw new BadRequestException('confirmation must be "DEACTIVATE".');
     }
     return this.module2.deactivateAccount(authorization);
   }
