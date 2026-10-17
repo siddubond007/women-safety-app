@@ -256,6 +256,7 @@ export class AdminReviewService {
           id: account.id,
           reference: `SK-${account.id.slice(0, 8).toUpperCase()}`,
           displayName: account.profile?.displayName ?? "Profile incomplete",
+          dateOfBirth: account.profile?.dateOfBirth.toISOString().slice(0, 10) ?? null,
           emailMasked: this.maskedMemberEmail(account.profile?.email ?? null),
           phoneMasked: this.maskedPhone(account.phoneE164),
           registeredAt: account.createdAt.toISOString(),
