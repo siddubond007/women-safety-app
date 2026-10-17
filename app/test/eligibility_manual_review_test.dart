@@ -81,7 +81,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        find.textContaining('This app does not capture or upload identity evidence.'),
+        find.textContaining('This request sends your consent and a manual-review request'),
         findsOneWidget,
       );
       expect(
