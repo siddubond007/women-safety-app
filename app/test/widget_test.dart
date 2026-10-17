@@ -3,8 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:women_safety_app/core/branding/app_brand.dart';
 import 'package:women_safety_app/core/theme/sakhi_design_system.dart';
 import 'package:women_safety_app/features/auth/auth_service.dart';
-import 'package:women_safety_app/features/home/sakhi_home_screen.dart';
 import 'package:women_safety_app/features/eligibility/eligibility_verification_models.dart';
+import 'package:women_safety_app/features/home/sakhi_home_screen.dart';
 import 'package:women_safety_app/main.dart';
 
 void main() {
@@ -178,7 +178,7 @@ void main() {
       const MaterialApp(
         home: SakhiHomeScreen(
           authService: UnconfiguredAuthService(),
-          verifiedStatus: EligibilityStatusResult(
+          verifiedStatus: const EligibilityStatusResult(
             status: EligibilityStatus.verified,
             message: 'Synthetic test status.',
             isDemo: false,
