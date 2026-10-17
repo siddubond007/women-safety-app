@@ -396,7 +396,7 @@ class _EligibilityConsentScreenState extends State<EligibilityConsentScreen> {
           const SizedBox(height: SakhiSpacing.xs),
           OutlinedButton(
             key: const Key('eligibility-preview-status-button'),
-            onPressed: _consentSelected && !_isWorking ? _viewStatus : null,
+            onPressed: _isWorking ? null : _viewStatus,
             style: OutlinedButton.styleFrom(
               foregroundColor: SakhiColors.purple,
               minimumSize: const Size.fromHeight(50),

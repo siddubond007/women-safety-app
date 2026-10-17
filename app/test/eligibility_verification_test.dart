@@ -313,7 +313,7 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('all seven canonical backend statuses have clear labels', (
+    testWidgets('all canonical backend statuses have clear labels', (
       tester,
     ) async {
       const labels = <EligibilityStatus, String>{
@@ -321,6 +321,7 @@ void main() {
         EligibilityStatus.inProgress: 'Verification In Progress',
         EligibilityStatus.pendingManualReview: 'Pending Manual Review',
         EligibilityStatus.verified: 'Verified',
+        EligibilityStatus.rejected: 'Rejected',
         EligibilityStatus.verificationFailed: 'Verification Failed',
         EligibilityStatus.temporarilyRestricted: 'Temporarily Restricted',
         EligibilityStatus.reverificationRequired: 'Reverification Required',
