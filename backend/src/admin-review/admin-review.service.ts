@@ -194,7 +194,16 @@ export class AdminReviewService {
         { profile: { is: { email: { contains: search, mode: "insensitive" } } } },
       ];
     }
-    const [accounts, total] = await Promise.all([
+    const [
+      accounts,
+      total,
+      totalAccounts,
+      activeAccounts,
+      pendingAccounts,
+      verifiedAccounts,
+      rejectedAccounts,
+      pendingManualReviews,
+    ] = await Promise.all([
       this.prisma.memberAccount.findMany({
         where,
         include: {
@@ -215,12 +224,26 @@ export class AdminReviewService {
         take: pageSize,
       }),
       this.prisma.memberAccount.count({ where }),
+      this.prisma.memberAccount.count(),
+      this.prisma.memberAccount.count({ where: { status: "ACTIVE" } }),
+      this.prisma.memberAccount.count({ where: { status: "PENDING_VERIFICATION" } }),
+      this.prisma.memberAccount.count({ where: { verificationStatus: "VERIFIED" } }),
+      this.prisma.memberAccount.count({ where: { verificationStatus: "REJECTED" } }),
+      this.prisma.eligibilitySubmission.count({ where: { status: "PENDING_MANUAL_REVIEW" } }),
     ]);
 
     return {
       total,
       page,
       pageSize,
+      summary: {
+        totalAccounts,
+        activeAccounts,
+        pendingAccounts,
+        verifiedAccounts,
+        rejectedAccounts,
+        pendingManualReviews,
+      },
       items: accounts.map((account) => {
         const latestSubmission = account.eligibilitySubmissions[0] ?? null;
         const eligibilityStatus =
