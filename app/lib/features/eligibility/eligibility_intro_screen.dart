@@ -4,6 +4,7 @@ import '../../core/assets/app_assets.dart';
 import '../../core/theme/sakhi_design_system.dart';
 import '../auth/widgets/auth_widgets.dart';
 import 'eligibility_information_screen.dart';
+import 'eligibility_verification_models.dart';
 import 'eligibility_verification_service.dart';
 import 'eligibility_widgets.dart';
 
@@ -15,7 +16,7 @@ class EligibilityIntroScreen extends StatelessWidget {
   });
 
   final EligibilityVerificationService service;
-  final VoidCallback? onVerified;
+  final ValueChanged<EligibilityStatusResult>? onVerified;
 
   @override
   Widget build(BuildContext context) {
