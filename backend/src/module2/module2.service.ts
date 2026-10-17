@@ -309,6 +309,60 @@ export class Module2Service {
     return { profile: { ...profile, updatedAt: profile.updatedAt.toISOString() } };
   }
 
+  async getMemberProfile(authorization: string | undefined, targetAccountId: string) {
+    const session = await this.requireMember(authorization);
+    if (targetAccountId === session.accountId) return this.getProfile(authorization);
+    await this.ensureNotBlocked(session.accountId, targetAccountId);
+    await this.ensureDefaultSettings(targetAccountId);
+    const target = await this.prisma.memberAccount.findFirst({
+      where: {
+        id: targetAccountId,
+        status: "ACTIVE",
+        verificationStatus: "VERIFIED",
+      },
+      include: { profile: true, privacySettings: true },
+    });
+    if (!target?.profile) throw new NotFoundException("This member is unavailable.");
+    const privacy = target.privacySettings;
+    const isFollowing = await this.prisma.socialFollow.findUnique({
+      where: {
+        followerAccountId_followingAccountId: {
+          followerAccountId: session.accountId,
+          followingAccountId: targetAccountId,
+        },
+      },
+      select: { followerAccountId: true },
+    });
+    if (
+      privacy?.profileVisibility === "ONLY_ME" ||
+      (privacy?.profileVisibility === "FOLLOWERS_ONLY" && !isFollowing)
+    ) {
+      throw new NotFoundException("This member is unavailable.");
+    }
+    const [postsCount, followersCount, followingCount] = await Promise.all([
+      this.prisma.memberPost.count({ where: this.postWhere(session.accountId, { authorAccountId: targetAccountId }) }),
+      this.prisma.socialFollow.count({ where: { followingAccountId: targetAccountId } }),
+      this.prisma.socialFollow.count({ where: { followerAccountId: targetAccountId } }),
+    ]);
+    return {
+      accountId: target.id,
+      profile: {
+        accountId: target.profile.accountId,
+        displayName: target.profile.displayName,
+        profilePhotoRef: target.profile.profilePhotoRef,
+        bio: target.profile.bio,
+        interests: target.profile.interests,
+        locationCity: privacy?.locationSharing === "CITY_ONLY" ? target.profile.locationCity : null,
+      },
+      counts: { posts: postsCount, followers: followersCount, following: followingCount },
+      isFollowing: Boolean(isFollowing),
+      privacy: {
+        profileVisibility: privacy?.profileVisibility ?? "VERIFIED_MEMBERS",
+        locationSharing: privacy?.locationSharing ?? "HIDDEN",
+      },
+    };
+  }
+
   async getDiscover(authorization: string | undefined, query = "", limit?: string) {
     const session = await this.requireMember(authorization);
     const take = this.pageSize(limit);
@@ -628,15 +682,22 @@ export class Module2Service {
               },
             },
           };
-    const rows = await this.prisma.socialFollow.findMany({
-      where,
-      include: {
-        follower: { include: { profile: { select: profilePublicSelect } } },
-        following: { include: { profile: { select: profilePublicSelect } } },
-      },
-      orderBy: { createdAt: "desc" },
-      take,
-    });
+    const [rows, existingFollowing] = await Promise.all([
+      this.prisma.socialFollow.findMany({
+        where,
+        include: {
+          follower: { include: { profile: { select: profilePublicSelect } } },
+          following: { include: { profile: { select: profilePublicSelect } } },
+        },
+        orderBy: { createdAt: "desc" },
+        take,
+      }),
+      this.prisma.socialFollow.findMany({
+        where: { followerAccountId: session.accountId },
+        select: { followingAccountId: true },
+      }),
+    ]);
+    const followingIds = new Set(existingFollowing.map((row) => row.followingAccountId));
     return {
       members: rows.map((row) => {
         const member = direction === "followers" ? row.follower : row.following;
@@ -645,9 +706,7 @@ export class Module2Service {
           displayName: member.profile?.displayName ?? "Sakhi member",
           profilePhotoRef: member.profile?.profilePhotoRef ?? null,
           bio: member.profile?.bio ?? null,
-          isFollowing: direction === "following" || rows.some(
-            (candidate) => candidate.followerAccountId === session.accountId && candidate.followingAccountId === member.id,
-          ),
+          isFollowing: followingIds.has(member.id),
         };
       }),
       direction,
