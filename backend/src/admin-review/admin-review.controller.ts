@@ -2,6 +2,7 @@ import { Body, Controller, Get, Headers, Param, ParseUUIDPipe, Post } from "@nes
 import { ApiHeader, ApiOkResponse, ApiTags } from "@nestjs/swagger";
 import { AdminReviewService } from "./admin-review.service.js";
 import { ManualEligibilityDecisionDto } from "./admin-review.dto.js";
+import { DevelopmentMemberStateDto } from "./admin-member-state.dto.js";
 
 @ApiTags("admin-review")
 @ApiHeader({ name: "X-Sakhi-Admin-Token", required: true, description: "Shared reviewer token for local dev/test only. Never use this mechanism in production." })
@@ -13,6 +14,22 @@ export class AdminReviewController {
   @ApiOkResponse({ description: "Validates local dev/test reviewer access." })
   session(@Headers("x-sakhi-admin-token") token?: string) {
     return this.review.session(token);
+  }
+
+  @Get("members")
+  @ApiOkResponse({ description: "Lists persisted member accounts from the development database." })
+  members(@Headers("x-sakhi-admin-token") token?: string) {
+    return this.review.members(token);
+  }
+
+  @Post("members/:accountId/state")
+  @ApiOkResponse({ description: "Updates a member's persisted development account/verification state." })
+  updateMemberState(
+    @Headers("x-sakhi-admin-token") token: string | undefined,
+    @Param("accountId", new ParseUUIDPipe({ version: "4" })) accountId: string,
+    @Body() dto: DevelopmentMemberStateDto,
+  ) {
+    return this.review.updateMemberState(accountId, dto, token);
   }
 
   @Get("queue")
