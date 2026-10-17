@@ -122,17 +122,24 @@ class _SakhiHomeDashboardScreenState extends State<SakhiHomeDashboardScreen> {
       warning = 'The backend could not confirm session revocation.';
     }
     if (!mounted) return;
+    final warningMessage = warning;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute<void>(
-        builder: (_) => SakhiLoginScreen(authService: widget.authService),
+        builder: (loginContext) {
+          if (warningMessage != null) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (loginContext.mounted) {
+                ScaffoldMessenger.maybeOf(loginContext)?.showSnackBar(
+                  SnackBar(content: Text(warningMessage)),
+                );
+              }
+            });
+          }
+          return SakhiLoginScreen(authService: widget.authService);
+        },
       ),
       (_) => false,
     );
-    if (warning != null && mounted) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(warning)),
-      );
-    }
   }
 
   @override
