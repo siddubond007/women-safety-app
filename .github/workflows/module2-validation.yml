@@ -1,0 +1,59 @@
+name: Sakhi Module 2 validation
+
+on:
+  push:
+    branches:
+      - feature/module-2-profile-account-management
+    paths:
+      - "backend/**"
+      - "app/**"
+      - ".github/workflows/module2-validation.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - "app/**"
+      - ".github/workflows/module2-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend schema, types, tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.22.0"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm run prisma:validate
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  flutter:
+    name: Flutter static analysis and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.7"
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
