@@ -15,6 +15,7 @@ class Module2State extends ChangeNotifier {
   List<Module2Post> feedPosts = [];
   List<Module2Post> profilePosts = [];
   List<Module2Post> savedPosts = [];
+  final Map<String, List<Module2Comment>> commentsByPost = <String, List<Module2Comment>>{};
   List<Module2Member> discoveredMembers = [];
   List<Module2Member> followers = [];
   List<Module2Member> following = [];
@@ -278,6 +279,77 @@ class Module2State extends ChangeNotifier {
     );
     if (payload == null) return false;
     savedPosts = jsonMapList(payload['posts']).map(Module2Post.fromMap).toList();
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> loadComments(String postId) async {
+    final payload = await _safe(
+      () => api.get('module2/posts/' + postId + '/comments', authenticated: true),
+    );
+    if (payload == null) return false;
+    commentsByPost[postId] = jsonMapList(payload['comments'])
+        .map(Module2Comment.fromMap)
+        .toList();
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> createComment(String postId, String body) async {
+    final text = body.trim();
+    if (text.isEmpty) {
+      errorMessage = 'Write a comment before sending.';
+      notifyListeners();
+      return false;
+    }
+    final payload = await _safe(
+      () => api.post(
+        'module2/posts/' + postId + '/comments',
+        authenticated: true,
+        body: <String, Object?>{'body': text},
+      ),
+    );
+    if (payload == null) return false;
+    actionMessage = 'Comment added.';
+    await loadComments(postId);
+    await loadFeed();
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> deleteComment(String commentId, String postId) async {
+    final payload = await _safe(
+      () => api.delete('module2/comments/' + commentId, authenticated: true),
+    );
+    if (payload == null) return false;
+    actionMessage = 'Comment removed.';
+    await loadComments(postId);
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> updateMarketingConsent(bool consentAccepted) async {
+    final payload = await _safe(
+      () => api.put(
+        'module2/marketing-consent',
+        authenticated: true,
+        body: <String, Object?>{'consentAccepted': consentAccepted},
+      ),
+    );
+    if (payload == null) return false;
+    notificationPreferences = <String, dynamic>{
+      ...notificationPreferences,
+      'marketingConsentAccepted': payload['marketingConsentAccepted'] == true,
+    };
+    if (!consentAccepted) {
+      notificationPreferences = <String, dynamic>{
+        ...notificationPreferences,
+        'marketingUpdates': false,
+      };
+    }
+    actionMessage = consentAccepted
+        ? 'Optional product-updates consent saved.'
+        : 'Optional product-updates consent withdrawn.';
     notifyListeners();
     return true;
   }
