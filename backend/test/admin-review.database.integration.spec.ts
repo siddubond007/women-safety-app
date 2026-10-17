@@ -18,6 +18,7 @@ import { AdminReviewController } from "../src/admin-review/admin-review.controll
 import { AdminReviewModule } from "../src/admin-review/admin-review.module.js";
 import { AdminReviewService } from "../src/admin-review/admin-review.service.js";
 import { ManualEligibilityDecisionDto } from "../src/admin-review/admin-review.dto.js";
+import { DevelopmentMemberStateDto } from "../src/admin-review/admin-member-state.dto.js";
 import { EligibilityController } from "../src/eligibility/eligibility.controller.js";
 import { EligibilityModule } from "../src/eligibility/eligibility.module.js";
 import { EligibilityService } from "../src/eligibility/eligibility.service.js";
@@ -79,6 +80,8 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
       Reflect.defineMetadata("design:paramtypes", [String, StartManualReviewDto], EligibilityController.prototype, "start");
       Reflect.defineMetadata("design:paramtypes", [PrismaService], AdminReviewService);
       Reflect.defineMetadata("design:paramtypes", [AdminReviewService], AdminReviewController);
+      Reflect.defineMetadata("design:paramtypes", [String, String, String, String, String, String], AdminReviewController.prototype, "members");
+      Reflect.defineMetadata("design:paramtypes", [String, String, DevelopmentMemberStateDto], AdminReviewController.prototype, "updateMemberState");
       Reflect.defineMetadata("design:paramtypes", [String, String, ManualEligibilityDecisionDto], AdminReviewController.prototype, "decide");
 
       const testingModule = await Test.createTestingModule({
@@ -225,6 +228,63 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
       });
       return { accountId: account.id, authorization: "Bearer " + accessToken };
     }
+
+    it("lists real database members and persists a development-only state override", async () => {
+      if (!app) throw new Error("Integration-test API did not initialize.");
+      const reviewerToken = process.env.SAKHI_ADMIN_REVIEW_TOKEN!;
+      const member = await createSyntheticMember("Synthetic Admin State QA");
+
+      const directory = await request(app.getHttpServer())
+        .get("/api/v1/admin-review/members?page=1&pageSize=10&search=Synthetic%20Admin%20State%20QA")
+        .set("X-Sakhi-Admin-Token", reviewerToken)
+        .expect(200);
+      expect(directory.body.total).toBe(1);
+      expect(directory.body.items).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: member.accountId,
+            displayName: "Synthetic Admin State QA",
+            accountStatus: "PENDING_VERIFICATION",
+            verificationStatus: "UNVERIFIED",
+            profileComplete: true,
+          }),
+        ]),
+      );
+
+      await request(app.getHttpServer())
+        .post("/api/v1/admin-review/members/" + member.accountId + "/state")
+        .set("X-Sakhi-Admin-Token", reviewerToken)
+        .send({
+          accountStatus: "ACTIVE",
+          verificationStatus: "VERIFIED",
+          reason: "Synthetic QA override to validate the development home-access workflow.",
+        })
+        .expect(201)
+        .expect(({ body }) => {
+          expect(body).toMatchObject({
+            accountId: member.accountId,
+            accountStatus: "ACTIVE",
+            verificationStatus: "VERIFIED",
+            mode: "local_dev_test_only",
+          });
+        });
+
+      const account = await request(app.getHttpServer())
+        .get("/api/v1/auth/me")
+        .set("Authorization", member.authorization)
+        .expect(200);
+      expect(account.body).toMatchObject({
+        accountId: member.accountId,
+        status: "ACTIVE",
+        verificationStatus: "VERIFIED",
+      });
+
+      const eligibility = await request(app.getHttpServer())
+        .get("/api/v1/eligibility/status")
+        .set("Authorization", member.authorization)
+        .expect(200);
+      expect(eligibility.body.eligibilityStatus).toBe("VERIFIED");
+    }, 30000);
 
     it("persists submission, approval/rejection, member status and audit history", async () => {
       if (!app) throw new Error("Integration-test API did not initialize.");
