@@ -15,7 +15,10 @@ const _secureStorageChannel =
 class _RealHttpOverrides extends HttpOverrides {
   @override
   HttpClient createHttpClient(SecurityContext? context) {
-    return super.createHttpClient(context);
+    final client = super.createHttpClient(context);
+    // These fixtures use loopback servers only; fail quickly if a fixture is broken.
+    client.connectionTimeout = const Duration(seconds: 3);
+    return client;
   }
 }
 
