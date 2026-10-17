@@ -163,6 +163,26 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
               message: 'DEMO ONLY — no mobile number was verified by SMS, no account was created, and no authenticated session exists. The preview Home is not treated as a protected destination.',
             ),
           ],
+          if (widget.authService.isDevelopmentBackend &&
+              widget.accountState == AuthAccountState.existingAccount) ...[
+            const SizedBox(height: SakhiSpacing.md),
+            FilledButton.icon(
+              key: const Key('auth-status-home-button'),
+              onPressed: _isSigningOut
+                  ? null
+                  : () => Navigator.of(context).pushNamed('/home'),
+              icon: const Icon(Icons.home_outlined),
+              label: const Text('Continue to Sakhi home'),
+              style: FilledButton.styleFrom(
+                backgroundColor: SakhiColors.purple,
+                foregroundColor: Colors.white,
+                minimumSize: const Size.fromHeight(50),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(SakhiRadii.control),
+                ),
+              ),
+            ),
+          ],
           if (widget.accountState == AuthAccountState.existingAccount ||
               widget.accountState == AuthAccountState.pendingVerification) ...[
             const SizedBox(height: SakhiSpacing.md),
