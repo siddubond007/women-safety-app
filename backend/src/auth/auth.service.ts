@@ -249,10 +249,17 @@ export class AuthenticationService {
     });
   }
 
-  private accountState(status: string): AccountState {
-    if (status === "ACTIVE") return "existingAccount";
-    if (status === "PENDING_VERIFICATION") return "pendingVerification";
-    return "restricted";
+  private accountState(
+    status: string,
+    verificationStatus: string,
+  ): AccountState {
+    if (status === "RESTRICTED" || status === "SUSPENDED" || status === "DELETED") {
+      return "restricted";
+    }
+    if (status === "ACTIVE" && verificationStatus === "VERIFIED") {
+      return "existingAccount";
+    }
+    return "pendingVerification";
   }
 
   async verifyOtp(dto: VerifyOtpDto) {
@@ -430,7 +437,7 @@ export class AuthenticationService {
       // registration even if the user returns through the login route.
       const state: AccountState = !profile
         ? "newAccount"
-        : this.accountState(account.status);
+        : this.accountState(account.status, account.verificationStatus);
 
       await tx.auditEvent.createMany({
         data: {
