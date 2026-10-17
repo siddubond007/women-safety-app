@@ -525,8 +525,6 @@ class _SakhiHomeDashboardScreenState extends State<SakhiHomeDashboardScreen> {
                 ),
               ),
             ),
-            const _PreviewPill(),
-            const SizedBox(width: 5),
             TextButton(
               onPressed: () => _navigate(_HomePage.community),
               child: const Text('See all'),
@@ -560,6 +558,8 @@ class _SakhiHomeDashboardScreenState extends State<SakhiHomeDashboardScreen> {
           description: 'on women’s safety',
           onTap: () => _navigate(_HomePage.safety),
         ),
+        const SizedBox(height: 10),
+        _note('Sample dashboard cards are shown for visual testing and are not live feed data.'),
       ],
     );
   }
@@ -890,7 +890,6 @@ class _SakhiHomeDashboardScreenState extends State<SakhiHomeDashboardScreen> {
                     SizedBox(height: 8),
                     Text('Explore tools and resources to feel better, every day.', style: TextStyle(fontSize: 12, color: SakhiColors.mutedPlum)),
                     SizedBox(height: 8),
-                    _PreviewPill(),
                   ],
                 ),
               ),
@@ -1667,21 +1666,6 @@ class _NavItem extends StatelessWidget {
   }
 }
 
-class _PreviewPill extends StatelessWidget {
-  const _PreviewPill();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF2E6FA),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: const Text('Preview', style: TextStyle(fontSize: 9.5, color: SakhiColors.purple, fontWeight: FontWeight.w700)),
-    );
-  }
-}
 
 class _FilterChip extends StatelessWidget {
   const _FilterChip({required this.label, required this.selected, required this.onTap});
