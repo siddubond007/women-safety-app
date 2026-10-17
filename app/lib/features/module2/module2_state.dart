@@ -115,6 +115,7 @@ class Module2State extends ChangeNotifier {
     required String bio,
     required String locationCity,
     required List<String> interests,
+    String? email,
   }) async {
     isSaving = true;
     notifyListeners();
@@ -127,6 +128,7 @@ class Module2State extends ChangeNotifier {
           'bio': bio.trim().isEmpty ? null : bio.trim(),
           'locationCity': locationCity.trim().isEmpty ? null : locationCity.trim(),
           'interests': interests,
+          if (email != null) 'email': email.trim().isEmpty ? null : email.trim(),
         },
       ),
     );
