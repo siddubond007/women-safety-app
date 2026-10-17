@@ -48,10 +48,10 @@ export function LoginPage({ onAuthenticate }: LoginPageProps) {
           <p className="login-card-description">Enter the reviewer token configured in the local backend process.</p>
           <form onSubmit={submit}>
             <label className="member-form-label" htmlFor="reviewer-token">Reviewer token <span>Required</span></label>
-            <input id="reviewer-token" className="admin-review-token-input" type="password" autoComplete="current-password" value={token} onChange={(event) => setToken(event.target.value)} minLength={32} required aria-describedby="reviewer-token-help" />
+            <input id="reviewer-token" className="admin-review-token-input" type="password" autoComplete="current-password" value={token} onChange={(event) => setToken(event.target.value)} minLength={16} required aria-describedby="reviewer-token-help" />
             <p id="reviewer-token-help" className="admin-review-help">The token is validated by the server and held in this browser tab's session storage. Never commit it or put it in a VITE_* variable.</p>
             {error && <p className="admin-review-error" role="alert">{error}</p>}
-            <button className="button button--primary login-submit" type="submit" disabled={isSubmitting || token.trim().length < 32}>{isSubmitting ? "Checking reviewer access..." : "Sign in to review"} <ArrowRight size={17} /></button>
+            <button className="button button--primary login-submit" type="submit" disabled={isSubmitting || token.trim().length < 16}>{isSubmitting ? "Checking reviewer access..." : "Sign in to review"} <ArrowRight size={17} /></button>
           </form>
           <div className="demo-notice"><span className="demo-notice-icon"><LockKeyhole size={17} /></span><div><strong>Development-only reviewer gate</strong><p>This backend does not yet have individual admin accounts or MFA. The configured shared token is for local dev/test only; production startup is disabled.</p></div></div>
           <div className="login-card-footer">Sakhi Super Admin <span>-</span> Manual eligibility review</div>
