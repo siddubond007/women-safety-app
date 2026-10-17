@@ -6,8 +6,8 @@ import 'core/theme/sakhi_design_system.dart';
 import 'features/auth/auth_service.dart';
 import 'features/auth/auth_service_factory.dart';
 import 'features/auth/sakhi_auth_status_screen.dart';
-import 'features/auth/sakhi_registration_screen.dart';
 import 'features/auth/sakhi_login_screen.dart';
+import 'features/auth/sakhi_registration_screen.dart';
 import 'features/onboarding/sakhi_onboarding_screen.dart';
 
 const Color sakhiPlum = SakhiColors.plum;
