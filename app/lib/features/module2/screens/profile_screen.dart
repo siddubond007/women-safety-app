@@ -22,6 +22,16 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   int _tabIndex = 0;
 
+  @override
+  void initState() {
+    super.initState();
+    if (SakhiPrototypeState.instance.showSavedPostsFirst) {
+      _tabIndex = 1;
+      SakhiPrototypeState.instance.showSavedPostsFirst = false;
+      SakhiPrototypeState.instance.backend?.loadSavedPosts();
+    }
+  }
+
   void _navigate(String route) {
     final handler = widget.onNavigateRoute;
     if (handler != null) {
