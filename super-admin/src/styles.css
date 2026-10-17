@@ -666,3 +666,34 @@ svg { flex-shrink: 0; }
 .eligibility-review-decision-buttons { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 .eligibility-review-history { margin-top: 0; }
 @media (max-width: 640px) { .eligibility-review-page > .page-heading { flex-direction: column; } .eligibility-review-details { grid-template-columns: minmax(0, 1fr); } .eligibility-review-decision-buttons { flex-direction: column-reverse; } .eligibility-review-decision-buttons .button { justify-content: center; } }
+
+/* Live database member directory additions */
+.admin-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid #efcbd5;
+  border-radius: 10px;
+  color: #9b2948;
+  background: #fff4f6;
+  font-size: 12px;
+}
+.admin-error-banner > span { flex: 1; min-width: 0; }
+.member-subline { display: block; margin-top: 5px; color: #9c8da2; font-size: 10px; white-space: nowrap; }
+.member-empty-cell { padding: 28px !important; color: #928397; text-align: center; font-size: 12px; }
+.member-pagination { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 19px; border-top: 1px solid #f0e9f1; color: #9c8da2; font-size: 11px; }
+.member-pagination > div { display: flex; gap: 8px; }
+.member-detail-section .member-filter-select { margin: 13px 0; }
+.member-filter-select textarea { width: 100%; min-height: 88px; padding: 10px; border: 1px solid #eae1eb; border-radius: 8px; color: #55445d; background: #fff; font: inherit; font-size: 12px; resize: vertical; }
+.member-filter-select textarea:focus { outline: 2px solid rgba(185, 71, 118, .15); border-color: #cf8aaa; }
+@media (max-width: 880px) {
+  .member-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .member-filter-toolbar { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .member-search-field { grid-column: 1 / -1; }
+}
+@media (max-width: 520px) {
+  .member-pagination { align-items: flex-start; flex-direction: column; }
+  .member-filter-toolbar { grid-template-columns: minmax(0, 1fr); }
+  .member-search-field { grid-column: auto; }
+}
