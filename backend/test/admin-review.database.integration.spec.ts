@@ -129,6 +129,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
               OR: [
                 { actorId: { in: fixtureAccountIds } },
                 { targetId: { in: submissionIds } },
+                { targetType: "member_account", targetId: { in: fixtureAccountIds } },
               ],
             },
           });
