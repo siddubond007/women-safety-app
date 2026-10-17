@@ -973,7 +973,7 @@ class _SakhiHomeDashboardScreenState extends State<SakhiHomeDashboardScreen> {
                 height: 124,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: const Color(0xFFDAB9E8).withOpacity(0.45),
+                  color: const Color(0xFFDAB9E8).withValues(alpha: 0.45),
                 ),
               ),
               Column(
