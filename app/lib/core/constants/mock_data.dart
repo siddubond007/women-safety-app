@@ -164,7 +164,6 @@ class SakhiPrototypeState extends ChangeNotifier {
   String get verificationStatus => _backend?.profile?.verificationStatus ?? 'UNVERIFIED';
   bool get phoneVerified => _backend?.profile?.phoneVerified ?? false;
   String get maskedPhone => _backend?.profile?.phoneMasked ?? '';
-  String get? _reserved => null;
 
   Future<void> bind(Module2State state) async {
     if (identical(_backend, state)) return;
