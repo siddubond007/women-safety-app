@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string] $PrototypeZip,
 
-    [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
+    [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 )
 
 $ErrorActionPreference = 'Stop'
@@ -41,7 +41,7 @@ try {
 
     $catalogueText = Get-Content -LiteralPath $assetCatalogue -Raw
     $requiredAssets = @(
-        [regex]::Matches($catalogueText, "['"](assets/[^'""]+)['"]") |
+        [regex]::Matches($catalogueText, "'(assets/[^']+)'") |
         ForEach-Object { $_.Groups[1].Value } |
         Sort-Object -Unique
     )
