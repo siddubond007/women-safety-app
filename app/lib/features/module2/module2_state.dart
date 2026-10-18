@@ -537,7 +537,12 @@ class Module2State extends ChangeNotifier {
       return false;
     }
     actionMessage = 'Your post was published.';
+    final ownAccountId = profile?.accountId;
     await loadFeed();
+    await loadProfile();
+    if (ownAccountId != null && ownAccountId.isNotEmpty) {
+      await loadFeed(accountId: ownAccountId);
+    }
     notifyListeners();
     return true;
   }
@@ -646,6 +651,7 @@ class Module2State extends ChangeNotifier {
     );
     if (payload == null) return false;
     actionMessage = 'Comment added.';
+    _adjustCommentCount(postId, 1);
     await loadComments(postId);
     await loadFeed();
     notifyListeners();
@@ -658,9 +664,23 @@ class Module2State extends ChangeNotifier {
     );
     if (payload == null) return false;
     actionMessage = 'Comment removed.';
+    _adjustCommentCount(postId, -1);
     await loadComments(postId);
+    await loadFeed();
     notifyListeners();
     return true;
+  }
+
+  void _adjustCommentCount(String postId, int delta) {
+    Module2Post adjust(Module2Post post) {
+      if (post.id != postId) return post;
+      final count = (post.commentCount + delta).clamp(0, 1 << 30).toInt();
+      return post.copyWith(commentCount: count);
+    }
+
+    feedPosts = feedPosts.map(adjust).toList();
+    profilePosts = profilePosts.map(adjust).toList();
+    savedPosts = savedPosts.map(adjust).toList();
   }
 
   Future<bool> updateMarketingConsent(bool consentAccepted) async {
