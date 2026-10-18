@@ -57,7 +57,7 @@ export class UpdateProfileDto {
   @IsOptional()
   @IsString()
   @MaxLength(512)
-  @Matches(/^profile\/[A-Za-z0-9][A-Za-z0-9_./-]*$/)
+  @Matches(/^profile\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/[A-Za-z0-9][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9][A-Za-z0-9_.-]*)*$/i)
   profilePhotoRef?: string | null;
 }
 
