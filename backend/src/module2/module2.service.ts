@@ -642,6 +642,53 @@ export class Module2Service {
     return { post: { id: post.id, audience: post.audience, createdAt: post.createdAt.toISOString() } };
   }
 
+  async deletePost(authorization: string | undefined, postId: string) {
+    const session = await this.requireMember(authorization);
+    const post = await this.prisma.memberPost.findFirst({
+      where: {
+        id: postId,
+        accountId: session.accountId,
+        status: "PUBLISHED",
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (!post) throw new NotFoundException("This post is unavailable.");
+
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.memberPost.update({
+        where: { id: post.id },
+        data: {
+          body: "[removed by author]",
+          mediaRef: null,
+          status: "REMOVED",
+          deletedAt: now,
+        },
+      });
+      await tx.memberPostComment.updateMany({
+        where: { postId: post.id, deletedAt: null },
+        data: { body: "[removed]", deletedAt: now },
+      });
+      await tx.memberPostLike.deleteMany({ where: { postId: post.id } });
+      await tx.memberPostBookmark.deleteMany({ where: { postId: post.id } });
+      await tx.postAudienceMember.deleteMany({ where: { postId: post.id } });
+      await tx.auditEvent.createMany({
+        data: {
+          actorType: "MEMBER",
+          actorId: session.accountId,
+          action: "module2.post.deleted_by_author",
+          targetType: "member_post",
+          targetId: post.id,
+          outcome: "success",
+          requestId: randomUUID(),
+        },
+      });
+    });
+
+    return { postId: post.id, deleted: true };
+  }
+
   private async findVisiblePost(accountId: string, postId: string) {
     const post = await this.prisma.memberPost.findFirst({
       where: { id: postId, ...this.postWhere(accountId) },
