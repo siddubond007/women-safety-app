@@ -248,11 +248,12 @@ BEGIN
     EXECUTE format('GRANT SELECT, INSERT, DELETE ON TABLE member_post_bookmarks TO %I', app_role);
     EXECUTE format('GRANT SELECT, INSERT, UPDATE ON TABLE member_post_comments TO %I', app_role);
     EXECUTE format('GRANT SELECT, INSERT, DELETE ON TABLE social_follows TO %I', app_role);
-    EXECUTE format('GRANT SELECT, INSERT, UPDATE ON TABLE member_privacy_settings TO %I', app_role);
-    EXECUTE format('GRANT SELECT, INSERT, UPDATE ON TABLE member_notification_preferences TO %I', app_role);
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE member_privacy_settings TO %I', app_role);
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE member_notification_preferences TO %I', app_role);
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE member_communication_preferences TO %I', app_role);
     EXECUTE format('GRANT SELECT, INSERT, DELETE ON TABLE member_blocks TO %I', app_role);
     EXECUTE format('GRANT SELECT, INSERT, UPDATE ON TABLE member_reports TO %I', app_role);
-    EXECUTE format('GRANT SELECT, INSERT, UPDATE ON TABLE business_profiles TO %I', app_role);
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE business_profiles TO %I', app_role);
     EXECUTE format('GRANT SELECT, INSERT, UPDATE ON TABLE account_deletion_requests TO %I', app_role);
     EXECUTE format('GRANT SELECT, UPDATE ON TABLE member_profiles TO %I', app_role);
     EXECUTE format('GRANT SELECT, UPDATE ON TABLE member_accounts TO %I', app_role);
