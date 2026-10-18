@@ -72,6 +72,12 @@ flutter:
     - assets/brand/
     - assets/images/onboarding/
     - assets/images/illustrations/
+    - assets/images/home/
+    - assets/images/explore/
+    - assets/images/community/
+    - assets/images/wellness/
+    - assets/images/safety/
+    - assets/images/profile/
     - assets/icons/
 
   # The following line ensures that the Material Icons font is
