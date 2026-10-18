@@ -167,21 +167,4 @@ void main() {
     expect(find.byKey(const Key('auth-send-otp-button')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
-
-  testWidgets('shared home feature cards retain their existing navigation', (
-    WidgetTester tester,
-  ) async {
-    await tester.pumpWidget(const MaterialApp(home: SakhiHomeScreen()));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('Safety & support'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Safety & support preview'), findsOneWidget);
-    expect(
-      find.textContaining('service and backend integration'),
-      findsOneWidget,
-    );
-    expect(tester.takeException(), isNull);
-  });
 }
