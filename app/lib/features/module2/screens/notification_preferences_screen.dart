@@ -64,10 +64,11 @@ class NotificationPreferencesScreen extends StatelessWidget {
       );
       if (!context.mounted || consent != true) return;
       final savedConsent = await state.setMarketingConsent(true);
+      if (!context.mounted) return;
       if (!savedConsent) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.backend?.errorMessage ?? 'Consent could not be saved.')));
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(state.backend?.errorMessage ?? 'Consent could not be saved.')),
+        );
         return;
       }
     }
