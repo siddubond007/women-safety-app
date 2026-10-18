@@ -87,6 +87,10 @@ class _Module2NavigationShellState extends State<Module2NavigationShell> {
   void _openMemberProfile(String accountId) {
     final targetId = accountId.trim();
     if (!mounted || targetId.isEmpty) return;
+    if (targetId == _state.profile?.accountId) {
+      _navigate(AppRoutes.profile);
+      return;
+    }
     setState(() {
       _selectedMemberAccountId = targetId;
       _route = AppRoutes.memberProfile;
