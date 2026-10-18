@@ -25,6 +25,7 @@ import type {
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 50;
+const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const profilePublicSelect = {
   accountId: true,
   displayName: true,
@@ -530,11 +531,11 @@ export class Module2Service {
     options: { accountId?: string; query?: string; cursor?: string; limit?: string } = {},
   ) {
     const session = await this.requireMember(authorization);
-    if (options.accountId && !/^[0-9a-f-]{36}$/i.test(options.accountId)) {
+    if (options.accountId && !UUID_V4_PATTERN.test(options.accountId)) {
       throw new BadRequestException("accountId must be a valid UUID.");
     }
     const take = this.pageSize(options.limit);
-    if (options.cursor && !/^[0-9a-f-]{36}$/i.test(options.cursor)) {
+    if (options.cursor && !UUID_V4_PATTERN.test(options.cursor)) {
       throw new BadRequestException("cursor must be a valid UUID.");
     }
     const where = this.postWhere(session.accountId, {
