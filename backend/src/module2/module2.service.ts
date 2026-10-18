@@ -1522,7 +1522,14 @@ export class Module2Service {
         status: "PUBLISHED",
         endsAt: { gte: startsAt },
         host: {
-          is: { status: "ACTIVE", verificationStatus: "VERIFIED" },
+          is: {
+            status: "ACTIVE",
+            verificationStatus: "VERIFIED",
+            AND: [
+              { NOT: { blockedAccounts: { some: { blockedAccountId: session.accountId } } } },
+              { NOT: { blockedByAccounts: { some: { blockerAccountId: session.accountId } } } },
+            ],
+          },
         },
         group: {
           is: {
@@ -1645,7 +1652,14 @@ export class Module2Service {
         status: "PUBLISHED",
         endsAt: { gte: new Date() },
         host: {
-          is: { status: "ACTIVE", verificationStatus: "VERIFIED" },
+          is: {
+            status: "ACTIVE",
+            verificationStatus: "VERIFIED",
+            AND: [
+              { NOT: { blockedAccounts: { some: { blockedAccountId: session.accountId } } } },
+              { NOT: { blockedByAccounts: { some: { blockerAccountId: session.accountId } } } },
+            ],
+          },
         },
         group: {
           is: {
