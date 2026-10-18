@@ -301,7 +301,7 @@ class SakhiPrototypeState extends ChangeNotifier {
 
   String _safeImageRef(String? ref) {
     if (ref == null || ref.trim().isEmpty) return '';
-    if (ref.startsWith('http://') || ref.startsWith('https://')) return ref;
+    if (ref.startsWith('https://')) return ref;
     return '';
   }
 
