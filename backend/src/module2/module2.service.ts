@@ -993,6 +993,18 @@ export class Module2Service {
     const groups = await this.prisma.communityGroup.findMany({
       where: {
         status: "ACTIVE",
+        // Blocking must suppress the member's groups from discovery as well
+        // as suppressing their feed/profile content.
+        creator: {
+          is: {
+            status: "ACTIVE",
+            verificationStatus: "VERIFIED",
+            AND: [
+              { NOT: { blockedAccounts: { some: { blockedAccountId: session.accountId } } } },
+              { NOT: { blockedByAccounts: { some: { blockerAccountId: session.accountId } } } },
+            ],
+          },
+        },
         ...(options.mine
           ? { members: { some: { accountId: session.accountId, status: "ACTIVE" } } }
           : {
@@ -1197,6 +1209,16 @@ export class Module2Service {
         group: {
           is: {
             status: "ACTIVE",
+            creator: {
+              is: {
+                status: "ACTIVE",
+                verificationStatus: "VERIFIED",
+                AND: [
+                  { NOT: { blockedAccounts: { some: { blockedAccountId: session.accountId } } } },
+                  { NOT: { blockedByAccounts: { some: { blockerAccountId: session.accountId } } } },
+                ],
+              },
+            },
             OR: [
               { visibility: "VERIFIED_MEMBERS" },
               { members: { some: { accountId: session.accountId, status: "ACTIVE" } } },
@@ -1277,6 +1299,16 @@ export class Module2Service {
         group: {
           is: {
             status: "ACTIVE",
+            creator: {
+              is: {
+                status: "ACTIVE",
+                verificationStatus: "VERIFIED",
+                AND: [
+                  { NOT: { blockedAccounts: { some: { blockedAccountId: session.accountId } } } },
+                  { NOT: { blockedByAccounts: { some: { blockerAccountId: session.accountId } } } },
+                ],
+              },
+            },
             OR: [
               { visibility: "VERIFIED_MEMBERS" },
               { members: { some: { accountId: session.accountId, status: "ACTIVE" } } },
