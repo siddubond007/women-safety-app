@@ -317,7 +317,6 @@ export class Module2Service {
     const session = await this.requireMember(authorization);
     if (targetAccountId === session.accountId) return this.getProfile(authorization);
     await this.ensureNotBlocked(session.accountId, targetAccountId);
-    await this.ensureDefaultSettings(targetAccountId);
     const target = await this.prisma.memberAccount.findFirst({
       where: {
         id: targetAccountId,
@@ -479,17 +478,21 @@ export class Module2Service {
   async listSavedPosts(authorization?: string) {
     const session = await this.requireMember(authorization);
     const bookmarks = await this.prisma.memberPostBookmark.findMany({
-      where: { accountId: session.accountId },
+      where: {
+        accountId: session.accountId,
+        // Reapply current audience, profile-visibility and block policies when
+        // rendering saved posts; authorization at bookmark time is not permanent.
+        post: { is: this.postWhere(session.accountId) },
+      },
       orderBy: { createdAt: "desc" },
       include: {
         post: { include: this.postInclude(session.accountId) },
       },
       take: MAX_PAGE_SIZE,
     });
-    const visiblePosts = bookmarks
-      .map((row) => row.post)
-      .filter((post) => post.status === "PUBLISHED" && post.deletedAt === null);
-    return { posts: visiblePosts.map((post) => this.serializePost(post, session.accountId)) };
+    return {
+      posts: bookmarks.map((row) => this.serializePost(row.post, session.accountId)),
+    };
   }
 
   async createPost(authorization: string | undefined, dto: CreatePostDto) {
@@ -601,7 +604,20 @@ export class Module2Service {
     const session = await this.requireMember(authorization);
     await this.findVisiblePost(session.accountId, postId);
     const comments = await this.prisma.memberPostComment.findMany({
-      where: { postId, deletedAt: null },
+      where: {
+        postId,
+        deletedAt: null,
+        account: {
+          is: {
+            status: "ACTIVE",
+            verificationStatus: "VERIFIED",
+            AND: [
+              { NOT: { blockedAccounts: { some: { blockedAccountId: session.accountId } } } },
+              { NOT: { blockedByAccounts: { some: { blockerAccountId: session.accountId } } } },
+            ],
+          },
+        },
+      },
       include: { account: { include: { profile: { select: profilePublicSelect } } } },
       orderBy: { createdAt: "asc" },
       take: MAX_PAGE_SIZE,
