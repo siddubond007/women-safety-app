@@ -20,6 +20,11 @@ class Module2State extends ChangeNotifier {
   List<Module2Member> followers = [];
   List<Module2Member> following = [];
   List<Module2Member> blockedMembers = [];
+  List<Module2Group> discoverGroups = [];
+  List<Module2Group> myGroups = [];
+  List<Module2Event> upcomingEvents = [];
+  List<Module2Expert> verifiedExperts = [];
+  bool isLoadingGroups = false;
   List<Map<String, dynamic>> sessions = [];
   Map<String, dynamic>? businessProfile;
   Map<String, dynamic> privacySettings = <String, dynamic>{
@@ -189,6 +194,209 @@ class Module2State extends ChangeNotifier {
       return false;
     }
     discoveredMembers = jsonMapList(payload['members']).map(Module2Member.fromMap).toList();
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> loadGroups({bool mine = false, String query = ''}) async {
+    isLoadingGroups = true;
+    notifyListeners();
+    final params = <String, String>{
+      'mine': mine ? 'true' : 'false',
+      'limit': '50',
+    };
+    if (query.trim().isNotEmpty) params['q'] = query.trim();
+    final payload = await _safe(
+      () => api.get(
+        'module2/groups?' + Uri(queryParameters: params).query,
+        authenticated: true,
+      ),
+    );
+    isLoadingGroups = false;
+    if (payload == null) {
+      notifyListeners();
+      return false;
+    }
+    final groups = jsonMapList(payload['groups'])
+        .map(Module2Group.fromMap)
+        .toList();
+    if (mine) {
+      myGroups = groups;
+    } else {
+      discoverGroups = groups;
+    }
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> loadEvents({String query = ''}) async {
+    isLoadingGroups = true;
+    notifyListeners();
+    final params = <String, String>{'limit': '50'};
+    if (query.trim().isNotEmpty) params['q'] = query.trim();
+    final payload = await _safe(
+      () => api.get(
+        'module2/events?' + Uri(queryParameters: params).query,
+        authenticated: true,
+      ),
+    );
+    isLoadingGroups = false;
+    if (payload == null) {
+      notifyListeners();
+      return false;
+    }
+    upcomingEvents = jsonMapList(payload['events'])
+        .map(Module2Event.fromMap)
+        .toList();
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> loadExperts({String query = ''}) async {
+    isLoadingGroups = true;
+    notifyListeners();
+    final params = <String, String>{'limit': '50'};
+    if (query.trim().isNotEmpty) params['q'] = query.trim();
+    final payload = await _safe(
+      () => api.get(
+        'module2/experts?' + Uri(queryParameters: params).query,
+        authenticated: true,
+      ),
+    );
+    isLoadingGroups = false;
+    if (payload == null) {
+      notifyListeners();
+      return false;
+    }
+    verifiedExperts = jsonMapList(payload['experts'])
+        .map(Module2Expert.fromMap)
+        .toList();
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> createGroup({
+    required String name,
+    required String description,
+    required String visibility,
+  }) async {
+    final trimmedName = name.trim();
+    if (trimmedName.length < 2) {
+      errorMessage = 'Group names must contain at least two characters.';
+      notifyListeners();
+      return false;
+    }
+    final payload = await _safe(
+      () => api.post(
+        'module2/groups',
+        authenticated: true,
+        body: <String, Object?>{
+          'name': trimmedName,
+          if (description.trim().isNotEmpty) 'description': description.trim(),
+          'visibility': visibility,
+        },
+      ),
+    );
+    if (payload == null) return false;
+    actionMessage = 'Group created.';
+    await Future.wait([loadGroups(mine: true), loadGroups()]);
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> joinGroup(Module2Group group) async {
+    final payload = await _safe(
+      () => api.post(
+        'module2/groups/${group.id}/join',
+        authenticated: true,
+      ),
+    );
+    if (payload == null) return false;
+    actionMessage = payload['status'] == 'PENDING'
+        ? 'Membership request submitted.'
+        : 'You joined ${group.name}.';
+    await Future.wait([loadGroups(), loadGroups(mine: true)]);
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> leaveGroup(Module2Group group) async {
+    final payload = await _safe(
+      () => api.delete(
+        'module2/groups/${group.id}/join',
+        authenticated: true,
+      ),
+    );
+    if (payload == null) return false;
+    actionMessage = payload['archived'] == true
+        ? 'Group archived.'
+        : 'You left ${group.name}.';
+    await Future.wait([loadGroups(), loadGroups(mine: true)]);
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> createEvent({
+    required String groupId,
+    required String title,
+    required String description,
+    required String locationCity,
+    required DateTime startsAt,
+    required DateTime endsAt,
+  }) async {
+    final trimmedTitle = title.trim();
+    final trimmedDescription = description.trim();
+    if (trimmedTitle.isEmpty || trimmedDescription.isEmpty) {
+      errorMessage = 'Add an event title and description.';
+      notifyListeners();
+      return false;
+    }
+    if (!endsAt.isAfter(startsAt) || !startsAt.isAfter(DateTime.now())) {
+      errorMessage = 'Choose a future start time and an end time after the start.';
+      notifyListeners();
+      return false;
+    }
+    final payload = await _safe(
+      () => api.post(
+        'module2/events',
+        authenticated: true,
+        body: <String, Object?>{
+          'groupId': groupId,
+          'title': trimmedTitle,
+          'description': trimmedDescription,
+          if (locationCity.trim().isNotEmpty) 'locationCity': locationCity.trim(),
+          'startsAt': startsAt.toUtc().toIso8601String(),
+          'endsAt': endsAt.toUtc().toIso8601String(),
+        },
+      ),
+    );
+    if (payload == null) return false;
+    actionMessage = 'Event published.';
+    await Future.wait([loadEvents(), loadGroups(mine: true)]);
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> registerForEvent(
+    Module2Event event, {
+    required bool register,
+  }) async {
+    final payload = await _safe(
+      () => register
+          ? api.post(
+              'module2/events/${event.id}/register',
+              authenticated: true,
+            )
+          : api.delete(
+              'module2/events/${event.id}/register',
+              authenticated: true,
+            ),
+    );
+    if (payload == null) return false;
+    actionMessage = register
+        ? 'You registered for ${event.title}.'
+        : 'Event registration cancelled.';
+    await loadEvents();
     notifyListeners();
     return true;
   }
