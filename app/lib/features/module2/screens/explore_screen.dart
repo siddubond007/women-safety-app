@@ -5,6 +5,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/sakhi_chip.dart';
+import '../../../core/widgets/sakhi_avatar.dart';
 import '../../../core/widgets/sakhi_search_field.dart';
 import '../../../core/widgets/sakhi_section_header.dart';
 import '../../../core/constants/mock_data.dart';
@@ -186,9 +187,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       padding: const EdgeInsets.all(11),
                       decoration: BoxDecoration(color: Colors.white, border: Border.all(color: AppColors.borderSubtle), borderRadius: BorderRadius.circular(16)),
                       child: Row(children: [
-                        CircleAvatar(
-                          backgroundColor: AppColors.pastelLavender,
-                          child: Text(member.displayName.isNotEmpty ? member.displayName.substring(0, 1).toUpperCase() : 'S', style: const TextStyle(color: AppColors.primaryPurple, fontWeight: FontWeight.w800)),
+                        SakhiAvatar(
+                          imageAsset: member.profilePhotoRef?.startsWith('https://') == true ? member.profilePhotoRef! : '',
+                          size: 44,
+                          borderWidth: 0,
+                          fallbackLabel: member.displayName,
                         ),
                         const SizedBox(width: 10),
                         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -338,7 +341,12 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.borderSubtle)),
                       child: Row(children: [
-                        CircleAvatar(backgroundColor: AppColors.pastelMint, child: Text(expert.businessName.isNotEmpty ? expert.businessName.substring(0, 1).toUpperCase() : 'E', style: const TextStyle(color: AppColors.wellnessGreen, fontWeight: FontWeight.w800))),
+                        SakhiAvatar(
+                          imageAsset: expert.profilePhotoRef?.startsWith('https://') == true ? expert.profilePhotoRef! : '',
+                          size: 44,
+                          borderWidth: 0,
+                          fallbackLabel: expert.businessName.isNotEmpty ? expert.businessName : 'Expert',
+                        ),
                         const SizedBox(width: 10),
                         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                           Text(expert.businessName, style: AppTypography.cardTitle.copyWith(fontSize: 13)),
