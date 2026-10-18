@@ -771,13 +771,36 @@ class Module2State extends ChangeNotifier {
     return true;
   }
 
-  Future<bool> blockMember(Module2Member member) async {
+  Future<bool> blockMember(Module2Member member) =>
+      blockMemberByAccountId(
+        member.accountId,
+        displayName: member.displayName,
+      );
+
+  Future<bool> blockMemberByAccountId(
+    String accountId, {
+    String? displayName,
+  }) async {
+    if (accountId.trim().isEmpty) {
+      errorMessage = 'The selected member is unavailable.';
+      notifyListeners();
+      return false;
+    }
     final payload = await _safe(
-      () => api.post('module2/blocks/' + member.accountId, authenticated: true),
+      () => api.post('module2/blocks/' + accountId, authenticated: true),
     );
     if (payload == null) return false;
-    actionMessage = member.displayName + ' has been blocked.';
-    await Future.wait([loadBlockedMembers(), loadDiscover(), loadFeed()]);
+    actionMessage = displayName != null && displayName.trim().isNotEmpty
+        ? '${displayName.trim()} has been blocked.'
+        : 'Member has been blocked.';
+    await Future.wait([
+      loadBlockedMembers(),
+      loadDiscover(),
+      loadFeed(),
+      loadFollowers(showFollowing: false),
+      loadFollowers(showFollowing: true),
+      loadProfile(),
+    ]);
     notifyListeners();
     return true;
   }
