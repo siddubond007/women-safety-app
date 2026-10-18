@@ -129,7 +129,7 @@ class SakhiPrototypeState extends ChangeNotifier {
   Module2State? _backend;
   bool isLoading = true;
   String searchQuery = '';
-  final List<String> exploreFilters = const ['All', 'Posts', 'Groups', 'Experts', 'Events'];
+  final List<String> exploreFilters = const ['All', 'Members', 'Posts', 'Groups', 'Experts', 'Events'];
   final List<String> trendingHashtags = const [
     '#MentalWellness',
     '#CareerGrowth',
