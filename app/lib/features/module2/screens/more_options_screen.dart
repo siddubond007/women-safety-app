@@ -30,7 +30,7 @@ class MoreOptionsScreen extends StatelessWidget {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Module2PageTitle('More Options', subtitle: 'Account tools, privacy and support'),
           const SizedBox(height: 16),
-          SakhiSettingsRow(icon: Icons.groups_rounded, title: 'My Groups', subtitle: 'View your community spaces', onTap: () => _navigate(context, AppRoutes.groups)),
+          SakhiSettingsRow(icon: Icons.groups_rounded, title: 'My Groups', subtitle: 'View your community spaces', onTap: () => _navigate(context, AppRoutes.myGroups)),
           const SizedBox(height: 9),
           SakhiSettingsRow(icon: Icons.bookmark_border_rounded, title: 'My Saved Posts', subtitle: 'Posts you have bookmarked', onTap: () {
             state.showSavedPostsFirst = true;
