@@ -1569,6 +1569,33 @@ export class Module2Service {
         where: { accountId: session.accountId, deletedAt: null },
         data: { body: "[removed]", deletedAt: now },
       });
+      // Comments on the deleted member's own posts lose their content context
+      // when the parent post is scrubbed, so scrub them in the same transaction.
+      await tx.memberPostComment.updateMany({
+        where: {
+          post: { is: { accountId: session.accountId } },
+          deletedAt: null,
+        },
+        data: { body: "[removed]", deletedAt: now },
+      });
+      // Remove all social graph and engagement records tied to this account or
+      // to its now-removed posts instead of leaving ghost counts behind.
+      await tx.memberPostLike.deleteMany({
+        where: {
+          OR: [
+            { accountId: session.accountId },
+            { post: { is: { accountId: session.accountId } } },
+          ],
+        },
+      });
+      await tx.memberPostBookmark.deleteMany({
+        where: {
+          OR: [
+            { accountId: session.accountId },
+            { post: { is: { accountId: session.accountId } } },
+          ],
+        },
+      });
       await tx.socialFollow.deleteMany({
         where: {
           OR: [
@@ -1576,6 +1603,43 @@ export class Module2Service {
             { followingAccountId: session.accountId },
           ],
         },
+      });
+      await tx.memberBlock.deleteMany({
+        where: {
+          OR: [
+            { blockerAccountId: session.accountId },
+            { blockedAccountId: session.accountId },
+          ],
+        },
+      });
+      await tx.eventRegistration.deleteMany({
+        where: { accountId: session.accountId },
+      });
+      await tx.communityEvent.updateMany({
+        where: {
+          status: "PUBLISHED",
+          group: { is: { createdByAccountId: session.accountId } },
+        },
+        data: { status: "CANCELLED" },
+      });
+      await tx.communityGroup.updateMany({
+        where: { createdByAccountId: session.accountId, status: "ACTIVE" },
+        data: { status: "ARCHIVED" },
+      });
+      await tx.groupMembership.deleteMany({
+        where: { accountId: session.accountId },
+      });
+      await tx.businessProfile.deleteMany({
+        where: { accountId: session.accountId },
+      });
+      await tx.memberPrivacySettings.deleteMany({
+        where: { accountId: session.accountId },
+      });
+      await tx.memberNotificationPreferences.deleteMany({
+        where: { accountId: session.accountId },
+      });
+      await tx.memberCommunicationPreference.deleteMany({
+        where: { accountId: session.accountId },
       });
       await tx.authSession.updateMany({
         where: { accountId: session.accountId, revokedAt: null },
