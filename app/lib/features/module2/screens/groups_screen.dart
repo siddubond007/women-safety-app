@@ -122,7 +122,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
                 title: _tab == 1 ? 'You have not created or joined a group' : 'No discoverable groups yet',
                 message: _tab == 1
                     ? 'Create a group for your community or join an existing verified-member group.'
-                    : 'Groups appear here after members create them. Private groups are visible only to members who have a membership request or an active membership.',
+                    : 'Groups created by verified members appear here. Private groups require owner approval to join; only active members can access their group events.',
                 actionLabel: _tab == 1 ? 'Create group' : 'Refresh',
                 onAction: _tab == 1 ? () => _createGroup(context, state) : _refresh,
               ),
