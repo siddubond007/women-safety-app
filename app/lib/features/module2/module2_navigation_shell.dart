@@ -152,6 +152,8 @@ class _Module2NavigationShellState extends State<Module2NavigationShell> {
         return const FollowersFollowingScreen();
       case AppRoutes.groups:
         return const GroupsScreen();
+      case AppRoutes.myGroups:
+        return const GroupsScreen(initialTab: 1);
       case AppRoutes.accountSecurity:
         return AccountSecurityScreen(onSignOut: _signOut);
       case AppRoutes.moreOptions:
@@ -173,6 +175,7 @@ class _Module2NavigationShellState extends State<Module2NavigationShell> {
     AppRoutes.privacySettings => 'Privacy Settings',
     AppRoutes.notificationPreferences => 'Notification Preferences',
     AppRoutes.followers => 'Followers & Following',
+    AppRoutes.groups || AppRoutes.myGroups => 'Groups & Events',
     AppRoutes.accountSecurity => 'Account & Security',
     AppRoutes.moreOptions => 'More Options',
     _ => 'Sakhi',
