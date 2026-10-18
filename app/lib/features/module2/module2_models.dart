@@ -225,6 +225,69 @@ class Module2Member {
 }
 
 
+class Module2MemberProfile {
+  const Module2MemberProfile({
+    required this.accountId,
+    required this.displayName,
+    required this.profilePhotoRef,
+    required this.bio,
+    required this.locationCity,
+    required this.interests,
+    required this.postsCount,
+    required this.followersCount,
+    required this.followingCount,
+    required this.isFollowing,
+    required this.profileVisibility,
+    required this.locationSharing,
+  });
+
+  final String accountId;
+  final String displayName;
+  final String? profilePhotoRef;
+  final String? bio;
+  final String? locationCity;
+  final List<String> interests;
+  final int postsCount;
+  final int followersCount;
+  final int followingCount;
+  final bool isFollowing;
+  final String profileVisibility;
+  final String locationSharing;
+
+  factory Module2MemberProfile.fromPayload(Map<String, dynamic> json) {
+    final profile = jsonMap(json['profile']);
+    final counts = jsonMap(json['counts']);
+    final privacy = jsonMap(json['privacy']);
+    return Module2MemberProfile(
+      accountId: json['accountId'] is String ? json['accountId'] as String : '',
+      displayName: profile['displayName'] is String
+          ? profile['displayName'] as String
+          : 'Sakhi member',
+      profilePhotoRef: profile['profilePhotoRef'] is String
+          ? profile['profilePhotoRef'] as String
+          : null,
+      bio: profile['bio'] is String ? profile['bio'] as String : null,
+      locationCity: profile['locationCity'] is String
+          ? profile['locationCity'] as String
+          : null,
+      interests: profile['interests'] is List
+          ? (profile['interests'] as List).whereType<String>().toList()
+          : <String>[],
+      postsCount: jsonInt(counts['posts']),
+      followersCount: jsonInt(counts['followers']),
+      followingCount: jsonInt(counts['following']),
+      isFollowing: json['isFollowing'] == true,
+      profileVisibility: privacy['profileVisibility'] is String
+          ? privacy['profileVisibility'] as String
+          : 'VERIFIED_MEMBERS',
+      locationSharing: privacy['locationSharing'] is String
+          ? privacy['locationSharing'] as String
+          : 'HIDDEN',
+    );
+  }
+}
+
+
 class Module2Comment {
   const Module2Comment({
     required this.id,
