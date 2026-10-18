@@ -1239,7 +1239,9 @@ export class Module2Service {
   ) {
     const session = await this.requireMember(authorization);
     const name = dto.name.trim();
-    if (!name) throw new BadRequestException("Group name cannot be blank.");
+    if (name.length < 2) {
+      throw new BadRequestException("Group names must contain at least two characters.");
+    }
     const slugBase = name
       .toLowerCase()
       .normalize("NFKD")
@@ -1524,6 +1526,14 @@ export class Module2Service {
 
   async createEvent(authorization: string | undefined, dto: CreateCommunityEventDto) {
     const session = await this.requireMember(authorization);
+    const title = dto.title.trim();
+    const description = dto.description.trim();
+    if (title.length < 3) {
+      throw new BadRequestException("Event titles must contain at least three characters.");
+    }
+    if (!description) {
+      throw new BadRequestException("Event descriptions cannot be blank.");
+    }
     const startsAt = new Date(dto.startsAt);
     const endsAt = new Date(dto.endsAt);
     if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime()) || endsAt <= startsAt) {
@@ -1545,8 +1555,8 @@ export class Module2Service {
       data: {
         groupId: dto.groupId,
         hostAccountId: session.accountId,
-        title: dto.title.trim(),
-        description: dto.description.trim(),
+        title,
+        description,
         locationCity: dto.locationCity?.trim() || null,
         startsAt,
         endsAt,
@@ -1667,6 +1677,10 @@ export class Module2Service {
     dto: CreateBusinessProfileDto,
   ) {
     const session = await this.requireMember(authorization);
+    const displayName = dto.displayName.trim();
+    if (displayName.length < 2) {
+      throw new BadRequestException("Business names must contain at least two characters.");
+    }
     const websiteUrl = dto.websiteUrl?.trim() || null;
     if (websiteUrl && new URL(websiteUrl).protocol !== "https:") {
       throw new BadRequestException("Business profile websites must use HTTPS.");
@@ -1675,13 +1689,13 @@ export class Module2Service {
       where: { accountId: session.accountId },
       create: {
         accountId: session.accountId,
-        displayName: dto.displayName.trim(),
+        displayName,
         description: dto.description?.trim() || null,
         websiteUrl,
         status: "PENDING_REVIEW",
       },
       update: {
-        displayName: dto.displayName.trim(),
+        displayName,
         description: dto.description?.trim() || null,
         websiteUrl,
         status: "PENDING_REVIEW",
