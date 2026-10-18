@@ -490,7 +490,31 @@ export class Module2Service {
         privacySettings: true,
         _count: {
           select: {
-            posts: { where: { status: "PUBLISHED", deletedAt: null } },
+            posts: {
+              where: {
+                status: "PUBLISHED",
+                deletedAt: null,
+                OR: [
+                  { audience: "VERIFIED_MEMBERS" },
+                  {
+                    audience: "FOLLOWERS",
+                    account: {
+                      is: {
+                        followsAsFollowing: {
+                          some: { followerAccountId: session.accountId },
+                        },
+                      },
+                    },
+                  },
+                  {
+                    audience: "SELECTED_MEMBERS",
+                    audienceMembers: {
+                      some: { accountId: session.accountId },
+                    },
+                  },
+                ],
+              },
+            },
             followsAsFollowing: {
               where: { follower: { is: { status: "ACTIVE", verificationStatus: "VERIFIED" } } },
             },
