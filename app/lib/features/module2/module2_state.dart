@@ -347,7 +347,9 @@ class Module2State extends ChangeNotifier {
     if (payload == null) return false;
     actionMessage = payload['archived'] == true
         ? 'Group archived.'
-        : 'You left ${group.name}.';
+        : payload['requestCancelled'] == true || group.membershipStatus == 'PENDING'
+            ? 'Membership request cancelled.'
+            : 'You left ${group.name}.';
     await Future.wait([loadGroups(), loadGroups(mine: true)]);
     notifyListeners();
     return true;
