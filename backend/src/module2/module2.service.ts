@@ -1190,7 +1190,14 @@ export class Module2Service {
           : {}),
       },
       include: {
-        creator: { include: { profile: { select: profilePublicSelect } } },
+        creator: {
+          include: {
+            profile: { select: profilePublicSelect },
+            privacySettings: {
+              select: { profileVisibility: true, appearInSearch: true },
+            },
+          },
+        },
         members: {
           where: { accountId: session.accountId },
           select: { accountId: true, role: true, status: true },
@@ -1220,8 +1227,14 @@ export class Module2Service {
         visibility: group.visibility,
         createdAt: group.createdAt.toISOString(),
         creator: {
-          accountId: group.createdByAccountId,
-          displayName: group.creator.profile?.displayName ?? "Sakhi member",
+          // A group's name remains visible, but its creator's personal identity
+          // must not bypass profile-visibility or search settings.
+          displayName:
+            (!group.creator.privacySettings ||
+              (group.creator.privacySettings.profileVisibility === "VERIFIED_MEMBERS" &&
+                group.creator.privacySettings.appearInSearch))
+              ? group.creator.profile?.displayName ?? "Sakhi member"
+              : "Sakhi member",
         },
         memberCount: group._count.members,
         upcomingEventsCount: group._count.events,
@@ -1383,7 +1396,16 @@ export class Module2Service {
           },
         },
       },
-      include: { account: { include: { profile: { select: profilePublicSelect } } } },
+      include: {
+        account: {
+          include: {
+            profile: { select: profilePublicSelect },
+            privacySettings: {
+              select: { profileVisibility: true, appearInSearch: true },
+            },
+          },
+        },
+      },
       orderBy: { createdAt: "asc" },
       take: MAX_PAGE_SIZE,
     });
@@ -1651,14 +1673,26 @@ export class Module2Service {
       take,
     });
     return {
-      experts: businesses.map((business) => ({
-        accountId: business.accountId,
-        businessName: business.displayName,
-        description: business.description,
-        websiteUrl: business.websiteUrl,
-        displayName: business.account.profile?.displayName ?? "Verified professional",
-        profilePhotoRef: business.account.profile?.profilePhotoRef ?? null,
-      })),
+      experts: businesses.map((business) => {
+        const privacy = business.account.privacySettings;
+        const canShowPersonalProfile =
+          !privacy ||
+          (privacy.profileVisibility === "VERIFIED_MEMBERS" && privacy.appearInSearch);
+        return {
+          accountId: business.accountId,
+          businessName: business.displayName,
+          description: business.description,
+          websiteUrl: business.websiteUrl,
+          // A verified business listing is public to members, but personal
+          // profile visibility settings still govern personal name/photo fields.
+          displayName: canShowPersonalProfile
+            ? business.account.profile?.displayName ?? business.displayName
+            : business.displayName,
+          profilePhotoRef: canShowPersonalProfile
+            ? business.account.profile?.profilePhotoRef ?? null
+            : null,
+        };
+      }),
       limit: take,
     };
   }
