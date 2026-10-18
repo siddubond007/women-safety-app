@@ -114,7 +114,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
                   label: const Text('Create group'),
                 ),
               ),
-            if (_loading || state.isLoadingMembers)
+            if (_loading || (_tab == 2 ? state.isLoadingEvents : state.isLoadingGroups))
               const Padding(padding: EdgeInsets.all(18), child: Center(child: CircularProgressIndicator())),
             if (!_loading && _tab != 2 && items.isEmpty)
               Module2EmptyPanel(
