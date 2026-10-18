@@ -485,8 +485,8 @@ export class Module2Service {
                       profile: {
                         is: {
                           OR: [
-                            { displayName: { contains: normalized, mode: "insensitive" } },
-                            { bio: { contains: normalized, mode: "insensitive" } },
+                            { displayName: { contains: normalized, mode: "insensitive" as const } },
+                            { bio: { contains: normalized, mode: "insensitive" as const } },
                             { interests: { hasSome: [normalized] } },
                           ],
                         },
@@ -502,7 +502,7 @@ export class Module2Service {
                         {
                           profile: {
                             is: {
-                              locationCity: { contains: normalized, mode: "insensitive" },
+                              locationCity: { contains: normalized, mode: "insensitive" as const },
                             },
                           },
                         },
