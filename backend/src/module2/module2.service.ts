@@ -441,6 +441,36 @@ export class Module2Service {
     const session = await this.requireMember(authorization);
     const take = this.pageSize(limit);
     const normalized = query.trim().slice(0, 100);
+    const searchFilter: Prisma.MemberAccountWhereInput | undefined =
+      normalized
+        ? {
+            OR: [
+              {
+                profile: {
+                  is: {
+                    OR: [
+                      { displayName: { contains: normalized, mode: "insensitive" } },
+                      { bio: { contains: normalized, mode: "insensitive" } },
+                      { interests: { hasSome: [normalized] } },
+                    ],
+                  },
+                },
+              },
+              {
+                AND: [
+                  { privacySettings: { is: { locationSharing: "CITY_ONLY" } } },
+                  {
+                    profile: {
+                      is: {
+                        locationCity: { contains: normalized, mode: "insensitive" },
+                      },
+                    },
+                  },
+                ],
+              },
+            ],
+          }
+        : undefined;
     const where: Prisma.MemberAccountWhereInput = {
         id: { not: session.accountId },
         status: "ACTIVE",
@@ -477,41 +507,7 @@ export class Module2Service {
         AND: [
           { NOT: { blockedAccounts: { some: { blockedAccountId: session.accountId } } } },
           { NOT: { blockedByAccounts: { some: { blockerAccountId: session.accountId } } } },
-          ...(normalized
-            ? [
-                {
-                  OR: [
-                    {
-                      profile: {
-                        is: {
-                          OR: [
-                            { displayName: { contains: normalized, mode: "insensitive" as const } },
-                            { bio: { contains: normalized, mode: "insensitive" as const } },
-                            { interests: { hasSome: [normalized] } },
-                          ],
-                        },
-                      },
-                    },
-                    {
-                      AND: [
-                        {
-                          privacySettings: {
-                            is: { locationSharing: "CITY_ONLY" },
-                          },
-                        },
-                        {
-                          profile: {
-                            is: {
-                              locationCity: { contains: normalized, mode: "insensitive" as const },
-                            },
-                          },
-                        },
-                      ],
-                    },
-                  ],
-                },
-              ]
-            : []),
+          ...(searchFilter ? [searchFilter] : []),
         ],
       };
     const accounts = await this.prisma.memberAccount.findMany({
