@@ -55,6 +55,9 @@ describe("Module2Service privacy regression checks", () => {
       memberPostBookmark: {
         findMany: vi.fn().mockResolvedValue([]),
       },
+      communityGroup: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
     };
 
     service = new Module2Service(
@@ -93,6 +96,42 @@ describe("Module2Service privacy regression checks", () => {
         branch.AND.some((part: Record<string, any>) =>
           part.followsAsFollowing?.some?.followerAccountId === viewerId,
         ),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not search hidden city values in member discovery", async () => {
+    await service.getDiscover("Bearer test-token", "Tirupati");
+
+    const query = prisma.memberAccount.findMany.mock.calls[0]?.[0];
+    const searchBranches = query.where.AND.find((part: Record<string, any>) =>
+      Array.isArray(part.OR),
+    ).OR as Array<Record<string, any>>;
+    expect(
+      searchBranches.some((branch) =>
+        branch.profile?.is?.locationCity !== undefined,
+      ),
+    ).toBe(false);
+    expect(
+      searchBranches.some((branch) =>
+        Array.isArray(branch.AND) &&
+        branch.AND.some((part: Record<string, any>) =>
+          part.privacySettings?.is?.locationSharing === "CITY_ONLY",
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("excludes private groups from general discovery unless the viewer is a member", async () => {
+    await service.listGroups("Bearer test-token");
+
+    const query = prisma.communityGroup.findMany.mock.calls[0]?.[0];
+    expect(query.where.OR).toContainEqual({ visibility: "VERIFIED_MEMBERS" });
+    expect(query.where.OR).toContainEqual({ createdByAccountId: viewerId });
+    expect(
+      query.where.OR.some((branch: Record<string, any>) =>
+        branch.members?.some?.accountId === viewerId &&
+        branch.members?.some?.status?.in?.includes("PENDING"),
       ),
     ).toBe(true);
   });
