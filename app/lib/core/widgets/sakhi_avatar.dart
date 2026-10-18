@@ -19,6 +19,39 @@ class SakhiAvatar extends StatelessWidget {
   final double borderWidth;
   final String? fallbackLabel;
 
+  Widget _avatarImage() {
+    final isTrustedTransport = imageAsset.startsWith('https://');
+    final image = isTrustedTransport
+        ? Image.network(
+            imageAsset,
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stack) => _fallback(),
+          )
+        : Image.asset(
+            imageAsset,
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stack) => _fallback(),
+          );
+    return image;
+  }
+
+  Widget _fallback() => Center(
+    child: Text(
+      (fallbackLabel?.trim().isNotEmpty == true
+          ? fallbackLabel!.trim().substring(0, 1)
+          : 'S').toUpperCase(),
+      style: TextStyle(
+        fontSize: size * .38,
+        fontWeight: FontWeight.w800,
+        color: AppColors.primaryPurple,
+      ),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     return Stack(
@@ -36,18 +69,7 @@ class SakhiAvatar extends StatelessWidget {
             ],
           ),
           child: ClipOval(
-            child: Image.asset(
-              imageAsset,
-              width: size,
-              height: size,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stack) => Center(
-                child: Text(
-                  (fallbackLabel?.trim().isNotEmpty == true ? fallbackLabel!.trim().substring(0, 1) : 'S').toUpperCase(),
-                  style: TextStyle(fontSize: size * .38, fontWeight: FontWeight.w800, color: AppColors.primaryPurple),
-                ),
-              ),
-            ),
+            child: _avatarImage(),
           ),
         ),
         if (showEditCameraBadge)
