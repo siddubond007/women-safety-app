@@ -60,15 +60,22 @@ class PrivacySettingsScreen extends StatelessWidget {
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(title, style: AppTypography.sectionTitle),
             const SizedBox(height: 7),
-            for (final option in options)
-              RadioListTile<String>(
-                value: option,
-                groupValue: selected,
-                contentPadding: EdgeInsets.zero,
-                activeColor: AppColors.primaryPurple,
-                title: Text(option),
-                onChanged: (value) => Navigator.of(context).pop(value),
+            RadioGroup<String>(
+              groupValue: selected,
+              onChanged: (value) => Navigator.of(context).pop(value),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final option in options)
+                    RadioListTile<String>(
+                      value: option,
+                      contentPadding: EdgeInsets.zero,
+                      activeColor: AppColors.primaryPurple,
+                      title: Text(option),
+                    ),
+                ],
               ),
+            ),
           ]),
         ),
       ),
