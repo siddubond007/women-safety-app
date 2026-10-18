@@ -12,6 +12,7 @@ class AppRoutes {
   static const privacySettings = '/privacy-settings';
   static const notificationPreferences = '/notification-preferences';
   static const followers = '/followers';
+  static const following = '/following';
   static const accountSecurity = '/account-security';
   static const moreOptions = '/more-options';
   static const groups = '/groups';
