@@ -15,10 +15,12 @@ class FollowersFollowingScreen extends StatefulWidget {
   const FollowersFollowingScreen({
     super.key,
     this.onOpenMember,
+    this.onNavigateRoute,
     this.initialFollowing = false,
   });
 
   final ValueChanged<String>? onOpenMember;
+  final ValueChanged<String>? onNavigateRoute;
   final bool initialFollowing;
 
   @override
@@ -41,6 +43,17 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
     _debounce?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _navigate(String route) {
+    final handler = widget.onNavigateRoute;
+    if (handler != null) {
+      handler(route);
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Navigation is unavailable in this preview.')),
+    );
   }
 
   void _openMember(String accountId) {
@@ -112,7 +125,7 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
                     ? 'Discover verified members and follow people whose updates you want to see.'
                     : 'When verified members follow you, their profiles will appear here.',
                 actionLabel: 'Explore members',
-                onAction: () => Navigator.of(context).pushNamed(AppRoutes.explore),
+                onAction: () => _navigate(AppRoutes.explore),
               )
             else
               ...members.map((person) => Padding(
