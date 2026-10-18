@@ -10,6 +10,7 @@ import '../../../core/widgets/sakhi_search_field.dart';
 import '../../../core/widgets/sakhi_section_header.dart';
 import '../../../core/constants/mock_data.dart';
 import '../widgets/module2_feature_widgets.dart';
+import '../module2_post_actions.dart';
 
 class ExploreScreen extends StatefulWidget {
   const ExploreScreen({
@@ -233,7 +234,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       state: state,
                       onAuthorTap: () => _openMember(post.authorAccountId),
                       onComment: () => _navigate(AppRoutes.community),
-                      onMore: () => _reportPost(post.authorAccountId, post.id),
+                      onMore: () => showModule2PostActions(context, post),
                     ),
                   )),
               ],
@@ -368,64 +369,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     );
   }
 
-  Future<void> _reportPost(String accountId, String postId) async {
-    if (accountId.isEmpty) return;
-    final result = await showModalBottomSheet<String>(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Wrap(children: [
-          ListTile(
-            leading: const Icon(Icons.flag_outlined),
-            title: const Text('Report this post'),
-            onTap: () => Navigator.pop(context, 'report'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.block_rounded),
-            title: const Text('Block this member'),
-            onTap: () => Navigator.pop(context, 'block'),
-          ),
-        ]),
-      ),
-    );
-    if (!mounted || result == null) return;
-    final state = SakhiPrototypeState.instance;
-    if (result == 'report') {
-      final success = await state.reportMember(
-        accountId: accountId,
-        postId: postId,
-        reason: 'UNSAFE_CONTENT',
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            success
-                ? 'Report submitted for review.'
-                : (state.backend?.errorMessage ?? 'Report could not be submitted.'),
-          ),
-        ),
-      );
-    } else {
-      final member = state.backend?.discoveredMembers
-          .where((m) => m.accountId == accountId)
-          .toList();
-      final success = await state.backend?.blockMemberByAccountId(
-            accountId,
-            displayName: member?.isNotEmpty == true ? member!.first.displayName : null,
-          ) ??
-          false;
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            success
-                ? (state.backend?.actionMessage ?? 'Member has been blocked.')
-                : (state.backend?.errorMessage ?? 'Member could not be blocked.'),
-          ),
-        ),
-      );
-    }
-  }
+
 }
 
 class _ExploreCategory extends StatelessWidget {
