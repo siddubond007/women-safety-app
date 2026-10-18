@@ -28,7 +28,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
   @override
   void initState() {
     super.initState();
-    _tab = widget.initialTab.clamp(0, 2);
+    _tab = widget.initialTab.clamp(0, 2).toInt();
   }
 
   @override
