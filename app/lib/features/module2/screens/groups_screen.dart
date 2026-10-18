@@ -11,7 +11,9 @@ import '../module2_state.dart';
 import '../widgets/module2_feature_widgets.dart';
 
 class GroupsScreen extends StatefulWidget {
-  const GroupsScreen({super.key});
+  const GroupsScreen({super.key, this.initialTab = 0});
+
+  final int initialTab;
 
   @override
   State<GroupsScreen> createState() => _GroupsScreenState();
@@ -20,8 +22,14 @@ class GroupsScreen extends StatefulWidget {
 class _GroupsScreenState extends State<GroupsScreen> {
   final TextEditingController _search = TextEditingController();
   Module2State? _state;
-  int _tab = 0;
+  late int _tab;
   bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _tab = widget.initialTab.clamp(0, 2);
+  }
 
   @override
   void didChangeDependencies() {
