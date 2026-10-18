@@ -3,12 +3,27 @@ param(
     [Parameter(Mandatory = $true)]
     [string] $PrototypeZip,
 
-    [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+    [string] $RepoRoot = ''
 )
 
 $ErrorActionPreference = 'Stop'
 
-$zipPath = (Resolve-Path $PrototypeZip).Path
+# Resolve the script location after parameter binding. Some invocation styles
+# evaluate default parameter expressions before $PSScriptRoot is populated.
+if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+    $scriptFile = $MyInvocation.MyCommand.Path
+    if ([string]::IsNullOrWhiteSpace($scriptFile)) {
+        $scriptFile = $PSCommandPath
+    }
+    if ([string]::IsNullOrWhiteSpace($scriptFile)) {
+        throw 'Cannot determine the import script path; pass -RepoRoot explicitly.'
+    }
+    $RepoRoot = (Resolve-Path (Join-Path (Split-Path -Parent $scriptFile) '..\..')).Path
+} else {
+    $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
+}
+
+$zipPath = (Resolve-Path -LiteralPath $PrototypeZip).Path
 $appRoot = Join-Path $RepoRoot 'app'
 $targetAssets = Join-Path $appRoot 'assets'
 $assetCatalogue = Join-Path $appRoot 'lib\core\constants\app_assets.dart'
