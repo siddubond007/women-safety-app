@@ -2053,6 +2053,17 @@ export class Module2Service {
           ],
         },
       });
+      // Remove selected-audience edges for the deleted recipient and for
+      // the member's removed posts; these rows can otherwise retain social
+      // graph metadata after profile/post scrubbing.
+      await tx.postAudienceMember.deleteMany({
+        where: {
+          OR: [
+            { accountId: session.accountId },
+            { post: { is: { accountId: session.accountId } } },
+          ],
+        },
+      });
       await tx.socialFollow.deleteMany({
         where: {
           OR: [
