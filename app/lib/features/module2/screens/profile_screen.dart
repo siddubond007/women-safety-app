@@ -123,7 +123,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Text(user.displayName.isEmpty ? 'Sakhi Member' : user.displayName, style: AppTypography.heroTitle.copyWith(fontSize: 22)),
                   const SizedBox(height: 5),
                   Row(mainAxisSize: MainAxisSize.min, children: [
-                    Text(user.username, style: AppTypography.subtitle),
+                    const Text('Your Sakhi profile', style: AppTypography.subtitle),
                     const SizedBox(width: 8),
                     if (backendProfile != null) Module2ProfileBadge(status: backendProfile.verificationStatus),
                   ]),
