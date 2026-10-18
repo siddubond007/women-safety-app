@@ -325,9 +325,14 @@ export class Module2Service {
     if (dto.locationCity !== undefined) update.locationCity = dto.locationCity?.trim() || null;
     if (dto.profilePhotoRef !== undefined) {
       const photoRef = dto.profilePhotoRef?.trim() || null;
-      if (photoRef && !photoRef.startsWith(`profile/${session.accountId}/`)) {
+      const pathSegments = photoRef?.split("/") ?? [];
+      if (
+        photoRef &&
+        (!photoRef.startsWith(`profile/${session.accountId}/`) ||
+          pathSegments.some((segment) => segment === "." || segment === ".." || segment.length === 0))
+      ) {
         throw new BadRequestException(
-          "Profile photo references must be scoped to the signed-in member.",
+          "Profile photo references must use safe path segments scoped to the signed-in member.",
         );
       }
       update.profilePhotoRef = photoRef;
