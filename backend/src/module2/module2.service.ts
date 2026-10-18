@@ -2134,7 +2134,7 @@ export class Module2Service {
       requestId: deletionRequest.id,
       status: deletionRequest.status,
       requestedAt: deletionRequest.requestedAt.toISOString(),
-      message: "Access is disabled and profile content is scrubbed. Permanent erasure of retained audit/legal records is completed by Sakhi's approved retention process.",
+      message: "Access is disabled and profile content is scrubbed. Permanent erasure of retained audit/legal records requires a separately implemented and approved retention process.",
     };
   }
 }
