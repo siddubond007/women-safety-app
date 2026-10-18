@@ -165,12 +165,12 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   ],
                 ),
               ],
-              if (_filter == 'All') ...[
+              if (_filter == 'All' || _filter == 'Members') ...[
                 const SizedBox(height: 22),
                 SakhiSectionHeader(
-                  title: _filter == 'Experts' ? 'Verified member profiles' : 'Recommended for you',
-                  actionLabel: 'See all',
-                  onActionTap: () => _navigate(AppRoutes.followers),
+                  title: _filter == 'Members' ? 'Discover verified members' : 'Recommended for you',
+                  actionLabel: _filter == 'All' ? 'See all' : null,
+                  onActionTap: _filter == 'All' ? () => setState(() => _filter = 'Members') : null,
                 ),
                 const SizedBox(height: 10),
                 if (state.backend?.isLoadingMembers == true)
