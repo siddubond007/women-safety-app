@@ -401,8 +401,28 @@ export class Module2Service {
           { privacySettings: { is: null } },
           {
             privacySettings: {
-              is: { appearInSearch: true, profileVisibility: { not: "ONLY_ME" } },
+              is: {
+                appearInSearch: true,
+                profileVisibility: "VERIFIED_MEMBERS",
+              },
             },
+          },
+          {
+            AND: [
+              {
+                privacySettings: {
+                  is: {
+                    appearInSearch: true,
+                    profileVisibility: "FOLLOWERS_ONLY",
+                  },
+                },
+              },
+              {
+                followsAsFollowing: {
+                  some: { followerAccountId: session.accountId },
+                },
+              },
+            ],
           },
         ],
         AND: [
@@ -693,6 +713,16 @@ export class Module2Service {
                   { NOT: { blockedAccounts: { some: { blockedAccountId: session.accountId } } } },
                   { NOT: { blockedByAccounts: { some: { blockerAccountId: session.accountId } } } },
                 ],
+                OR: [
+                  { privacySettings: { is: null } },
+                  { privacySettings: { is: { profileVisibility: "VERIFIED_MEMBERS" } } },
+                  {
+                    AND: [
+                      { privacySettings: { is: { profileVisibility: "FOLLOWERS_ONLY" } } },
+                      { followsAsFollowing: { some: { followerAccountId: session.accountId } } },
+                    ],
+                  },
+                ],
               },
             },
           }
@@ -706,6 +736,16 @@ export class Module2Service {
                 AND: [
                   { NOT: { blockedAccounts: { some: { blockedAccountId: session.accountId } } } },
                   { NOT: { blockedByAccounts: { some: { blockerAccountId: session.accountId } } } },
+                ],
+                OR: [
+                  { privacySettings: { is: null } },
+                  { privacySettings: { is: { profileVisibility: "VERIFIED_MEMBERS" } } },
+                  {
+                    AND: [
+                      { privacySettings: { is: { profileVisibility: "FOLLOWERS_ONLY" } } },
+                      { followsAsFollowing: { some: { followerAccountId: session.accountId } } },
+                    ],
+                  },
                 ],
               },
             },
