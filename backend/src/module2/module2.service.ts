@@ -754,8 +754,7 @@ export class Module2Service {
       include: {
         account: {
           include: {
-            profile: { select: profilePublicSelect },
-            privacySettings: { select: { locationSharing: true } },
+            profile: { select: { displayName: true } },
           },
         },
       },
