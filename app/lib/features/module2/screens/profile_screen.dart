@@ -139,7 +139,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               Row(children: [
                 _ProfileStat(value: user.postsCount.toString(), label: 'Posts', onTap: () => setState(() => _tabIndex = 0)),
                 _ProfileStat(value: user.followersCount.toString(), label: 'Followers', onTap: () => _navigate(AppRoutes.followers)),
-                _ProfileStat(value: user.followingCount.toString(), label: 'Following', onTap: () => _navigate(AppRoutes.followers)),
+                _ProfileStat(value: user.followingCount.toString(), label: 'Following', onTap: () => _navigate(AppRoutes.following)),
               ]),
               const SizedBox(height: 12),
               if (user.bio.isNotEmpty)
