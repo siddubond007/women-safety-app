@@ -1,4 +1,4 @@
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthenticationService } from "../src/auth/auth.service.js";
 import { PrismaService } from "../src/database/prisma.service.js";
@@ -51,6 +51,10 @@ describe("Module2Service privacy regression checks", () => {
       },
       memberPost: {
         count: vi.fn().mockResolvedValue(0),
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+      memberReport: {
+        create: vi.fn(),
       },
       memberPostBookmark: {
         findMany: vi.fn().mockResolvedValue([]),
@@ -178,6 +182,26 @@ describe("Module2Service privacy regression checks", () => {
         endsAt: new Date(Date.now() + 90_000_000).toISOString(),
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("does not allow reporting a post the reporter cannot currently view", async () => {
+    await expect(
+      service.reportMember("Bearer test-token", {
+        reportedAccountId: targetId,
+        postId: "4b1f7f84-2f0d-4f39-8bd9-73ac2a7763a1",
+        reason: "HARASSMENT",
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(prisma.memberPost.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: "4b1f7f84-2f0d-4f39-8bd9-73ac2a7763a1",
+          account: expect.any(Object),
+        }),
+      }),
+    );
+    expect(prisma.memberReport.create).not.toHaveBeenCalled();
   });
 
   it("reapplies current audience and block visibility when listing saved posts", async () => {
