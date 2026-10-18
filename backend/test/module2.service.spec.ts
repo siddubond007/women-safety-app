@@ -1,3 +1,4 @@
+import { BadRequestException } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthenticationService } from "../src/auth/auth.service.js";
 import { PrismaService } from "../src/database/prisma.service.js";
@@ -94,6 +95,29 @@ describe("Module2Service privacy regression checks", () => {
         ),
       ),
     ).toBe(true);
+  });
+
+  it("does not return ONLY_ME accounts from the followers list query", async () => {
+    await service.listFollowers("Bearer test-token", "followers");
+
+    const query = prisma.socialFollow.findMany.mock.calls[0]?.[0];
+    const accountWhere = query.where.follower.is;
+    expect(accountWhere.OR).toContainEqual({
+      privacySettings: { is: null },
+    });
+    expect(
+      accountWhere.OR.some((branch: Record<string, any>) =>
+        branch.privacySettings?.is?.profileVisibility === "ONLY_ME",
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects profile photo references scoped to a different account", async () => {
+    await expect(
+      service.updateProfile("Bearer test-token", {
+        profilePhotoRef: `profile/${targetId}/avatar.webp`,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it("reapplies current audience and block visibility when listing saved posts", async () => {
