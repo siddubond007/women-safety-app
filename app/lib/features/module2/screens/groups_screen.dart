@@ -327,10 +327,24 @@ class _GroupsScreenState extends State<GroupsScreen> {
         ),
       ),
     );
-    if (submit == true && name.text.trim().length >= 2) {
-      final success = await state.createGroup(name: name.text, description: description.text, visibility: visibility);
-      if (mounted) _message(success ? 'Group created.' : (state.errorMessage ?? 'Group could not be created.'));
-      if (success) setState(() => _tab = 1);
+    if (submit == true) {
+      if (name.text.trim().length < 2) {
+        if (mounted) _message('Group names must contain at least two characters.');
+      } else {
+        final success = await state.createGroup(
+          name: name.text,
+          description: description.text,
+          visibility: visibility,
+        );
+        if (mounted) {
+          _message(
+            success
+                ? 'Group created.'
+                : (state.errorMessage ?? 'Group could not be created.'),
+          );
+        }
+        if (success && mounted) setState(() => _tab = 1);
+      }
     }
     name.dispose();
     description.dispose();
