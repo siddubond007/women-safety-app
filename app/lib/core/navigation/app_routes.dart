@@ -16,4 +16,5 @@ class AppRoutes {
   static const moreOptions = '/more-options';
   static const groups = '/groups';
   static const myGroups = '/my-groups';
+  static const memberProfile = '/member-profile';
 }
