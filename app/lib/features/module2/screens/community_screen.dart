@@ -8,6 +8,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/sakhi_dialogs.dart';
 import '../../../core/widgets/sakhi_search_field.dart';
+import '../module2_scope.dart';
 import '../widgets/module2_feature_widgets.dart';
 
 class CommunityScreen extends StatefulWidget {
@@ -202,10 +203,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
   }
 
   void _openCreatePost() {
-    SakhiDialogs.showPrototypeSnackbar(
-      context,
-      'Use the + button in the navigation bar to compose a post for your Sakhi account.',
-    );
+    Module2Scope.of(context).onOpenCreatePost();
   }
 
   Future<void> _openComments(String postId) async {
