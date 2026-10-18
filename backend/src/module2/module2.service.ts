@@ -205,7 +205,16 @@ export class Module2Service {
         select: {
           likes: {
             where: {
-              account: { is: { status: "ACTIVE", verificationStatus: "VERIFIED" } },
+              account: {
+                is: {
+                  status: "ACTIVE",
+                  verificationStatus: "VERIFIED",
+                  AND: [
+                    { NOT: { blockedAccounts: { some: { blockedAccountId: viewerAccountId } } } },
+                    { NOT: { blockedByAccounts: { some: { blockerAccountId: viewerAccountId } } } },
+                  ],
+                },
+              },
             },
           },
           comments: {
@@ -758,7 +767,21 @@ export class Module2Service {
         where: { postId, accountId: session.accountId },
       });
     }
-    const likeCount = await this.prisma.memberPostLike.count({ where: { postId } });
+    const likeCount = await this.prisma.memberPostLike.count({
+      where: {
+        postId,
+        account: {
+          is: {
+            status: "ACTIVE",
+            verificationStatus: "VERIFIED",
+            AND: [
+              { NOT: { blockedAccounts: { some: { blockedAccountId: session.accountId } } } },
+              { NOT: { blockedByAccounts: { some: { blockerAccountId: session.accountId } } } },
+            ],
+          },
+        },
+      },
+    });
     return { postId, liked, likeCount };
   }
 
@@ -800,7 +823,13 @@ export class Module2Service {
       include: {
         account: {
           include: {
-            profile: { select: { displayName: true } },
+            profile: { select: { displayName: true, profilePhotoRef: true } },
+            privacySettings: { select: { profileVisibility: true } },
+            followsAsFollowing: {
+              where: { followerAccountId: session.accountId },
+              select: { followerAccountId: true },
+              take: 1,
+            },
           },
         },
       },
@@ -814,8 +843,18 @@ export class Module2Service {
         createdAt: comment.createdAt.toISOString(),
         author: {
           accountId: comment.accountId,
-          displayName: comment.account.profile?.displayName ?? "Sakhi member",
-          profilePhotoRef: comment.account.profile?.profilePhotoRef ?? null,
+          displayName:
+            comment.account.privacySettings?.profileVisibility === "ONLY_ME" ||
+            (comment.account.privacySettings?.profileVisibility === "FOLLOWERS_ONLY" &&
+              (comment.account.followsAsFollowing?.length ?? 0) === 0)
+              ? "Sakhi member"
+              : comment.account.profile?.displayName ?? "Sakhi member",
+          profilePhotoRef:
+            comment.account.privacySettings?.profileVisibility === "ONLY_ME" ||
+            (comment.account.privacySettings?.profileVisibility === "FOLLOWERS_ONLY" &&
+              (comment.account.followsAsFollowing?.length ?? 0) === 0)
+              ? null
+              : comment.account.profile?.profilePhotoRef ?? null,
         },
         isOwnComment: comment.accountId === session.accountId,
       })),
