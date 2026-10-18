@@ -15,4 +15,5 @@ class AppRoutes {
   static const accountSecurity = '/account-security';
   static const moreOptions = '/more-options';
   static const groups = '/groups';
+  static const myGroups = '/my-groups';
 }
