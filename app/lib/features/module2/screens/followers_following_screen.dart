@@ -11,7 +11,9 @@ import '../../../core/widgets/sakhi_search_field.dart';
 import '../widgets/module2_feature_widgets.dart';
 
 class FollowersFollowingScreen extends StatefulWidget {
-  const FollowersFollowingScreen({super.key});
+  const FollowersFollowingScreen({super.key, this.onOpenMember});
+
+  final ValueChanged<String>? onOpenMember;
 
   @override
   State<FollowersFollowingScreen> createState() => _FollowersFollowingScreenState();
@@ -27,6 +29,18 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
     _debounce?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _openMember(String accountId) {
+    if (accountId.isEmpty) return;
+    final handler = widget.onOpenMember;
+    if (handler != null) {
+      handler(accountId);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Member profile navigation is unavailable in this preview.')),
+      );
+    }
   }
 
   void _search(String value) {
@@ -107,7 +121,12 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
                         Text(person.bio!, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppTypography.subtitle),
                     ])),
                     const SizedBox(width: 8),
-                    if (_showFollowing)
+                    if (_showFollowing) ...[
+                      IconButton(
+                        tooltip: 'View member profile',
+                        onPressed: () => _openMember(person.id),
+                        icon: const Icon(Icons.person_outline_rounded),
+                      ),
                       OutlinedButton(
                         onPressed: () async {
                           final member = state.backend?.following.where((entry) => entry.accountId == person.id).toList();
@@ -116,10 +135,10 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
                           if (ok && mounted) await state.loadFollowers(showFollowing: true, query: _searchController.text);
                         },
                         child: const Text('Following'),
-                      )
-                    else
+                      ),
+                    ] else
                       OutlinedButton(
-                        onPressed: () => Navigator.of(context).pushNamed(AppRoutes.profile),
+                        onPressed: () => _openMember(person.id),
                         child: const Text('View'),
                       ),
                   ]),
