@@ -1054,7 +1054,7 @@ export class Module2Service {
           },
         },
         ...(options.mine
-          ? { members: { some: { accountId: session.accountId, status: "ACTIVE" } } }
+          ? { members: { some: { accountId: session.accountId, status: { in: ["ACTIVE", "PENDING"] } } } }
           : {}),
         ...(query
           ? {
