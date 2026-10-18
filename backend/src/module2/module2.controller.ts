@@ -192,6 +192,14 @@ export class Module2Controller {
     return this.module2.listSavedPosts(authorization);
   }
 
+  @Delete("posts/:postId")
+  deletePost(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("postId", new ParseUUIDPipe({ version: "4" })) postId: string,
+  ) {
+    return this.module2.deletePost(authorization, postId);
+  }
+
   @Post("posts/:postId/like")
   likePost(
     @Headers("authorization") authorization: string | undefined,
