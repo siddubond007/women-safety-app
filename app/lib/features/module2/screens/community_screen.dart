@@ -6,9 +6,9 @@ import '../../../core/navigation/app_routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../core/widgets/sakhi_dialogs.dart';
 import '../../../core/widgets/sakhi_search_field.dart';
 import '../module2_scope.dart';
+import '../module2_post_actions.dart';
 import '../widgets/module2_feature_widgets.dart';
 
 class CommunityScreen extends StatefulWidget {
@@ -183,7 +183,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   state: state,
                   onComment: () => _openComments(posts[index].id),
                   onAuthorTap: () => _openMember(posts[index].authorAccountId),
-                  onMore: () => _showPostActions(posts[index].authorAccountId, posts[index].id),
+                  onMore: () => showModule2PostActions(context, posts[index]),
                 ),
                 const SizedBox(height: 12),
                 if (index == 0) ...[
@@ -218,50 +218,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
     );
   }
 
-  Future<void> _showPostActions(String accountId, String postId) async {
-    if (accountId.isEmpty) return;
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: Colors.white,
-      builder: (context) => SafeArea(child: Wrap(children: [
-        ListTile(leading: const Icon(Icons.flag_outlined), title: const Text('Report this post'), onTap: () => Navigator.pop(context, 'report')),
-        ListTile(leading: const Icon(Icons.block_rounded), title: const Text('Block this member'), onTap: () => Navigator.pop(context, 'block')),
-      ])),
-    );
-    if (!mounted || action == null) return;
-    final state = SakhiPrototypeState.instance;
-    if (action == 'report') {
-      final success = await state.reportMember(
-        accountId: accountId,
-        postId: postId,
-        reason: 'UNSAFE_CONTENT',
-      );
-      if (!mounted) return;
-      SakhiDialogs.showPrototypeSnackbar(
-        context,
-        success
-            ? 'Report submitted for review.'
-            : (state.backend?.errorMessage ?? 'Report could not be submitted.'),
-      );
-    } else {
-      final members = state.backend?.discoveredMembers
-              .where((member) => member.accountId == accountId)
-              .toList() ??
-          [];
-      final success = await state.backend?.blockMemberByAccountId(
-            accountId,
-            displayName: members.isNotEmpty ? members.first.displayName : null,
-          ) ??
-          false;
-      if (!mounted) return;
-      SakhiDialogs.showPrototypeSnackbar(
-        context,
-        success
-            ? (state.backend?.actionMessage ?? 'Member blocked.')
-            : (state.backend?.errorMessage ?? 'Member could not be blocked.'),
-      );
-    }
-  }
+
 }
 
 class _BreathingExerciseBanner extends StatelessWidget {
