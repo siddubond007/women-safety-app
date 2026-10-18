@@ -57,7 +57,13 @@ class _HomeScreenState extends State<HomeScreen> {
       animation: state,
       builder: (context, _) {
         final name = state.currentUser.displayName.trim();
-        final firstLine = name.isEmpty ? 'Welcome to Sakhi' : 'Good Morning';
+        final hour = DateTime.now().hour;
+        final greeting = hour < 12
+            ? 'Good Morning'
+            : hour < 17
+                ? 'Good Afternoon'
+                : 'Good Evening';
+        final firstLine = name.isEmpty ? 'Welcome to Sakhi' : greeting;
         final postsCount = state.currentUser.postsCount;
         final feedCount = state.communityPosts.length;
         return SafeArea(
