@@ -542,6 +542,32 @@ class Module2State extends ChangeNotifier {
     return true;
   }
 
+  Future<bool> deletePost(Module2Post post) async {
+    if (!post.isOwnPost) {
+      errorMessage = 'You can delete only your own posts.';
+      notifyListeners();
+      return false;
+    }
+    final payload = await _safe(
+      () => api.delete('module2/posts/${post.id}', authenticated: true),
+    );
+    if (payload == null) return false;
+    actionMessage = 'Post deleted.';
+    feedPosts = feedPosts.where((item) => item.id != post.id).toList();
+    profilePosts = profilePosts.where((item) => item.id != post.id).toList();
+    savedPosts = savedPosts.where((item) => item.id != post.id).toList();
+    final refreshedProfile = profile;
+    await Future.wait([
+      loadFeed(),
+      loadSavedPosts(),
+      loadProfile(),
+      if (refreshedProfile != null && refreshedProfile.accountId.isNotEmpty)
+        loadFeed(accountId: refreshedProfile.accountId),
+    ]);
+    notifyListeners();
+    return true;
+  }
+
   Future<bool> toggleLike(Module2Post post) async {
     final result = await _safe(
       () => post.isLiked
