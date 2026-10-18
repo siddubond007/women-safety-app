@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_assets.dart';
+import '../../../core/navigation/app_routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -76,6 +77,15 @@ class SafetyScreen extends StatelessWidget {
             iconBgColor: AppColors.pastelPeach,
             iconColor: AppColors.amberAccent,
             onTap: () => _showHelplines(context),
+          ),
+          const SizedBox(height: 9),
+          SakhiSettingsRow(
+            icon: Icons.spa_outlined,
+            title: 'Wellness Hub',
+            subtitle: 'Open calming exercises and wellbeing resources',
+            iconBgColor: AppColors.pastelMint,
+            iconColor: AppColors.wellnessGreen,
+            onTap: () => _navigate(context, AppRoutes.wellness),
           ),
           const SizedBox(height: 12),
           const Text(
