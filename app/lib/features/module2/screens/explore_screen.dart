@@ -182,7 +182,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                     message: 'Profiles from active, verified Sakhi members will appear here when they are discoverable.',
                   )
                 else
-                  ...members.take(4).map((member) => Padding(
+                  ...( _filter == 'Members' ? members : members.take(4) ).map((member) => Padding(
                     padding: const EdgeInsets.only(bottom: 9),
                     child: Container(
                       padding: const EdgeInsets.all(11),
