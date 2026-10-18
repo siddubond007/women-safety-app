@@ -120,6 +120,27 @@ describe("Module2Service privacy regression checks", () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it("rejects a group name that is too short after trimming", async () => {
+    await expect(
+      service.createGroup("Bearer test-token", {
+        name: " X ",
+        visibility: "PRIVATE",
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("rejects whitespace-only event content before attempting to persist it", async () => {
+    await expect(
+      service.createEvent("Bearer test-token", {
+        groupId: "4b1f7f84-2f0d-4f39-8bd9-73ac2a7763a1",
+        title: "   ",
+        description: "   ",
+        startsAt: new Date(Date.now() + 86_400_000).toISOString(),
+        endsAt: new Date(Date.now() + 90_000_000).toISOString(),
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it("reapplies current audience and block visibility when listing saved posts", async () => {
     await service.listSavedPosts("Bearer test-token");
 
