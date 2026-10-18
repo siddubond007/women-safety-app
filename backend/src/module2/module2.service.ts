@@ -186,7 +186,7 @@ export class Module2Service {
     };
   }
 
-  private postInclude(viewerAccountId: string) {
+  private postInclude(viewerAccountId: string): Prisma.MemberPostInclude {
     return {
       account: {
         include: {
@@ -234,7 +234,7 @@ export class Module2Service {
           },
         },
       },
-    } as const;
+    };
   }
 
   private serializePost(post: any, viewerAccountId: string) {
@@ -441,8 +441,7 @@ export class Module2Service {
     const session = await this.requireMember(authorization);
     const take = this.pageSize(limit);
     const normalized = query.trim().slice(0, 100);
-    const accounts = await this.prisma.memberAccount.findMany({
-      where: {
+    const where: Prisma.MemberAccountWhereInput = {
         id: { not: session.accountId },
         status: "ACTIVE",
         verificationStatus: "VERIFIED",
@@ -514,7 +513,9 @@ export class Module2Service {
               ]
             : []),
         ],
-      },
+      };
+    const accounts = await this.prisma.memberAccount.findMany({
+      where,
       select: {
         id: true,
         profile: { select: profilePublicSelect },
@@ -1813,7 +1814,14 @@ export class Module2Service {
             }
           : {}),
       },
-      include: { account: { include: { profile: { select: profilePublicSelect } } } },
+      include: {
+        account: {
+          include: {
+            profile: { select: profilePublicSelect },
+            privacySettings: true,
+          },
+        },
+      },
       orderBy: { updatedAt: "desc" },
       take,
     });
