@@ -2,6 +2,8 @@ import {
   ArrayMaxSize,
   IsArray,
   IsBoolean,
+  IsEmail,
+  IsISO8601,
   IsIn,
   IsOptional,
   IsString,
