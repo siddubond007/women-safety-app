@@ -339,7 +339,15 @@ class _GroupCard extends StatelessWidget {
         const SizedBox(width: 5),
         OutlinedButton(
           onPressed: onJoin,
-          child: Text(group.isOwner ? 'Archive' : ((group.membershipStatus == 'ACTIVE' || group.membershipStatus == 'PENDING') ? 'Leave' : 'Join')),
+          child: Text(
+            group.isOwner
+                ? 'Archive'
+                : group.membershipStatus == 'PENDING'
+                    ? 'Cancel request'
+                    : group.membershipStatus == 'ACTIVE'
+                        ? 'Leave'
+                        : 'Join',
+          ),
         ),
       ]),
     ]),
