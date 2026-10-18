@@ -26,6 +26,7 @@ describe("Module2Service privacy regression checks", () => {
         findFirst: vi.fn().mockResolvedValue(null),
       },
       memberAccount: {
+        findMany: vi.fn().mockResolvedValue([]),
         findFirst: vi.fn().mockResolvedValue({
           id: targetId,
           profile: {
@@ -44,6 +45,7 @@ describe("Module2Service privacy regression checks", () => {
       },
       socialFollow: {
         findUnique: vi.fn().mockResolvedValue(null),
+        findMany: vi.fn().mockResolvedValue([]),
         count: vi.fn().mockResolvedValue(0),
       },
       memberPost: {
@@ -66,6 +68,32 @@ describe("Module2Service privacy regression checks", () => {
     expect(result.accountId).toBe(targetId);
     expect(prisma.memberPrivacySettings.upsert).not.toHaveBeenCalled();
     expect(result.profile.locationCity).toBeNull();
+  });
+
+  it("does not expose follower-only profiles in discovery unless the viewer follows them", async () => {
+    await service.getDiscover("Bearer test-token");
+
+    const query = prisma.memberAccount.findMany.mock.calls[0]?.[0];
+    const visibilityBranches = query.where.OR as Array<Record<string, any>>;
+    expect(visibilityBranches).toContainEqual({
+      privacySettings: {
+        is: {
+          appearInSearch: true,
+          profileVisibility: "VERIFIED_MEMBERS",
+        },
+      },
+    });
+    expect(
+      visibilityBranches.some((branch) =>
+        Array.isArray(branch.AND) &&
+        branch.AND.some((part: Record<string, any>) =>
+          part.privacySettings?.is?.profileVisibility === "FOLLOWERS_ONLY",
+        ) &&
+        branch.AND.some((part: Record<string, any>) =>
+          part.followsAsFollowing?.some?.followerAccountId === viewerId,
+        ),
+      ),
+    ).toBe(true);
   });
 
   it("reapplies current audience and block visibility when listing saved posts", async () => {
