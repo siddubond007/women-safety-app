@@ -271,7 +271,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
                             final ok = (pending || active)
                                 ? await state.backend!.leaveGroup(group)
                                 : await state.backend!.joinGroup(group);
-                            if (mounted && !ok) {
+                            if (!mounted) return;
+                            if (!ok) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                   content: Text(state.backend?.errorMessage ?? 'Membership update failed.'),
