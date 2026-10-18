@@ -1215,11 +1215,13 @@ export class Module2Service {
     });
     if (!target) throw new NotFoundException("This member is unavailable.");
     if (dto.postId) {
-      const post = await this.prisma.memberPost.findFirst({
-        where: { id: dto.postId, accountId: dto.reportedAccountId, deletedAt: null },
-        select: { id: true },
-      });
-      if (!post) throw new NotFoundException("The reported post is unavailable.");
+      // A report must not become a side channel for targeting posts the
+      // reporter could not access under current audience, profile and block
+      // rules. Also bind the selected post to the reported member.
+      const post = await this.findVisiblePost(session.accountId, dto.postId);
+      if (post.accountId !== dto.reportedAccountId) {
+        throw new NotFoundException("The reported post is unavailable.");
+      }
     }
     const report = await this.prisma.memberReport.create({
       data: {
