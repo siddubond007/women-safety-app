@@ -238,7 +238,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 const SizedBox(height: 22),
                 const SakhiSectionHeader(title: 'Discover groups'),
                 const SizedBox(height: 10),
-                if (state.backend?.isLoadingMembers == true)
+                if (state.backend?.isLoadingGroups == true)
                   const Center(child: Padding(padding: EdgeInsets.all(18), child: CircularProgressIndicator()))
                 else if ((state.backend?.discoverGroups ?? []).isEmpty)
                   Module2EmptyPanel(
@@ -290,7 +290,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 const SizedBox(height: 22),
                 const SakhiSectionHeader(title: 'Upcoming events'),
                 const SizedBox(height: 10),
-                if ((state.backend?.upcomingEvents ?? []).isEmpty)
+                if (state.backend?.isLoadingEvents == true)
+                  const Center(child: Padding(padding: EdgeInsets.all(18), child: CircularProgressIndicator()))
+                else if ((state.backend?.upcomingEvents ?? []).isEmpty)
                   const Module2EmptyPanel(
                     icon: Icons.event_available_outlined,
                     title: 'No upcoming events',
@@ -321,7 +323,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 const SizedBox(height: 22),
                 const SakhiSectionHeader(title: 'Verified business profiles'),
                 const SizedBox(height: 10),
-                if ((state.backend?.verifiedExperts ?? []).isEmpty)
+                if (state.backend?.isLoadingExperts == true)
+                  const Center(child: Padding(padding: EdgeInsets.all(18), child: CircularProgressIndicator()))
+                else if ((state.backend?.verifiedExperts ?? []).isEmpty)
                   const Module2EmptyPanel(
                     icon: Icons.workspace_premium_outlined,
                     title: 'No verified expert profiles yet',
