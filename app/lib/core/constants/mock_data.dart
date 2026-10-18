@@ -228,6 +228,11 @@ class SakhiPrototypeState extends ChangeNotifier {
           state.loadFollowers(showFollowing: true),
         ]);
         break;
+      case '/following':
+        await Future.wait([
+          state.loadFollowers(showFollowing: true),
+        ]);
+        break;
       case '/privacy-settings':
         await state.loadPrivacySettings();
         break;
