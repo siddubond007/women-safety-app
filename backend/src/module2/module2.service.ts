@@ -424,7 +424,7 @@ export class Module2Service {
 
   async getDiscover(authorization: string | undefined, query = "", limit?: string) {
     const session = await this.requireMember(authorization);
-    const take = Math.min(Math.max(Number(limit ?? "50") || 50, 1), 100);
+    const take = this.pageSize(limit);
     const normalized = query.trim().slice(0, 100);
     const accounts = await this.prisma.memberAccount.findMany({
       where: {
@@ -533,7 +533,7 @@ export class Module2Service {
     if (options.accountId && !/^[0-9a-f-]{36}$/i.test(options.accountId)) {
       throw new BadRequestException("accountId must be a valid UUID.");
     }
-    const take = Math.min(Math.max(Number(options.limit ?? "50") || 50, 1), 100);
+    const take = this.pageSize(options.limit);
     if (options.cursor && !/^[0-9a-f-]{36}$/i.test(options.cursor)) {
       throw new BadRequestException("cursor must be a valid UUID.");
     }
@@ -751,7 +751,7 @@ export class Module2Service {
     limit?: string,
   ) {
     const session = await this.requireMember(authorization);
-    const take = Math.min(Math.max(Number(limit ?? "50") || 50, 1), 100);
+    const take = this.pageSize(limit);
     const where: Prisma.SocialFollowWhereInput =
       direction === "followers"
         ? {
@@ -1088,7 +1088,7 @@ export class Module2Service {
     options: { mine?: boolean; query?: string; limit?: string } = {},
   ) {
     const session = await this.requireMember(authorization);
-    const take = Math.min(Math.max(Number(options.limit ?? "50") || 50, 1), 100);
+    const take = this.pageSize(options.limit);
     const query = options.query?.trim();
     const groups = await this.prisma.communityGroup.findMany({
       where: {
@@ -1367,7 +1367,7 @@ export class Module2Service {
     limit?: string,
   ) {
     const session = await this.requireMember(authorization);
-    const take = Math.min(Math.max(Number(limit ?? "50") || 50, 1), 100);
+    const take = this.pageSize(limit);
     const startsAt = new Date();
     const normalized = query.trim();
     const events = await this.prisma.communityEvent.findMany({
@@ -1522,7 +1522,7 @@ export class Module2Service {
 
   async listVerifiedExperts(authorization: string | undefined, query = "", limit?: string) {
     const session = await this.requireMember(authorization);
-    const take = Math.min(Math.max(Number(limit ?? "50") || 50, 1), 100);
+    const take = this.pageSize(limit);
     const normalized = query.trim();
     const businesses = await this.prisma.businessProfile.findMany({
       where: {
