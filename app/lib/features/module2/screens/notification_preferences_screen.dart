@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/mock_data.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../core/widgets/sakhi_settings_row.dart';
 import '../widgets/module2_feature_widgets.dart';
 
 class NotificationPreferencesScreen extends StatelessWidget {
