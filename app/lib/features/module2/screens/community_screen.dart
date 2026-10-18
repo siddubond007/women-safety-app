@@ -233,18 +233,35 @@ class _CommunityScreenState extends State<CommunityScreen> {
     if (!mounted || action == null) return;
     final state = SakhiPrototypeState.instance;
     if (action == 'report') {
-      await state.reportMember(accountId: accountId, postId: postId, reason: 'UNSAFE_CONTENT');
-      if (state.backend?.errorMessage == null && mounted) {
-        SakhiDialogs.showPrototypeSnackbar(context, 'Report submitted for review.');
-      }
+      final success = await state.reportMember(
+        accountId: accountId,
+        postId: postId,
+        reason: 'UNSAFE_CONTENT',
+      );
+      if (!mounted) return;
+      SakhiDialogs.showPrototypeSnackbar(
+        context,
+        success
+            ? 'Report submitted for review.'
+            : (state.backend?.errorMessage ?? 'Report could not be submitted.'),
+      );
     } else {
-      final members = state.backend?.discoveredMembers.where((member) => member.accountId == accountId).toList() ?? [];
-      if (members.isNotEmpty) {
-        await state.backend?.blockMember(members.first);
-        if (state.backend?.errorMessage == null && mounted) {
-          SakhiDialogs.showPrototypeSnackbar(context, 'Member blocked.');
-        }
-      }
+      final members = state.backend?.discoveredMembers
+              .where((member) => member.accountId == accountId)
+              .toList() ??
+          [];
+      final success = await state.backend?.blockMemberByAccountId(
+            accountId,
+            displayName: members.isNotEmpty ? members.first.displayName : null,
+          ) ??
+          false;
+      if (!mounted) return;
+      SakhiDialogs.showPrototypeSnackbar(
+        context,
+        success
+            ? (state.backend?.actionMessage ?? 'Member blocked.')
+            : (state.backend?.errorMessage ?? 'Member could not be blocked.'),
+      );
     }
   }
 }
