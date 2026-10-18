@@ -171,6 +171,11 @@ class _Module2NavigationShellState extends State<Module2NavigationShell> {
         return const NotificationPreferencesScreen();
       case AppRoutes.followers:
         return FollowersFollowingScreen(onOpenMember: _openMemberProfile);
+      case AppRoutes.following:
+        return FollowersFollowingScreen(
+          onOpenMember: _openMemberProfile,
+          initialFollowing: true,
+        );
       case AppRoutes.groups:
         return const GroupsScreen();
       case AppRoutes.myGroups:
@@ -196,6 +201,7 @@ class _Module2NavigationShellState extends State<Module2NavigationShell> {
     AppRoutes.privacySettings => 'Privacy Settings',
     AppRoutes.notificationPreferences => 'Notification Preferences',
     AppRoutes.followers => 'Followers & Following',
+    AppRoutes.following => 'Following',
     AppRoutes.memberProfile => 'Member Profile',
     AppRoutes.groups || AppRoutes.myGroups => 'Groups & Events',
     AppRoutes.accountSecurity => 'Account & Security',
