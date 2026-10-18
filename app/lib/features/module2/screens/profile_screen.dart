@@ -175,13 +175,77 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   setState(() => _tabIndex = 1);
                   await state.backend?.loadSavedPosts();
                 })),
-                Expanded(child: _ProfileTab(label: 'Groups', selected: _tabIndex == 2, onTap: () => _navigate(AppRoutes.moreOptions))),
+                Expanded(child: _ProfileTab(
+                  label: 'Groups',
+                  selected: _tabIndex == 2,
+                  onTap: () async {
+                    setState(() => _tabIndex = 2);
+                    await state.backend?.loadGroups(mine: true);
+                  },
+                )),
               ]),
               const SizedBox(height: 11),
-              if (state.backend?.isLoadingFeed == true)
+              if (_tabIndex == 2 && state.backend?.isLoadingGroups == true)
                 const Center(child: Padding(padding: EdgeInsets.all(18), child: CircularProgressIndicator()))
-              else if (_tabIndex == 2)
-                const Module2EmptyPanel(icon: Icons.groups_outlined, title: 'Your groups', message: 'Group membership will appear here when group spaces are available to your account.')
+              else if (_tabIndex == 2 && (state.backend?.myGroups ?? []).isEmpty)
+                Module2EmptyPanel(
+                  icon: Icons.groups_outlined,
+                  title: 'Your groups',
+                  message: 'Groups you own or have joined will appear here.',
+                  actionLabel: 'Explore groups',
+                  onAction: () => _navigate(AppRoutes.myGroups),
+                )
+              else if (_tabIndex == 2) ...[
+                ...state.backend!.myGroups.map((group) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: InkWell(
+                    onTap: () => _navigate(AppRoutes.myGroups),
+                    borderRadius: BorderRadius.circular(16),
+                    child: Container(
+                      padding: const EdgeInsets.all(13),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppColors.borderSubtle),
+                      ),
+                      child: Row(children: [
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: const BoxDecoration(
+                            color: AppColors.pastelLavender,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.groups_rounded, color: AppColors.primaryPurple),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(group.name, style: AppTypography.cardTitle),
+                            const SizedBox(height: 3),
+                            Text(
+                              '${group.memberCount} members · ${group.upcomingEventsCount} upcoming events',
+                              style: AppTypography.subtitle,
+                            ),
+                          ],
+                        )),
+                        const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+                      ]),
+                    ),
+                  ),
+                )),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: () => _navigate(AppRoutes.myGroups),
+                    icon: const Icon(Icons.tune_rounded),
+                    label: const Text('Manage groups & events'),
+                  ),
+                ),
+              ]
+              else if (state.backend?.isLoadingFeed == true)
+                const Center(child: Padding(padding: EdgeInsets.all(18), child: CircularProgressIndicator()))
               else if (posts.isEmpty)
                 Module2EmptyPanel(
                   icon: _tabIndex == 0 ? Icons.photo_library_outlined : Icons.bookmark_border_rounded,
