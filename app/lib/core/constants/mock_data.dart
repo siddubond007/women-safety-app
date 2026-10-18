@@ -206,6 +206,12 @@ class SakhiPrototypeState extends ChangeNotifier {
           state.loadEvents(),
         ]);
         break;
+      case '/my-groups':
+        await Future.wait([
+          state.loadGroups(mine: true),
+          state.loadEvents(),
+        ]);
+        break;
       case '/community':
         await state.loadFeed(query: searchQuery);
         break;
