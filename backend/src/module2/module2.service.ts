@@ -1015,25 +1015,8 @@ export class Module2Service {
         },
         ...(options.mine
           ? { members: { some: { accountId: session.accountId, status: "ACTIVE" } } }
-          : {
-              AND: [
-                {
-                  OR: [
-                    { visibility: "VERIFIED_MEMBERS" },
-                    { members: { some: { accountId: session.accountId } } },
-                  ],
-                },
-                ...(query
-                  ? [{
-                      OR: [
-                        { name: { contains: query, mode: "insensitive" } },
-                        { description: { contains: query, mode: "insensitive" } },
-                      ],
-                    }]
-                  : []),
-              ],
-            }),
-        ...(options.mine && query
+          : {}),
+        ...(query
           ? {
               AND: [{
                 OR: [
