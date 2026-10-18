@@ -1176,6 +1176,68 @@ export class Module2Service {
     return { groupId, left: true, archived: false };
   }
 
+  async listPendingGroupMembers(
+    authorization: string | undefined,
+    groupId: string,
+  ) {
+    const session = await this.requireMember(authorization);
+    const group = await this.prisma.communityGroup.findFirst({
+      where: { id: groupId, status: "ACTIVE" },
+      select: { id: true },
+    });
+    if (!group) throw new NotFoundException("This group is unavailable.");
+
+    const managerMembership = await this.prisma.groupMembership.findFirst({
+      where: {
+        groupId,
+        accountId: session.accountId,
+        status: "ACTIVE",
+        role: { in: ["OWNER", "MODERATOR"] },
+      },
+      select: { groupId: true },
+    });
+    if (!managerMembership) {
+      throw new ForbiddenException(
+        "Only group owners or moderators can view membership requests.",
+      );
+    }
+
+    const rows = await this.prisma.groupMembership.findMany({
+      where: {
+        groupId,
+        status: "PENDING",
+        account: {
+          is: {
+            status: "ACTIVE",
+            verificationStatus: "VERIFIED",
+            AND: [
+              { NOT: { blockedAccounts: { some: { blockedAccountId: session.accountId } } } },
+              { NOT: { blockedByAccounts: { some: { blockerAccountId: session.accountId } } } },
+            ],
+          },
+        },
+      },
+      include: { account: { include: { profile: { select: profilePublicSelect } } } },
+      orderBy: { createdAt: "asc" },
+      take: MAX_PAGE_SIZE,
+    });
+
+    return {
+      members: rows.map((row) => ({
+        accountId: row.accountId,
+        displayName: row.account.profile?.displayName ?? "Sakhi member",
+        profilePhotoRef: row.account.profile?.profilePhotoRef ?? null,
+        bio: row.account.profile?.bio ?? null,
+        locationCity: row.account.profile?.locationCity ?? null,
+        interests: row.account.profile?.interests ?? [],
+        counts: { posts: 0, followers: 0, following: 0 },
+        isFollowing: false,
+        blockedAt: null,
+        requestedAt: row.createdAt.toISOString(),
+      })),
+    };
+  }
+
   async approveGroupMember(
     authorization: string | undefined,
     groupId: string,
@@ -1193,7 +1255,21 @@ export class Module2Service {
     });
     if (!ownerMembership) throw new ForbiddenException("Only group owners or moderators can approve membership requests.");
     const target = await this.prisma.groupMembership.updateMany({
-      where: { groupId, accountId: memberAccountId, status: "PENDING" },
+      where: {
+        groupId,
+        accountId: memberAccountId,
+        status: "PENDING",
+        account: {
+          is: {
+            status: "ACTIVE",
+            verificationStatus: "VERIFIED",
+            AND: [
+              { NOT: { blockedAccounts: { some: { blockedAccountId: session.accountId } } } },
+              { NOT: { blockedByAccounts: { some: { blockerAccountId: session.accountId } } } },
+            ],
+          },
+        },
+      },
       data: { status: "ACTIVE" },
     });
     if (target.count === 0) throw new NotFoundException("This pending membership request is unavailable.");
