@@ -471,6 +471,16 @@ class SakhiPrototypeState extends ChangeNotifier {
     return success;
   }
 
+  Future<bool> deletePost(FeedPostModel post) async {
+    final backend = _backend;
+    final apiPost = _postById[post.id];
+    if (backend == null || apiPost == null) return false;
+    if (!apiPost.isOwnPost) return false;
+    final success = await backend.deletePost(apiPost);
+    _syncFromBackend();
+    return success;
+  }
+
   Future<bool> togglePostLike(FeedPostModel post) async {
     final backend = _backend;
     final apiPost = _postById[post.id];
