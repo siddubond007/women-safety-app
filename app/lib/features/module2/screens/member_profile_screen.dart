@@ -9,6 +9,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/sakhi_avatar.dart';
 import '../../../core/widgets/sakhi_chip.dart';
+import '../../../core/widgets/sakhi_section_header.dart';
 import '../module2_scope.dart';
 import '../module2_state.dart';
 import '../widgets/module2_feature_widgets.dart';
