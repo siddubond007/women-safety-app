@@ -104,7 +104,7 @@ class _MemberProfileScreenState extends State<MemberProfileScreen> {
                 child: Column(
                   children: [
                     SakhiAvatar(
-                      imageAsset: profile.profilePhotoRef ?? '',
+                      imageAsset: profile.profilePhotoRef?.startsWith('https://') == true ? profile.profilePhotoRef! : '',
                       size: 98,
                       fallbackLabel: profile.displayName,
                     ),
