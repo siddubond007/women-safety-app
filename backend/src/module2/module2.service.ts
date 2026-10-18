@@ -144,7 +144,7 @@ export class Module2Service {
     viewerAccountId: string,
     options: { authorAccountId?: string; query?: string } = {},
   ): Prisma.MemberPostWhereInput {
-    const query = options.query?.trim();
+    const query = options.query?.trim().slice(0, 100);
     return {
       status: "PUBLISHED",
       deletedAt: null,
@@ -752,6 +752,7 @@ export class Module2Service {
   ) {
     const session = await this.requireMember(authorization);
     const take = this.pageSize(limit);
+    const normalizedQuery = query.trim().slice(0, 100);
     const where: Prisma.SocialFollowWhereInput =
       direction === "followers"
         ? {
@@ -760,7 +761,7 @@ export class Module2Service {
               is: {
                 status: "ACTIVE",
                 verificationStatus: "VERIFIED",
-                profile: { is: { displayName: { contains: query.trim(), mode: "insensitive" } } },
+                profile: { is: { displayName: { contains: normalizedQuery, mode: "insensitive" } } },
                 AND: [
                   { NOT: { blockedAccounts: { some: { blockedAccountId: session.accountId } } } },
                   { NOT: { blockedByAccounts: { some: { blockerAccountId: session.accountId } } } },
@@ -784,7 +785,7 @@ export class Module2Service {
               is: {
                 status: "ACTIVE",
                 verificationStatus: "VERIFIED",
-                profile: { is: { displayName: { contains: query.trim(), mode: "insensitive" } } },
+                profile: { is: { displayName: { contains: normalizedQuery, mode: "insensitive" } } },
                 AND: [
                   { NOT: { blockedAccounts: { some: { blockedAccountId: session.accountId } } } },
                   { NOT: { blockedByAccounts: { some: { blockerAccountId: session.accountId } } } },
@@ -1099,7 +1100,7 @@ export class Module2Service {
   ) {
     const session = await this.requireMember(authorization);
     const take = this.pageSize(options.limit);
-    const query = options.query?.trim();
+    const query = options.query?.trim().slice(0, 100);
     const groups = await this.prisma.communityGroup.findMany({
       where: {
         status: "ACTIVE",
@@ -1390,7 +1391,7 @@ export class Module2Service {
     const session = await this.requireMember(authorization);
     const take = this.pageSize(limit);
     const startsAt = new Date();
-    const normalized = query.trim();
+    const normalized = query.trim().slice(0, 100);
     const events = await this.prisma.communityEvent.findMany({
       where: {
         status: "PUBLISHED",
@@ -1544,7 +1545,7 @@ export class Module2Service {
   async listVerifiedExperts(authorization: string | undefined, query = "", limit?: string) {
     const session = await this.requireMember(authorization);
     const take = this.pageSize(limit);
-    const normalized = query.trim();
+    const normalized = query.trim().slice(0, 100);
     const businesses = await this.prisma.businessProfile.findMany({
       where: {
         status: "VERIFIED",
