@@ -15,6 +15,7 @@ import 'screens/explore_screen.dart';
 import 'screens/followers_following_screen.dart';
 import 'screens/groups_screen.dart';
 import 'screens/more_options_screen.dart';
+import 'screens/member_profile_screen.dart';
 import 'screens/notification_preferences_screen.dart';
 import 'screens/privacy_settings_screen.dart';
 import 'screens/profile_screen.dart';
@@ -35,6 +36,7 @@ class Module2NavigationShell extends StatefulWidget {
 class _Module2NavigationShellState extends State<Module2NavigationShell> {
   late final Module2State _state;
   String _route = AppRoutes.home;
+  String? _selectedMemberAccountId;
   final List<String> _history = <String>[AppRoutes.home];
 
   @override
@@ -80,6 +82,17 @@ class _Module2NavigationShellState extends State<Module2NavigationShell> {
       }
     });
     SakhiPrototypeBinding.instance.loadRouteData(route);
+  }
+
+  void _openMemberProfile(String accountId) {
+    final targetId = accountId.trim();
+    if (!mounted || targetId.isEmpty) return;
+    setState(() {
+      _selectedMemberAccountId = targetId;
+      _route = AppRoutes.memberProfile;
+      _history.add(AppRoutes.memberProfile);
+    });
+    SakhiPrototypeBinding.instance.loadRouteData(AppRoutes.memberProfile);
   }
 
   void _back() {
@@ -133,15 +146,23 @@ class _Module2NavigationShellState extends State<Module2NavigationShell> {
       case AppRoutes.home:
         return HomeScreen(onNavigateTab: _selectTab, onNavigateRoute: _navigate);
       case AppRoutes.explore:
-        return ExploreScreen(onNavigateRoute: _navigate);
+        return ExploreScreen(onNavigateRoute: _navigate, onOpenMember: _openMemberProfile);
       case AppRoutes.community:
-        return CommunityScreen(onNavigateRoute: _navigate);
+        return CommunityScreen(onNavigateRoute: _navigate, onOpenMember: _openMemberProfile);
       case AppRoutes.wellness:
         return WellnessScreen(onNavigateRoute: _navigate);
       case AppRoutes.safety:
         return SafetyScreen(onNavigateRoute: _navigate);
       case AppRoutes.profile:
         return ProfileScreen(onNavigateRoute: _navigate);
+      case AppRoutes.memberProfile:
+        final accountId = _selectedMemberAccountId;
+        return accountId == null || accountId.isEmpty
+            ? ProfileScreen(onNavigateRoute: _navigate)
+            : MemberProfileScreen(
+                key: ValueKey<String>(accountId),
+                accountId: accountId,
+              );
       case AppRoutes.editProfile:
         return const EditProfileScreen();
       case AppRoutes.privacySettings:
@@ -149,7 +170,7 @@ class _Module2NavigationShellState extends State<Module2NavigationShell> {
       case AppRoutes.notificationPreferences:
         return const NotificationPreferencesScreen();
       case AppRoutes.followers:
-        return const FollowersFollowingScreen();
+        return FollowersFollowingScreen(onOpenMember: _openMemberProfile);
       case AppRoutes.groups:
         return const GroupsScreen();
       case AppRoutes.myGroups:
@@ -175,6 +196,7 @@ class _Module2NavigationShellState extends State<Module2NavigationShell> {
     AppRoutes.privacySettings => 'Privacy Settings',
     AppRoutes.notificationPreferences => 'Notification Preferences',
     AppRoutes.followers => 'Followers & Following',
+    AppRoutes.memberProfile => 'Member Profile',
     AppRoutes.groups || AppRoutes.myGroups => 'Groups & Events',
     AppRoutes.accountSecurity => 'Account & Security',
     AppRoutes.moreOptions => 'More Options',
