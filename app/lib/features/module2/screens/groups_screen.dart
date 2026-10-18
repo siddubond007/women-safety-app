@@ -132,7 +132,13 @@ class _GroupsScreenState extends State<GroupsScreen> {
                 child: _GroupCard(
                   group: group,
                   onJoin: () => _joinLeave(state, group),
-                  onCreateEvent: group.isOwner ? () => _createEvent(context, state, group) : null,
+                  onCreateEvent: (group.isOwner || group.membershipRole == 'MODERATOR')
+                      ? () => _createEvent(context, state, group)
+                      : null,
+                  onManageRequests: group.visibility == 'PRIVATE' &&
+                          (group.isOwner || group.membershipRole == 'MODERATOR')
+                      ? () => _managePendingRequests(context, state, group)
+                      : null,
                 ),
               )),
             if (_tab == 2 && state.upcomingEvents.isEmpty && !_loading)
@@ -181,6 +187,80 @@ class _GroupsScreenState extends State<GroupsScreen> {
         ? await state.leaveGroup(group)
         : await state.joinGroup(group);
     if (mounted && !success) _message(state.errorMessage ?? 'Group membership could not be changed.');
+  }
+
+  Future<void> _managePendingRequests(
+    BuildContext context,
+    Module2State state,
+    Module2Group group,
+  ) async {
+    final members = await state.loadPendingGroupMembers(group.id);
+    if (!mounted) return;
+    if (state.errorMessage != null) {
+      _message(state.errorMessage!);
+      return;
+    }
+    if (members.isEmpty) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('Join requests · ${group.name}'),
+          content: const Text('There are no pending membership requests for this group.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Close'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final selectedMember = await showDialog<Module2Member>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Join requests · ${group.name}'),
+        content: SizedBox(
+          width: 360,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: members.map((member) => ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: AppColors.pastelLavender,
+                  child: Text(
+                    member.displayName.isEmpty ? 'S' : member.displayName.substring(0, 1).toUpperCase(),
+                    style: const TextStyle(color: AppColors.primaryPurple),
+                  ),
+                ),
+                title: Text(member.displayName),
+                subtitle: Text((member.bio ?? '').isEmpty ? 'Verified Sakhi member' : member.bio!),
+                trailing: TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, member),
+                  child: const Text('Approve'),
+                ),
+              )).toList(),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+    if (selectedMember == null) return;
+    final approved = await state.approveGroupMember(group.id, selectedMember);
+    if (mounted) {
+      _message(
+        approved
+            ? '${selectedMember.displayName} approved.'
+            : (state.errorMessage ?? 'Membership request could not be approved.'),
+      );
+    }
   }
 
   Future<void> _createGroup(BuildContext context, Module2State state) async {
@@ -307,11 +387,17 @@ class _GroupsScreenState extends State<GroupsScreen> {
 }
 
 class _GroupCard extends StatelessWidget {
-  const _GroupCard({required this.group, required this.onJoin, required this.onCreateEvent});
+  const _GroupCard({
+    required this.group,
+    required this.onJoin,
+    required this.onCreateEvent,
+    this.onManageRequests,
+  });
 
   final Module2Group group;
   final VoidCallback onJoin;
   final VoidCallback? onCreateEvent;
+  final VoidCallback? onManageRequests;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -334,6 +420,8 @@ class _GroupCard extends StatelessWidget {
       const SizedBox(height: 10),
       Row(children: [
         Expanded(child: Text(group.membershipStatus == 'PENDING' ? 'Membership request pending' : (group.isOwner ? 'You own this group' : '${group.upcomingEventsCount} upcoming events'), style: AppTypography.subtitle)),
+        if (onManageRequests != null)
+          TextButton(onPressed: onManageRequests, child: const Text('Requests')),
         if (onCreateEvent != null)
           TextButton(onPressed: onCreateEvent, child: const Text('Create event')),
         const SizedBox(width: 5),
