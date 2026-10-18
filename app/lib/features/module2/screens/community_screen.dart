@@ -13,8 +13,13 @@ import '../module2_models.dart';
 import '../widgets/module2_feature_widgets.dart';
 
 class CommunityScreen extends StatefulWidget {
-  const CommunityScreen({super.key, this.onNavigateRoute});
+  const CommunityScreen({
+    super.key,
+    this.onNavigateRoute,
+    this.onOpenMember,
+  });
   final ValueChanged<String>? onNavigateRoute;
+  final ValueChanged<String>? onOpenMember;
 
   @override
   State<CommunityScreen> createState() => _CommunityScreenState();
@@ -37,6 +42,18 @@ class _CommunityScreenState extends State<CommunityScreen> {
       handler(route);
     } else {
       Navigator.of(context).pushNamed(route);
+    }
+  }
+
+  void _openMember(String accountId) {
+    if (accountId.isEmpty) return;
+    final handler = widget.onOpenMember;
+    if (handler != null) {
+      handler(accountId);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Member profile navigation is unavailable in this preview.')),
+      );
     }
   }
 
@@ -166,7 +183,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   post: posts[index],
                   state: state,
                   onComment: () => _openComments(posts[index].id),
-                  onAuthorTap: () => _navigate(AppRoutes.profile),
+                  onAuthorTap: () => _openMember(posts[index].authorAccountId),
                   onMore: () => _showPostActions(posts[index].authorAccountId, posts[index].id),
                 ),
                 const SizedBox(height: 12),
