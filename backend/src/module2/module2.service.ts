@@ -1273,6 +1273,7 @@ export class Module2Service {
         accountId: session.accountId,
         status: "ACTIVE",
         role: { in: ["OWNER", "MODERATOR"] },
+        group: { is: { status: "ACTIVE" } },
       },
       select: { groupId: true },
     });
@@ -1375,7 +1376,13 @@ export class Module2Service {
     }
     if (startsAt <= new Date()) throw new BadRequestException("Events must start in the future.");
     const membership = await this.prisma.groupMembership.findFirst({
-      where: { groupId: dto.groupId, accountId: session.accountId, status: "ACTIVE", role: { in: ["OWNER", "MODERATOR"] } },
+      where: {
+        groupId: dto.groupId,
+        accountId: session.accountId,
+        status: "ACTIVE",
+        role: { in: ["OWNER", "MODERATOR"] },
+        group: { is: { status: "ACTIVE" } },
+      },
       select: { groupId: true },
     });
     if (!membership) throw new ForbiddenException("Only a group owner or moderator can publish an event for this group.");
