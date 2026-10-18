@@ -20,6 +20,7 @@ class SakhiAvatar extends StatelessWidget {
   final String? fallbackLabel;
 
   Widget _avatarImage() {
+    if (imageAsset.trim().isEmpty) return _fallback();
     final isTrustedTransport = imageAsset.startsWith('https://');
     final image = isTrustedTransport
         ? Image.network(
