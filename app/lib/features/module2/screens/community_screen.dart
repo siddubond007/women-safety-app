@@ -6,10 +6,8 @@ import '../../../core/navigation/app_routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../core/widgets/sakhi_chip.dart';
 import '../../../core/widgets/sakhi_dialogs.dart';
 import '../../../core/widgets/sakhi_search_field.dart';
-import '../module2_models.dart';
 import '../widgets/module2_feature_widgets.dart';
 
 class CommunityScreen extends StatefulWidget {
