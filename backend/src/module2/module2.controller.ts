@@ -75,6 +75,14 @@ export class Module2Controller {
     return this.module2.createGroup(authorization, dto);
   }
 
+  @Get("groups/:groupId/pending-members")
+  listPendingGroupMembers(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("groupId", new ParseUUIDPipe({ version: "4" })) groupId: string,
+  ) {
+    return this.module2.listPendingGroupMembers(authorization, groupId);
+  }
+
   @Post("groups/:groupId/join")
   joinGroup(
     @Headers("authorization") authorization: string | undefined,
