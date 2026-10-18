@@ -437,7 +437,7 @@ export class Module2Service {
         id: { not: session.accountId },
         status: "ACTIVE",
         verificationStatus: "VERIFIED",
-        profile: { is: {} },
+        profile: { isNot: null },
         OR: [
           { privacySettings: { is: null } },
           {
