@@ -2,6 +2,17 @@
 -- Additive migration only. No reset/drop operations. The migration is restricted
 -- to the two Sakhi development/test databases by the role grant block below.
 
+-- Fail closed BEFORE any DDL if an operator targets the wrong database.
+-- Do not move this check below CREATE/ALTER statements: migration runners do not
+-- universally wrap a whole SQL file in a single transaction.
+DO $module2_database_guard$
+BEGIN
+    IF current_database() NOT IN ('sakhi_dev', 'sakhi_test') THEN
+        RAISE EXCEPTION 'Module 2 migration may only run on sakhi_dev or sakhi_test; current database is %', current_database();
+    END IF;
+END
+$module2_database_guard$;
+
 CREATE TYPE "profile_visibility" AS ENUM ('VERIFIED_MEMBERS', 'FOLLOWERS_ONLY', 'ONLY_ME');
 CREATE TYPE "message_permission" AS ENUM ('VERIFIED_MEMBERS', 'FOLLOWING_ONLY', 'NO_ONE');
 CREATE TYPE "post_audience" AS ENUM ('VERIFIED_MEMBERS', 'FOLLOWERS', 'SELECTED_MEMBERS', 'ONLY_ME');
