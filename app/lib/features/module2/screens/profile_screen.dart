@@ -10,6 +10,7 @@ import '../../../core/widgets/sakhi_avatar.dart';
 import '../../../core/widgets/sakhi_chip.dart';
 import '../../../core/widgets/sakhi_section_header.dart';
 import '../widgets/module2_feature_widgets.dart';
+import '../module2_post_actions.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key, this.onNavigateRoute});
@@ -262,7 +263,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     state: state,
                     onAuthorTap: () {},
                     onComment: () => _navigate(AppRoutes.community),
-                    onMore: () => _navigate(AppRoutes.moreOptions),
+                    onMore: () => showModule2PostActions(context, post),
                   ),
                 )),
               if (state.backend?.errorMessage != null) ...[
