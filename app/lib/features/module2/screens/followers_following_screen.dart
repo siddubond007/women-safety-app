@@ -8,6 +8,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/sakhi_search_field.dart';
+import '../../../core/widgets/sakhi_avatar.dart';
 import '../widgets/module2_feature_widgets.dart';
 
 class FollowersFollowingScreen extends StatefulWidget {
@@ -120,10 +121,11 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
                   padding: const EdgeInsets.all(11),
                   decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.borderSubtle)),
                   child: Row(children: [
-                    CircleAvatar(
-                      radius: 24,
-                      backgroundColor: AppColors.pastelLavender,
-                      child: Text(person.name.isNotEmpty ? person.name.substring(0, 1).toUpperCase() : 'S', style: const TextStyle(color: AppColors.primaryPurple, fontWeight: FontWeight.w800)),
+                    SakhiAvatar(
+                      imageAsset: person.avatarAsset,
+                      size: 48,
+                      borderWidth: 0,
+                      fallbackLabel: person.name,
                     ),
                     const SizedBox(width: 11),
                     Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
