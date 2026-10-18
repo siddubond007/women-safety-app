@@ -11,8 +11,13 @@ import '../../../core/constants/mock_data.dart';
 import '../widgets/module2_feature_widgets.dart';
 
 class ExploreScreen extends StatefulWidget {
-  const ExploreScreen({super.key, this.onNavigateRoute});
+  const ExploreScreen({
+    super.key,
+    this.onNavigateRoute,
+    this.onOpenMember,
+  });
   final ValueChanged<String>? onNavigateRoute;
+  final ValueChanged<String>? onOpenMember;
 
   @override
   State<ExploreScreen> createState() => _ExploreScreenState();
@@ -36,6 +41,18 @@ class _ExploreScreenState extends State<ExploreScreen> {
       handler(route);
     } else {
       Navigator.of(context).pushNamed(route);
+    }
+  }
+
+  void _openMember(String accountId) {
+    if (accountId.isEmpty) return;
+    final handler = widget.onOpenMember;
+    if (handler != null) {
+      handler(accountId);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Member profile navigation is unavailable in this preview.')),
+      );
     }
   }
 
@@ -179,6 +196,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
                           Text(member.bio ?? 'Verified Sakhi member', maxLines: 2, overflow: TextOverflow.ellipsis, style: AppTypography.subtitle),
                         ])),
                         const SizedBox(width: 8),
+                        TextButton(
+                          onPressed: () => _openMember(member.accountId),
+                          child: const Text('View'),
+                        ),
                         OutlinedButton(
                           onPressed: () => state.toggleFollow(member.accountId),
                           child: Text(member.isFollowing ? 'Following' : 'Follow'),
@@ -207,7 +228,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                     child: Module2FeedPostCard(
                       post: post,
                       state: state,
-                      onAuthorTap: () => _navigate(AppRoutes.profile),
+                      onAuthorTap: () => _openMember(post.authorAccountId),
                       onComment: () => _navigate(AppRoutes.community),
                       onMore: () => _reportPost(post.authorAccountId, post.id),
                     ),
@@ -223,7 +244,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   Module2EmptyPanel(
                     icon: Icons.groups_outlined,
                     title: 'No discoverable groups yet',
-                    message: 'Verified members can create groups from My Groups. Public groups will appear here; private groups only appear for members with access.',
+                    message: 'Verified members can create groups from My Groups. Verified-member groups and private groups accepting join requests appear here. Private membership requires owner approval.',
                     actionLabel: 'Open My Groups',
                     onAction: () => _navigate(AppRoutes.groups),
                   )
