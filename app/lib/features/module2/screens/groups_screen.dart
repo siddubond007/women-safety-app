@@ -182,11 +182,41 @@ class _GroupsScreenState extends State<GroupsScreen> {
   );
 
   Future<void> _joinLeave(Module2State state, Module2Group group) async {
-    final isMember = group.membershipStatus == 'ACTIVE' || group.membershipStatus == 'PENDING';
+    if (group.isOwner) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Archive this group?'),
+          content: Text(
+            '“${group.name}” will no longer appear as an active group, and its events will no longer be discoverable. This does not permanently delete its records.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Keep group'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              style: FilledButton.styleFrom(backgroundColor: AppColors.sosRed),
+              child: const Text('Archive group'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted || confirmed != true) return;
+    }
+
+    final isMember =
+        group.membershipStatus == 'ACTIVE' || group.membershipStatus == 'PENDING';
     final success = isMember
         ? await state.leaveGroup(group)
         : await state.joinGroup(group);
-    if (mounted && !success) _message(state.errorMessage ?? 'Group membership could not be changed.');
+    if (!mounted) return;
+    if (!success) {
+      _message(state.errorMessage ?? 'Group membership could not be changed.');
+    } else if (state.actionMessage != null) {
+      _message(state.actionMessage!);
+    }
   }
 
   Future<void> _managePendingRequests(
