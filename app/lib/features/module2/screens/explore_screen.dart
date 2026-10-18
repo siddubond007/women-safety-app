@@ -267,6 +267,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                         ])),
                         OutlinedButton(
                           onPressed: () async {
+                            final messenger = ScaffoldMessenger.of(context);
                             final pending = group.membershipStatus == 'PENDING';
                             final active = group.membershipStatus == 'ACTIVE';
                             final ok = (pending || active)
@@ -274,7 +275,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                 : await state.backend!.joinGroup(group);
                             if (!mounted) return;
                             if (!ok) {
-                              ScaffoldMessenger.of(context).showSnackBar(
+                              messenger.showSnackBar(
                                 SnackBar(
                                   content: Text(state.backend?.errorMessage ?? 'Membership update failed.'),
                                 ),
