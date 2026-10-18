@@ -25,6 +25,9 @@ class Module2State extends ChangeNotifier {
   List<Module2Event> upcomingEvents = [];
   List<Module2Expert> verifiedExperts = [];
   bool isLoadingGroups = false;
+  Module2MemberProfile? memberProfile;
+  String? memberProfileAccountId;
+  bool isLoadingMemberProfile = false;
   List<Map<String, dynamic>> sessions = [];
   Map<String, dynamic>? businessProfile;
   Map<String, dynamic> privacySettings = <String, dynamic>{
@@ -428,6 +431,56 @@ class Module2State extends ChangeNotifier {
         ? 'You registered for ${event.title}.'
         : 'Event registration cancelled.';
     await loadEvents();
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> loadMemberProfile(String accountId) async {
+    if (accountId.trim().isEmpty) {
+      errorMessage = 'The requested member profile is unavailable.';
+      notifyListeners();
+      return false;
+    }
+    memberProfileAccountId = accountId;
+    isLoadingMemberProfile = true;
+    errorMessage = null;
+    notifyListeners();
+
+    final payload = await _safe(
+      () => api.get(
+        'module2/members/${accountId}',
+        authenticated: true,
+      ),
+    );
+    if (memberProfileAccountId != accountId) return false;
+    isLoadingMemberProfile = false;
+    if (payload == null) {
+      memberProfile = null;
+      notifyListeners();
+      return false;
+    }
+    memberProfile = Module2MemberProfile.fromPayload(payload);
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> setMemberFollowing({
+    required String accountId,
+    required bool follow,
+  }) async {
+    final result = await _safe(
+      () => follow
+          ? api.post('module2/members/${accountId}/follow', authenticated: true)
+          : api.delete('module2/members/${accountId}/follow', authenticated: true),
+    );
+    if (result == null) return false;
+    actionMessage = follow ? 'Member followed.' : 'Member unfollowed.';
+    await Future.wait([
+      loadMemberProfile(accountId),
+      loadDiscover(),
+      loadFollowers(showFollowing: true),
+      loadProfile(),
+    ]);
     notifyListeners();
     return true;
   }
