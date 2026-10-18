@@ -18,7 +18,7 @@ describe("Module 2 request DTO validation", () => {
       bio: "Learning and growing",
       locationCity: "Tirupati",
       interests: ["Wellness", "Women in Tech"],
-      profilePhotoRef: "profile/2f6f7fa1/avatar.webp",
+      profilePhotoRef: "profile/2f6f7fa1-8c5c-4bb0-ae1a-0f7e3a2e5a41/avatar.webp",
     });
 
     await expect(validate(dto)).resolves.toHaveLength(0);
@@ -34,6 +34,15 @@ describe("Module 2 request DTO validation", () => {
     const invalidProperties = new Set(errors.map((error) => error.property));
     expect(invalidProperties.has("email")).toBe(true);
     expect(invalidProperties.has("profilePhotoRef")).toBe(true);
+  });
+
+  it("rejects traversal segments in profile photo keys", async () => {
+    const dto = assignDto(UpdateProfileDto, {
+      profilePhotoRef: "profile/2f6f7fa1-8c5c-4bb0-ae1a-0f7e3a2e5a41/../../private.webp",
+    });
+
+    const errors = await validate(dto);
+    expect(errors.some((error) => error.property === "profilePhotoRef")).toBe(true);
   });
 
   it("rejects unsupported community group visibility values", async () => {
