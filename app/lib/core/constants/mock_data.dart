@@ -193,7 +193,17 @@ class SakhiPrototypeState extends ChangeNotifier {
       case '/explore':
         await Future.wait([
           state.loadDiscover(query: searchQuery),
+          state.loadGroups(query: searchQuery),
+          state.loadEvents(query: searchQuery),
+          state.loadExperts(query: searchQuery),
           if (searchQuery.trim().isNotEmpty) state.loadFeed(query: searchQuery),
+        ]);
+        break;
+      case '/groups':
+        await Future.wait([
+          state.loadGroups(),
+          state.loadGroups(mine: true),
+          state.loadEvents(),
         ]);
         break;
       case '/community':
@@ -510,6 +520,24 @@ class SakhiPrototypeState extends ChangeNotifier {
     }
     if (updates.isEmpty) return false;
     final success = await backend.updatePrivacySetting(updates.keys.first, updates.values.first);
+    _syncFromBackend();
+    return success;
+  }
+
+  Future<bool> reportMember({
+    required String accountId,
+    required String reason,
+    String? postId,
+    String? details,
+  }) async {
+    final backend = _backend;
+    if (backend == null) return false;
+    final success = await backend.reportMember(
+      accountId: accountId,
+      reason: reason,
+      postId: postId,
+      details: details,
+    );
     _syncFromBackend();
     return success;
   }
