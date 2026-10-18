@@ -174,10 +174,14 @@ class _Module2NavigationShellState extends State<Module2NavigationShell> {
       case AppRoutes.notificationPreferences:
         return const NotificationPreferencesScreen();
       case AppRoutes.followers:
-        return FollowersFollowingScreen(onOpenMember: _openMemberProfile);
+        return FollowersFollowingScreen(
+          onOpenMember: _openMemberProfile,
+          onNavigateRoute: _navigate,
+        );
       case AppRoutes.following:
         return FollowersFollowingScreen(
           onOpenMember: _openMemberProfile,
+          onNavigateRoute: _navigate,
           initialFollowing: true,
         );
       case AppRoutes.groups:
@@ -185,7 +189,7 @@ class _Module2NavigationShellState extends State<Module2NavigationShell> {
       case AppRoutes.myGroups:
         return const GroupsScreen(initialTab: 1);
       case AppRoutes.accountSecurity:
-        return AccountSecurityScreen(onSignOut: _signOut);
+        return AccountSecurityScreen(onSignOut: _signOut, onNavigateRoute: _navigate);
       case AppRoutes.moreOptions:
         return MoreOptionsScreen(onSignOut: _signOut, onNavigateRoute: _navigate);
       default:
