@@ -557,13 +557,12 @@ class Module2State extends ChangeNotifier {
     profilePosts = profilePosts.where((item) => item.id != post.id).toList();
     savedPosts = savedPosts.where((item) => item.id != post.id).toList();
     final refreshedProfile = profile;
-    await Future.wait([
-      loadFeed(),
-      loadSavedPosts(),
-      loadProfile(),
-      if (refreshedProfile != null && refreshedProfile.accountId.isNotEmpty)
-        loadFeed(accountId: refreshedProfile.accountId),
-    ]);
+    await loadFeed();
+    await loadSavedPosts();
+    await loadProfile();
+    if (refreshedProfile != null && refreshedProfile.accountId.isNotEmpty) {
+      await loadFeed(accountId: refreshedProfile.accountId);
+    }
     notifyListeners();
     return true;
   }
