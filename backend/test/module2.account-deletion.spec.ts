@@ -28,6 +28,7 @@ describe("Module2Service account deletion request", () => {
       memberPostComment: { updateMany: vi.fn().mockResolvedValue({ count: 2 }) },
       memberPostLike: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
       memberPostBookmark: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      postAudienceMember: { deleteMany: vi.fn().mockResolvedValue({ count: 3 }) },
       socialFollow: { deleteMany: vi.fn().mockResolvedValue({ count: 2 }) },
       memberBlock: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
       eventRegistration: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
@@ -95,6 +96,14 @@ describe("Module2Service account deletion request", () => {
     expect(tx.memberPostComment.updateMany).toHaveBeenCalledTimes(2);
     expect(tx.memberPostLike.deleteMany).toHaveBeenCalled();
     expect(tx.memberPostBookmark.deleteMany).toHaveBeenCalled();
+    expect(tx.postAudienceMember.deleteMany).toHaveBeenCalledWith({
+      where: {
+        OR: [
+          { accountId },
+          { post: { is: { accountId } } },
+        ],
+      },
+    });
     expect(tx.socialFollow.deleteMany).toHaveBeenCalled();
     expect(tx.memberBlock.deleteMany).toHaveBeenCalled();
     expect(tx.eventRegistration.deleteMany).toHaveBeenCalled();
