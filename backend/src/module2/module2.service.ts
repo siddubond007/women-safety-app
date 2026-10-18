@@ -1251,7 +1251,7 @@ export class Module2Service {
     const session = await this.requireMember(authorization);
     const membership = await this.prisma.groupMembership.findUnique({
       where: { groupId_accountId: { groupId, accountId: session.accountId } },
-      select: { role: true },
+      select: { role: true, status: true },
     });
     if (!membership) return { groupId, left: true };
     if (membership.role === "OWNER") {
@@ -1265,8 +1265,19 @@ export class Module2Service {
     await this.prisma.groupMembership.delete({
       where: { groupId_accountId: { groupId, accountId: session.accountId } },
     });
-    await this.recordAudit(session.accountId, "module2.group.left", "community_group", groupId);
-    return { groupId, left: true, archived: false };
+    const wasPending = membership.status === "PENDING";
+    await this.recordAudit(
+      session.accountId,
+      wasPending ? "module2.group.join_request_cancelled" : "module2.group.left",
+      "community_group",
+      groupId,
+    );
+    return {
+      groupId,
+      left: true,
+      archived: false,
+      requestCancelled: wasPending,
+    };
   }
 
   async listPendingGroupMembers(
