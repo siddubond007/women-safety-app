@@ -200,7 +200,30 @@ export class Module2Service {
       },
       likes: { where: { accountId: viewerAccountId }, select: { accountId: true }, take: 1 },
       bookmarks: { where: { accountId: viewerAccountId }, select: { accountId: true }, take: 1 },
-      _count: { select: { likes: true, comments: { where: { deletedAt: null } } } },
+      _count: {
+        select: {
+          likes: {
+            where: {
+              account: { is: { status: "ACTIVE", verificationStatus: "VERIFIED" } },
+            },
+          },
+          comments: {
+            where: {
+              deletedAt: null,
+              account: {
+                is: {
+                  status: "ACTIVE",
+                  verificationStatus: "VERIFIED",
+                  AND: [
+                    { NOT: { blockedAccounts: { some: { blockedAccountId: viewerAccountId } } } },
+                    { NOT: { blockedByAccounts: { some: { blockerAccountId: viewerAccountId } } } },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
     } as const;
   }
 
@@ -240,12 +263,27 @@ export class Module2Service {
           where: { id: session.accountId },
           include: { profile: true, privacySettings: true, notificationSettings: true },
         }),
-        this.prisma.socialFollow.count({ where: { followingAccountId: session.accountId } }),
-        this.prisma.socialFollow.count({ where: { followerAccountId: session.accountId } }),
+        this.prisma.socialFollow.count({
+          where: {
+            followingAccountId: session.accountId,
+            follower: { is: { status: "ACTIVE", verificationStatus: "VERIFIED" } },
+          },
+        }),
+        this.prisma.socialFollow.count({
+          where: {
+            followerAccountId: session.accountId,
+            following: { is: { status: "ACTIVE", verificationStatus: "VERIFIED" } },
+          },
+        }),
         this.prisma.memberPost.count({
           where: { accountId: session.accountId, status: "PUBLISHED", deletedAt: null },
         }),
-        this.prisma.memberPostBookmark.count({ where: { accountId: session.accountId } }),
+        this.prisma.memberPostBookmark.count({
+          where: {
+            accountId: session.accountId,
+            post: { is: this.postWhere(session.accountId) },
+          },
+        }),
         this.prisma.businessProfile.findUnique({ where: { accountId: session.accountId } }),
       ]);
     const phone = account.phoneE164;
@@ -352,8 +390,18 @@ export class Module2Service {
     }
     const [postsCount, followersCount, followingCount] = await Promise.all([
       this.prisma.memberPost.count({ where: this.postWhere(session.accountId, { authorAccountId: targetAccountId }) }),
-      this.prisma.socialFollow.count({ where: { followingAccountId: targetAccountId } }),
-      this.prisma.socialFollow.count({ where: { followerAccountId: targetAccountId } }),
+      this.prisma.socialFollow.count({
+        where: {
+          followingAccountId: targetAccountId,
+          follower: { is: { status: "ACTIVE", verificationStatus: "VERIFIED" } },
+        },
+      }),
+      this.prisma.socialFollow.count({
+        where: {
+          followerAccountId: targetAccountId,
+          following: { is: { status: "ACTIVE", verificationStatus: "VERIFIED" } },
+        },
+      }),
     ]);
     return {
       accountId: target.id,
@@ -437,8 +485,12 @@ export class Module2Service {
         _count: {
           select: {
             posts: { where: { status: "PUBLISHED", deletedAt: null } },
-            followsAsFollowing: true,
-            followsAsFollower: true,
+            followsAsFollowing: {
+              where: { follower: { is: { status: "ACTIVE", verificationStatus: "VERIFIED" } } },
+            },
+            followsAsFollower: {
+              where: { following: { is: { status: "ACTIVE", verificationStatus: "VERIFIED" } } },
+            },
           },
         },
       },
@@ -1075,7 +1127,15 @@ export class Module2Service {
           take: 1,
         },
         _count: {
-          select: { members: { where: { status: "ACTIVE" } }, events: { where: { status: "PUBLISHED", startsAt: { gte: new Date() } } } },
+          select: {
+            members: {
+              where: {
+                status: "ACTIVE",
+                account: { is: { status: "ACTIVE", verificationStatus: "VERIFIED" } },
+              },
+            },
+            events: { where: { status: "PUBLISHED", startsAt: { gte: new Date() } } },
+          },
         },
       },
       orderBy: { createdAt: "desc" },
@@ -1346,7 +1406,16 @@ export class Module2Service {
       include: {
         group: { select: { id: true, name: true, visibility: true } },
         registrations: { where: { accountId: session.accountId, status: "REGISTERED" }, select: { accountId: true }, take: 1 },
-        _count: { select: { registrations: { where: { status: "REGISTERED" } } } },
+        _count: {
+          select: {
+            registrations: {
+              where: {
+                status: "REGISTERED",
+                account: { is: { status: "ACTIVE", verificationStatus: "VERIFIED" } },
+              },
+            },
+          },
+        },
       },
       orderBy: { startsAt: "asc" },
       take,
