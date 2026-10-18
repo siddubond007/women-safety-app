@@ -1221,6 +1221,22 @@ export class Module2Service {
             ],
           },
         },
+        ...(!options.mine
+          ? {
+              OR: [
+                { visibility: "VERIFIED_MEMBERS" },
+                { createdByAccountId: session.accountId },
+                {
+                  members: {
+                    some: {
+                      accountId: session.accountId,
+                      status: { in: ["ACTIVE", "PENDING"] },
+                    },
+                  },
+                },
+              ],
+            }
+          : {}),
         ...(options.mine
           ? { members: { some: { accountId: session.accountId, status: { in: ["ACTIVE", "PENDING"] } } } }
           : {}),
@@ -1502,7 +1518,12 @@ export class Module2Service {
         accountId: session.accountId,
         status: "ACTIVE",
         role: { in: ["OWNER", "MODERATOR"] },
-        group: { is: { status: "ACTIVE" } },
+        group: {
+          is: {
+            status: "ACTIVE",
+            creator: { is: { status: "ACTIVE", verificationStatus: "VERIFIED" } },
+          },
+        },
       },
       select: { groupId: true },
     });
