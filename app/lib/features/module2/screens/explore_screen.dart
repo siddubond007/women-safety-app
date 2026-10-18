@@ -241,13 +241,25 @@ class _ExploreScreenState extends State<ExploreScreen> {
                           Text('${group.memberCount} members · ${group.visibility == 'PRIVATE' ? 'Private' : 'Verified members'}', style: AppTypography.subtitle),
                         ])),
                         OutlinedButton(
-                          onPressed: () async {
-                            final ok = group.membershipStatus == 'ACTIVE' || group.membershipStatus == 'PENDING'
-                                ? await state.backend!.leaveGroup(group)
-                                : await state.backend!.joinGroup(group);
-                            if (mounted && !ok) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.backend?.errorMessage ?? 'Membership update failed.')));
-                          },
-                          child: Text(group.membershipStatus == 'PENDING' ? 'Pending' : (group.membershipStatus == 'ACTIVE' ? 'Joined' : 'Join')),
+                          onPressed: group.membershipStatus == 'PENDING'
+                              ? null
+                              : () async {
+                                  final ok = group.membershipStatus == 'ACTIVE'
+                                      ? await state.backend!.leaveGroup(group)
+                                      : await state.backend!.joinGroup(group);
+                                  if (mounted && !ok) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(state.backend?.errorMessage ?? 'Membership update failed.'),
+                                      ),
+                                    );
+                                  }
+                                },
+                          child: Text(
+                            group.membershipStatus == 'PENDING'
+                                ? 'Pending'
+                                : (group.membershipStatus == 'ACTIVE' ? 'Joined' : 'Join'),
+                          ),
                         ),
                       ]),
                     ),
