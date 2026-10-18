@@ -26,7 +26,7 @@ class NotificationPreferencesScreen extends StatelessWidget {
               child: SwitchListTile(
                 value: pref.isEnabled,
                 onChanged: (value) => _handleToggle(context, pref.id, value),
-                activeColor: AppColors.primaryPurple,
+                activeThumbColor: AppColors.primaryPurple,
                 secondary: Container(
                   width: 40,
                   height: 40,
@@ -88,6 +88,7 @@ class NotificationPreferencesScreen extends StatelessWidget {
       if (!context.mounted) return;
       if (withdraw == true) {
         final ok = await state.setMarketingConsent(false);
+        if (!context.mounted) return;
         if (!ok) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.backend?.errorMessage ?? 'Consent could not be updated.')));
           return;
