@@ -390,10 +390,40 @@ class _ExploreScreenState extends State<ExploreScreen> {
     if (!mounted || result == null) return;
     final state = SakhiPrototypeState.instance;
     if (result == 'report') {
-      await state.reportMember(accountId: accountId, postId: postId, reason: 'UNSAFE_CONTENT');
+      final success = await state.reportMember(
+        accountId: accountId,
+        postId: postId,
+        reason: 'UNSAFE_CONTENT',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            success
+                ? 'Report submitted for review.'
+                : (state.backend?.errorMessage ?? 'Report could not be submitted.'),
+          ),
+        ),
+      );
     } else {
-      final member = state.backend?.discoveredMembers.where((m) => m.accountId == accountId).toList();
-      if (member != null && member.isNotEmpty) await state.backend?.blockMember(member.first);
+      final member = state.backend?.discoveredMembers
+          .where((m) => m.accountId == accountId)
+          .toList();
+      final success = await state.backend?.blockMemberByAccountId(
+            accountId,
+            displayName: member?.isNotEmpty == true ? member!.first.displayName : null,
+          ) ??
+          false;
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            success
+                ? (state.backend?.actionMessage ?? 'Member has been blocked.')
+                : (state.backend?.errorMessage ?? 'Member could not be blocked.'),
+          ),
+        ),
+      );
     }
   }
 }
