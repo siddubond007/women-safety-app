@@ -8,8 +8,25 @@ import '../../../core/widgets/sakhi_settings_row.dart';
 import '../widgets/module2_feature_widgets.dart';
 
 class AccountSecurityScreen extends StatelessWidget {
-  const AccountSecurityScreen({super.key, this.onSignOut});
+  const AccountSecurityScreen({
+    super.key,
+    this.onSignOut,
+    this.onNavigateRoute,
+  });
+
   final VoidCallback? onSignOut;
+  final ValueChanged<String>? onNavigateRoute;
+
+  void _navigate(BuildContext context, String route) {
+    final handler = onNavigateRoute;
+    if (handler != null) {
+      handler(route);
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Navigation is unavailable in this preview.')),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -39,7 +56,7 @@ class AccountSecurityScreen extends StatelessWidget {
               icon: Icons.email_outlined,
               title: 'Email address',
               subtitle: profile?.email?.isNotEmpty == true ? profile!.email! : 'Optional email is not set',
-              onTap: () => Navigator.of(context).pushNamed(AppRoutes.editProfile),
+              onTap: () => _navigate(context, AppRoutes.editProfile),
             ),
             const SizedBox(height: 9),
             SakhiSettingsRow(
