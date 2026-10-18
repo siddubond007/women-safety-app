@@ -224,7 +224,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
     Module2Group group,
   ) async {
     final members = await state.loadPendingGroupMembers(group.id);
-    if (!mounted) return;
+    if (!mounted || !context.mounted) return;
     if (state.errorMessage != null) {
       _message(state.errorMessage!);
       return;
