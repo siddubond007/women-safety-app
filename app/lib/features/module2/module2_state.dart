@@ -25,6 +25,11 @@ class Module2State extends ChangeNotifier {
   List<Module2Event> upcomingEvents = [];
   List<Module2Expert> verifiedExperts = [];
   bool isLoadingGroups = false;
+  bool isLoadingEvents = false;
+  bool isLoadingExperts = false;
+  int _groupLoadRequests = 0;
+  int _eventLoadRequests = 0;
+  int _expertLoadRequests = 0;
   Module2MemberProfile? memberProfile;
   String? memberProfileAccountId;
   bool isLoadingMemberProfile = false;
@@ -202,80 +207,89 @@ class Module2State extends ChangeNotifier {
   }
 
   Future<bool> loadGroups({bool mine = false, String query = ''}) async {
+    _groupLoadRequests++;
     isLoadingGroups = true;
     notifyListeners();
-    final params = <String, String>{
-      'mine': mine ? 'true' : 'false',
-      'limit': '50',
-    };
-    if (query.trim().isNotEmpty) params['q'] = query.trim();
-    final payload = await _safe(
-      () => api.get(
-        'module2/groups?' + Uri(queryParameters: params).query,
-        authenticated: true,
-      ),
-    );
-    isLoadingGroups = false;
-    if (payload == null) {
+    try {
+      final params = <String, String>{
+        'mine': mine ? 'true' : 'false',
+        'limit': '50',
+      };
+      if (query.trim().isNotEmpty) params['q'] = query.trim();
+      final payload = await _safe(
+        () => api.get(
+          'module2/groups?' + Uri(queryParameters: params).query,
+          authenticated: true,
+        ),
+      );
+      if (payload == null) return false;
+      final groups = jsonMapList(payload['groups'])
+          .map(Module2Group.fromMap)
+          .toList();
+      if (mine) {
+        myGroups = groups;
+      } else {
+        discoverGroups = groups;
+      }
       notifyListeners();
-      return false;
+      return true;
+    } finally {
+      _groupLoadRequests--;
+      isLoadingGroups = _groupLoadRequests > 0;
+      notifyListeners();
     }
-    final groups = jsonMapList(payload['groups'])
-        .map(Module2Group.fromMap)
-        .toList();
-    if (mine) {
-      myGroups = groups;
-    } else {
-      discoverGroups = groups;
-    }
-    notifyListeners();
-    return true;
   }
 
   Future<bool> loadEvents({String query = ''}) async {
-    isLoadingGroups = true;
+    _eventLoadRequests++;
+    isLoadingEvents = true;
     notifyListeners();
-    final params = <String, String>{'limit': '50'};
-    if (query.trim().isNotEmpty) params['q'] = query.trim();
-    final payload = await _safe(
-      () => api.get(
-        'module2/events?' + Uri(queryParameters: params).query,
-        authenticated: true,
-      ),
-    );
-    isLoadingGroups = false;
-    if (payload == null) {
+    try {
+      final params = <String, String>{'limit': '50'};
+      if (query.trim().isNotEmpty) params['q'] = query.trim();
+      final payload = await _safe(
+        () => api.get(
+          'module2/events?' + Uri(queryParameters: params).query,
+          authenticated: true,
+        ),
+      );
+      if (payload == null) return false;
+      upcomingEvents = jsonMapList(payload['events'])
+          .map(Module2Event.fromMap)
+          .toList();
       notifyListeners();
-      return false;
+      return true;
+    } finally {
+      _eventLoadRequests--;
+      isLoadingEvents = _eventLoadRequests > 0;
+      notifyListeners();
     }
-    upcomingEvents = jsonMapList(payload['events'])
-        .map(Module2Event.fromMap)
-        .toList();
-    notifyListeners();
-    return true;
   }
 
   Future<bool> loadExperts({String query = ''}) async {
-    isLoadingGroups = true;
+    _expertLoadRequests++;
+    isLoadingExperts = true;
     notifyListeners();
-    final params = <String, String>{'limit': '50'};
-    if (query.trim().isNotEmpty) params['q'] = query.trim();
-    final payload = await _safe(
-      () => api.get(
-        'module2/experts?' + Uri(queryParameters: params).query,
-        authenticated: true,
-      ),
-    );
-    isLoadingGroups = false;
-    if (payload == null) {
+    try {
+      final params = <String, String>{'limit': '50'};
+      if (query.trim().isNotEmpty) params['q'] = query.trim();
+      final payload = await _safe(
+        () => api.get(
+          'module2/experts?' + Uri(queryParameters: params).query,
+          authenticated: true,
+        ),
+      );
+      if (payload == null) return false;
+      verifiedExperts = jsonMapList(payload['experts'])
+          .map(Module2Expert.fromMap)
+          .toList();
       notifyListeners();
-      return false;
+      return true;
+    } finally {
+      _expertLoadRequests--;
+      isLoadingExperts = _expertLoadRequests > 0;
+      notifyListeners();
     }
-    verifiedExperts = jsonMapList(payload['experts'])
-        .map(Module2Expert.fromMap)
-        .toList();
-    notifyListeners();
-    return true;
   }
 
   Future<bool> createGroup({
