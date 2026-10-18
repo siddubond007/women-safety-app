@@ -437,20 +437,7 @@ export class Module2Service {
         id: { not: session.accountId },
         status: "ACTIVE",
         verificationStatus: "VERIFIED",
-        profile: {
-          is: {
-            ...(normalized
-              ? {
-                  OR: [
-                    { displayName: { contains: normalized, mode: "insensitive" } },
-                    { bio: { contains: normalized, mode: "insensitive" } },
-                    { locationCity: { contains: normalized, mode: "insensitive" } },
-                    { interests: { hasSome: [normalized] } },
-                  ],
-                }
-              : {}),
-          },
-        },
+        profile: { is: {} },
         OR: [
           { privacySettings: { is: null } },
           {
@@ -482,6 +469,41 @@ export class Module2Service {
         AND: [
           { NOT: { blockedAccounts: { some: { blockedAccountId: session.accountId } } } },
           { NOT: { blockedByAccounts: { some: { blockerAccountId: session.accountId } } } },
+          ...(normalized
+            ? [
+                {
+                  OR: [
+                    {
+                      profile: {
+                        is: {
+                          OR: [
+                            { displayName: { contains: normalized, mode: "insensitive" } },
+                            { bio: { contains: normalized, mode: "insensitive" } },
+                            { interests: { hasSome: [normalized] } },
+                          ],
+                        },
+                      },
+                    },
+                    {
+                      AND: [
+                        {
+                          privacySettings: {
+                            is: { locationSharing: "CITY_ONLY" },
+                          },
+                        },
+                        {
+                          profile: {
+                            is: {
+                              locationCity: { contains: normalized, mode: "insensitive" },
+                            },
+                          },
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ]
+            : []),
         ],
       },
       select: {
