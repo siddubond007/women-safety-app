@@ -251,7 +251,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
                   final time = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(startsAt));
                   if (time == null) return;
                   setDialogState(() => startsAt = DateTime(date.year, date.month, date.day, time.hour, time.minute));
-                  if (endsAt <= startsAt) setDialogState(() => endsAt = startsAt.add(const Duration(hours: 1)));
+                  if (!endsAt.isAfter(startsAt)) setDialogState(() => endsAt = startsAt.add(const Duration(hours: 1)));
                 },
               ),
               ListTile(
