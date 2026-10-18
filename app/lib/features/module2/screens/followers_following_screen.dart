@@ -11,9 +11,14 @@ import '../../../core/widgets/sakhi_search_field.dart';
 import '../widgets/module2_feature_widgets.dart';
 
 class FollowersFollowingScreen extends StatefulWidget {
-  const FollowersFollowingScreen({super.key, this.onOpenMember});
+  const FollowersFollowingScreen({
+    super.key,
+    this.onOpenMember,
+    this.initialFollowing = false,
+  });
 
   final ValueChanged<String>? onOpenMember;
+  final bool initialFollowing;
 
   @override
   State<FollowersFollowingScreen> createState() => _FollowersFollowingScreenState();
@@ -22,7 +27,13 @@ class FollowersFollowingScreen extends StatefulWidget {
 class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
   final TextEditingController _searchController = TextEditingController();
   Timer? _debounce;
-  bool _showFollowing = false;
+  late bool _showFollowing;
+
+  @override
+  void initState() {
+    super.initState();
+    _showFollowing = widget.initialFollowing;
+  }
 
   @override
   void dispose() {
