@@ -704,7 +704,14 @@ export class Module2Service {
           },
         },
       },
-      include: { account: { include: { profile: { select: profilePublicSelect } } } },
+      include: {
+        account: {
+          include: {
+            profile: { select: profilePublicSelect },
+            privacySettings: { select: { locationSharing: true } },
+          },
+        },
+      },
       orderBy: { createdAt: "asc" },
       take: MAX_PAGE_SIZE,
     });
@@ -1337,10 +1344,12 @@ export class Module2Service {
       members: rows.map((row) => ({
         accountId: row.accountId,
         displayName: row.account.profile?.displayName ?? "Sakhi member",
-        profilePhotoRef: row.account.profile?.profilePhotoRef ?? null,
-        bio: row.account.profile?.bio ?? null,
-        locationCity: row.account.profile?.locationCity ?? null,
-        interests: row.account.profile?.interests ?? [],
+        // Request review needs a display name only. Do not disclose profile
+        // photo, bio, location or interests through a group approval endpoint.
+        profilePhotoRef: null,
+        bio: null,
+        locationCity: null,
+        interests: [],
         counts: { posts: 0, followers: 0, following: 0 },
         isFollowing: false,
         blockedAt: null,
@@ -1402,6 +1411,9 @@ export class Module2Service {
       where: {
         status: "PUBLISHED",
         endsAt: { gte: startsAt },
+        host: {
+          is: { status: "ACTIVE", verificationStatus: "VERIFIED" },
+        },
         group: {
           is: {
             status: "ACTIVE",
@@ -1507,6 +1519,9 @@ export class Module2Service {
         id: eventId,
         status: "PUBLISHED",
         endsAt: { gte: new Date() },
+        host: {
+          is: { status: "ACTIVE", verificationStatus: "VERIFIED" },
+        },
         group: {
           is: {
             status: "ACTIVE",
@@ -1821,7 +1836,10 @@ export class Module2Service {
       await tx.communityEvent.updateMany({
         where: {
           status: "PUBLISHED",
-          group: { is: { createdByAccountId: session.accountId } },
+          OR: [
+            { hostAccountId: session.accountId },
+            { group: { is: { createdByAccountId: session.accountId } } },
+          ],
         },
         data: { status: "CANCELLED" },
       });
