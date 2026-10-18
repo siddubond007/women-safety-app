@@ -864,7 +864,12 @@ export class Module2Service {
       create: { followerAccountId: session.accountId, followingAccountId: targetAccountId },
       update: {},
     });
-    const followersCount = await this.prisma.socialFollow.count({ where: { followingAccountId: targetAccountId } });
+    const followersCount = await this.prisma.socialFollow.count({
+      where: {
+        followingAccountId: targetAccountId,
+        follower: { is: { status: "ACTIVE", verificationStatus: "VERIFIED" } },
+      },
+    });
     return { accountId: targetAccountId, isFollowing: true, followersCount };
   }
 
@@ -873,7 +878,12 @@ export class Module2Service {
     await this.prisma.socialFollow.deleteMany({
       where: { followerAccountId: session.accountId, followingAccountId: targetAccountId },
     });
-    const followersCount = await this.prisma.socialFollow.count({ where: { followingAccountId: targetAccountId } });
+    const followersCount = await this.prisma.socialFollow.count({
+      where: {
+        followingAccountId: targetAccountId,
+        follower: { is: { status: "ACTIVE", verificationStatus: "VERIFIED" } },
+      },
+    });
     return { accountId: targetAccountId, isFollowing: false, followersCount };
   }
 
