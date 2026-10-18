@@ -284,7 +284,15 @@ export class Module2Service {
     if (dto.email !== undefined) update.email = dto.email?.trim().toLowerCase() || null;
     if (dto.bio !== undefined) update.bio = dto.bio?.trim() || null;
     if (dto.locationCity !== undefined) update.locationCity = dto.locationCity?.trim() || null;
-    if (dto.profilePhotoRef !== undefined) update.profilePhotoRef = dto.profilePhotoRef || null;
+    if (dto.profilePhotoRef !== undefined) {
+      const photoRef = dto.profilePhotoRef?.trim() || null;
+      if (photoRef && !photoRef.startsWith(`profile/${session.accountId}/`)) {
+        throw new BadRequestException(
+          "Profile photo references must be scoped to the signed-in member.",
+        );
+      }
+      update.profilePhotoRef = photoRef;
+    }
     if (dto.interests !== undefined) {
       const interests = [...new Set(dto.interests.map((value) => value.trim()).filter(Boolean))];
       if (interests.length > 20) throw new BadRequestException("Choose no more than 20 interests.");
