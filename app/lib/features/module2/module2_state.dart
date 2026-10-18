@@ -336,6 +336,37 @@ class Module2State extends ChangeNotifier {
     return true;
   }
 
+  Future<List<Module2Member>> loadPendingGroupMembers(String groupId) async {
+    final payload = await _safe(
+      () => api.get(
+        'module2/groups/${groupId}/pending-members',
+        authenticated: true,
+      ),
+    );
+    if (payload == null) return <Module2Member>[];
+    return jsonMapList(payload['members'])
+        .map(Module2Member.fromMap)
+        .toList();
+  }
+
+  Future<bool> approveGroupMember(String groupId, Module2Member member) async {
+    final payload = await _safe(
+      () => api.post(
+        'module2/groups/${groupId}/members/${member.accountId}/approve',
+        authenticated: true,
+      ),
+    );
+    if (payload == null) return false;
+    actionMessage = '${member.displayName} was approved to join the group.';
+    await Future.wait([
+      loadGroups(),
+      loadGroups(mine: true),
+      loadPendingGroupMembers(groupId),
+    ]);
+    notifyListeners();
+    return true;
+  }
+
   Future<bool> createEvent({
     required String groupId,
     required String title,
