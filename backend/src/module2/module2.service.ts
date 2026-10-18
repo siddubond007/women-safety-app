@@ -1367,7 +1367,11 @@ export class Module2Service {
   ) {
     const session = await this.requireMember(authorization);
     const group = await this.prisma.communityGroup.findFirst({
-      where: { id: groupId, status: "ACTIVE" },
+      where: {
+        id: groupId,
+        status: "ACTIVE",
+        creator: { is: { status: "ACTIVE", verificationStatus: "VERIFIED" } },
+      },
       select: { id: true },
     });
     if (!group) throw new NotFoundException("This group is unavailable.");
@@ -1378,6 +1382,12 @@ export class Module2Service {
         accountId: session.accountId,
         status: "ACTIVE",
         role: { in: ["OWNER", "MODERATOR"] },
+        group: {
+          is: {
+            status: "ACTIVE",
+            creator: { is: { status: "ACTIVE", verificationStatus: "VERIFIED" } },
+          },
+        },
       },
       select: { groupId: true },
     });
