@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import '../lib/features/module2/module2_models.dart';
+import 'package:women_safety_app/features/module2/module2_models.dart';
 
 void main() {
   group('Module2Profile', () {
