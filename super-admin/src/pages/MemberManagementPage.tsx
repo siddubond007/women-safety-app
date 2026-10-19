@@ -250,7 +250,7 @@ export function MemberManagementPage() {
 
       <section className="panel" style={{ marginBottom: 18 }}>
         <div className="member-directory-heading">
-          <div><span className="panel-kicker">ADD LIVE DATABASE USER</span><h2>Create a new Sakhi member in PostgreSQL</h2><p>New members created here are immediately saved in <code>member_accounts</code>, <code>member_profiles</code>, and <code>community_directory_profiles</code>.</p></div>
+          <div><span className="panel-kicker">ADD LIVE DATABASE USER</span><h2>Create a new Sakhi member in PostgreSQL</h2><p className="member-create-description">Member details are saved directly in PostgreSQL across these records: <code>member_accounts</code>, <code>member_profiles</code>, and <code>community_directory_profiles</code>.</p></div>
         </div>
         <form className="member-filter-toolbar member-create-toolbar" onSubmit={createNewMember}>
           <label className="member-filter-select"><span>Display Name</span><input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. Divya Krishnan" required /></label>
