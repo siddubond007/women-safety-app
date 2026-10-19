@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/assets/app_assets.dart';
+import '../../core/navigation/app_navigation_shell.dart';
 import '../../core/theme/sakhi_design_system.dart';
 import '../eligibility/backend_eligibility_verification_service.dart';
 import '../eligibility/eligibility_intro_screen.dart';
@@ -29,50 +31,124 @@ class SakhiAuthStatusScreen extends StatefulWidget {
 }
 
 class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
+  late AuthAccountState _accountState;
   bool _isSigningOut = false;
+  bool _isCheckingState = false;
+  String? _statusFeedback;
+  Timer? _autoPollTimer;
 
-  String get _heading => switch (widget.accountState) {
-    AuthAccountState.existingAccount => 'Welcome back',
+  @override
+  void initState() {
+    super.initState();
+    _accountState = widget.accountState;
+    if (widget.authService.isDevelopmentBackend &&
+        _accountState != AuthAccountState.existingAccount) {
+      _autoPollTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+        _silentPollAccountState();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _autoPollTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _silentPollAccountState() async {
+    if (!mounted || _isCheckingState || _isSigningOut) return;
+    try {
+      final refreshed = await widget.authService.restoreSession();
+      if (!mounted || refreshed == null) return;
+      if (refreshed == AuthAccountState.existingAccount) {
+        _autoPollTimer?.cancel();
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute<void>(
+            builder: (_) => const AppNavigationShell(),
+          ),
+        );
+      }
+    } catch (_) {}
+  }
+
+  String get _heading => switch (_accountState) {
+    AuthAccountState.existingAccount => 'Account verified & active',
     AuthAccountState.newAccount => 'Continue setting up Sakhi',
-    AuthAccountState.pendingVerification => 'One more step',
+    AuthAccountState.pendingVerification => 'Home access is locked until verified',
     AuthAccountState.restricted => 'Account access needs attention',
   };
 
   String get _description {
     if (widget.authService.isDevelopmentBackend) {
-      return switch (widget.accountState) {
-        AuthAccountState.existingAccount => 'You signed in to the local development backend. This is not a production session and does not establish eligibility verification.',
-        AuthAccountState.newAccount => 'Your local development OTP was accepted. Complete the profile and draft-policy acknowledgement to save the test profile. No SMS was sent.',
-        AuthAccountState.pendingVerification => 'Your development account is pending setup or review. No protected app access or eligibility status is granted by this test flow.',
-        AuthAccountState.restricted => 'The backend reports this account as restricted. No protected app area is opened from this development flow.',
+      return switch (_accountState) {
+        AuthAccountState.existingAccount =>
+          'Your account is ACTIVE and VERIFIED in the backend. Tap below to open the Sakhi Home screen.',
+        AuthAccountState.newAccount =>
+          'Your local development OTP was accepted. Complete the profile and policy acknowledgement to finish registration.',
+        AuthAccountState.pendingVerification =>
+          'Your account is registered in PostgreSQL as Pending Verification. Open the Super Admin panel (http://127.0.0.1:5173), click "Verify & Activate" for your number, and then tap "Check account state again" below to open the Home screen.',
+        AuthAccountState.restricted =>
+          'The backend reports this account as restricted. Update its state in Super Admin to restore access.',
       };
     }
-    return switch (widget.accountState) {
-      AuthAccountState.existingAccount => 'The login route has been previewed. A real account session has not been established.',
-      AuthAccountState.newAccount => 'Continue through the registration steps to complete the profile and required consent.',
-      AuthAccountState.pendingVerification => 'This account state requires follow-up from a configured authentication service before access can be granted.',
-      AuthAccountState.restricted => 'This account state must be resolved by the configured account service. No protected app area is opened from this preview.',
+    return switch (_accountState) {
+      AuthAccountState.existingAccount =>
+        'The login route has been previewed. A real account session has not been established.',
+      AuthAccountState.newAccount =>
+        'Continue through the registration steps to complete the profile and required consent.',
+      AuthAccountState.pendingVerification =>
+        'This account state requires follow-up from a configured authentication service before access can be granted.',
+      AuthAccountState.restricted =>
+        'This account state must be resolved by the configured account service.',
     };
   }
 
-  void _returnToSignIn() {
-    final navigator = Navigator.of(context);
-    if (!widget.isRestoredSession && navigator.canPop()) {
-      navigator.pop();
-      return;
+  Future<void> _recheckAccountState() async {
+    if (_isCheckingState || _isSigningOut) return;
+    setState(() {
+      _isCheckingState = true;
+      _statusFeedback = null;
+    });
+    try {
+      final refreshed = await widget.authService.restoreSession();
+      if (!mounted) return;
+      if (refreshed == null) {
+        setState(() {
+          _statusFeedback = 'Session expired. Please sign in again.';
+        });
+        return;
+      }
+      setState(() {
+        _accountState = refreshed;
+      });
+      if (refreshed == AuthAccountState.existingAccount) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute<void>(
+            builder: (_) => const AppNavigationShell(),
+          ),
+        );
+      } else {
+        setState(() {
+          _statusFeedback =
+              'Still pending verification in PostgreSQL. Verify this member in Super Admin (http://127.0.0.1:5173/members), then tap Check again.';
+        });
+      }
+    } on AuthServiceException catch (error) {
+      if (!mounted) return;
+      setState(() => _statusFeedback = error.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _statusFeedback = 'Could not reach the backend. Check that the server is running.';
+      });
+    } finally {
+      if (mounted) setState(() => _isCheckingState = false);
     }
-    navigator.pushReplacement(
-      MaterialPageRoute<void>(
-        builder: (_) => SakhiLoginScreen(authService: widget.authService),
-      ),
-    );
   }
 
   EligibilityVerificationService _eligibilityServiceForCurrentSession() {
     if (widget.authService.isDevelopmentBackend) {
       return BackendEligibilityVerificationService(
-        // Uses the same secure token key and build-time API URL as
-        // BackendAuthService; no bearer token is copied into widget state.
         apiClient: BackendApiClient(),
       );
     }
@@ -97,9 +173,11 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
     try {
       await widget.authService.logout();
     } on AuthServiceException {
-      warning = 'Signed out on this device, but the backend could not confirm server-session revocation.';
+      warning =
+          'Signed out on this device, but the backend could not confirm server-session revocation.';
     } catch (_) {
-      warning = 'Signed out on this device, but the backend could not confirm server-session revocation.';
+      warning =
+          'Signed out on this device, but the backend could not confirm server-session revocation.';
     }
 
     if (!mounted) return;
@@ -126,6 +204,7 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isVerified = _accountState == AuthAccountState.existingAccount;
     return SakhiAuthScaffold(
       botanicalAsset: AppAssets.authBotanicalProfile,
       authIsDemo: widget.authService.isDemo,
@@ -134,8 +213,10 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Icon(
-            Icons.volunteer_activism_outlined,
+          Icon(
+            isVerified
+                ? Icons.verified_user_rounded
+                : Icons.lock_outline_rounded,
             color: SakhiColors.purple,
             size: 54,
           ),
@@ -151,97 +232,94 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
             textAlign: TextAlign.center,
             style: SakhiTypography.body,
           ),
-          if (widget.isRestoredSession) ...[
+          if (_statusFeedback != null) ...[
             const SizedBox(height: SakhiSpacing.md),
-            const SakhiAuthStatusMessage(
-              message: 'Your saved development session was checked with the backend. This is local test access only.',
-            ),
+            SakhiAuthStatusMessage(message: _statusFeedback!),
           ],
-          if (widget.authService.isDemo) ...[
-            const SizedBox(height: SakhiSpacing.md),
-            const SakhiAuthStatusMessage(
-              message: 'DEMO ONLY — no mobile number was verified by SMS, no account was created, and no authenticated session exists. The preview Home is not treated as a protected destination.',
-            ),
-          ],
-          if (widget.authService.isDevelopmentBackend &&
-              widget.accountState == AuthAccountState.existingAccount) ...[
-            const SizedBox(height: SakhiSpacing.md),
+          if (isVerified) ...[
+            const SizedBox(height: SakhiSpacing.lg),
             FilledButton.icon(
               key: const Key('auth-status-home-button'),
               onPressed: _isSigningOut
                   ? null
-                  : () => Navigator.of(context).pushNamed('/home'),
+                  : () => Navigator.of(context).pushReplacement(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const AppNavigationShell(),
+                      ),
+                    ),
               icon: const Icon(Icons.home_outlined),
-              label: const Text('Continue to Sakhi home'),
+              label: const Text('Open Sakhi Home Screen'),
               style: FilledButton.styleFrom(
                 backgroundColor: SakhiColors.purple,
                 foregroundColor: Colors.white,
-                minimumSize: const Size.fromHeight(50),
+                minimumSize: const Size.fromHeight(52),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(SakhiRadii.control),
+                ),
+              ),
+            ),
+          ] else ...[
+            const SizedBox(height: SakhiSpacing.lg),
+            FilledButton.icon(
+              key: const Key('auth-status-recheck-button'),
+              onPressed: _isCheckingState || _isSigningOut
+                  ? null
+                  : _recheckAccountState,
+              icon: _isCheckingState
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.refresh_rounded),
+              label: Text(
+                _isCheckingState
+                    ? 'Checking with backend…'
+                    : 'Check account state again',
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: SakhiColors.purple,
+                foregroundColor: Colors.white,
+                minimumSize: const Size.fromHeight(52),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(SakhiRadii.control),
                 ),
               ),
             ),
           ],
-          if (widget.accountState == AuthAccountState.existingAccount ||
-              widget.accountState == AuthAccountState.pendingVerification) ...[
-            const SizedBox(height: SakhiSpacing.md),
+          if (_accountState == AuthAccountState.existingAccount ||
+              _accountState == AuthAccountState.pendingVerification) ...[
+            const SizedBox(height: SakhiSpacing.sm),
             OutlinedButton.icon(
               key: const Key('auth-status-eligibility-button'),
               onPressed: _isSigningOut ? null : _openEligibilityVerification,
               icon: const Icon(Icons.verified_user_outlined),
-              label: Text(
-                widget.authService.isDevelopmentBackend
-                    ? 'Review eligibility verification'
-                    : 'Preview eligibility verification',
-              ),
+              label: const Text('Submit / review eligibility verification'),
               style: OutlinedButton.styleFrom(
                 foregroundColor: SakhiColors.purple,
-                minimumSize: const Size.fromHeight(50),
+                minimumSize: const Size.fromHeight(48),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(SakhiRadii.control),
                 ),
               ),
             ),
           ],
-          const SizedBox(height: SakhiSpacing.lg),
-          SakhiAuthSubmitButton(
-            key: const Key('auth-status-back-button'),
-            label: 'Return to sign in',
-            icon: Icons.arrow_back_rounded,
-            isLoading: _isSigningOut,
-            onPressed: _isSigningOut ? null : _returnToSignIn,
-          ),
-          if (widget.authService.isDevelopmentBackend) ...[
-            const SizedBox(height: SakhiSpacing.xs),
-            OutlinedButton.icon(
-              key: const Key('auth-status-sign-out-button'),
-              onPressed: _isSigningOut ? null : _signOut,
-              icon: _isSigningOut
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.logout_rounded),
-              label: Text(
-                _isSigningOut ? 'Signing out…' : 'Sign out of this session',
-              ),
-            ),
-          ],
-          const SizedBox(height: SakhiSpacing.xs),
-          Center(
-            child: TextButton(
-              key: const Key('auth-status-create-account-button'),
-              onPressed: _isSigningOut
-                  ? null
-                  : () => Navigator.of(context).pushReplacement(
-                      MaterialPageRoute<void>(
-                        builder: (_) =>
-                            SakhiLoginScreen(authService: widget.authService),
-                      ),
-                    ),
-              child: const Text('Go to mobile sign in'),
+          const SizedBox(height: SakhiSpacing.md),
+          OutlinedButton.icon(
+            key: const Key('auth-status-sign-out-button'),
+            onPressed: _isSigningOut ? null : _signOut,
+            icon: _isSigningOut
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.logout_rounded),
+            label: Text(
+              _isSigningOut ? 'Signing out…' : 'Sign out & return to mobile login',
             ),
           ),
         ],

@@ -4,6 +4,7 @@ import {
   assertSakhiDatabaseTarget,
   parseSakhiEnvironment,
 } from "../src/config/database-target.js";
+import { SEEDED_COMMUNITY_MEMBERS } from "../src/module2/module2.service.js";
 
 async function main(): Promise<void> {
   if (process.env.NODE_ENV === "production") {
@@ -92,11 +93,89 @@ async function main(): Promise<void> {
       },
     });
 
-    // Consent is deliberately not seeded: a fixture must never imply that a user accepted a policy.
+    const accountIdByUsername = new Map<string, string>();
+    for (const member of SEEDED_COMMUNITY_MEMBERS) {
+      const acc = await prisma.memberAccount.upsert({
+        where: { phoneE164: member.phoneE164 },
+        update: {
+          status: member.status,
+          verificationStatus: member.verificationStatus,
+        },
+        create: {
+          phoneE164: member.phoneE164,
+          phoneVerifiedAt: new Date("2026-10-17T08:00:00.000Z"),
+          status: member.status,
+          verificationStatus: member.verificationStatus,
+        },
+        select: { id: true },
+      });
+      accountIdByUsername.set(member.username, acc.id);
+
+      await prisma.memberProfile.upsert({
+        where: { accountId: acc.id },
+        update: {
+          displayName: member.displayName,
+          username: member.username,
+          bio: member.bio,
+          location: member.location,
+          avatarAsset: member.avatarAsset,
+          interests: member.interests,
+          email: member.email,
+        },
+        create: {
+          accountId: acc.id,
+          displayName: member.displayName,
+          username: member.username,
+          bio: member.bio,
+          location: member.location,
+          avatarAsset: member.avatarAsset,
+          interests: member.interests,
+          dateOfBirth: new Date("1999-05-15T00:00:00.000Z"),
+          email: member.email,
+        },
+      });
+
+      if (member.username !== "@siddhu") {
+        await prisma.communityDirectoryProfile.upsert({
+          where: { username: member.username },
+          update: {
+            name: member.displayName,
+            avatarAsset: member.avatarAsset,
+            bio: member.bio,
+            defaultFollowing: member.defaultFollowing,
+          },
+          create: {
+            name: member.displayName,
+            username: member.username,
+            avatarAsset: member.avatarAsset,
+            bio: member.bio,
+            defaultFollowing: member.defaultFollowing,
+          },
+        });
+      }
+
+      if (member.verificationStatus === "UNVERIFIED") {
+        const existingSub = await prisma.eligibilitySubmission.findFirst({
+          where: { accountId: acc.id, status: "PENDING_MANUAL_REVIEW" },
+          select: { id: true },
+        });
+        if (!existingSub) {
+          await prisma.eligibilitySubmission.create({
+            data: {
+              accountId: acc.id,
+              status: "PENDING_MANUAL_REVIEW",
+              consentVersion: "dev-manual-review-v1",
+              consentAcceptedAt: new Date(),
+            },
+          });
+        }
+      }
+    }
+
     process.stdout.write(
       "Synthetic seed completed for " +
         target.databaseName +
-        ". One reserved demo account and draft-only policy metadata are present.\n",
+        ". 8 community accounts, Module 2 fixtures, and draft policy metadata are present.\n",
     );
   } catch {
     process.stderr.write(

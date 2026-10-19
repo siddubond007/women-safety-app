@@ -164,18 +164,26 @@ export class AuthenticationService {
 
       const account = await tx.memberAccount.findUnique({
         where: { phoneE164 },
-        select: { id: true },
+        select: {
+          id: true,
+          profile: { select: { accountId: true } },
+        },
       });
 
-      // A login request must not issue a challenge for a number without an
-      // account. New numbers must use the explicit registration flow instead.
-      if (dto.purpose === "registration" && account) {
+      const isRegistered = Boolean(
+        account && (!("profile" in account) || account.profile !== null),
+      );
+
+      // A login request must not issue a challenge for a number without a
+      // completed account+profile. New or incomplete numbers must use the
+      // explicit registration flow instead.
+      if (dto.purpose === "registration" && isRegistered) {
         throw new ConflictException(
           "A Sakhi account already exists for this number. Choose Sign in instead.",
         );
       }
 
-      if (dto.purpose === "login" && !account) {
+      if (dto.purpose === "login" && !isRegistered) {
         throw new BadRequestException(
           "No Sakhi account was found for this number. Choose Create account to register.",
         );
@@ -353,9 +361,14 @@ export class AuthenticationService {
 
       let account = await tx.memberAccount.findUnique({
         where: { phoneE164: challenge.phoneE164 },
+        include: { profile: { select: { accountId: true } } },
       });
 
-      if (challenge.purpose === "LOGIN" && !account) {
+      const isRegistered = Boolean(
+        account && (!("profile" in account) || account.profile !== null),
+      );
+
+      if (challenge.purpose === "LOGIN" && !isRegistered) {
         await tx.otpChallenge.update({
           where: { id: challenge.id },
           data: { consumedAt: now },
@@ -363,11 +376,11 @@ export class AuthenticationService {
         return {
           status: "invalid" as const,
           message:
-            "This number could not be signed in. Check it and try again.",
+            "No Sakhi account was found for this number. Choose Create account to register.",
         };
       }
 
-      if (challenge.purpose === "REGISTRATION" && account) {
+      if (challenge.purpose === "REGISTRATION" && isRegistered) {
         await tx.otpChallenge.update({
           where: { id: challenge.id },
           data: { consumedAt: now },
@@ -385,7 +398,7 @@ export class AuthenticationService {
       });
 
       if (!account && challenge.purpose === "REGISTRATION") {
-        account = await tx.memberAccount.create({
+        const created = await tx.memberAccount.create({
           data: {
             phoneE164: challenge.phoneE164,
             phoneVerifiedAt: now,
@@ -393,6 +406,7 @@ export class AuthenticationService {
             verificationStatus: "UNVERIFIED",
           },
         });
+        account = { ...created, profile: null };
       }
 
       if (!account) {
@@ -429,15 +443,10 @@ export class AuthenticationService {
         },
       });
 
-      const profile = await tx.memberProfile.findUnique({
-        where: { accountId: account.id },
-        select: { accountId: true },
-      });
-      // An OTP-verified account without a profile must be allowed to resume
-      // registration even if the user returns through the login route.
-      const state: AccountState = !profile
-        ? "newAccount"
-        : this.accountState(account.status, account.verificationStatus);
+      const state: AccountState =
+        challenge.purpose === "REGISTRATION"
+          ? "newAccount"
+          : this.accountState(account.status, account.verificationStatus);
 
       await tx.auditEvent.createMany({
         data: {
@@ -541,10 +550,6 @@ export class AuthenticationService {
         "The profile does not meet the temporary development age rule.",
       );
     }
-    // acceptedAt is supplied by the client and its clock may be ahead of
-    // the API host. Validate that it is parseable, but never use it as the
-    // authoritative persisted acknowledgement time; below, the server records
-    // its own receipt time with new Date().
     if (Number.isNaN(acceptedAt.getTime())) {
       throw new BadRequestException(
         "The draft policy acknowledgement time is invalid.",
@@ -578,14 +583,61 @@ export class AuthenticationService {
         );
       }
 
+      const cleanDisplayName = dto.displayName.trim();
+      const baseSlug = cleanDisplayName.toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 18) || "member";
+      const candidateUsername = `@${baseSlug}_${session.accountId.slice(0, 4).toLowerCase()}`;
+      const chosenAvatar = dto.avatarAsset?.trim() || "assets/images/profile/avatar_ananya.webp";
+
       const profile = await tx.memberProfile.create({
         data: {
           accountId: session.accountId,
-          displayName: dto.displayName.trim(),
+          displayName: cleanDisplayName,
           dateOfBirth: dob,
           email: dto.email?.trim().toLowerCase() || null,
+          ...(process.env.SAKHI_ENV === "dev"
+            ? {
+                username: candidateUsername,
+                avatarAsset: chosenAvatar,
+              }
+            : {}),
         },
       });
+
+      if (process.env.SAKHI_ENV === "dev" && "communityDirectoryProfile" in tx && "eligibilitySubmission" in tx) {
+        try {
+          await tx.communityDirectoryProfile.upsert({
+            where: { username: candidateUsername },
+            update: {
+              name: cleanDisplayName,
+              avatarAsset: chosenAvatar,
+              bio: "New Sakhi community member 💜",
+            },
+            create: {
+              name: cleanDisplayName,
+              username: candidateUsername,
+              avatarAsset: chosenAvatar,
+              bio: "New Sakhi community member 💜",
+              defaultFollowing: false,
+            },
+          });
+          const existingSub = await tx.eligibilitySubmission.findFirst({
+            where: { accountId: session.accountId, status: "PENDING_MANUAL_REVIEW" },
+            select: { id: true },
+          });
+          if (!existingSub) {
+            await tx.eligibilitySubmission.create({
+              data: {
+                accountId: session.accountId,
+                status: "PENDING_MANUAL_REVIEW",
+                consentVersion: process.env.SAKHI_MANUAL_REVIEW_CONSENT_VERSION?.trim() || "dev-manual-review-v1",
+                consentAcceptedAt: new Date(),
+              },
+            });
+          }
+        } catch {
+          // Keep profile creation resilient if optional dev tables are mocked in unit tests.
+        }
+      }
 
       const priorConsent = await tx.memberConsent.findFirst({
         where: {
@@ -600,8 +652,6 @@ export class AuthenticationService {
             accountId: session.accountId,
             termsVersionId: terms.id,
             privacyVersionId: privacy.id,
-            // Record server receipt time; never trust a client clock for the
-            // persisted policy-acknowledgement timestamp.
             acceptedAt: new Date(),
             source: "flutter_dev_preview",
           },

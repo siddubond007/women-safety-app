@@ -3,6 +3,10 @@ name: Sakhi validation
 on:
   push:
     branches:
+      - main
+      - develop
+      - gemini-module-2
+      - module-proper-continuation
       - feat/admin-eligibility-review-backend
     paths:
       - "backend/**"
@@ -11,6 +15,10 @@ on:
       - ".github/workflows/sakhi-validation.yml"
   pull_request:
     branches:
+      - main
+      - develop
+      - gemini-module-2
+      - module-proper-continuation
       - feat/admin-eligibility-review-backend
     paths:
       - "backend/**"
@@ -76,7 +84,7 @@ jobs:
 
 
   flutter:
-    name: Flutter eligibility analysis and tests
+    name: Flutter eligibility and Module 2 analysis and tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:

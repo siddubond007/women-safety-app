@@ -15,6 +15,7 @@ type Member = {
   dateOfBirth: string | null;
   emailMasked: string;
   phoneMasked: string;
+  phoneE164?: string;
   registeredAt: string;
   lastActiveAt: string | null;
   accountStatus: AccountStatus;
@@ -83,10 +84,41 @@ export function MemberManagementPage() {
   const [selected, setSelected] = useState<Member | null>(null);
   const [accountStatus, setAccountStatus] = useState<AccountStatus>("PENDING_VERIFICATION");
   const [verificationStatus, setVerificationStatus] = useState<VerificationStatus>("UNVERIFIED");
-  const [reason, setReason] = useState("");
+  const [reason, setReason] = useState("Updated account and verification state via Super Admin panel.");
   const [saving, setSaving] = useState(false);
+  const [quickSavingId, setQuickSavingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
   const [notice, setNotice] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newPhone, setNewPhone] = useState("+919845099111");
+  const [newBio, setNewBio] = useState("Wellness & community member 💜");
+  const [newVerified, setNewVerified] = useState(true);
+  const [creatingMember, setCreatingMember] = useState(false);
+
+  async function createNewMember(event: FormEvent) {
+    event.preventDefault();
+    if (!newName.trim() || !newPhone.trim()) return;
+    setCreatingMember(true);
+    setError("");
+    try {
+      const created = await adminApi<{ displayName: string; username: string }>("/admin-review/members/create", {
+        method: "POST",
+        body: {
+          displayName: newName.trim(),
+          phoneE164: newPhone.trim(),
+          bio: newBio.trim(),
+          verifyImmediately: newVerified,
+        },
+      });
+      setNewName("");
+      setNotice(`Created member ${created.displayName} (${created.username}) in PostgreSQL! They are now live in the mobile app.`);
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not create member.");
+    } finally {
+      setCreatingMember(false);
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -116,14 +148,50 @@ export function MemberManagementPage() {
     setSelected(member);
     setAccountStatus(member.accountStatus);
     setVerificationStatus(member.verificationStatus);
-    setReason("");
+    setReason("Updated account and verification state via Super Admin panel.");
     setActionError("");
   }
 
   function applyQuickApproval() {
     setAccountStatus("ACTIVE");
     setVerificationStatus("VERIFIED");
-    setReason("Development test approval to continue home-screen development.");
+    setReason("Development test approval to unlock Sakhi Home screen.");
+  }
+
+  async function quickToggleVerify(member: Member) {
+    const isCurrentlyVerified =
+      member.accountStatus === "ACTIVE" && member.verificationStatus === "VERIFIED";
+    const nextAccountStatus: AccountStatus = isCurrentlyVerified ? "PENDING_VERIFICATION" : "ACTIVE";
+    const nextVerificationStatus: VerificationStatus = isCurrentlyVerified ? "UNVERIFIED" : "VERIFIED";
+    setQuickSavingId(member.id);
+    setError("");
+    try {
+      await adminApi("/admin-review/members/" + encodeURIComponent(member.id) + "/state", {
+        method: "POST",
+        body: {
+          accountStatus: nextAccountStatus,
+          verificationStatus: nextVerificationStatus,
+          reason: isCurrentlyVerified
+            ? "Reset member to Pending/Unverified from Super Admin table."
+            : "Approved and verified member from Super Admin table to unlock Home access.",
+        },
+      });
+      setNotice(
+        isCurrentlyVerified
+          ? `Set ${member.displayName} back to Pending / Unverified.`
+          : `Verified & activated ${member.displayName}! Tap "Check account state again" in the mobile app to open the Home screen.`,
+      );
+      await load();
+    } catch (cause) {
+      if (cause instanceof AdminApiError && cause.statusCode === 401) {
+        adminAuthService.signOut();
+        navigate("/login", { replace: true });
+        return;
+      }
+      setError(cause instanceof Error ? cause.message : "Could not update member verification state.");
+    } finally {
+      setQuickSavingId(null);
+    }
   }
 
   async function saveState(event: FormEvent<HTMLFormElement>) {
@@ -140,7 +208,7 @@ export function MemberManagementPage() {
         method: "POST",
         body: { accountStatus, verificationStatus, reason: reason.trim() },
       });
-      setNotice("Development account state saved to the database. Refreshing the directory.");
+      setNotice(`Saved state (${accountStatus} / ${verificationStatus}) for ${selected.displayName}. Tap "Check account state again" in the mobile app!`);
       setSelected(null);
       await load();
     } catch (cause) {
@@ -165,9 +233,9 @@ export function MemberManagementPage() {
         <div>
           <div className="eyebrow"><span className="eyebrow-line" /> PEOPLE &amp; TRUST</div>
           <h1>Members &amp; accounts</h1>
-          <p>Live member records from the Sakhi development database. Changes persist through the backend.</p>
+          <p>Live member records from the Sakhi development database. Verify any member here to unlock their mobile Home screen.</p>
         </div>
-        <div className="members-heading-meta"><StatusPill tone="green"><span className="status-pill__dot" /> LIVE DATABASE</StatusPill><span>Mobile numbers and email addresses are masked</span></div>
+        <div className="members-heading-meta"><StatusPill tone="green"><span className="status-pill__dot" /> LIVE DATABASE</StatusPill><span>Click &ldquo;Verify &amp; Activate&rdquo; to unlock Home screen</span></div>
       </section>
 
       {notice && <div className="member-toast" role="status"><CheckCircle2 size={17} /><span>{notice}</span><button type="button" onClick={() => setNotice("")} aria-label="Dismiss notice"><X size={15} /></button></div>}
@@ -178,6 +246,19 @@ export function MemberManagementPage() {
         <SummaryCard icon={CheckCircle2} label="Active accounts" value={summary?.activeAccounts} tone="green" />
         <SummaryCard icon={ShieldCheck} label="Verified accounts" value={summary?.verifiedAccounts} tone="violet" />
         <SummaryCard icon={AlertCircle} label="Pending eligibility reviews" value={summary?.pendingManualReviews} tone="amber" />
+      </section>
+
+      <section className="panel" style={{ marginBottom: 18 }}>
+        <div className="member-directory-heading">
+          <div><span className="panel-kicker">ADD LIVE DATABASE USER</span><h2>Create a new Sakhi member in PostgreSQL</h2><p>New members created here are immediately saved in <code>member_accounts</code>, <code>member_profiles</code>, and <code>community_directory_profiles</code>.</p></div>
+        </div>
+        <form className="member-filter-toolbar" onSubmit={createNewMember}>
+          <label className="member-filter-select"><span>Display Name</span><input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. Divya Krishnan" required /></label>
+          <label className="member-filter-select"><span>Mobile (E.164)</span><input type="text" value={newPhone} onChange={(e) => setNewPhone(e.target.value)} placeholder="+919845099111" required /></label>
+          <label className="member-filter-select"><span>Bio</span><input type="text" value={newBio} onChange={(e) => setNewBio(e.target.value)} placeholder="Bio shown in app" /></label>
+          <label className="member-filter-select"><span>Initial State</span><select value={newVerified ? "verified" : "pending"} onChange={(e) => setNewVerified(e.target.value === "verified")}><option value="verified">Active + Verified (Home Unlocked)</option><option value="pending">Pending Verification (In Review Queue)</option></select></label>
+          <button className="button button--primary" type="submit" disabled={creatingMember}>{creatingMember ? "Creating…" : "+ Create Member"}</button>
+        </form>
       </section>
 
       <section className="panel member-directory-panel">
@@ -198,17 +279,37 @@ export function MemberManagementPage() {
             <tbody>
               {loading && <tr><td colSpan={7} className="member-empty-cell">Loading records from the database…</td></tr>}
               {!loading && !error && data?.items.length === 0 && <tr><td colSpan={7} className="member-empty-cell">No database records matched these filters.</td></tr>}
-              {!loading && data?.items.map((member) => (
-                <tr key={member.id}>
-                  <td><button className="member-identity-button" type="button" onClick={() => openEditor(member)}><span className="member-avatar">{initials(member.displayName)}</span><span><strong>{member.displayName}</strong><small>{member.reference}</small></span></button></td>
-                  <td>{member.phoneMasked}</td>
-                  <td>{formatDate(member.registeredAt)}</td>
-                  <td><StatusPill tone={accountTone(member.accountStatus)}>{accountLabels[member.accountStatus]}</StatusPill></td>
-                  <td><StatusPill tone={verificationTone(member.verificationStatus)}>{verificationLabels[member.verificationStatus]}</StatusPill></td>
-                  <td><StatusPill tone={eligibilityTone(member.eligibilityStatus)}>{eligibilityLabels[member.eligibilityStatus] ?? member.eligibilityStatus}</StatusPill><small className="member-subline">{member.eligibilitySubmittedAt ? "Submitted " + formatDate(member.eligibilitySubmittedAt) : member.profileComplete ? "No review submission" : "Profile incomplete"}</small></td>
-                  <td><button className="button button--secondary" type="button" onClick={() => openEditor(member)}>Manage state</button></td>
-                </tr>
-              ))}
+              {!loading && data?.items.map((member) => {
+                const isVerifiedActive =
+                  member.accountStatus === "ACTIVE" && member.verificationStatus === "VERIFIED";
+                return (
+                  <tr key={member.id}>
+                    <td><button className="member-identity-button" type="button" onClick={() => openEditor(member)}><span className="member-avatar">{initials(member.displayName)}</span><span><strong>{member.displayName}</strong><small>{member.reference}</small></span></button></td>
+                    <td><strong>{member.phoneE164 ?? member.phoneMasked}</strong></td>
+                    <td>{formatDate(member.registeredAt)}</td>
+                    <td><StatusPill tone={accountTone(member.accountStatus)}>{accountLabels[member.accountStatus]}</StatusPill></td>
+                    <td><StatusPill tone={verificationTone(member.verificationStatus)}>{verificationLabels[member.verificationStatus]}</StatusPill></td>
+                    <td><StatusPill tone={eligibilityTone(member.eligibilityStatus)}>{eligibilityLabels[member.eligibilityStatus] ?? member.eligibilityStatus}</StatusPill><small className="member-subline">{member.eligibilitySubmittedAt ? "Submitted " + formatDate(member.eligibilitySubmittedAt) : member.profileComplete ? "No review submission" : "Profile incomplete"}</small></td>
+                    <td>
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                        <button
+                          className={isVerifiedActive ? "button button--secondary" : "button button--primary"}
+                          type="button"
+                          disabled={quickSavingId === member.id}
+                          onClick={() => void quickToggleVerify(member)}
+                        >
+                          {quickSavingId === member.id
+                            ? "Updating…"
+                            : isVerifiedActive
+                              ? "Set Unverified"
+                              : "Verify & Activate"}
+                        </button>
+                        <button className="button button--secondary" type="button" onClick={() => openEditor(member)}>Manage state</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -219,12 +320,12 @@ export function MemberManagementPage() {
         <aside className="member-detail-drawer" role="dialog" aria-modal="true" aria-labelledby="state-editor-title">
           <header className="member-drawer-header"><div><span className="panel-kicker">LOCAL DEV / TEST ONLY</span><span className="member-drawer-ref">{selected.reference}</span></div><button className="member-drawer-close" type="button" onClick={() => setSelected(null)} aria-label="Close state editor" disabled={saving}><X size={19} /></button></header>
           <form onSubmit={saveState} className="member-drawer-scroll">
-            <div className="member-detail-profile"><span className="member-avatar member-avatar--large">{initials(selected.displayName)}</span><h2 id="state-editor-title">{selected.displayName}</h2><p>{selected.phoneMasked} · {selected.emailMasked}</p><StatusPill tone={selected.profileComplete ? "green" : "amber"}>{selected.profileComplete ? "Profile complete" : "Profile incomplete"}</StatusPill></div>
+            <div className="member-detail-profile"><span className="member-avatar member-avatar--large">{initials(selected.displayName)}</span><h2 id="state-editor-title">{selected.displayName}</h2><p>{selected.phoneE164 ?? selected.phoneMasked} · {selected.emailMasked}</p><StatusPill tone={selected.profileComplete ? "green" : "amber"}>{selected.profileComplete ? "Profile complete" : "Profile incomplete"}</StatusPill></div>
             <section className="member-detail-section"><h3>Database record</h3><dl className="member-detail-list"><div><dt>Account UUID</dt><dd style={{ overflowWrap: "anywhere" }}>{selected.id}</dd></div><div><dt>Date of birth</dt><dd>{selected.dateOfBirth ?? "Not provided"}</dd></div><div><dt>Registered</dt><dd>{formatDateTime(selected.registeredAt)}</dd></div><div><dt>Last activity</dt><dd>{selected.lastActiveAt ? formatDateTime(selected.lastActiveAt) : "No activity recorded"}</dd></div><div><dt>Eligibility submitted</dt><dd>{selected.eligibilitySubmittedAt ? formatDateTime(selected.eligibilitySubmittedAt) : "No review submission"}</dd></div><div><dt>Eligibility reviewed</dt><dd>{selected.eligibilityReviewedAt ? formatDateTime(selected.eligibilityReviewedAt) : "Not reviewed"}</dd></div></dl></section>
             <section className="member-detail-section"><h3>Persisted account state</h3><label className="member-filter-select"><span>Account status</span><select value={accountStatus} onChange={(event) => setAccountStatus(event.target.value as AccountStatus)}><option value="PENDING_VERIFICATION">Pending verification</option><option value="ACTIVE">Active</option><option value="RESTRICTED">Restricted</option><option value="SUSPENDED">Suspended</option><option value="DELETED">Deleted</option></select></label><label className="member-filter-select"><span>Verification status</span><select value={verificationStatus} onChange={(event) => setVerificationStatus(event.target.value as VerificationStatus)}><option value="UNVERIFIED">Unverified</option><option value="VERIFIED">Verified</option><option value="REJECTED">Rejected</option></select></label>
-              <button className="button button--secondary" type="button" onClick={applyQuickApproval} disabled={saving}><CheckCircle2 size={14} /> Set development approval</button>
-              <p className="member-section-description">This updates the database and writes an audit event. It is a development override, not a real-world eligibility determination. A real pending submission must be reviewed from the Eligibility Review page.</p>
-              <label className="member-filter-select"><span>Reason for audit log (required)</span><textarea minLength={10} maxLength={500} required value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Explain why this test account state is changing." rows={4} /></label>
+              <button className="button button--secondary" type="button" onClick={applyQuickApproval} disabled={saving}><CheckCircle2 size={14} /> Set Active + Verified</button>
+              <p className="member-section-description">Setting Account status to Active and Verification status to Verified immediately unlocks the Sakhi Home screen on the mobile app.</p>
+              <label className="member-filter-select"><span>Reason for audit log (required)</span><textarea minLength={10} maxLength={500} required value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Explain why this test account state is changing." rows={3} /></label>
               {actionError && <div className="admin-error-banner" role="alert"><AlertCircle size={16} /><span>{actionError}</span></div>}
             </section>
             <footer className="member-drawer-footer"><button className="button button--secondary" type="button" onClick={() => setSelected(null)} disabled={saving}>Cancel</button><button className="button button--primary" type="submit" disabled={saving}>{saving ? "Saving…" : "Save database state"}</button></footer>

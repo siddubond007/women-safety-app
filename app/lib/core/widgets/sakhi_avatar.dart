@@ -1,60 +1,36 @@
 import 'package:flutter/material.dart';
+import '../../shared/widgets/sakhi_crisp_art.dart';
 import '../theme/app_colors.dart';
 
+/// Circular user avatar with optional camera edit button, infinite-DPI vector
+/// portrait rendering for built-in test profiles, and automatic Cloud/Network
+/// URL support (`http://` / `https://`).
 class SakhiAvatar extends StatelessWidget {
+  final String imageAsset;
+  final double size;
+  final bool showEditCameraBadge;
+  final VoidCallback? onCameraTap;
+  final double borderWidth;
+
   const SakhiAvatar({
     super.key,
     required this.imageAsset,
     this.size = 44,
     this.showEditCameraBadge = false,
     this.onCameraTap,
-    this.borderWidth = 2,
-    this.fallbackLabel,
+    this.borderWidth = 2.0,
   });
 
-  final String imageAsset;
-  final double size;
-  final bool showEditCameraBadge;
-  final VoidCallback? onCameraTap;
-  final double borderWidth;
-  final String? fallbackLabel;
-
-  Widget _avatarImage() {
-    if (imageAsset.trim().isEmpty) return _fallback();
-    final isTrustedTransport = imageAsset.startsWith('https://');
-    final image = isTrustedTransport
-        ? Image.network(
-            imageAsset,
-            width: size,
-            height: size,
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stack) => _fallback(),
-          )
-        : Image.asset(
-            imageAsset,
-            width: size,
-            height: size,
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stack) => _fallback(),
-          );
-    return image;
-  }
-
-  Widget _fallback() => Center(
-    child: Text(
-      (fallbackLabel?.trim().isNotEmpty == true
-          ? fallbackLabel!.trim().substring(0, 1)
-          : 'S').toUpperCase(),
-      style: TextStyle(
-        fontSize: size * .38,
-        fontWeight: FontWeight.w800,
-        color: AppColors.primaryPurple,
-      ),
-    ),
-  );
+  bool get _isNetworkUrl =>
+      imageAsset.startsWith('http://') || imageAsset.startsWith('https://');
 
   @override
   Widget build(BuildContext context) {
+    final crispFallback = SakhiCrispAvatarArt(
+      assetOrUrl: imageAsset,
+      size: size,
+    );
+
     return Stack(
       clipBehavior: Clip.none,
       children: [
@@ -66,11 +42,25 @@ class SakhiAvatar extends StatelessWidget {
             color: AppColors.pastelLavender,
             border: Border.all(color: Colors.white, width: borderWidth),
             boxShadow: [
-              BoxShadow(color: AppColors.primaryPurple.withValues(alpha: .10), blurRadius: 8, offset: const Offset(0, 3)),
+              BoxShadow(
+                color: AppColors.primaryPurple.withValues(alpha: 0.12),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
             ],
           ),
           child: ClipOval(
-            child: _avatarImage(),
+            child: _isNetworkUrl
+                ? Image.network(
+                    imageAsset,
+                    width: size,
+                    height: size,
+                    fit: BoxFit.cover,
+                    filterQuality: FilterQuality.high,
+                    isAntiAlias: true,
+                    errorBuilder: (_, _, _) => crispFallback,
+                  )
+                : crispFallback,
           ),
         ),
         if (showEditCameraBadge)
@@ -80,10 +70,18 @@ class SakhiAvatar extends StatelessWidget {
             child: GestureDetector(
               onTap: onCameraTap,
               child: Container(
-                width: size * .30,
-                height: size * .30,
-                decoration: BoxDecoration(color: AppColors.primaryPurple, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 2)),
-                child: Icon(Icons.camera_alt_rounded, color: Colors.white, size: size * .16),
+                width: size * 0.30,
+                height: size * 0.30,
+                decoration: BoxDecoration(
+                  color: AppColors.primaryPurple,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 2),
+                ),
+                child: Icon(
+                  Icons.camera_alt_rounded,
+                  color: Colors.white,
+                  size: size * 0.16,
+                ),
               ),
             ),
           ),

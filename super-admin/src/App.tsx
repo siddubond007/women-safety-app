@@ -46,7 +46,7 @@ function AppRoutes() {
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/members" element={<MemberManagementPage />} />
         <Route path="/verification" element={<EligibilityReviewPage />} />
-        <Route path="*" element={<PlannedPage />} />
+                                                                        <Route path="*" element={<PlannedPage />} />
       </Route>
     </Routes>
   );
@@ -55,3 +55,4 @@ function AppRoutes() {
 export default function App() {
   return <BrowserRouter><AppRoutes /></BrowserRouter>;
 }
+

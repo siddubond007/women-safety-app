@@ -1,401 +1,260 @@
 import {
-  BadRequestException,
   Body,
   Controller,
-  Delete,
   Get,
   Headers,
+  HttpCode,
   Param,
   ParseUUIDPipe,
-  Patch,
   Post,
   Put,
-  Query,
+  Res,
 } from "@nestjs/common";
-import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
-import { Module2Service } from "./module2.service.js";
+import { ApiBearerAuth, ApiOkResponse, ApiTags } from "@nestjs/swagger";
 import {
-  CreateBusinessProfileDto,
-  CreateCommunityEventDto,
-  CreateCommunityGroupDto,
+  CreateCommunityPostDto,
+  CreateEmergencyContactDto,
   CreatePostCommentDto,
-  CreatePostDto,
-  DeactivateAccountDto,
-  ReportMemberDto,
-  RequestAccountDeletionDto,
-  UpdateMarketingConsentDto,
-  UpdateNotificationPreferencesDto,
-  UpdatePrivacySettingsDto,
-  UpdateProfileDto,
+  RecordSafetyEventDto,
+  ReportUserOrPostDto,
+  RequestMediaUploadDto,
+  ToggleBlockedUserDto,
+  ToggleTwoFactorDto,
+  UpdateAvatarDto,
+  UpdateModule2ProfileDto,
+  UpdateNotificationPreferenceDto,
+  UpdatePrivacyPreferenceDto,
+  UpdateSecurityPinDto,
+  UploadMediaObjectDto,
 } from "./module2.dto.js";
+import { Module2Service } from "./module2.service.js";
 
-@ApiTags("module-2-profile-community")
+@ApiTags("module2")
 @ApiBearerAuth()
 @Controller("module2")
 export class Module2Controller {
   constructor(private readonly module2: Module2Service) {}
 
-  @Get("profile")
-  getProfile(@Headers("authorization") authorization?: string) {
-    return this.module2.getProfile(authorization);
+  @Get("bootstrap")
+  @ApiOkResponse({
+    description:
+      "Returns the full database-backed state for all 12 Sakhi Module 2 screens.",
+  })
+  bootstrap(@Headers("authorization") authorization: string | undefined) {
+    return this.module2.bootstrap(authorization);
   }
 
-  @Patch("profile")
+  @Get("public-feed")
+  @ApiOkResponse({
+    description:
+      "Returns live PostgreSQL community posts, explore posts, groups, followers directory, and wellness catalog.",
+  })
+  publicFeed() {
+    return this.module2.publicFeed();
+  }
+
+  @Put("profile")
+  @HttpCode(200)
+  @ApiOkResponse({ description: "Updates member profile, bio, location, and interests." })
   updateProfile(
     @Headers("authorization") authorization: string | undefined,
-    @Body() dto: UpdateProfileDto,
+    @Body() dto: UpdateModule2ProfileDto,
   ) {
     return this.module2.updateProfile(authorization, dto);
   }
 
-  @Get("experts")
-  getVerifiedExperts(
+  @Put("profile/avatar")
+  @HttpCode(200)
+  @ApiOkResponse({ description: "Updates the member profile avatar asset or Cloud URL." })
+  updateAvatar(
     @Headers("authorization") authorization: string | undefined,
-    @Query("q") query?: string,
-    @Query("limit") limit?: string,
+    @Body() dto: UpdateAvatarDto,
   ) {
-    return this.module2.listVerifiedExperts(authorization, query ?? "", limit);
+    return this.module2.updateAvatar(authorization, dto);
   }
 
-  @Get("groups")
-  listGroups(
+  @Post("media/presign")
+  @HttpCode(200)
+  @ApiOkResponse({
+    description: "Generates a cloud-ready presigned upload URL for user avatars or post images.",
+  })
+  requestMediaUpload(
     @Headers("authorization") authorization: string | undefined,
-    @Query("mine") mine?: string,
-    @Query("q") query?: string,
-    @Query("limit") limit?: string,
+    @Body() dto: RequestMediaUploadDto,
   ) {
-    return this.module2.listGroups(authorization, { mine: mine === "true", query, limit });
+    return this.module2.requestMediaUpload(authorization, dto);
   }
 
-  @Post("groups")
-  createGroup(
+  @Post("media/upload")
+  @HttpCode(200)
+  @ApiOkResponse({
+    description: "Uploads and persists a user avatar or post photo to backend cloud storage and returns its live URL.",
+  })
+  uploadMediaObject(
     @Headers("authorization") authorization: string | undefined,
-    @Body() dto: CreateCommunityGroupDto,
+    @Body() dto: UploadMediaObjectDto,
   ) {
-    return this.module2.createGroup(authorization, dto);
+    return this.module2.uploadMediaObject(authorization, dto);
   }
 
-  @Get("groups/:groupId/pending-members")
-  listPendingGroupMembers(
-    @Headers("authorization") authorization: string | undefined,
-    @Param("groupId", new ParseUUIDPipe({ version: "4" })) groupId: string,
-  ) {
-    return this.module2.listPendingGroupMembers(authorization, groupId);
+  @Get("media")
+  @ApiOkResponse({
+    description: "Lists recent user media uploads stored in the backend cloud storage pipeline.",
+  })
+  listMediaObjects() {
+    return this.module2.listMediaObjects();
   }
 
-  @Post("groups/:groupId/join")
-  joinGroup(
-    @Headers("authorization") authorization: string | undefined,
-    @Param("groupId", new ParseUUIDPipe({ version: "4" })) groupId: string,
+  @Get("media/object/:uploadId")
+  @ApiOkResponse({
+    description: "Streams a stored user upload image from the backend/cloud storage bridge.",
+  })
+  async serveMediaObject(
+    @Param("uploadId", new ParseUUIDPipe({ version: "4" })) uploadId: string,
+    @Res() res: {
+      setHeader: (name: string, value: string) => void;
+      status: (code: number) => { send: (body: Buffer | string) => void };
+      redirect: (url: string) => void;
+    },
   ) {
-    return this.module2.joinGroup(authorization, groupId);
-  }
-
-  @Delete("groups/:groupId/join")
-  leaveGroup(
-    @Headers("authorization") authorization: string | undefined,
-    @Param("groupId", new ParseUUIDPipe({ version: "4" })) groupId: string,
-  ) {
-    return this.module2.leaveGroup(authorization, groupId);
-  }
-
-  @Post("groups/:groupId/members/:memberAccountId/approve")
-  approveGroupMember(
-    @Headers("authorization") authorization: string | undefined,
-    @Param("groupId", new ParseUUIDPipe({ version: "4" })) groupId: string,
-    @Param("memberAccountId", new ParseUUIDPipe({ version: "4" })) memberAccountId: string,
-  ) {
-    return this.module2.approveGroupMember(authorization, groupId, memberAccountId);
-  }
-
-  @Get("events")
-  listEvents(
-    @Headers("authorization") authorization: string | undefined,
-    @Query("q") query?: string,
-    @Query("limit") limit?: string,
-  ) {
-    return this.module2.listEvents(authorization, query ?? "", limit);
-  }
-
-  @Post("events")
-  createEvent(
-    @Headers("authorization") authorization: string | undefined,
-    @Body() dto: CreateCommunityEventDto,
-  ) {
-    return this.module2.createEvent(authorization, dto);
-  }
-
-  @Post("events/:eventId/register")
-  registerForEvent(
-    @Headers("authorization") authorization: string | undefined,
-    @Param("eventId", new ParseUUIDPipe({ version: "4" })) eventId: string,
-  ) {
-    return this.module2.registerForEvent(authorization, eventId);
-  }
-
-  @Delete("events/:eventId/register")
-  cancelEventRegistration(
-    @Headers("authorization") authorization: string | undefined,
-    @Param("eventId", new ParseUUIDPipe({ version: "4" })) eventId: string,
-  ) {
-    return this.module2.cancelEventRegistration(authorization, eventId);
-  }
-
-  @Get("discover")
-  discover(
-    @Headers("authorization") authorization: string | undefined,
-    @Query("q") query?: string,
-    @Query("limit") limit?: string,
-  ) {
-    return this.module2.getDiscover(authorization, query ?? "", limit);
-  }
-
-  @Get("members/:accountId")
-  getMemberProfile(
-    @Headers("authorization") authorization: string | undefined,
-    @Param("accountId", new ParseUUIDPipe({ version: "4" })) accountId: string,
-  ) {
-    return this.module2.getMemberProfile(authorization, accountId);
-  }
-
-  @Get("feed")
-  getFeed(
-    @Headers("authorization") authorization: string | undefined,
-    @Query("q") query?: string,
-    @Query("cursor") cursor?: string,
-    @Query("limit") limit?: string,
-  ) {
-    return this.module2.listPosts(authorization, { query, cursor, limit });
-  }
-
-  @Get("posts")
-  getPosts(
-    @Headers("authorization") authorization: string | undefined,
-    @Query("accountId") accountId?: string,
-    @Query("q") query?: string,
-    @Query("cursor") cursor?: string,
-    @Query("limit") limit?: string,
-  ) {
-    return this.module2.listPosts(authorization, { accountId, query, cursor, limit });
+    const media = await this.module2.resolveMediaObject(uploadId);
+    if (media.redirectUrl) {
+      res.redirect(media.redirectUrl);
+      return;
+    }
+    res.setHeader("Content-Type", media.contentType);
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.status(200).send(media.buffer);
   }
 
   @Post("posts")
+  @HttpCode(200)
+  @ApiOkResponse({ description: "Creates a new community feed post." })
   createPost(
     @Headers("authorization") authorization: string | undefined,
-    @Body() dto: CreatePostDto,
+    @Body() dto: CreateCommunityPostDto,
   ) {
     return this.module2.createPost(authorization, dto);
   }
 
-  @Get("posts/saved")
-  getSavedPosts(@Headers("authorization") authorization?: string) {
-    return this.module2.listSavedPosts(authorization);
-  }
-
-  @Delete("posts/:postId")
-  deletePost(
-    @Headers("authorization") authorization: string | undefined,
-    @Param("postId", new ParseUUIDPipe({ version: "4" })) postId: string,
-  ) {
-    return this.module2.deletePost(authorization, postId);
-  }
-
   @Post("posts/:postId/like")
-  likePost(
+  @HttpCode(200)
+  @ApiOkResponse({ description: "Toggles like status on a community post." })
+  toggleLike(
     @Headers("authorization") authorization: string | undefined,
     @Param("postId", new ParseUUIDPipe({ version: "4" })) postId: string,
   ) {
-    return this.module2.setPostLike(authorization, postId, true);
+    return this.module2.togglePostLike(authorization, postId);
   }
 
-  @Delete("posts/:postId/like")
-  unlikePost(
+  @Post("posts/:postId/save")
+  @HttpCode(200)
+  @ApiOkResponse({ description: "Toggles bookmark/save status on a community post." })
+  toggleSave(
     @Headers("authorization") authorization: string | undefined,
     @Param("postId", new ParseUUIDPipe({ version: "4" })) postId: string,
   ) {
-    return this.module2.setPostLike(authorization, postId, false);
-  }
-
-  @Post("posts/:postId/bookmark")
-  bookmarkPost(
-    @Headers("authorization") authorization: string | undefined,
-    @Param("postId", new ParseUUIDPipe({ version: "4" })) postId: string,
-  ) {
-    return this.module2.setPostBookmark(authorization, postId, true);
-  }
-
-  @Delete("posts/:postId/bookmark")
-  removeBookmark(
-    @Headers("authorization") authorization: string | undefined,
-    @Param("postId", new ParseUUIDPipe({ version: "4" })) postId: string,
-  ) {
-    return this.module2.setPostBookmark(authorization, postId, false);
-  }
-
-  @Get("posts/:postId/comments")
-  listComments(
-    @Headers("authorization") authorization: string | undefined,
-    @Param("postId", new ParseUUIDPipe({ version: "4" })) postId: string,
-  ) {
-    return this.module2.listComments(authorization, postId);
+    return this.module2.togglePostSave(authorization, postId);
   }
 
   @Post("posts/:postId/comments")
-  createComment(
+  @HttpCode(200)
+  @ApiOkResponse({ description: "Adds a comment to a community post." })
+  addComment(
     @Headers("authorization") authorization: string | undefined,
     @Param("postId", new ParseUUIDPipe({ version: "4" })) postId: string,
     @Body() dto: CreatePostCommentDto,
   ) {
-    return this.module2.createComment(authorization, postId, dto);
+    return this.module2.addPostComment(authorization, postId, dto);
   }
 
-  @Delete("comments/:commentId")
-  deleteComment(
+  @Post("followers/:profileId/toggle")
+  @HttpCode(200)
+  @ApiOkResponse({ description: "Toggles follow status for a community profile." })
+  toggleFollow(
     @Headers("authorization") authorization: string | undefined,
-    @Param("commentId", new ParseUUIDPipe({ version: "4" })) commentId: string,
+    @Param("profileId", new ParseUUIDPipe({ version: "4" })) profileId: string,
   ) {
-    return this.module2.deleteComment(authorization, commentId);
+    return this.module2.toggleFollow(authorization, profileId);
   }
 
-  @Get("followers")
-  getFollowers(
+  @Put("privacy")
+  @HttpCode(200)
+  @ApiOkResponse({ description: "Updates a member privacy setting." })
+  updatePrivacy(
     @Headers("authorization") authorization: string | undefined,
-    @Query("direction") direction?: string,
-    @Query("q") query?: string,
-    @Query("limit") limit?: string,
+    @Body() dto: UpdatePrivacyPreferenceDto,
   ) {
-    if (direction !== undefined && direction !== "followers" && direction !== "following") {
-      throw new BadRequestException('direction must be "followers" or "following".');
-    }
-    return this.module2.listFollowers(
-      authorization,
-      direction === "following" ? "following" : "followers",
-      query ?? "",
-      limit,
-    );
+    return this.module2.updatePrivacyPreference(authorization, dto);
   }
 
-  @Post("members/:accountId/follow")
-  followMember(
+  @Put("notifications")
+  @HttpCode(200)
+  @ApiOkResponse({ description: "Updates a member notification preference." })
+  updateNotification(
     @Headers("authorization") authorization: string | undefined,
-    @Param("accountId", new ParseUUIDPipe({ version: "4" })) accountId: string,
+    @Body() dto: UpdateNotificationPreferenceDto,
   ) {
-    return this.module2.followMember(authorization, accountId);
+    return this.module2.updateNotificationPreference(authorization, dto);
   }
 
-  @Delete("members/:accountId/follow")
-  unfollowMember(
+  @Post("safety/events")
+  @HttpCode(200)
+  @ApiOkResponse({ description: "Records a safety SOS or location share event." })
+  recordSafetyEvent(
     @Headers("authorization") authorization: string | undefined,
-    @Param("accountId", new ParseUUIDPipe({ version: "4" })) accountId: string,
+    @Body() dto: RecordSafetyEventDto,
   ) {
-    return this.module2.unfollowMember(authorization, accountId);
+    return this.module2.recordSafetyEvent(authorization, dto);
   }
 
-  @Get("privacy-settings")
-  getPrivacySettings(@Headers("authorization") authorization?: string) {
-    return this.module2.getPrivacySettings(authorization);
-  }
-
-  @Patch("privacy-settings")
-  updatePrivacySettings(
+  @Post("safety/contacts")
+  @HttpCode(200)
+  @ApiOkResponse({ description: "Adds a trusted emergency contact." })
+  addEmergencyContact(
     @Headers("authorization") authorization: string | undefined,
-    @Body() dto: UpdatePrivacySettingsDto,
+    @Body() dto: CreateEmergencyContactDto,
   ) {
-    return this.module2.updatePrivacySettings(authorization, dto);
+    return this.module2.addEmergencyContact(authorization, dto);
   }
 
-  @Put("marketing-consent")
-  updateMarketingConsent(
+  @Post("security/two-factor")
+  @HttpCode(200)
+  @ApiOkResponse({ description: "Updates two-factor authentication state." })
+  toggleTwoFactor(
     @Headers("authorization") authorization: string | undefined,
-    @Body() dto: UpdateMarketingConsentDto,
+    @Body() dto: ToggleTwoFactorDto,
   ) {
-    return this.module2.updateMarketingConsent(authorization, dto);
+    return this.module2.toggleTwoFactor(authorization, dto);
   }
 
-  @Get("notification-preferences")
-  getNotificationPreferences(@Headers("authorization") authorization?: string) {
-    return this.module2.getNotificationPreferences(authorization);
-  }
-
-  @Patch("notification-preferences")
-  updateNotificationPreferences(
+  @Post("security/pin")
+  @HttpCode(200)
+  @ApiOkResponse({ description: "Updates the member security PIN." })
+  updatePin(
     @Headers("authorization") authorization: string | undefined,
-    @Body() dto: UpdateNotificationPreferencesDto,
+    @Body() dto: UpdateSecurityPinDto,
   ) {
-    return this.module2.updateNotificationPreferences(authorization, dto);
+    return this.module2.updateSecurityPin(authorization, dto);
   }
 
-  @Get("blocks")
-  listBlockedMembers(@Headers("authorization") authorization?: string) {
-    return this.module2.listBlockedMembers(authorization);
-  }
-
-  @Post("blocks/:accountId")
-  blockMember(
+  @Post("moderation/report")
+  @HttpCode(200)
+  @ApiOkResponse({ description: "Submits a user or post moderation report." })
+  report(
     @Headers("authorization") authorization: string | undefined,
-    @Param("accountId", new ParseUUIDPipe({ version: "4" })) accountId: string,
+    @Body() dto: ReportUserOrPostDto,
   ) {
-    return this.module2.blockMember(authorization, accountId);
+    return this.module2.reportUserOrPost(authorization, dto);
   }
 
-  @Delete("blocks/:accountId")
-  unblockMember(
+  @Post("moderation/block")
+  @HttpCode(200)
+  @ApiOkResponse({ description: "Toggles a blocked user record." })
+  toggleBlock(
     @Headers("authorization") authorization: string | undefined,
-    @Param("accountId", new ParseUUIDPipe({ version: "4" })) accountId: string,
+    @Body() dto: ToggleBlockedUserDto,
   ) {
-    return this.module2.unblockMember(authorization, accountId);
-  }
-
-  @Post("reports")
-  reportMember(
-    @Headers("authorization") authorization: string | undefined,
-    @Body() dto: ReportMemberDto,
-  ) {
-    return this.module2.reportMember(authorization, dto);
-  }
-
-  @Get("business-profile")
-  getBusinessProfile(@Headers("authorization") authorization?: string) {
-    return this.module2.getBusinessProfile(authorization);
-  }
-
-  @Put("business-profile")
-  upsertBusinessProfile(
-    @Headers("authorization") authorization: string | undefined,
-    @Body() dto: CreateBusinessProfileDto,
-  ) {
-    return this.module2.upsertBusinessProfile(authorization, dto);
-  }
-
-  @Get("sessions")
-  listSessions(@Headers("authorization") authorization?: string) {
-    return this.module2.listSessions(authorization);
-  }
-
-  @Delete("sessions/:sessionId")
-  revokeSession(
-    @Headers("authorization") authorization: string | undefined,
-    @Param("sessionId", new ParseUUIDPipe({ version: "4" })) sessionId: string,
-  ) {
-    return this.module2.revokeSession(authorization, sessionId);
-  }
-
-  @Post("account/deactivate")
-  deactivateAccount(
-    @Headers("authorization") authorization: string | undefined,
-    @Body() dto: DeactivateAccountDto,
-  ) {
-    if (dto.confirmation !== "DEACTIVATE") {
-      throw new BadRequestException('confirmation must be "DEACTIVATE".');
-    }
-    return this.module2.deactivateAccount(authorization);
-  }
-
-  @Post("account/deletion-request")
-  requestDeletion(
-    @Headers("authorization") authorization: string | undefined,
-    @Body() dto: RequestAccountDeletionDto,
-  ) {
-    return this.module2.requestAccountDeletion(authorization, dto);
+    return this.module2.toggleBlockedUser(authorization, dto);
   }
 }

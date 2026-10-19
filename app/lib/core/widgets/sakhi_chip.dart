@@ -3,7 +3,14 @@ import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 
+/// Filter chip, hashtag chip, or interest chip matching Screens 2, 6, and 7.
 class SakhiChip extends StatelessWidget {
+  final String label;
+  final bool isSelected;
+  final bool isOutlinedAction;
+  final VoidCallback? onTap;
+  final VoidCallback? onDelete;
+
   const SakhiChip({
     super.key,
     required this.label,
@@ -13,33 +20,53 @@ class SakhiChip extends StatelessWidget {
     this.onDelete,
   });
 
-  final String label;
-  final bool isSelected;
-  final bool isOutlinedAction;
-  final VoidCallback? onTap;
-  final VoidCallback? onDelete;
-
   @override
   Widget build(BuildContext context) {
-    final background = isSelected ? AppColors.primaryPurple : (isOutlinedAction ? Colors.white : AppColors.pastelLavender);
-    final foreground = isSelected ? Colors.white : AppColors.primaryPurple;
+    final bgColor = isSelected
+        ? AppColors.primaryPurple
+        : isOutlinedAction
+            ? AppColors.cardSurface
+            : AppColors.pastelLavender;
+    final textColor = isSelected
+        ? Colors.white
+        : AppColors.primaryPurple;
+
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
         decoration: BoxDecoration(
-          color: background,
+          color: bgColor,
           borderRadius: BorderRadius.circular(AppSpacing.radiusPill),
-          border: Border.all(color: isSelected ? AppColors.primaryPurple : (isOutlinedAction ? AppColors.primaryPurple.withValues(alpha: .35) : AppColors.borderSubtle)),
+          border: Border.all(
+            color: isSelected
+                ? AppColors.primaryPurple
+                : isOutlinedAction
+                    ? AppColors.primaryPurple.withValues(alpha: 0.35)
+                    : AppColors.borderSubtle,
+          ),
         ),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Text(label, style: AppTypography.chipLabel.copyWith(color: foreground)),
-          if (onDelete != null) ...[
-            const SizedBox(width: 6),
-            GestureDetector(onTap: onDelete, child: Icon(Icons.close_rounded, size: 14, color: foreground.withValues(alpha: .8))),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: AppTypography.chipLabel.copyWith(color: textColor),
+            ),
+            if (onDelete != null) ...[
+              const SizedBox(width: 6),
+              GestureDetector(
+                onTap: onDelete,
+                child: Icon(
+                  Icons.close_rounded,
+                  size: 14,
+                  color: textColor.withValues(alpha: 0.8),
+                ),
+              ),
+            ],
           ],
-        ]),
+        ),
       ),
     );
   }

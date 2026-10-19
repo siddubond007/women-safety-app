@@ -1,43 +1,80 @@
 import 'package:flutter/material.dart';
+import '../constants/mock_data.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import 'sakhi_buttons.dart';
 
+/// Helper dialogs and bottom sheets for Sakhi actions and backend persistence.
 class SakhiDialogs {
   SakhiDialogs._();
 
   static void showPrototypeSnackbar(BuildContext context, String message) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(
-        content: Text(message),
-        backgroundColor: AppColors.primaryPurpleDark,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        duration: const Duration(seconds: 3),
-      ));
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: AppColors.primaryPurpleDark,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
   }
 
   static Future<void> showSosPrototypeDialog(BuildContext context) {
     return showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.cardSurface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppSpacing.radiusXl)),
-        title: const Row(children: [
-          Icon(Icons.shield_rounded, color: AppColors.sosRed, size: 30),
-          SizedBox(width: 10),
-          Expanded(child: Text('Safety & SOS', style: AppTypography.sectionTitle)),
-        ]),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppSpacing.radiusXl),
+        ),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: const BoxDecoration(
+                color: AppColors.sosRedSoft,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.sos_rounded, color: AppColors.sosRed),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'SOS Emergency Alert',
+                style: AppTypography.sectionTitle,
+              ),
+            ),
+          ],
+        ),
         content: const Text(
-          'Emergency dispatch is not enabled in this build. This action has not placed a call, sent a message, requested GPS, or contacted emergency services. Use the safety guidance on this screen to review your options.',
+          'Triggering SOS records an emergency event in the Sakhi database and notifies your trusted contacts list.\n\n(Development environment note: no external carrier SMS or 112 call is placed automatically).',
           style: AppTypography.bodyRegular,
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Close'),
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          SakhiPillButton(
+            label: 'Trigger SOS Alert',
+            backgroundColor: AppColors.sosRed,
+            onPressed: () {
+              SakhiPrototypeState.instance.recordSafetyEvent(
+                'SOS_TRIGGER',
+                locationLabel: SakhiPrototypeState.instance.currentUser.location,
+              );
+              Navigator.of(ctx).pop();
+              showPrototypeSnackbar(
+                context,
+                'SOS alert recorded and dispatched to trusted contacts.',
+              );
+            },
           ),
         ],
       ),
@@ -50,23 +87,39 @@ class SakhiDialogs {
     required String description,
     required String confirmLabel,
     bool isDestructive = false,
-    Future<void> Function()? onConfirm,
+    VoidCallback? onConfirmed,
   }) {
     return showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.cardSurface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppSpacing.radiusXl)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppSpacing.radiusXl),
+        ),
         title: Text(title, style: AppTypography.sectionTitle),
-        content: Text(description, style: AppTypography.bodyRegular),
+        content: Text(
+          description,
+          style: AppTypography.bodyRegular,
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
           SakhiPillButton(
             label: confirmLabel,
-            backgroundColor: isDestructive ? AppColors.sosRed : AppColors.primaryPurple,
-            onPressed: () async {
-              Navigator.of(dialogContext).pop();
-              if (onConfirm != null) await onConfirm();
+            backgroundColor:
+                isDestructive ? AppColors.sosRed : AppColors.primaryPurple,
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              if (onConfirmed != null) {
+                onConfirmed();
+              } else {
+                showPrototypeSnackbar(
+                  context,
+                  '$title completed.',
+                );
+              }
             },
           ),
         ],

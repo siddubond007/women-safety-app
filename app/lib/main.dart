@@ -2,14 +2,27 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'core/branding/app_brand.dart';
+import 'core/navigation/app_navigation_shell.dart';
+import 'core/navigation/app_routes.dart';
+import 'core/theme/app_theme.dart';
 import 'core/theme/sakhi_design_system.dart';
+import 'features/account_security/screens/account_security_screen.dart';
 import 'features/auth/auth_service.dart';
 import 'features/auth/auth_service_factory.dart';
 import 'features/auth/sakhi_auth_status_screen.dart';
 import 'features/auth/sakhi_login_screen.dart';
 import 'features/auth/sakhi_registration_screen.dart';
+import 'features/community/screens/community_screen.dart';
+import 'features/explore/screens/explore_screen.dart';
+import 'features/followers/screens/followers_following_screen.dart';
+import 'features/notifications/screens/notification_preferences_screen.dart';
 import 'features/onboarding/sakhi_onboarding_screen.dart';
-import 'features/module2/module2_navigation_shell.dart';
+import 'features/profile/screens/edit_profile_screen.dart';
+import 'features/profile/screens/profile_screen.dart';
+import 'features/safety/screens/safety_screen.dart';
+import 'features/settings/screens/more_options_menu_screen.dart';
+import 'features/settings/screens/privacy_settings_screen.dart';
+import 'features/wellness/screens/wellness_screen.dart';
 
 const Color sakhiPlum = SakhiColors.plum;
 const Color sakhiPurple = SakhiColors.purple;
@@ -39,22 +52,22 @@ class SakhiApp extends StatelessWidget {
     return MaterialApp(
       title: AppBrand.appName,
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        scaffoldBackgroundColor: SakhiColors.blush,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: SakhiColors.purple,
-          brightness: Brightness.light,
-        ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: SakhiColors.blush,
-          foregroundColor: SakhiColors.plum,
-          centerTitle: false,
-          elevation: 0,
-        ),
-      ),
+      theme: AppTheme.lightTheme,
       routes: {
         '/home': (_) => SakhiProtectedHomeGate(authService: authService),
+        '/dashboard': (_) => const AppNavigationShell(),
+        AppRoutes.explore: (_) => const Scaffold(body: ExploreScreen()),
+        AppRoutes.community: (_) => const Scaffold(body: CommunityScreen()),
+        AppRoutes.wellness: (_) => const WellnessScreen(showBackButton: true),
+        AppRoutes.safety: (_) => const SafetyScreen(showBackButton: true),
+        AppRoutes.profile: (_) => const Scaffold(body: ProfileScreen()),
+        AppRoutes.editProfile: (_) => const EditProfileScreen(),
+        AppRoutes.privacySettings: (_) => const PrivacySettingsScreen(),
+        AppRoutes.notificationPreferences: (_) =>
+            const NotificationPreferencesScreen(),
+        AppRoutes.followers: (_) => const FollowersFollowingScreen(),
+        AppRoutes.accountSecurity: (_) => const AccountSecurityScreen(),
+        AppRoutes.moreOptions: (_) => const MoreOptionsMenuScreen(),
       },
       home: SakhiStartupRouter(authService: authService),
     );
@@ -174,6 +187,9 @@ class _SakhiStartupRouterState extends State<SakhiStartupRouter> {
         }
 
         final restoredState = snapshot.data;
+        if (restoredState == AuthAccountState.existingAccount) {
+          return const AppNavigationShell();
+        }
         if (restoredState != null) {
           return SakhiAuthStatusScreen(
             authService: widget.authService,
@@ -188,7 +204,8 @@ class _SakhiStartupRouterState extends State<SakhiStartupRouter> {
   }
 }
 
-/// Named home route that rechecks the authoritative backend session.
+/// Named home route that rechecks the authoritative backend session and opens
+/// the 12-screen Module 2 AppNavigationShell once verified.
 class SakhiProtectedHomeGate extends StatefulWidget {
   const SakhiProtectedHomeGate({super.key, required this.authService});
 
@@ -211,7 +228,11 @@ class _SakhiProtectedHomeGateState extends State<SakhiProtectedHomeGate> {
     setState(() => _state = widget.authService.restoreSession());
   }
 
-  void _returnToLogin() {
+  Future<void> _returnToLogin() async {
+    try {
+      await widget.authService.logout();
+    } catch (_) {}
+    if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute<void>(
         builder: (_) => SakhiLoginScreen(authService: widget.authService),
@@ -228,11 +249,14 @@ class _SakhiProtectedHomeGateState extends State<SakhiProtectedHomeGate> {
         if (snapshot.connectionState != ConnectionState.done) {
           return const Scaffold(
             backgroundColor: SakhiColors.blush,
-            body: Center(child: CircularProgressIndicator(color: SakhiColors.purple)),
+            body: Center(
+              child: CircularProgressIndicator(color: SakhiColors.purple),
+            ),
           );
         }
-        if (snapshot.data == AuthAccountState.existingAccount && !snapshot.hasError) {
-          return Module2NavigationShell(authService: widget.authService);
+        if (snapshot.data == AuthAccountState.existingAccount &&
+            !snapshot.hasError) {
+          return const AppNavigationShell();
         }
         return Scaffold(
           backgroundColor: SakhiColors.blush,
@@ -245,7 +269,11 @@ class _SakhiProtectedHomeGateState extends State<SakhiProtectedHomeGate> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.lock_outline_rounded, size: 44, color: SakhiColors.purple),
+                      const Icon(
+                        Icons.lock_outline_rounded,
+                        size: 44,
+                        color: SakhiColors.purple,
+                      ),
                       const SizedBox(height: 16),
                       const Text(
                         'Home access is still locked',
@@ -256,7 +284,7 @@ class _SakhiProtectedHomeGateState extends State<SakhiProtectedHomeGate> {
                       Text(
                         snapshot.hasError
                             ? 'Sakhi could not confirm the current account state with the backend.'
-                            : 'The backend has not confirmed that this account is active and verified. Update the development account state in Super Admin, then check again.',
+                            : 'The backend has not confirmed that this account is active and verified. Open Super Admin (http://127.0.0.1:5173/members), click "Verify & Activate" for your number, then tap "Check account state again" below.',
                         textAlign: TextAlign.center,
                         style: SakhiTypography.body,
                       ),
@@ -278,285 +306,6 @@ class _SakhiProtectedHomeGateState extends State<SakhiProtectedHomeGate> {
           ),
         );
       },
-    );
-  }
-}
-
-class SakhiHomeScreen extends StatelessWidget {
-  const SakhiHomeScreen({super.key});
-
-  static const List<_HomeFeature> _features = [
-    _HomeFeature(
-      title: 'Safety & support',
-      description: 'Guidance and safety resources',
-      icon: Icons.shield_outlined,
-      accent: Color(0xFF8B4D9C),
-    ),
-    _HomeFeature(
-      title: 'Trusted contacts',
-      description: 'A place for your support network',
-      icon: Icons.favorite_border_rounded,
-      accent: Color(0xFFC64C91),
-    ),
-    _HomeFeature(
-      title: 'Wellness',
-      description: 'Ideas for everyday wellbeing',
-      icon: Icons.spa_outlined,
-      accent: Color(0xFF9A6CB3),
-    ),
-    _HomeFeature(
-      title: 'Community',
-      description: 'Connection and opportunities',
-      icon: Icons.diversity_3_outlined,
-      accent: Color(0xFFB25A96),
-    ),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          AppBrand.appName,
-          style: TextStyle(
-            color: sakhiPlum,
-            fontSize: 26,
-            fontWeight: FontWeight.w800,
-            letterSpacing: -0.8,
-          ),
-        ),
-      ),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final columns = constraints.maxWidth >= 900 ? 4 : 2;
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(22, 10, 22, 28),
-            children: [
-              Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(26),
-                  gradient: const LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [Color(0xFFF0DDF7), Color(0xFFFFE8F0)],
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Welcome to ${AppBrand.appName}',
-                      style: const TextStyle(
-                        color: sakhiPlum,
-                        fontSize: 28,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      AppBrand.description,
-                      style: const TextStyle(
-                        color: sakhiMutedPlum,
-                        fontSize: 15,
-                        height: 1.45,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 26),
-              Text(
-                'Explore ${AppBrand.appName}',
-                style: TextStyle(
-                  color: sakhiPlum,
-                  fontSize: 21,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 13),
-              GridView.builder(
-                itemCount: _features.length,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: columns,
-                  crossAxisSpacing: 13,
-                  mainAxisSpacing: 13,
-                  childAspectRatio: constraints.maxWidth >= 900 ? 1.12 : 1.18,
-                ),
-                itemBuilder: (context, index) {
-                  final feature = _features[index];
-                  return _HomeFeatureCard(
-                    feature: feature,
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => _SakhiFeaturePreviewScreen(
-                            feature: feature,
-                          ),
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
-              const SizedBox(height: 18),
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF6EDF8),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Text(
-                  'Home-screen development preview: feature-level services are still being integrated. Do not rely on this development build for emergency assistance.',
-                  style: TextStyle(
-                    color: sakhiMutedPlum,
-                    fontSize: 12.5,
-                    height: 1.45,
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _HomeFeature {
-  const _HomeFeature({
-    required this.title,
-    required this.description,
-    required this.icon,
-    required this.accent,
-  });
-
-  final String title;
-  final String description;
-  final IconData icon;
-  final Color accent;
-}
-
-class _HomeFeatureCard extends StatelessWidget {
-  const _HomeFeatureCard({
-    required this.feature,
-    required this.onTap,
-  });
-
-  final _HomeFeature feature;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white.withValues(alpha: 0.82),
-      borderRadius: BorderRadius.circular(22),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(22),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: feature.accent.withValues(alpha: 0.13),
-                  borderRadius: BorderRadius.circular(15),
-                ),
-                child: Icon(feature.icon, color: feature.accent, size: 27),
-              ),
-              const Spacer(),
-              Text(
-                feature.title,
-                style: const TextStyle(
-                  color: sakhiPlum,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 5),
-              Text(
-                feature.description,
-                style: const TextStyle(
-                  color: sakhiMutedPlum,
-                  fontSize: 12.5,
-                  height: 1.3,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SakhiFeaturePreviewScreen extends StatelessWidget {
-  const _SakhiFeaturePreviewScreen({required this.feature});
-
-  final _HomeFeature feature;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(feature.title)),
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(28),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 116,
-                  height: 116,
-                  decoration: BoxDecoration(
-                    color: feature.accent.withValues(alpha: 0.12),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(feature.icon, size: 62, color: feature.accent),
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  '${feature.title} preview',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: sakhiPlum,
-                    fontSize: 25,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  feature.description,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: sakhiMutedPlum,
-                    fontSize: 15,
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 22),
-                const Text(
-                  'This is a UI preview only. The related service and backend integration have not been implemented yet.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: sakhiMutedPlum,
-                    fontSize: 13,
-                    height: 1.5,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

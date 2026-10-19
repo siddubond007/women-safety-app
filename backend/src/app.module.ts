@@ -7,10 +7,10 @@ import { validateRuntimeEnvironment } from "./config/database-target.js";
 import { AuthModule } from "./auth/auth.module.js";
 import { EligibilityModule } from "./eligibility/eligibility.module.js";
 import { AdminReviewModule } from "./admin-review/admin-review.module.js";
+import { Module2Module } from "./module2/module2.module.js";
 import { PrismaModule } from "./database/prisma.module.js";
 import { HealthController } from "./health/health.controller.js";
 import { HealthService } from "./health/health.service.js";
-import { Module2Module } from "./module2/module2.module.js";
 
 @Module({
   imports: [
@@ -37,6 +37,7 @@ import { Module2Module } from "./module2/module2.module.js";
             "req.body.dateOfBirth",
             "req.body.accessToken",
             "req.body.refreshToken",
+            "req.body.newPin",
             'res.headers["set-cookie"]',
           ],
           censor: "[REDACTED]",

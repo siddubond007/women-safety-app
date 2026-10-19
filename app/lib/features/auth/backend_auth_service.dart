@@ -327,6 +327,8 @@ class BackendAuthService implements AuthService {
           'displayName': profile.displayName.trim(),
           'dateOfBirth': dateString,
           'email': profile.email,
+          if (profile.photoPath != null && profile.photoPath!.trim().isNotEmpty)
+            'avatarAsset': profile.photoPath!.trim(),
           'termsVersion': consent.termsVersion,
           'privacyVersion': consent.privacyVersion,
           'acceptedAt': acceptedAt.toIso8601String(),

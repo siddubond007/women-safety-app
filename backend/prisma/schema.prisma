@@ -56,133 +56,6 @@ enum PolicyDocumentStatus {
   @@map("policy_document_status")
 }
 
-enum ProfileVisibility {
-  VERIFIED_MEMBERS
-  FOLLOWERS_ONLY
-  ONLY_ME
-
-  @@map("profile_visibility")
-}
-
-enum MessagePermission {
-  VERIFIED_MEMBERS
-  FOLLOWING_ONLY
-  NO_ONE
-
-  @@map("message_permission")
-}
-
-enum PostAudience {
-  VERIFIED_MEMBERS
-  FOLLOWERS
-  SELECTED_MEMBERS
-  ONLY_ME
-
-  @@map("post_audience")
-}
-
-enum LocationSharingMode {
-  HIDDEN
-  CITY_ONLY
-
-  @@map("location_sharing_mode")
-}
-
-enum BusinessEnquiryPermission {
-  ALL_VERIFIED
-  VERIFIED_BUSINESSES
-  NONE
-
-  @@map("business_enquiry_permission")
-}
-
-enum MemberPostStatus {
-  PUBLISHED
-  HIDDEN
-  REMOVED
-
-  @@map("member_post_status")
-}
-
-enum MemberReportReason {
-  HARASSMENT
-  IMPERSONATION
-  SPAM
-  UNSAFE_CONTENT
-  OTHER
-
-  @@map("member_report_reason")
-}
-
-enum MemberReportStatus {
-  OPEN
-  REVIEWED
-  CLOSED
-
-  @@map("member_report_status")
-}
-
-enum BusinessProfileStatus {
-  PENDING_REVIEW
-  VERIFIED
-  REJECTED
-
-  @@map("business_profile_status")
-}
-
-enum AccountDeletionStatus {
-  REQUESTED
-  PROCESSING
-  COMPLETED
-  CANCELLED
-
-  @@map("account_deletion_status")
-}
-
-enum GroupVisibility {
-  VERIFIED_MEMBERS
-  PRIVATE
-
-  @@map("group_visibility")
-}
-
-enum CommunityGroupStatus {
-  ACTIVE
-  ARCHIVED
-
-  @@map("community_group_status")
-}
-
-enum GroupMemberRole {
-  OWNER
-  MODERATOR
-  MEMBER
-
-  @@map("group_member_role")
-}
-
-enum GroupMemberStatus {
-  ACTIVE
-  PENDING
-
-  @@map("group_member_status")
-}
-
-enum CommunityEventStatus {
-  DRAFT
-  PUBLISHED
-  CANCELLED
-
-  @@map("community_event_status")
-}
-
-enum EventRegistrationStatus {
-  REGISTERED
-  CANCELLED
-
-  @@map("event_registration_status")
-}
-
 model MemberAccount {
   id                      String                         @id @default(uuid()) @db.Uuid
   phoneE164               String                         @unique(map: "member_accounts_phone_e164_key") @map("phone_e164") @db.VarChar(16)
@@ -196,42 +69,39 @@ model MemberAccount {
   consents                MemberConsent[]
   sessions                AuthSession[]
   communicationPreference MemberCommunicationPreference?
-  eligibilitySubmissions EligibilitySubmission[]
-  posts                 MemberPost[]
-  postLikes             MemberPostLike[]
-  postBookmarks         MemberPostBookmark[]
-  postComments          MemberPostComment[]
-  followsAsFollower     SocialFollow[]                 @relation("SocialFollowFollower")
-  followsAsFollowing    SocialFollow[]                 @relation("SocialFollowFollowing")
-  privacySettings       MemberPrivacySettings?
-  notificationSettings  MemberNotificationPreferences?
-  blockedAccounts       MemberBlock[]                  @relation("MemberBlockActor")
-  blockedByAccounts     MemberBlock[]                  @relation("MemberBlockTarget")
-  reportsFiled          MemberReport[]                 @relation("MemberReportReporter")
-  reportsReceived       MemberReport[]                 @relation("MemberReportReported")
-  businessProfile       BusinessProfile?
-  deletionRequests      AccountDeletionRequest[]
-  selectedPostAudience  PostAudienceMember[]           @relation("PostAudienceMemberAccount")
-  createdCommunityGroups CommunityGroup[]               @relation("CommunityGroupCreator")
-  groupMemberships       GroupMembership[]
-  hostedCommunityEvents  CommunityEvent[]               @relation("CommunityEventHost")
-  eventRegistrations     EventRegistration[]
+  eligibilitySubmissions  EligibilitySubmission[]
+  communityPosts          CommunityPost[]
+  postLikes               CommunityPostLike[]
+  postSaves               CommunityPostSave[]
+  postComments            CommunityPostComment[]
+  follows                 MemberFollow[]
+  privacyPreference       MemberPrivacyPreference?
+  notificationPreference  MemberNotificationPreference?
+  emergencyContacts       SafetyEmergencyContact[]
+  sosEvents               SafetySosEvent[]
+  moderationBlocks        MemberModerationBlock[]
+  userReports             MemberUserReport[]
 
   @@map("member_accounts")
 }
 
 model MemberProfile {
-  accountId       String        @id @map("account_id") @db.Uuid
-  displayName     String        @map("display_name") @db.VarChar(100)
-  dateOfBirth     DateTime      @map("date_of_birth") @db.Date
-  email           String?       @db.VarChar(254)
-  profilePhotoRef String?       @map("profile_photo_ref") @db.VarChar(512)
-  bio             String?       @db.VarChar(500)
-  locationCity    String?       @map("location_city") @db.VarChar(100)
-  interests       String[]      @default([])
-  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
-  account         MemberAccount @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  accountId            String        @id @map("account_id") @db.Uuid
+  displayName          String        @map("display_name") @db.VarChar(100)
+  username             String?       @unique(map: "member_profiles_username_key") @db.VarChar(50)
+  bio                  String        @default("A passionate learner, exploring wellness, technology and meaningful connections. 💜") @db.VarChar(300)
+  location             String        @default("Bangalore, India") @db.VarChar(120)
+  avatarAsset          String        @default("assets/images/profile/avatar_siddhu.webp") @map("avatar_asset") @db.VarChar(255)
+  interests            Json          @default("[\"Mental Wellness\",\"Travel\",\"Reading\",\"WomenInTech\",\"Art\",\"Fitness\"]") @db.JsonB
+  businessProfileUrl   String?       @map("business_profile_url") @db.VarChar(255)
+  twoFactorEnabled     Boolean       @default(false) @map("two_factor_enabled")
+  securityPinUpdatedAt DateTime?     @map("security_pin_updated_at") @db.Timestamptz(6)
+  dateOfBirth          DateTime      @map("date_of_birth") @db.Date
+  email                String?       @db.VarChar(254)
+  profilePhotoRef      String?       @map("profile_photo_ref") @db.VarChar(512)
+  createdAt            DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  account              MemberAccount @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@map("member_profiles")
 }
@@ -320,27 +190,227 @@ model MemberCommunicationPreference {
 }
 
 model EligibilitySubmission {
-  id                String                     @id @default(uuid()) @db.Uuid
-  accountId         String                     @map("account_id") @db.Uuid
+  id                String                      @id @default(uuid()) @db.Uuid
+  accountId         String                      @map("account_id") @db.Uuid
   status            EligibilitySubmissionStatus @default(PENDING_MANUAL_REVIEW)
-  consentVersion    String                     @map("consent_version") @db.VarChar(64)
-  consentAcceptedAt DateTime                   @map("consent_accepted_at") @db.Timestamptz(6)
-  submittedAt       DateTime                   @default(now()) @map("submitted_at") @db.Timestamptz(6)
-  reviewedAt        DateTime?                  @map("reviewed_at") @db.Timestamptz(6)
-  reviewerLabel     String?                    @map("reviewer_label") @db.VarChar(80)
-  decisionReason    String?                    @map("decision_reason") @db.VarChar(500)
-  account           MemberAccount              @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  consentVersion    String                      @map("consent_version") @db.VarChar(64)
+  consentAcceptedAt DateTime                    @map("consent_accepted_at") @db.Timestamptz(6)
+  submittedAt       DateTime                    @default(now()) @map("submitted_at") @db.Timestamptz(6)
+  reviewedAt        DateTime?                   @map("reviewed_at") @db.Timestamptz(6)
+  reviewerLabel     String?                     @map("reviewer_label") @db.VarChar(80)
+  decisionReason    String?                     @map("decision_reason") @db.VarChar(500)
+  account           MemberAccount               @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([status, submittedAt], map: "eligibility_submissions_status_submitted_idx")
   @@index([accountId, submittedAt], map: "eligibility_submissions_account_submitted_idx")
   @@map("eligibility_submissions")
 }
 
+model CommunityPost {
+  id                       String                 @id @default(uuid()) @db.Uuid
+  authorAccountId          String?                @map("author_account_id") @db.Uuid
+  authorName               String                 @map("author_name") @db.VarChar(100)
+  authorUsername           String                 @map("author_username") @db.VarChar(50)
+  authorAvatar             String                 @map("author_avatar") @db.VarChar(255)
+  authorVerified           Boolean                @default(false) @map("author_verified")
+  content                  String                 @db.Text
+  imageAsset               String?                @map("image_asset") @db.VarChar(255)
+  categoryBadge            String?                @map("category_badge") @db.VarChar(64)
+  feedSection              String                 @default("community") @map("feed_section") @db.VarChar(32)
+  hasBreathingExerciseCard Boolean                @default(false) @map("has_breathing_exercise_card")
+  likesCount               Int                    @default(0) @map("likes_count")
+  commentsCount            Int                    @default(0) @map("comments_count")
+  createdAt                DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+  authorAccount            MemberAccount?         @relation(fields: [authorAccountId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  likes                    CommunityPostLike[]
+  saves                    CommunityPostSave[]
+  comments                 CommunityPostComment[]
+
+  @@index([feedSection, createdAt], map: "community_posts_section_created_idx")
+  @@index([authorAccountId, createdAt], map: "community_posts_author_created_idx")
+  @@map("community_posts")
+}
+
+model CommunityPostLike {
+  id        String        @id @default(uuid()) @db.Uuid
+  postId    String        @map("post_id") @db.Uuid
+  accountId String        @map("account_id") @db.Uuid
+  createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  post      CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  account   MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([postId, accountId], map: "community_post_likes_post_account_key")
+  @@index([accountId], map: "community_post_likes_account_idx")
+  @@map("community_post_likes")
+}
+
+model CommunityPostSave {
+  id        String        @id @default(uuid()) @db.Uuid
+  postId    String        @map("post_id") @db.Uuid
+  accountId String        @map("account_id") @db.Uuid
+  createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  post      CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  account   MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([postId, accountId], map: "community_post_saves_post_account_key")
+  @@index([accountId], map: "community_post_saves_account_idx")
+  @@map("community_post_saves")
+}
+
+model CommunityPostComment {
+  id         String        @id @default(uuid()) @db.Uuid
+  postId     String        @map("post_id") @db.Uuid
+  accountId  String        @map("account_id") @db.Uuid
+  authorName String        @map("author_name") @db.VarChar(100)
+  content    String        @db.VarChar(500)
+  createdAt  DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  post       CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  account    MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([postId, createdAt], map: "community_post_comments_post_created_idx")
+  @@map("community_post_comments")
+}
+
+model CommunityGroup {
+  id            String   @id @default(uuid()) @db.Uuid
+  name          String   @unique(map: "community_groups_name_key") @db.VarChar(120)
+  description   String   @db.VarChar(300)
+  category      String   @db.VarChar(64)
+  membersCount  Int      @default(1) @map("members_count")
+  newPostsToday Int      @default(0) @map("new_posts_today")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("community_groups")
+}
+
+model CommunityDirectoryProfile {
+  id               String         @id @default(uuid()) @db.Uuid
+  name             String         @db.VarChar(100)
+  username         String         @unique(map: "community_directory_profiles_username_key") @db.VarChar(50)
+  avatarAsset      String         @map("avatar_asset") @db.VarChar(255)
+  bio              String?        @db.VarChar(255)
+  defaultFollowing Boolean        @default(false) @map("default_following")
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  follows          MemberFollow[]
+
+  @@map("community_directory_profiles")
+}
+
+model MemberFollow {
+  id                 String                    @id @default(uuid()) @db.Uuid
+  accountId          String                    @map("account_id") @db.Uuid
+  directoryProfileId String                    @map("directory_profile_id") @db.Uuid
+  isFollowing        Boolean                   @default(true) @map("is_following")
+  updatedAt          DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  account            MemberAccount             @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  directoryProfile   CommunityDirectoryProfile @relation(fields: [directoryProfileId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([accountId, directoryProfileId], map: "member_follows_account_profile_key")
+  @@index([accountId], map: "member_follows_account_idx")
+  @@map("member_follows")
+}
+
+model MemberPrivacyPreference {
+  accountId         String        @id @map("account_id") @db.Uuid
+  viewProfile       String        @default("Verified members only") @map("view_profile") @db.VarChar(64)
+  messageMe         String        @default("Verified members only") @map("message_me") @db.VarChar(64)
+  seePosts          String        @default("Verified members only") @map("see_posts") @db.VarChar(64)
+  showLocation      String        @default("General location only") @map("show_location") @db.VarChar(64)
+  searchResults     String        @default("Yes") @map("search_results") @db.VarChar(32)
+  businessEnquiries String        @default("Yes") @map("business_enquiries") @db.VarChar(64)
+  updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  account           MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@map("member_privacy_preferences")
+}
+
+model MemberNotificationPreference {
+  accountId         String        @id @map("account_id") @db.Uuid
+  communityUpdates  Boolean       @default(true) @map("community_updates")
+  groupActivity     Boolean       @default(true) @map("group_activity")
+  wellnessReminders Boolean       @default(true) @map("wellness_reminders")
+  safetyAlerts      Boolean       @default(true) @map("safety_alerts")
+  messages          Boolean       @default(true) @map("messages")
+  businessEnquiries Boolean       @default(true) @map("business_enquiries")
+  marketingUpdates  Boolean       @default(false) @map("marketing_updates")
+  updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  account           MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@map("member_notification_preferences")
+}
+
+model SafetyEmergencyContact {
+  id                       String        @id @default(uuid()) @db.Uuid
+  accountId                String        @map("account_id") @db.Uuid
+  name                     String        @db.VarChar(100)
+  relationship             String        @db.VarChar(64)
+  phoneE164                String        @map("phone_e164") @db.VarChar(16)
+  isTrustedLocationContact Boolean       @default(true) @map("is_trusted_location_contact")
+  createdAt                DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  account                  MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([accountId], map: "safety_emergency_contacts_account_idx")
+  @@map("safety_emergency_contacts")
+}
+
+model SafetySosEvent {
+  id            String        @id @default(uuid()) @db.Uuid
+  accountId     String        @map("account_id") @db.Uuid
+  eventType     String        @map("event_type") @db.VarChar(32)
+  status        String        @default("RECORDED") @db.VarChar(32)
+  locationLabel String?       @map("location_label") @db.VarChar(120)
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  account       MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([accountId, createdAt], map: "safety_sos_events_account_created_idx")
+  @@map("safety_sos_events")
+}
+
+model WellnessResource {
+  id            String   @id @default(uuid()) @db.Uuid
+  slug          String   @unique(map: "wellness_resources_slug_key") @db.VarChar(64)
+  category      String   @db.VarChar(64)
+  title         String   @db.VarChar(150)
+  subtitle      String   @db.VarChar(255)
+  durationLabel String?  @map("duration_label") @db.VarChar(64)
+  thumbAsset    String?  @map("thumb_asset") @db.VarChar(255)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("wellness_resources")
+}
+
+model MemberModerationBlock {
+  id                 String        @id @default(uuid()) @db.Uuid
+  accountId          String        @map("account_id") @db.Uuid
+  blockedUsername    String        @map("blocked_username") @db.VarChar(50)
+  blockedDisplayName String        @map("blocked_display_name") @db.VarChar(100)
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  account            MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([accountId, blockedUsername], map: "member_moderation_blocks_account_username_key")
+  @@index([accountId], map: "member_moderation_blocks_account_idx")
+  @@map("member_moderation_blocks")
+}
+
+model MemberUserReport {
+  id                String        @id @default(uuid()) @db.Uuid
+  reporterAccountId String        @map("reporter_account_id") @db.Uuid
+  targetHandle      String        @map("target_handle") @db.VarChar(100)
+  reason            String        @db.VarChar(500)
+  status            String        @default("SUBMITTED") @db.VarChar(32)
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  reporterAccount   MemberAccount @relation(fields: [reporterAccountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([reporterAccountId, createdAt], map: "member_user_reports_reporter_created_idx")
+  @@map("member_user_reports")
+}
+
 model AuditEvent {
   id               String   @id @default(uuid()) @db.Uuid
   actorType        String   @map("actor_type") @db.VarChar(32)
   actorId          String?  @map("actor_id") @db.Uuid
-  action           String   @db.VarChar(128)
+  action           String   @map("action") @db.VarChar(128)
   targetType       String?  @map("target_type") @db.VarChar(64)
   targetId         String?  @map("target_id") @db.VarChar(128)
   outcome          String   @db.VarChar(32)
@@ -352,253 +422,4 @@ model AuditEvent {
   @@index([actorType, actorId, createdAt], map: "audit_events_actor_created_idx")
   @@index([action, createdAt], map: "audit_events_action_created_idx")
   @@map("audit_events")
-}
-
-
-/// User-authored text/photo-reference post. Media references are storage keys,
-/// never caller-supplied arbitrary local paths.
-model MemberPost {
-  id              String                @id @default(uuid()) @db.Uuid
-  accountId       String                @map("account_id") @db.Uuid
-  body            String                @db.VarChar(5000)
-  mediaRef        String?               @map("media_ref") @db.VarChar(512)
-  audience        PostAudience          @default(VERIFIED_MEMBERS)
-  status          MemberPostStatus      @default(PUBLISHED)
-  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt       DateTime?             @map("deleted_at") @db.Timestamptz(6)
-  account         MemberAccount         @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  likes           MemberPostLike[]
-  bookmarks       MemberPostBookmark[]
-  comments        MemberPostComment[]
-  audienceMembers PostAudienceMember[]
-  reports         MemberReport[]
-
-  @@index([status, createdAt], map: "member_posts_status_created_idx")
-  @@index([accountId, status, createdAt], map: "member_posts_account_status_created_idx")
-  @@map("member_posts")
-}
-
-/// Exact audience allow-list for a post configured as SELECTED_MEMBERS.
-model PostAudienceMember {
-  postId    String        @map("post_id") @db.Uuid
-  accountId String        @map("account_id") @db.Uuid
-  createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  post      MemberPost    @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  account   MemberAccount @relation("PostAudienceMemberAccount", fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
-  @@id([postId, accountId])
-  @@index([accountId, createdAt], map: "post_audience_members_account_created_idx")
-  @@map("post_audience_members")
-}
-
-model MemberPostLike {
-  postId    String        @map("post_id") @db.Uuid
-  accountId String        @map("account_id") @db.Uuid
-  createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  post      MemberPost    @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  account   MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
-  @@id([postId, accountId])
-  @@index([accountId, createdAt], map: "member_post_likes_account_created_idx")
-  @@map("member_post_likes")
-}
-
-model MemberPostBookmark {
-  postId    String        @map("post_id") @db.Uuid
-  accountId String        @map("account_id") @db.Uuid
-  createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  post      MemberPost    @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  account   MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
-  @@id([postId, accountId])
-  @@index([accountId, createdAt], map: "member_post_bookmarks_account_created_idx")
-  @@map("member_post_bookmarks")
-}
-
-model MemberPostComment {
-  id        String        @id @default(uuid()) @db.Uuid
-  postId    String        @map("post_id") @db.Uuid
-  accountId String        @map("account_id") @db.Uuid
-  body      String        @db.VarChar(2000)
-  createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt DateTime?     @map("deleted_at") @db.Timestamptz(6)
-  post      MemberPost    @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  account   MemberAccount @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-
-  @@index([postId, createdAt], map: "member_post_comments_post_created_idx")
-  @@index([accountId, createdAt], map: "member_post_comments_account_created_idx")
-  @@map("member_post_comments")
-}
-
-model SocialFollow {
-  followerAccountId  String        @map("follower_account_id") @db.Uuid
-  followingAccountId String        @map("following_account_id") @db.Uuid
-  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  follower           MemberAccount @relation("SocialFollowFollower", fields: [followerAccountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  following          MemberAccount @relation("SocialFollowFollowing", fields: [followingAccountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
-  @@id([followerAccountId, followingAccountId])
-  @@index([followingAccountId, createdAt], map: "social_follows_following_created_idx")
-  @@index([followerAccountId, createdAt], map: "social_follows_follower_created_idx")
-  @@map("social_follows")
-}
-
-model MemberPrivacySettings {
-  accountId                String                    @id @map("account_id") @db.Uuid
-  profileVisibility        ProfileVisibility         @default(VERIFIED_MEMBERS) @map("profile_visibility")
-  messagePermission         MessagePermission         @default(VERIFIED_MEMBERS) @map("message_permission")
-  defaultPostAudience       PostAudience              @default(VERIFIED_MEMBERS) @map("default_post_audience")
-  locationSharing           LocationSharingMode       @default(HIDDEN) @map("location_sharing")
-  appearInSearch            Boolean                   @default(true) @map("appear_in_search")
-  businessEnquiryPermission BusinessEnquiryPermission @default(VERIFIED_BUSINESSES) @map("business_enquiry_permission")
-  updatedAt                 DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
-  account                   MemberAccount             @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
-  @@map("member_privacy_settings")
-}
-
-model MemberNotificationPreferences {
-  accountId          String        @id @map("account_id") @db.Uuid
-  communityUpdates   Boolean       @default(true) @map("community_updates")
-  groupActivity      Boolean       @default(true) @map("group_activity")
-  wellnessReminders  Boolean       @default(true) @map("wellness_reminders")
-  safetyAlerts       Boolean       @default(true) @map("safety_alerts")
-  messages           Boolean       @default(true)
-  businessEnquiries  Boolean       @default(true) @map("business_enquiries")
-  marketingUpdates   Boolean       @default(false) @map("marketing_updates")
-  updatedAt          DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
-  account            MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
-  @@map("member_notification_preferences")
-}
-
-model MemberBlock {
-  blockerAccountId String        @map("blocker_account_id") @db.Uuid
-  blockedAccountId String        @map("blocked_account_id") @db.Uuid
-  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  blocker          MemberAccount @relation("MemberBlockActor", fields: [blockerAccountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  blocked          MemberAccount @relation("MemberBlockTarget", fields: [blockedAccountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
-  @@id([blockerAccountId, blockedAccountId])
-  @@index([blockedAccountId, createdAt], map: "member_blocks_target_created_idx")
-  @@map("member_blocks")
-}
-
-model MemberReport {
-  id                String             @id @default(uuid()) @db.Uuid
-  reporterAccountId String             @map("reporter_account_id") @db.Uuid
-  reportedAccountId String             @map("reported_account_id") @db.Uuid
-  postId            String?            @map("post_id") @db.Uuid
-  reason            MemberReportReason
-  details           String?            @db.VarChar(1000)
-  status            MemberReportStatus @default(OPEN)
-  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
-  reviewedAt        DateTime?          @map("reviewed_at") @db.Timestamptz(6)
-  reporter          MemberAccount      @relation("MemberReportReporter", fields: [reporterAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  reported          MemberAccount      @relation("MemberReportReported", fields: [reportedAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  post              MemberPost?        @relation(fields: [postId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-
-  @@index([status, createdAt], map: "member_reports_status_created_idx")
-  @@index([reporterAccountId, createdAt], map: "member_reports_reporter_created_idx")
-  @@map("member_reports")
-}
-
-model BusinessProfile {
-  accountId   String               @id @map("account_id") @db.Uuid
-  displayName String               @map("display_name") @db.VarChar(120)
-  description String?              @db.VarChar(1000)
-  websiteUrl  String?              @map("website_url") @db.VarChar(2048)
-  status      BusinessProfileStatus @default(PENDING_REVIEW)
-  createdAt   DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
-  account     MemberAccount        @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
-  @@map("business_profiles")
-}
-
-model AccountDeletionRequest {
-  id            String                @id @default(uuid()) @db.Uuid
-  accountId     String                @map("account_id") @db.Uuid
-  status        AccountDeletionStatus @default(REQUESTED)
-  requestedAt   DateTime              @default(now()) @map("requested_at") @db.Timestamptz(6)
-  completedAt   DateTime?             @map("completed_at") @db.Timestamptz(6)
-  requestReason String?               @map("request_reason") @db.VarChar(500)
-  account       MemberAccount         @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-
-  @@index([status, requestedAt], map: "account_deletion_requests_status_requested_idx")
-  @@map("account_deletion_requests")
-}
-
-
-/// Member-led community spaces. Only verified members can create or join them.
-model CommunityGroup {
-  id                 String               @id @default(uuid()) @db.Uuid
-  createdByAccountId String               @map("created_by_account_id") @db.Uuid
-  name               String               @db.VarChar(120)
-  slug               String               @unique @db.VarChar(160)
-  description        String?              @db.VarChar(2000)
-  visibility         GroupVisibility      @default(VERIFIED_MEMBERS)
-  status             CommunityGroupStatus @default(ACTIVE)
-  createdAt          DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
-  creator            MemberAccount        @relation("CommunityGroupCreator", fields: [createdByAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  members             GroupMembership[]
-  events              CommunityEvent[]
-
-  @@index([status, visibility, createdAt], map: "community_groups_status_visibility_created_idx")
-  @@index([createdByAccountId, createdAt], map: "community_groups_creator_created_idx")
-  @@map("community_groups")
-}
-
-model GroupMembership {
-  groupId   String           @map("group_id") @db.Uuid
-  accountId String           @map("account_id") @db.Uuid
-  role      GroupMemberRole  @default(MEMBER)
-  status    GroupMemberStatus @default(ACTIVE)
-  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
-  group     CommunityGroup   @relation(fields: [groupId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  account   MemberAccount    @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
-  @@id([groupId, accountId])
-  @@index([accountId, status, createdAt], map: "group_memberships_account_status_created_idx")
-  @@index([groupId, status, role], map: "group_memberships_group_status_role_idx")
-  @@map("group_memberships")
-}
-
-model CommunityEvent {
-  id             String               @id @default(uuid()) @db.Uuid
-  groupId        String               @map("group_id") @db.Uuid
-  hostAccountId  String               @map("host_account_id") @db.Uuid
-  title          String               @db.VarChar(160)
-  description    String               @db.VarChar(3000)
-  locationCity   String?              @map("location_city") @db.VarChar(100)
-  startsAt       DateTime             @map("starts_at") @db.Timestamptz(6)
-  endsAt         DateTime             @map("ends_at") @db.Timestamptz(6)
-  status         CommunityEventStatus @default(PUBLISHED)
-  createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
-  group          CommunityGroup       @relation(fields: [groupId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  host           MemberAccount        @relation("CommunityEventHost", fields: [hostAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  registrations  EventRegistration[]
-
-  @@index([status, startsAt], map: "community_events_status_starts_idx")
-  @@index([groupId, status, startsAt], map: "community_events_group_status_starts_idx")
-  @@map("community_events")
-}
-
-model EventRegistration {
-  eventId   String                   @map("event_id") @db.Uuid
-  accountId String                   @map("account_id") @db.Uuid
-  status    EventRegistrationStatus  @default(REGISTERED)
-  createdAt DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
-  event     CommunityEvent           @relation(fields: [eventId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  account   MemberAccount            @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
-  @@id([eventId, accountId])
-  @@index([accountId, status, createdAt], map: "event_registrations_account_status_created_idx")
-  @@map("event_registrations")
 }

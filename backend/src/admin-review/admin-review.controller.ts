@@ -29,6 +29,15 @@ export class AdminReviewController {
     return this.review.members(token, page, pageSize, search, accountStatus, verificationStatus);
   }
 
+  @Post("members/create")
+  @ApiOkResponse({ description: "Creates a new database member account and community profile from Super Admin." })
+  createMember(
+    @Headers("x-sakhi-admin-token") token: string | undefined,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.review.createMember(body, token);
+  }
+
   @Post("members/:accountId/state")
   @ApiOkResponse({ description: "Updates a member's persisted development account/verification state." })
   updateMemberState(
@@ -59,5 +68,44 @@ export class AdminReviewController {
     @Body() dto: ManualEligibilityDecisionDto,
   ) {
     return this.review.decide(submissionId, dto, token);
+  }
+
+  @Post("seed-live-data")
+  @ApiOkResponse({ description: "Populates/upserts rich live PostgreSQL users, posts, groups, and wellness items." })
+  seedLiveData(@Headers("x-sakhi-admin-token") token?: string) {
+    return this.review.seedLiveData(token);
+  }
+
+  @Get("community")
+  @ApiOkResponse({ description: "Returns live PostgreSQL community posts, explore posts, and groups." })
+  community(@Headers("x-sakhi-admin-token") token?: string) {
+    return this.review.communityOverview(token);
+  }
+
+  @Post("community/posts")
+  @ApiOkResponse({ description: "Creates a new live community/explore post in PostgreSQL." })
+  createCommunityPost(
+    @Headers("x-sakhi-admin-token") token: string | undefined,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.review.createAdminPost(body, token);
+  }
+
+  @Post("community/posts/:postId/delete")
+  @ApiOkResponse({ description: "Deletes a community post from PostgreSQL." })
+  deleteCommunityPost(
+    @Headers("x-sakhi-admin-token") token: string | undefined,
+    @Param("postId", new ParseUUIDPipe({ version: "4" })) postId: string,
+  ) {
+    return this.review.deleteAdminPost(postId, token);
+  }
+
+  @Get("operations")
+  @ApiOkResponse({
+    description:
+      "Returns live PostgreSQL data for moderation reports, SOS events, wellness items, cloud media uploads, and audit logs.",
+  })
+  operations(@Headers("x-sakhi-admin-token") token?: string) {
+    return this.review.operationsOverview(token);
   }
 }

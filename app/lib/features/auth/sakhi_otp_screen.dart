@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/assets/app_assets.dart';
+import '../../core/navigation/app_navigation_shell.dart';
 import '../../core/theme/sakhi_design_system.dart';
 import 'auth_service.dart';
 import 'sakhi_auth_status_screen.dart';
@@ -125,8 +126,15 @@ class _SakhiOtpScreenState extends State<SakhiOtpScreen> {
                 ),
               ),
             );
+          } else if (accountState == AuthAccountState.existingAccount) {
+            await Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute<void>(
+                builder: (_) => const AppNavigationShell(),
+              ),
+              (_) => false,
+            );
           } else {
-            await Navigator.of(context).pushReplacement(
+            await Navigator.of(context).pushAndRemoveUntil(
               MaterialPageRoute<void>(
                 builder: (_) => SakhiAuthStatusScreen(
                   authService: widget.authService,
@@ -134,6 +142,7 @@ class _SakhiOtpScreenState extends State<SakhiOtpScreen> {
                       accountState ?? AuthAccountState.pendingVerification,
                 ),
               ),
+              (_) => false,
             );
           }
       }

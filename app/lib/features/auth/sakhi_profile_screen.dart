@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/assets/app_assets.dart';
+import '../../core/constants/mock_data.dart';
 import '../../core/theme/sakhi_design_system.dart';
+import '../../core/widgets/sakhi_avatar.dart';
 import 'auth_policy.dart';
 import 'auth_service.dart';
 import 'sakhi_consent_screen.dart';
@@ -29,8 +31,20 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   DateTime? _dateOfBirth;
+  String? _selectedPhotoPath;
   bool _photoSkipped = false;
+  bool _isUploadingPhoto = false;
   bool _attemptedContinue = false;
+
+  static const List<Map<String, String>> _portraitPresets = [
+    {'label': 'Ananya', 'asset': AppAssets.avatarAnanya},
+    {'label': 'Meera', 'asset': AppAssets.avatarMeera},
+    {'label': 'Kavya', 'asset': AppAssets.avatarKavya},
+    {'label': 'Ishita', 'asset': AppAssets.avatarIshita},
+    {'label': 'Priya', 'asset': AppAssets.avatarPriya},
+    {'label': 'Sneha', 'asset': AppAssets.avatarSneha},
+    {'label': 'Siddhu', 'asset': AppAssets.avatarSiddhu},
+  ];
 
   @override
   void dispose() {
@@ -54,20 +68,151 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
     if (picked != null && mounted) setState(() => _dateOfBirth = picked);
   }
 
-  Future<void> _showPhotoUnavailable() async {
-    await showDialog<void>(
+  Future<void> _openPhotoAndCloudUploadSheet() async {
+    final urlController = TextEditingController(
+      text: (_selectedPhotoPath != null && _selectedPhotoPath!.startsWith('http'))
+          ? _selectedPhotoPath!
+          : '',
+    );
+
+    await showModalBottomSheet<void>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Profile photo'),
-        content: const Text(
-          'Photo selection and upload are not connected in this preview. A profile photo is optional, so you can safely continue without one.',
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 18,
+          bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Got it'),
-          ),
-        ],
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Choose Profile Portrait or Cloud Upload',
+              style: TextStyle(
+                color: SakhiColors.plum,
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Select an illustrated studio portrait, upload a custom cloud avatar to the backend, or paste a Cloud Storage URL:',
+              style: SakhiTypography.body,
+            ),
+            const SizedBox(height: 14),
+            SizedBox(
+              height: 84,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: _portraitPresets.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 12),
+                itemBuilder: (_, index) {
+                  final item = _portraitPresets[index];
+                  final asset = item['asset']!;
+                  final selected = _selectedPhotoPath == asset;
+                  return GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _selectedPhotoPath = asset;
+                        _photoSkipped = false;
+                      });
+                      Navigator.pop(ctx);
+                    },
+                    child: Column(
+                      children: [
+                        Container(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: selected
+                                  ? SakhiColors.purple
+                                  : Colors.transparent,
+                              width: 2.5,
+                            ),
+                          ),
+                          child: SakhiAvatar(imageAsset: asset, size: 54),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          item['label']!,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: SakhiColors.plum,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.cloud_upload_outlined, size: 18),
+                label: const Text('Upload Studio Photo to Backend Cloud Storage'),
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  setState(() => _isUploadingPhoto = true);
+                  final uploadedUrl = await SakhiPrototypeState.instance
+                      .uploadMediaToCloud(
+                        purpose: 'avatar',
+                        fileName: 'registration_avatar.svg',
+                        presetTheme: 'botanical_bloom',
+                      );
+                  if (!mounted) return;
+                  setState(() {
+                    _isUploadingPhoto = false;
+                    _selectedPhotoPath =
+                        uploadedUrl ?? AppAssets.avatarAnanya;
+                    _photoSkipped = false;
+                  });
+                },
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: urlController,
+              decoration: const InputDecoration(
+                labelText: 'Or paste Cloud Storage URL (https://...)',
+                hintText: 'https://media.sakhi.dev/avatars/profile.webp',
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Close'),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: () {
+                    final url = urlController.text.trim();
+                    if (url.startsWith('http://') ||
+                        url.startsWith('https://')) {
+                      setState(() {
+                        _selectedPhotoPath = url;
+                        _photoSkipped = false;
+                      });
+                    }
+                    Navigator.pop(ctx);
+                  },
+                  child: const Text('Save Photo'),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -101,7 +246,7 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
       email: _emailController.text.trim().isEmpty
           ? null
           : _emailController.text.trim(),
-      photoPath: null,
+      photoPath: _selectedPhotoPath,
     );
     Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -277,45 +422,60 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
             ),
             const SizedBox(height: SakhiSpacing.lg),
             const Text(
-              'PROFILE PHOTO · OPTIONAL',
+              'PROFILE PHOTO · CLOUD STORAGE READY',
               style: SakhiTypography.categoryLabel,
             ),
             const SizedBox(height: SakhiSpacing.xs),
             Row(
               children: [
-                Container(
-                  width: 54,
-                  height: 54,
-                  decoration: const BoxDecoration(
-                    color: SakhiColors.pink,
-                    shape: BoxShape.circle,
+                if (_selectedPhotoPath != null)
+                  SakhiAvatar(imageAsset: _selectedPhotoPath!, size: 54)
+                else
+                  Container(
+                    width: 54,
+                    height: 54,
+                    decoration: const BoxDecoration(
+                      color: SakhiColors.pink,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.person_outline_rounded,
+                      color: SakhiColors.purple,
+                      size: 30,
+                    ),
                   ),
-                  child: const Icon(
-                    Icons.person_outline_rounded,
-                    color: SakhiColors.purple,
-                    size: 30,
-                  ),
-                ),
                 const SizedBox(width: SakhiSpacing.sm),
                 Expanded(
                   child: OutlinedButton.icon(
                     key: const Key('auth-profile-add-photo-button'),
-                    onPressed: _showPhotoUnavailable,
+                    onPressed:
+                        _isUploadingPhoto ? null : _openPhotoAndCloudUploadSheet,
                     icon: const Icon(Icons.add_a_photo_outlined, size: 18),
-                    label: const Text('Add photo'),
+                    label: Text(
+                      _isUploadingPhoto
+                          ? 'Uploading…'
+                          : _selectedPhotoPath != null
+                              ? 'Change photo'
+                              : 'Add photo',
+                    ),
                   ),
                 ),
                 TextButton(
                   key: const Key('auth-profile-skip-photo-button'),
-                  onPressed: () => setState(() => _photoSkipped = true),
+                  onPressed: () => setState(() {
+                    _photoSkipped = true;
+                    _selectedPhotoPath = null;
+                  }),
                   child: Text(_photoSkipped ? 'Skipped' : 'Skip'),
                 ),
               ],
             ),
             const SizedBox(height: SakhiSpacing.xs),
-            const Text(
-              'Email and profile photo are optional. You can continue without either.',
-              style: TextStyle(
+            Text(
+              _selectedPhotoPath != null
+                  ? 'Photo selected and ready to save to PostgreSQL & Cloud Storage.'
+                  : 'Email and profile photo are optional. You can upload to Cloud Storage or continue without either.',
+              style: const TextStyle(
                 color: SakhiColors.mutedPlum,
                 fontSize: 12,
                 height: 1.35,

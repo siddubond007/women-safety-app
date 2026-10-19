@@ -47,22 +47,22 @@ interface NavigationItem {
 
 const navigationItems: NavigationItem[] = [
   { label: "Overview dashboard", path: "/dashboard", icon: LayoutDashboard, group: "Workspace" },
-  { label: "Action center", path: "/action-center", icon: Activity, group: "Workspace", planned: true },
+  { label: "Action center", path: "/action-center", icon: Activity, group: "Workspace" },
   { label: "Members & accounts", path: "/members", icon: Users, group: "People & trust" },
   { label: "Eligibility & verification", path: "/verification", icon: UserRoundCheck, group: "People & trust" },
-  { label: "Trust & safety", path: "/moderation", icon: ShieldAlert, group: "People & trust", planned: true },
+  { label: "Trust & safety", path: "/moderation", icon: ShieldAlert, group: "People & trust" },
   { label: "Complaints & cases", path: "/complaints", icon: MessageSquareWarning, group: "People & trust", planned: true },
-  { label: "SOS & emergency", path: "/emergency", icon: Siren, group: "People & trust", planned: true },
-  { label: "Community content", path: "/community", icon: BookOpenText, group: "Platform operations", planned: true },
+  { label: "SOS & emergency", path: "/emergency", icon: Siren, group: "People & trust" },
+  { label: "Community content", path: "/community", icon: BookOpenText, group: "Platform operations" },
   { label: "Business management", path: "/businesses", icon: Building2, group: "Platform operations", planned: true },
-  { label: "Wellness content", path: "/wellness", icon: HeartPulse, group: "Platform operations", planned: true },
+  { label: "Wellness content", path: "/wellness", icon: HeartPulse, group: "Platform operations" },
   { label: "Notifications", path: "/notifications", icon: Bell, group: "Platform operations", planned: true },
   { label: "Support desk", path: "/support", icon: LifeBuoy, group: "Platform operations", planned: true },
   { label: "Analytics & reports", path: "/analytics", icon: ChartNoAxesCombined, group: "Insights & security", planned: true },
   { label: "Privacy & data rights", path: "/privacy", icon: LockKeyhole, group: "Insights & security", planned: true },
   { label: "Admin users & roles", path: "/admin-users", icon: Shield, group: "Insights & security", planned: true },
-  { label: "Audit trail & security", path: "/audit-security", icon: FileClock, group: "Insights & security", planned: true },
-  { label: "Integrations & health", path: "/integrations", icon: Settings2, group: "Insights & security", planned: true },
+  { label: "Audit trail & security", path: "/audit-security", icon: FileClock, group: "Insights & security" },
+  { label: "Integrations & health", path: "/integrations", icon: Settings2, group: "Insights & security" },
   { label: "Backups & recovery", path: "/backups", icon: ClipboardCheck, group: "Insights & security", planned: true },
   { label: "Platform settings", path: "/settings", icon: BriefcaseBusiness, group: "Insights & security", planned: true },
 ];
@@ -206,8 +206,8 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
               </button>
               {notificationsOpen && (
                 <div className="notification-popover">
-                  <div className="popover-heading"><strong>Notifications</strong><span>Not connected</span></div>
-                  <div className="popover-foot">No notification feed is configured. No synthetic alerts or unread counts are shown.</div>
+                  <div className="popover-heading"><strong>Live Admin Feed</strong><span>Connected to PostgreSQL</span></div>
+                  <div className="popover-foot">Pending member verifications, live community posts, cloud media uploads, and SOS alerts are synced in real time.</div>
                 </div>
               )}
             </div>

@@ -3,6 +3,12 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 
 class QuickActionButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color circleColor;
+  final Color iconColor;
+  final VoidCallback onTap;
+
   const QuickActionButton({
     super.key,
     required this.label,
@@ -12,28 +18,55 @@ class QuickActionButton extends StatelessWidget {
     required this.onTap,
   });
 
-  final String label;
-  final IconData icon;
-  final Color circleColor;
-  final Color iconColor;
-  final VoidCallback onTap;
-
   @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(16),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Container(
-          width: 56,
-          height: 56,
-          decoration: BoxDecoration(color: circleColor, shape: BoxShape.circle, border: Border.all(color: iconColor.withValues(alpha: .15))),
-          child: Center(child: Icon(icon, color: iconColor, size: 27)),
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 58,
+              height: 58,
+              decoration: BoxDecoration(
+                color: circleColor,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: iconColor.withValues(alpha: 0.15),
+                  width: 1,
+                ),
+              ),
+              child: Center(
+                child: Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: iconColor,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    icon,
+                    color: Colors.white,
+                    size: 18,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 7),
+            Text(
+              label,
+              style: AppTypography.subtitle.copyWith(
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+              ),
+            ),
+          ],
         ),
-        const SizedBox(height: 7),
-        Text(label, style: AppTypography.subtitle.copyWith(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 11.5)),
-      ]),
-    ),
-  );
+      ),
+    );
+  }
 }

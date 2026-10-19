@@ -1,229 +1,313 @@
+import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import {
   ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsEmail,
-  IsISO8601,
   IsIn,
+  IsNotEmpty,
   IsOptional,
   IsString,
-  IsUrl,
-  IsUUID,
   Matches,
   MaxLength,
   MinLength,
 } from "class-validator";
 
-const PROFILE_VISIBILITY = ["VERIFIED_MEMBERS", "FOLLOWERS_ONLY", "ONLY_ME"] as const;
-const MESSAGE_PERMISSION = ["VERIFIED_MEMBERS", "FOLLOWING_ONLY", "NO_ONE"] as const;
-const POST_AUDIENCE = ["VERIFIED_MEMBERS", "FOLLOWERS", "SELECTED_MEMBERS", "ONLY_ME"] as const;
-const LOCATION_SHARING = ["HIDDEN", "CITY_ONLY"] as const;
-const BUSINESS_ENQUIRY_PERMISSION = ["ALL_VERIFIED", "VERIFIED_BUSINESSES", "NONE"] as const;
-const REPORT_REASONS = ["HARASSMENT", "IMPERSONATION", "SPAM", "UNSAFE_CONTENT", "OTHER"] as const;
-
-export class UpdateProfileDto {
-  @IsOptional()
+export class UpdateModule2ProfileDto {
+  @ApiProperty({ example: "Siddhu" })
   @IsString()
-  @MinLength(1)
+  @IsNotEmpty()
+  @MinLength(2)
   @MaxLength(100)
-  @Matches(/^[\p{L}\p{M}\p{N}\s.'’_-]+$/u)
-  displayName?: string;
+  displayName!: string;
 
+  @ApiProperty({
+    example:
+      "A passionate learner, exploring wellness, technology and meaningful connections. 💜",
+  })
+  @IsString()
+  @MaxLength(300)
+  bio!: string;
+
+  @ApiProperty({ example: "Bangalore, India" })
+  @IsString()
+  @MaxLength(120)
+  location!: string;
+
+  @ApiProperty({
+    example: ["Mental Wellness", "Travel", "Reading", "WomenInTech", "Art", "Fitness"],
+  })
+  @IsArray()
+  @ArrayMaxSize(15)
+  @IsString({ each: true })
+  interests!: string[];
+
+  @ApiPropertyOptional({ example: "siddhu@example.com" })
   @IsOptional()
   @IsEmail()
   @MaxLength(254)
-  email?: string | null;
+  email?: string;
 
+  @ApiPropertyOptional({ example: "https://sakhi.example.com/studio" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  businessProfileUrl?: string;
+
+  @ApiPropertyOptional({ example: "assets/images/profile/avatar_siddhu.webp" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  avatarAsset?: string;
+}
+
+export class UpdateAvatarDto {
+  @ApiProperty({
+    example: "assets/images/profile/avatar_ananya.webp",
+    description: "Local asset path or remote Cloud Storage HTTPS URL",
+  })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  avatarAsset!: string;
+}
+
+export class RequestMediaUploadDto {
+  @ApiProperty({ example: "profile_avatar.png" })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  fileName!: string;
+
+  @ApiProperty({ example: "image/png" })
+  @IsString()
+  @IsIn(["image/png", "image/jpeg", "image/webp", "image/svg+xml"])
+  contentType!: "image/png" | "image/jpeg" | "image/webp" | "image/svg+xml";
+
+  @ApiProperty({ enum: ["avatar", "post", "verification"] })
+  @IsString()
+  @IsIn(["avatar", "post", "verification"])
+  purpose!: "avatar" | "post" | "verification";
+}
+
+export class UploadMediaObjectDto {
+  @ApiProperty({ example: "cloud_upload.png" })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  fileName!: string;
+
+  @ApiProperty({ example: "image/png" })
+  @IsString()
+  @IsIn(["image/png", "image/jpeg", "image/webp", "image/svg+xml"])
+  contentType!: "image/png" | "image/jpeg" | "image/webp" | "image/svg+xml";
+
+  @ApiProperty({ enum: ["avatar", "post", "verification"] })
+  @IsString()
+  @IsIn(["avatar", "post", "verification"])
+  purpose!: "avatar" | "post" | "verification";
+
+  @ApiPropertyOptional({
+    description: "Optional base64 data URI (data:image/png;base64,...) to store in backend cloud bridge",
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1500000)
+  dataUrl?: string;
+
+  @ApiPropertyOptional({
+    description: "Optional external HTTPS URL or cloud bucket object URL",
+  })
   @IsOptional()
   @IsString()
   @MaxLength(500)
-  bio?: string | null;
+  externalUrl?: string;
 
-  /// City/general location only. Precise GPS coordinates are never accepted here.
+  @ApiPropertyOptional({
+    description: "Optional visual theme preset when generating a studio cloud asset",
+  })
   @IsOptional()
   @IsString()
-  @MaxLength(100)
-  @Matches(/^[\p{L}\p{M}\p{N}\s,.'’_-]+$/u)
-  locationCity?: string | null;
-
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(20)
-  @IsString({ each: true })
-  @MaxLength(40, { each: true })
-  interests?: string[];
-
-  /// A trusted object-storage reference, not an arbitrary filesystem path or data URI.
-  @IsOptional()
-  @IsString()
-  @MaxLength(512)
-  @Matches(/^profile\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/[A-Za-z0-9][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9][A-Za-z0-9_.-]*)*$/i)
-  profilePhotoRef?: string | null;
+  @MaxLength(64)
+  presetTheme?: string;
 }
 
-export class UpdatePrivacySettingsDto {
-  @IsOptional()
+export class CreateCommunityPostDto {
+  @ApiProperty({
+    example: "Taking time for a mindful evening walk today 🌸💜",
+  })
   @IsString()
-  @IsIn(PROFILE_VISIBILITY)
-  profileVisibility?: (typeof PROFILE_VISIBILITY)[number];
-
-  @IsOptional()
-  @IsString()
-  @IsIn(MESSAGE_PERMISSION)
-  messagePermission?: (typeof MESSAGE_PERMISSION)[number];
-
-  @IsOptional()
-  @IsString()
-  @IsIn(["VERIFIED_MEMBERS", "FOLLOWERS", "ONLY_ME"])
-  defaultPostAudience?: "VERIFIED_MEMBERS" | "FOLLOWERS" | "ONLY_ME";
-
-  @IsOptional()
-  @IsString()
-  @IsIn(LOCATION_SHARING)
-  locationSharing?: (typeof LOCATION_SHARING)[number];
-
-  @IsOptional()
-  @IsBoolean()
-  appearInSearch?: boolean;
-
-  @IsOptional()
-  @IsString()
-  @IsIn(BUSINESS_ENQUIRY_PERMISSION)
-  businessEnquiryPermission?: (typeof BUSINESS_ENQUIRY_PERMISSION)[number];
-}
-
-export class UpdateNotificationPreferencesDto {
-  @IsOptional() @IsBoolean() communityUpdates?: boolean;
-  @IsOptional() @IsBoolean() groupActivity?: boolean;
-  @IsOptional() @IsBoolean() wellnessReminders?: boolean;
-  @IsOptional() @IsBoolean() safetyAlerts?: boolean;
-  @IsOptional() @IsBoolean() messages?: boolean;
-  @IsOptional() @IsBoolean() businessEnquiries?: boolean;
-  @IsOptional() @IsBoolean() marketingUpdates?: boolean;
-}
-
-export class CreatePostDto {
-  @IsString()
+  @IsNotEmpty()
   @MinLength(1)
-  @MaxLength(5000)
-  body!: string;
+  @MaxLength(1000)
+  content!: string;
 
+  @ApiPropertyOptional({ example: "Wellness" })
   @IsOptional()
   @IsString()
-  @IsIn(POST_AUDIENCE)
-  audience?: (typeof POST_AUDIENCE)[number];
+  @MaxLength(64)
+  categoryBadge?: string;
 
+  @ApiPropertyOptional({ example: "assets/images/community/evening_walk_sunset.webp" })
   @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(100)
-  @IsUUID("4", { each: true })
-  selectedAudienceAccountIds?: string[];
+  @IsString()
+  @MaxLength(255)
+  imageAsset?: string;
 }
 
 export class CreatePostCommentDto {
+  @ApiProperty({ example: "So inspiring! Thank you for sharing 💜" })
   @IsString()
+  @IsNotEmpty()
   @MinLength(1)
-  @MaxLength(2000)
-  body!: string;
-}
-
-export class ReportMemberDto {
-  @IsUUID("4")
-  reportedAccountId!: string;
-
-  @IsOptional()
-  @IsUUID("4")
-  postId?: string;
-
-  @IsString()
-  @IsIn(REPORT_REASONS)
-  reason!: (typeof REPORT_REASONS)[number];
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(1000)
-  details?: string;
-}
-
-export class CreateBusinessProfileDto {
-  @IsString()
-  @MinLength(2)
-  @MaxLength(120)
-  displayName!: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(1000)
-  description?: string;
-
-  @IsOptional()
-  @IsUrl({ protocols: ["https"], require_protocol: true })
-  @MaxLength(2048)
-  websiteUrl?: string;
-}
-
-export class RequestAccountDeletionDto {
-  @IsString()
-  @IsIn(["DELETE"])
-  confirmation!: "DELETE";
-
-  @IsOptional()
-  @IsString()
   @MaxLength(500)
-  reason?: string;
+  content!: string;
 }
 
-export class DeactivateAccountDto {
+export class UpdatePrivacyPreferenceDto {
+  @ApiProperty({
+    enum: [
+      "view_profile",
+      "message_me",
+      "see_posts",
+      "show_location",
+      "search_results",
+      "business_enquiries",
+    ],
+  })
   @IsString()
-  @IsIn(["DEACTIVATE"])
-  confirmation!: "DEACTIVATE";
+  @IsIn([
+    "view_profile",
+    "message_me",
+    "see_posts",
+    "show_location",
+    "search_results",
+    "business_enquiries",
+  ])
+  settingId!:
+    | "view_profile"
+    | "message_me"
+    | "see_posts"
+    | "show_location"
+    | "search_results"
+    | "business_enquiries";
+
+  @ApiProperty({ example: "Verified members only" })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(64)
+  selectedValue!: string;
 }
 
-export class UpdateMarketingConsentDto {
+export class UpdateNotificationPreferenceDto {
+  @ApiProperty({
+    enum: [
+      "community_updates",
+      "group_activity",
+      "wellness_reminders",
+      "safety_alerts",
+      "messages",
+      "business_enquiries",
+      "marketing_updates",
+    ],
+  })
+  @IsString()
+  @IsIn([
+    "community_updates",
+    "group_activity",
+    "wellness_reminders",
+    "safety_alerts",
+    "messages",
+    "business_enquiries",
+    "marketing_updates",
+  ])
+  prefId!:
+    | "community_updates"
+    | "group_activity"
+    | "wellness_reminders"
+    | "safety_alerts"
+    | "messages"
+    | "business_enquiries"
+    | "marketing_updates";
+
+  @ApiProperty({ example: true })
   @IsBoolean()
-  consentAccepted!: boolean;
+  isEnabled!: boolean;
 }
 
-export class CreateCommunityGroupDto {
+export class RecordSafetyEventDto {
+  @ApiProperty({
+    enum: ["SOS_TRIGGERED", "LOCATION_SHARED", "HELPLINE_OPENED"],
+  })
   @IsString()
-  @MinLength(2)
+  @IsIn(["SOS_TRIGGERED", "LOCATION_SHARED", "HELPLINE_OPENED"])
+  eventType!: "SOS_TRIGGERED" | "LOCATION_SHARED" | "HELPLINE_OPENED";
+
+  @ApiPropertyOptional({ example: "Bangalore, India" })
+  @IsOptional()
+  @IsString()
   @MaxLength(120)
+  locationLabel?: string;
+}
+
+export class CreateEmergencyContactDto {
+  @ApiProperty({ example: "Lakshmi Devi" })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
   name!: string;
 
-  @IsOptional()
+  @ApiProperty({ example: "Mother" })
   @IsString()
-  @MaxLength(2000)
-  description?: string;
+  @IsNotEmpty()
+  @MaxLength(64)
+  relationship!: string;
 
-  @IsOptional()
+  @ApiProperty({ example: "+919845011223" })
   @IsString()
-  @IsIn(["VERIFIED_MEMBERS", "PRIVATE"])
-  visibility?: "VERIFIED_MEMBERS" | "PRIVATE";
+  @Matches(/^\+[1-9]\d{7,14}$/, {
+    message: "Enter a valid international phone number (e.g. +919845011223).",
+  })
+  phoneE164!: string;
 }
 
-export class CreateCommunityEventDto {
-  @IsUUID("4")
-  groupId!: string;
+export class ToggleTwoFactorDto {
+  @ApiProperty({ example: true })
+  @IsBoolean()
+  enabled!: boolean;
+}
 
+export class UpdateSecurityPinDto {
+  @ApiProperty({ example: "4829" })
   @IsString()
-  @MinLength(3)
-  @MaxLength(160)
-  title!: string;
+  @Matches(/^\d{4,6}$/, { message: "PIN must be 4 to 6 digits." })
+  newPin!: string;
+}
 
+export class ReportUserOrPostDto {
+  @ApiProperty({ example: "@kavya" })
   @IsString()
-  @MinLength(1)
-  @MaxLength(3000)
-  description!: string;
-
-  @IsOptional()
-  @IsString()
+  @IsNotEmpty()
   @MaxLength(100)
-  locationCity?: string;
+  targetHandle!: string;
 
-  @IsISO8601({ strict: true })
-  startsAt!: string;
-
-  @IsISO8601({ strict: true })
-  endsAt!: string;
+  @ApiProperty({ example: "Harassment or unkind behavior" })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  reason!: string;
 }
 
+export class ToggleBlockedUserDto {
+  @ApiProperty({ example: "@spam_account" })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(50)
+  blockedUsername!: string;
+
+  @ApiProperty({ example: "Spam Account" })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  blockedDisplayName!: string;
+}

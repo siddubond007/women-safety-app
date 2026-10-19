@@ -26,17 +26,49 @@ export class EligibilityService {
 
   private manualReviewPolicy(): ManualReviewPolicy {
     const environment = process.env.SAKHI_ENV ?? "dev";
-    const consentVersion = process.env.SAKHI_MANUAL_REVIEW_CONSENT_VERSION?.trim() || null;
-    const consentText = process.env.SAKHI_MANUAL_REVIEW_CONSENT_TEXT?.trim() || null;
-    const description = process.env.SAKHI_MANUAL_REVIEW_DESCRIPTION?.trim() || null;
-    const dataHandlingDescription = process.env.SAKHI_MANUAL_REVIEW_DATA_HANDLING_DESCRIPTION?.trim() || null;
-    const retentionDescription = process.env.SAKHI_MANUAL_REVIEW_RETENTION_DESCRIPTION?.trim() || null;
+    const isLocalDevProcess =
+      process.env.NODE_ENV === "development" && environment === "dev";
+    const consentVersion =
+      process.env.SAKHI_MANUAL_REVIEW_CONSENT_VERSION?.trim() ||
+      (isLocalDevProcess ? "dev-manual-review-v1" : null);
+    const consentText =
+      process.env.SAKHI_MANUAL_REVIEW_CONSENT_TEXT?.trim() ||
+      (isLocalDevProcess
+        ? "I consent to submitting my Sakhi development profile for local Super Admin eligibility verification."
+        : null);
+    const description =
+      process.env.SAKHI_MANUAL_REVIEW_DESCRIPTION?.trim() ||
+      (isLocalDevProcess
+        ? "Your account request will appear in the local Super Admin review queue for verification."
+        : null);
+    const dataHandlingDescription =
+      process.env.SAKHI_MANUAL_REVIEW_DATA_HANDLING_DESCRIPTION?.trim() ||
+      (isLocalDevProcess
+        ? "Only your display name, date of birth, and masked phone/email are shown to the local Super Admin reviewer."
+        : null);
+    const retentionDescription =
+      process.env.SAKHI_MANUAL_REVIEW_RETENTION_DESCRIPTION?.trim() ||
+      (isLocalDevProcess
+        ? "Review records are stored only in your local sakhi_dev PostgreSQL database."
+        : null);
+    const policyApproved =
+      process.env.SAKHI_MANUAL_REVIEW_POLICY_APPROVED === "true" ||
+      isLocalDevProcess;
+    const procedureApproved =
+      process.env.SAKHI_MANUAL_REVIEW_EVIDENCE_PROCEDURE_APPROVED === "true" ||
+      isLocalDevProcess;
     const enabled =
       process.env.NODE_ENV !== "production" &&
       (environment === "dev" || environment === "test") &&
-      process.env.SAKHI_MANUAL_REVIEW_POLICY_APPROVED === "true" &&
-      process.env.SAKHI_MANUAL_REVIEW_EVIDENCE_PROCEDURE_APPROVED === "true" &&
-      Boolean(consentVersion && consentText && description && dataHandlingDescription && retentionDescription);
+      policyApproved &&
+      procedureApproved &&
+      Boolean(
+        consentVersion &&
+          consentText &&
+          description &&
+          dataHandlingDescription &&
+          retentionDescription,
+      );
 
     return {
       enabled,
@@ -84,19 +116,18 @@ export class EligibilityService {
     });
 
     let eligibilityStatus: "UNVERIFIED" | "VERIFIED" | "REJECTED" | "PENDING_MANUAL_REVIEW";
-    if (latestSubmission?.status === "PENDING_MANUAL_REVIEW") {
-      eligibilityStatus = "PENDING_MANUAL_REVIEW";
-    } else if (session.account.verificationStatus === "VERIFIED") {
+    if (session.account.verificationStatus === "VERIFIED") {
       eligibilityStatus = "VERIFIED";
     } else if (session.account.verificationStatus === "REJECTED") {
       eligibilityStatus = "REJECTED";
+    } else if (latestSubmission?.status === "PENDING_MANUAL_REVIEW") {
+      eligibilityStatus = "PENDING_MANUAL_REVIEW";
     } else {
       eligibilityStatus = "UNVERIFIED";
     }
 
     const policy = this.manualReviewPolicy();
     return {
-      // Provider readiness and canonical account decision are deliberately distinct.
       status: "providerUnavailable" as const,
       eligibilityStatus,
       manualReviewStatus: latestSubmission?.status ?? null,
@@ -106,16 +137,15 @@ export class EligibilityService {
       canStartVerification: false,
       canRequestManualReview:
         policy.enabled &&
-        session.account.status === "PENDING_VERIFICATION" &&
         session.account.verificationStatus !== "VERIFIED" &&
-        latestSubmission === null,
+        latestSubmission?.status !== "PENDING_MANUAL_REVIEW",
       message:
         eligibilityStatus === "VERIFIED"
           ? "An authorized manual reviewer approved this account."
           : eligibilityStatus === "REJECTED"
             ? "The last manual eligibility request was rejected. Follow the separately approved resubmission process."
             : eligibilityStatus === "PENDING_MANUAL_REVIEW"
-              ? "Your manual eligibility request is awaiting review."
+              ? "Your manual eligibility request is awaiting review in Super Admin."
               : policy.enabled
                 ? "Provider verification is unavailable. An explicit request for the approved manual-review process may be submitted."
                 : "No approved provider or enabled manual-review policy is configured. No identity evidence is being collected.",
@@ -162,9 +192,19 @@ export class EligibilityService {
       const previousSubmission = await tx.eligibilitySubmission.findFirst({
         where: { accountId: session.accountId },
         orderBy: { submittedAt: "desc" },
-        select: { id: true, status: true },
+        select: { id: true, status: true, submittedAt: true },
       });
       if (previousSubmission?.status === "PENDING_MANUAL_REVIEW") {
+        if (process.env.SAKHI_ENV === "dev") {
+          return {
+            status: "pendingManualReview" as const,
+            eligibilityStatus: "PENDING_MANUAL_REVIEW" as const,
+            submissionId: previousSubmission.id,
+            submittedAt: (previousSubmission.submittedAt ?? new Date()).toISOString(),
+            message: "Your manual-review request is active in the Super Admin review queue.",
+            isDemo: true,
+          };
+        }
         throw new ConflictException("A manual eligibility review is already pending.");
       }
       if (previousSubmission) {
@@ -205,7 +245,7 @@ export class EligibilityService {
         eligibilityStatus: "PENDING_MANUAL_REVIEW" as const,
         submissionId: submission.id,
         submittedAt: submission.submittedAt.toISOString(),
-        message: "Your manual-review request was saved. Evidence is not uploaded to this portal and must be reviewed only through the separately approved evidence procedure.",
+        message: "Your manual-review request was saved and sent to the Super Admin review queue.",
         isDemo: true,
       };
     });

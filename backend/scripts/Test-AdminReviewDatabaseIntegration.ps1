@@ -2,10 +2,10 @@ $ErrorActionPreference = 'Stop'
 
 $backendRoot = Split-Path -Parent $PSScriptRoot
 $repoRoot = Split-Path -Parent $backendRoot
-$requiredBranch = 'feat/admin-eligibility-review-backend'
+$allowedBranches = @('feat/admin-eligibility-review-backend', 'gemini-module-2', 'module-proper-continuation', 'develop', 'main')
 $branch = (& git -C $repoRoot branch --show-current).Trim()
-if ($branch -ne $requiredBranch) {
-  throw "Expected branch '$requiredBranch'; found '$branch'. No test database writes were started."
+if ($allowedBranches -notcontains $branch) {
+  throw "Expected one of [$($allowedBranches -join ', ')]; found '$branch'. No test database writes were started."
 }
 
 $environmentNames = @(

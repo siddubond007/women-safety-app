@@ -37,6 +37,21 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
+  const [seeding, setSeeding] = useState(false);
+  const [seedNotice, setSeedNotice] = useState("");
+
+  async function triggerLiveSeed() {
+    setSeeding(true);
+    try {
+      const res = await adminApi<{ message: string }>("/admin-review/seed-live-data", { method: "POST", body: {} });
+      setSeedNotice(res.message);
+      setRefresh((v) => v + 1);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to seed database.");
+    } finally {
+      setSeeding(false);
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -73,9 +88,10 @@ export function DashboardPage() {
     <div className="dashboard-page">
       <section className="page-heading">
         <div><div className="eyebrow"><span className="eyebrow-line" /> THE BIG PICTURE</div><h1>Overview dashboard</h1><p>Live account and eligibility information from the Sakhi development database.</p></div>
-        <div className="heading-meta"><StatusPill tone="green"><span className="status-pill__dot" /> LIVE DATABASE</StatusPill><button className="button button--secondary" type="button" onClick={() => setRefresh((value) => value + 1)} disabled={loading}><RefreshCw size={14} /> Refresh data</button></div>
+        <div className="heading-meta"><StatusPill tone="green"><span className="status-pill__dot" /> LIVE DATABASE</StatusPill><button className="button button--primary" type="button" onClick={() => void triggerLiveSeed()} disabled={seeding || loading}>{seeding ? "Syncing…" : "Sync 8 Users & 11 Live Posts"}</button><button className="button button--secondary" type="button" onClick={() => setRefresh((value) => value + 1)} disabled={loading}><RefreshCw size={14} /> Refresh data</button></div>
       </section>
 
+      {seedNotice && <div className="member-toast" role="status" style={{ marginBottom: 16 }}><CheckCircle2 size={17} /><span>{seedNotice}</span></div>}
       {error && <section className="panel dashboard-state" role="alert"><div><AlertCircle size={26} /><h2>Live data unavailable</h2><p>{error}</p><p>The dashboard will not substitute fictional counts or sample records.</p><button className="button button--secondary" type="button" onClick={() => setRefresh((value) => value + 1)}>Retry connection</button></div></section>}
 
       {loading && !data && !error && <section className="panel dashboard-state" aria-busy="true"><div><Activity size={24} /><h2>Loading database records</h2><p>Fetching live account counts and the actual eligibility-review queue.</p></div></section>}

@@ -2,12 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../core/assets/app_assets.dart';
 import '../../core/theme/sakhi_design_system.dart';
-import '../eligibility/backend_eligibility_verification_service.dart';
-import '../eligibility/eligibility_intro_screen.dart';
-import '../eligibility/eligibility_verification_service.dart';
 import 'auth_policy.dart';
 import 'auth_service.dart';
-import 'backend_auth_service.dart';
 import 'sakhi_auth_status_screen.dart';
 import 'widgets/auth_widgets.dart';
 
@@ -51,7 +47,8 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
       _termsAccepted &&
       !_agePolicyMissing &&
       _ageEligible &&
-      !_isCreatingAccount;
+      !_isCreatingAccount &&
+      !_isSuccess;
 
   Future<void> _createAccount() async {
     if (!_canCreateAccount) return;
@@ -71,27 +68,15 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
         ),
       );
       if (!mounted) return;
-      if (widget.authService is BackendAuthService) {
-        // A successful database-backed registration proceeds directly to the
-        // verification stage. The eligibility page still reads canonical
-        // status from the backend and does not grant access on its own.
-        final eligibilityService = BackendEligibilityVerificationService(
-          apiClient: (widget.authService as BackendAuthService).apiClient,
-        );
-        await Navigator.of(context).pushReplacement(
-          MaterialPageRoute<void>(
-            builder: (_) => EligibilityIntroScreen(service: eligibilityService),
+      await Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute<void>(
+          builder: (_) => SakhiAuthStatusScreen(
+            authService: widget.authService,
+            accountState: result.accountState,
           ),
-        );
-        return;
-      }
-      setState(() {
-        _isSuccess = true;
-        _createdAccountState = result.accountState;
-        _statusMessage =
-            result.message ??
-            'The account request was accepted by the configured service.';
-      });
+        ),
+        (_) => false,
+      );
     } on AuthServiceException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -102,27 +87,12 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
       if (!mounted) return;
       setState(() {
         _isSuccess = false;
-        _statusMessage = 'The account request could not be completed. No success was confirmed; please try again.';
+        _statusMessage =
+            'The account request could not be completed. No success was confirmed; please try again.';
       });
     } finally {
       if (mounted) setState(() => _isCreatingAccount = false);
     }
-  }
-
-  void _openEligibilityPreview() {
-    final authService = widget.authService;
-    final EligibilityVerificationService eligibilityService =
-        authService is BackendAuthService
-        ? BackendEligibilityVerificationService(
-            apiClient: authService.apiClient,
-          )
-        : const DemoEligibilityVerificationService();
-
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => EligibilityIntroScreen(service: eligibilityService),
-      ),
-    );
   }
 
   @override
@@ -186,11 +156,13 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
           const SizedBox(height: SakhiSpacing.md),
           if (_agePolicyMissing)
             const SakhiAuthStatusMessage(
-              message: 'Production registration is blocked because the approved minimum age is not configured. The temporary age-13 rule is available only in debug preview builds.',
+              message:
+                  'Production registration is blocked because the approved minimum age is not configured. The temporary age-13 rule is available only in debug preview builds.',
             )
           else if (SakhiAuthPolicy.usesProvisionalPreviewPolicy)
             const SakhiAuthStatusMessage(
-              message: 'DEVELOPMENT PREVIEW — minimum age 13 is a temporary testing rule, not an approved production policy. Legal documents below are drafts.',
+              message:
+                  'DEVELOPMENT PREVIEW — minimum age 13 is a temporary testing rule, not an approved production policy. Legal documents below are drafts.',
             ),
           if (_agePolicyMissing || SakhiAuthPolicy.usesProvisionalPreviewPolicy)
             const SizedBox(height: SakhiSpacing.sm),
@@ -241,28 +213,16 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
               ),
             ),
           ),
-          const SizedBox(height: SakhiSpacing.xs),
-          Center(
-            child: TextButton.icon(
-              key: const Key('eligibility-preview-entry-button'),
-              onPressed: _isCreatingAccount ? null : _openEligibilityPreview,
-              icon: const Icon(Icons.verified_user_outlined, size: 18),
-              label: Text(
-                widget.authService.isDevelopmentBackend
-                    ? 'Check eligibility status (provider not configured)'
-                    : 'Preview eligibility verification (demo only)',
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ),
           const SizedBox(height: SakhiSpacing.sm),
           if (_agePolicyMissing)
             const SakhiAuthStatusMessage(
-              message: 'Account creation is disabled: the business/legal team has not supplied the minimum registration age yet. No age threshold has been assumed.',
+              message:
+                  'Account creation is disabled: the business/legal team has not supplied the minimum registration age yet. No age threshold has been assumed.',
             )
           else if (!_ageEligible)
             const SakhiAuthStatusMessage(
-              message: 'The selected date of birth does not meet the configured minimum registration age.',
+              message:
+                  'The selected date of birth does not meet the configured minimum registration age.',
             ),
           if (_statusMessage != null) ...[
             const SizedBox(height: SakhiSpacing.sm),
