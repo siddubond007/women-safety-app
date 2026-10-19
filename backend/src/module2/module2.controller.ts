@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -9,8 +10,11 @@ import {
   Post,
   Put,
   Res,
+  UploadedFile,
+  UseInterceptors,
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiOkResponse, ApiTags } from "@nestjs/swagger";
+import { FileInterceptor } from "@nestjs/platform-express";
 import {
   CreateCommunityPostDto,
   CreateEmergencyContactDto,
@@ -26,6 +30,7 @@ import {
   UpdatePrivacyPreferenceDto,
   UpdateSecurityPinDto,
   UploadMediaObjectDto,
+  UploadBinaryMediaDto,
 } from "./module2.dto.js";
 import { Module2Service } from "./module2.service.js";
 
@@ -83,6 +88,35 @@ export class Module2Controller {
     @Body() dto: RequestMediaUploadDto,
   ) {
     return this.module2.requestMediaUpload(authorization, dto);
+  }
+
+  @Post("media/binary-upload")
+  @HttpCode(200)
+  @UseInterceptors(
+    FileInterceptor("file", {
+      limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 1 },
+    }),
+  )
+  @ApiOkResponse({
+    description: "Uploads an actual validated image file to the connected private Google Drive and stores its metadata.",
+  })
+  uploadBinaryMedia(
+    @Headers("authorization") authorization: string | undefined,
+    @UploadedFile()
+    file:
+      | {
+          originalname: string;
+          mimetype: string;
+          buffer: Buffer;
+          size: number;
+        }
+      | undefined,
+    @Body() dto: UploadBinaryMediaDto,
+  ) {
+    if (!file) {
+      throw new BadRequestException("Choose an image file to upload.");
+    }
+    return this.module2.uploadMediaFile(authorization, file, dto);
   }
 
   @Post("media/upload")
