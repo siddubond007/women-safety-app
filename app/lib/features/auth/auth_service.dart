@@ -81,6 +81,9 @@ class MemberProfileDraft {
     required this.dateOfBirth,
     this.email,
     this.photoPath,
+    this.photoBytes,
+    this.photoFileName,
+    this.photoContentType,
   });
 
   final String countryCode;
@@ -89,6 +92,9 @@ class MemberProfileDraft {
   final DateTime dateOfBirth;
   final String? email;
   final String? photoPath;
+  final List<int>? photoBytes;
+  final String? photoFileName;
+  final String? photoContentType;
 }
 
 class MemberConsentRecord {
