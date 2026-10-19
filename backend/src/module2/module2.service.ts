@@ -1582,8 +1582,10 @@ export class Module2Service {
     return false;
   }
 
-  async listMediaObjects() {
+  async listMediaObjects(authorization: string | undefined) {
+    const session = await this.auth.authenticateAuthorization(authorization);
     const assets = await this.prisma.mediaAsset.findMany({
+      where: { accountId: session.accountId },
       orderBy: { createdAt: "desc" },
       take: 40,
     });
