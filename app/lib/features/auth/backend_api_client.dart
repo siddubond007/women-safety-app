@@ -96,6 +96,124 @@ class BackendApiClient {
     bool authenticated = false,
   }) => _send('PUT', path, body: body, authenticated: authenticated);
 
+  /// Sends one actual file as multipart/form-data. The file bytes are never
+  /// logged, base64-encoded, or copied into JSON.
+  Future<Map<String, dynamic>> postMultipart(
+    String path, {
+    required List<int> fileBytes,
+    required String fileName,
+    required String contentType,
+    required Map<String, String> fields,
+    bool authenticated = true,
+  }) async {
+    if (fileBytes.isEmpty) {
+      throw const BackendApiException(
+        statusCode: 400,
+        code: 'file_empty',
+        message: 'Choose an image file before uploading.',
+      );
+    }
+    final boundary = '----SakhiBoundary${DateTime.now().microsecondsSinceEpoch}';
+    var requestStage = 'opening upload connection';
+    try {
+      final request = await _httpClient
+          .postUrl(_uri(path))
+          .timeout(const Duration(seconds: 12));
+      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      request.headers.contentType = ContentType(
+        'multipart',
+        'form-data',
+        parameters: {'boundary': boundary},
+      );
+      if (authenticated) {
+        final token = await readAccessToken();
+        if (token == null || token.isEmpty) {
+          throw const BackendApiException(
+            statusCode: 401,
+            code: 'session_missing',
+            message: 'Sign in again to upload a photo.',
+          );
+        }
+        request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+      }
+
+      requestStage = 'writing upload fields';
+      for (final entry in fields.entries) {
+        final fieldName = entry.key.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '');
+        final fieldValue = entry.value.replaceAll('\r', '').replaceAll('\n', '');
+        request.write('--$boundary\r\n');
+        request.write('Content-Disposition: form-data; name="$fieldName"\r\n\r\n');
+        request.write('$fieldValue\r\n');
+      }
+      final safeFileName = fileName
+          .replaceAll(RegExp(r'["\r\n\\/]'), '_')
+          .replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+      request.write('--$boundary\r\n');
+      request.write(
+        'Content-Disposition: form-data; name="file"; filename="$safeFileName"\r\n',
+      );
+      request.write('Content-Type: $contentType\r\n\r\n');
+      request.add(fileBytes);
+      request.write('\r\n--$boundary--\r\n');
+
+      requestStage = 'waiting for upload response';
+      final response = await request.close().timeout(
+        const Duration(seconds: 45),
+      );
+      requestStage = 'reading upload response';
+      final raw = await utf8.decoder.bind(response).join().timeout(
+        const Duration(seconds: 20),
+      );
+      final decoded = raw.isEmpty ? <String, dynamic>{} : jsonDecode(raw);
+      final payload = decoded is Map<String, dynamic>
+          ? decoded
+          : <String, dynamic>{};
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        final rawMessage = payload['message'];
+        final message = rawMessage is List
+            ? rawMessage.map((value) => value.toString()).join(' ')
+            : rawMessage is String
+                ? rawMessage
+                : 'The image upload failed.';
+        throw BackendApiException(
+          statusCode: response.statusCode,
+          code: payload['code'] is String
+              ? payload['code'] as String
+              : 'http_${response.statusCode}',
+          message: message,
+        );
+      }
+      return payload;
+    } on BackendApiException {
+      rethrow;
+    } on TimeoutException {
+      throw const BackendApiException(
+        statusCode: 0,
+        code: 'timeout',
+        message: 'The image upload timed out. Check the backend connection and try again.',
+      );
+    } on SocketException {
+      throw const BackendApiException(
+        statusCode: 0,
+        code: 'network_unavailable',
+        message: 'Sakhi backend is unreachable. Start the backend and check the local connection.',
+      );
+    } on HttpException catch (error) {
+      debugPrint('Sakhi multipart upload transport failure: $path; stage=$requestStage; type=${error.runtimeType}');
+      throw BackendApiException(
+        statusCode: 0,
+        code: 'http_error',
+        message: 'Image upload failed during $requestStage. Check the local backend.',
+      );
+    } on FormatException {
+      throw const BackendApiException(
+        statusCode: 0,
+        code: 'invalid_response',
+        message: 'Sakhi backend returned an invalid upload response.',
+      );
+    }
+  }
+
   Future<Map<String, dynamic>> _send(
     String method,
     String path, {
