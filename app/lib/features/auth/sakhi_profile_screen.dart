@@ -96,6 +96,12 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
       }
       final bytes = await picked.readAsBytes();
       if (!mounted) return;
+      if (bytes.isEmpty || bytes.length > 10 * 1024 * 1024) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Choose an image no larger than 10 MB.')),
+        );
+        return;
+      }
       setState(() {
         _selectedPhotoPath = picked.path;
         _pendingPhotoBytes = bytes;
