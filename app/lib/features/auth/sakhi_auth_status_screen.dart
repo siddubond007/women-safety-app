@@ -18,10 +18,12 @@ class SakhiAuthStatusScreen extends StatefulWidget {
     required this.authService,
     required this.accountState,
     this.isRestoredSession = false,
+    this.statusMessage,
   });
 
   final AuthService authService;
   final AuthAccountState accountState;
+  final String? statusMessage;
 
   /// True when this screen was restored from secure local storage on app start.
   final bool isRestoredSession;
@@ -41,6 +43,7 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
   void initState() {
     super.initState();
     _accountState = widget.accountState;
+    _statusFeedback = widget.statusMessage;
     if (widget.authService.isDevelopmentBackend &&
         _accountState != AuthAccountState.existingAccount) {
       _autoPollTimer = Timer.periodic(const Duration(seconds: 4), (_) {
