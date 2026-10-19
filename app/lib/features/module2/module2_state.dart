@@ -501,8 +501,41 @@ class Module2State extends ChangeNotifier {
     return true;
   }
 
+  Future<String?> uploadMediaFile({
+    required String purpose,
+    required String fileName,
+    required String contentType,
+    required List<int> fileBytes,
+  }) async {
+    if (!const {'avatar', 'post'}.contains(purpose)) {
+      errorMessage = 'This media purpose is not enabled.';
+      notifyListeners();
+      return null;
+    }
+    final payload = await _safe(
+      () => api.postMultipart(
+        'module2/media/binary-upload',
+        authenticated: true,
+        fields: {'purpose': purpose},
+        fileBytes: fileBytes,
+        fileName: fileName,
+        contentType: contentType,
+      ),
+    );
+    final url = payload?['publicUrl']?.toString();
+    if (url == null || url.isEmpty) {
+      if (errorMessage == null) {
+        errorMessage = 'The uploaded file did not return a media URL.';
+        notifyListeners();
+      }
+      return null;
+    }
+    return url;
+  }
+
   Future<bool> createPost(
     String text, {
+    String? imageAsset,
     String audience = 'VERIFIED_MEMBERS',
     List<String> selectedAccountIds = const [],
   }) async {
@@ -512,8 +545,11 @@ class Module2State extends ChangeNotifier {
       notifyListeners();
       return false;
     }
-    if (audience == 'SELECTED_MEMBERS' && selectedAccountIds.isEmpty) {
-      errorMessage = 'Choose at least one member for a selected-audience post.';
+    // The current Stage 1 backend persists public community-feed posts only;
+    // do not pretend follower/only-me audiences are enforced by the server.
+    if (audience != 'VERIFIED_MEMBERS' ||
+        (audience == 'SELECTED_MEMBERS' && selectedAccountIds.isNotEmpty)) {
+      errorMessage = 'Audience-specific posts are not enabled by this development backend yet.';
       notifyListeners();
       return false;
     }
@@ -524,10 +560,10 @@ class Module2State extends ChangeNotifier {
         'module2/posts',
         authenticated: true,
         body: <String, Object?>{
-          'body': body,
-          'audience': audience,
-          if (audience == 'SELECTED_MEMBERS')
-            'selectedAudienceAccountIds': selectedAccountIds,
+          'content': body,
+          'categoryBadge': 'Community',
+          if (imageAsset != null && imageAsset.isNotEmpty)
+            'imageAsset': imageAsset,
         },
       ),
     );
