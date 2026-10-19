@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../../core/constants/app_assets.dart';
 import '../../../core/constants/mock_data.dart';
@@ -234,7 +235,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               )).toList(),
             ),
             const SizedBox(height: 14),
-            const Text('Profile changes are validated and saved to your account. Profile image upload requires the approved media storage service, which is not configured yet.', style: AppTypography.subtitle),
+            const Text('Choose a JPG, PNG, or WebP photo. Uploaded images are stored in your private Google Drive and linked to your Sakhi profile.', style: AppTypography.subtitle),
             const SizedBox(height: 18),
             SizedBox(
               width: double.infinity,
@@ -253,14 +254,50 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
   }
 
-  void _showPhotoConfigurationNotice() {
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Profile photo'),
-        content: const Text('The profile photo control is visible, but uploads are disabled until Sakhi’s media-storage provider and image-validation policy are configured. No photo has been selected or uploaded.'),
-        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
-      ),
+  Future<void> _showPhotoConfigurationNotice() async {
+    if (_saving) return;
+    final picked = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1600,
+      maxHeight: 1600,
+      imageQuality: 88,
     );
+    if (picked == null || !mounted) return;
+    final extension = picked.name.toLowerCase().split('.').last;
+    final contentType = switch (extension) {
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'png' => 'image/png',
+      'webp' => 'image/webp',
+      _ => null,
+    };
+    if (contentType == null) {
+      _message('Choose a JPG, PNG, or WebP image.');
+      return;
+    }
+    final bytes = await picked.readAsBytes();
+    if (!mounted) return;
+    if (bytes.isEmpty || bytes.length > 10 * 1024 * 1024) {
+      _message('Choose an image between 1 byte and 10 MB.');
+      return;
+    }
+    setState(() => _saving = true);
+    _message('Uploading your photo to private Google Drive…');
+    try {
+      final uploadedUrl = await SakhiPrototypeState.instance.uploadMediaToCloud(
+        purpose: 'avatar',
+        fileName: picked.name,
+        fileBytes: bytes,
+        contentType: contentType,
+      );
+      if (!mounted) return;
+      if (uploadedUrl == null) {
+        _message('Upload failed. Ensure Google Drive is connected in the backend, then retry.');
+        return;
+      }
+      SakhiPrototypeState.instance.updateAvatar(uploadedUrl);
+      _message('Profile photo uploaded to Google Drive and saved to PostgreSQL.');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 }
