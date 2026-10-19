@@ -1,5 +1,3 @@
-import { readFileSync, existsSync } from "node:fs";
-import { resolve } from "node:path";
 import {
   BadRequestException,
   Injectable,
@@ -8,6 +6,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { AuthenticationService } from "../auth/auth.service.js";
 import { PrismaService } from "../database/prisma.service.js";
+import { GoogleDriveStorageService } from "./google-drive-storage.service.js";
 import type {
   CreateCommunityPostDto,
   CreateEmergencyContactDto,
@@ -23,6 +22,7 @@ import type {
   UpdatePrivacyPreferenceDto,
   UpdateSecurityPinDto,
   UploadMediaObjectDto,
+  UploadBinaryMediaDto,
 } from "./module2.dto.js";
 
 const DEFAULT_INTERESTS = [
@@ -150,6 +150,7 @@ export class Module2Service {
   constructor(
     private readonly auth: AuthenticationService,
     private readonly prisma: PrismaService,
+    private readonly googleDrive: GoogleDriveStorageService = new GoogleDriveStorageService(),
   ) {}
 
   private formatRelativeTime(createdAt: Date): string {
@@ -1448,103 +1449,68 @@ export class Module2Service {
   }
 
   async requestMediaUpload(
-    authorization: string | undefined,
-    dto: RequestMediaUploadDto,
-  ) {
-    let actorId: string | null = null;
-    if (authorization) {
-      try {
-        const session = await this.auth.authenticateAuthorization(authorization);
-        actorId = session.accountId;
-      } catch {
-        actorId = null;
-      }
-    }
-    const uploadId = randomUUID();
-    const safeFile = dto.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const folder = actorId ?? "registration";
-    const objectKey = `uploads/${folder}/${dto.purpose}/${uploadId}-${safeFile}`;
-    const provider =
-      process.env.SAKHI_CLOUD_STORAGE_PROVIDER?.trim() || "sakhi_cloud_bridge";
-    const localBaseUrl = (
-      process.env.SAKHI_PUBLIC_API_BASE_URL?.trim() ||
-      "http://127.0.0.1:3000/api/v1"
-    ).replace(/\/+$/, "");
-    const cloudBaseUrl = process.env.SAKHI_CLOUD_STORAGE_PUBLIC_BASE_URL?.trim();
-    const publicUrl = cloudBaseUrl
-      ? `${cloudBaseUrl.replace(/\/+$/, "")}/${objectKey}`
-      : `${localBaseUrl}/module2/media/object/${uploadId}`;
-
-    await this.prisma.auditEvent.create({
-      data: {
-        actorType: actorId ? "MEMBER" : "SYSTEM",
-        actorId,
-        action: "module2.media.upload_requested",
-        targetType: "media_upload",
-        targetId: uploadId,
-        outcome: "presigned",
-        requestId: uploadId,
-        redactedMetadata: {
-          fileName: safeFile,
-          purpose: dto.purpose,
-          contentType: dto.contentType,
-          provider,
-          objectKey,
-          publicUrl,
-        },
-      },
-    });
-
-    return {
-      uploadId,
-      provider,
-      purpose: dto.purpose,
-      objectKey,
-      contentType: dto.contentType,
-      uploadUrl: `${localBaseUrl}/module2/media/upload`,
-      publicUrl,
-      expiresInSeconds: 900,
-    };
+    _authorization: string | undefined,
+    _dto: RequestMediaUploadDto,
+  ): Promise<never> {
+    throw new BadRequestException(
+      "Metadata-only upload requests are disabled. Authorize Google Drive and upload the actual image using POST /api/v1/module2/media/binary-upload.",
+    );
   }
 
   async uploadMediaObject(
+    _authorization: string | undefined,
+    _dto: UploadMediaObjectDto,
+  ): Promise<never> {
+    throw new BadRequestException(
+      "JSON media placeholders are disabled. Choose an actual image file and upload it using POST /api/v1/module2/media/binary-upload.",
+    );
+  }
+
+  async uploadMediaFile(
     authorization: string | undefined,
-    dto: UploadMediaObjectDto,
+    file: {
+      originalname: string;
+      mimetype: string;
+      buffer: Buffer;
+      size: number;
+    },
+    dto: UploadBinaryMediaDto,
   ) {
-    let actorId: string | null = null;
-    if (authorization) {
-      try {
-        const session = await this.auth.authenticateAuthorization(authorization);
-        actorId = session.accountId;
-      } catch {
-        actorId = null;
-      }
+    const session = await this.auth.authenticateAuthorization(authorization);
+    if (!Buffer.isBuffer(file.buffer) || file.buffer.length === 0) {
+      throw new BadRequestException("The selected image file is empty.");
+    }
+    if (file.size > 10 * 1024 * 1024 || file.buffer.length > 10 * 1024 * 1024) {
+      throw new BadRequestException("Images must be 10 MB or smaller.");
+    }
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"] as const;
+    if (!allowedTypes.includes(file.mimetype as (typeof allowedTypes)[number])) {
+      throw new BadRequestException("Use a JPG, PNG, or WebP image.");
+    }
+    if (!this.hasExpectedImageSignature(file.mimetype, file.buffer)) {
+      throw new BadRequestException("The selected file content does not match its image type.");
     }
 
     const uploadId = randomUUID();
-    const safeFile = dto.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const folder = actorId ?? "guest";
-    const objectKey = `uploads/${folder}/${dto.purpose}/${uploadId}-${safeFile}`;
-    const provider =
-      process.env.SAKHI_CLOUD_STORAGE_PROVIDER?.trim() || "sakhi_cloud_bridge";
+    const stored = await this.googleDrive.uploadImage({
+      uploadId,
+      accountId: session.accountId,
+      purpose: dto.purpose,
+      fileName: file.originalname,
+      contentType: file.mimetype as (typeof allowedTypes)[number],
+      buffer: file.buffer,
+    });
     const localBaseUrl = (
       process.env.SAKHI_PUBLIC_API_BASE_URL?.trim() ||
-      "http://127.0.0.1:3000/api/v1"
+      `http://127.0.0.1:${process.env.PORT?.trim() || "3001"}/api/v1`
     ).replace(/\/+$/, "");
-    const cloudBaseUrl = process.env.SAKHI_CLOUD_STORAGE_PUBLIC_BASE_URL?.trim();
-
-    const publicUrl =
-      dto.externalUrl && /^https?:\/\//i.test(dto.externalUrl.trim())
-        ? dto.externalUrl.trim()
-        : `${localBaseUrl}/module2/media/object/${uploadId}`;
-    const cloudMirrorUrl = cloudBaseUrl
-      ? `${cloudBaseUrl.replace(/\/+$/, "")}/${objectKey}`
-      : publicUrl;
+    const publicUrl = `${localBaseUrl}/module2/media/object/${uploadId}`;
+    const uploadedAt = new Date().toISOString();
 
     await this.prisma.auditEvent.create({
       data: {
-        actorType: actorId ? "MEMBER" : "SYSTEM",
-        actorId,
+        actorType: "MEMBER",
+        actorId: session.accountId,
         action: "module2.media.uploaded",
         targetType: "media_upload",
         targetId: uploadId,
@@ -1552,47 +1518,54 @@ export class Module2Service {
         requestId: uploadId,
         redactedMetadata: {
           uploadId,
-          fileName: safeFile,
+          fileName: stored.storedName,
           purpose: dto.purpose,
-          contentType: dto.contentType,
-          provider,
-          objectKey,
+          contentType: file.mimetype,
+          provider: "google_drive",
+          driveFileId: stored.driveFileId,
+          objectKey: `google-drive/${stored.driveFileId}`,
           publicUrl,
-          cloudMirrorUrl,
-          externalUrl: dto.externalUrl?.trim() || null,
-          presetTheme: dto.presetTheme?.trim() || "botanical_bloom",
-          dataUrl: dto.dataUrl?.trim() || null,
-          uploadedAt: new Date().toISOString(),
+          sizeBytes: stored.size,
+          uploadedAt,
         },
       },
     });
 
-    if (actorId && dto.purpose === "avatar") {
-      try {
-        await this.prisma.memberProfile.update({
-          where: { accountId: actorId },
-          data: { avatarAsset: publicUrl },
-        });
-        await this.prisma.communityPost.updateMany({
-          where: { authorAccountId: actorId },
-          data: { authorAvatar: publicUrl },
-        });
-      } catch {
-        // Ignore if profile row is not created yet (e.g. during registration)
-      }
+    if (dto.purpose === "avatar") {
+      await this.prisma.memberProfile.update({
+        where: { accountId: session.accountId },
+        data: { avatarAsset: publicUrl },
+      });
+      await this.prisma.communityPost.updateMany({
+        where: { authorAccountId: session.accountId },
+        data: { authorAvatar: publicUrl },
+      });
     }
 
     return {
       uploadId,
-      provider,
+      provider: "google_drive",
       purpose: dto.purpose,
-      objectKey,
-      contentType: dto.contentType,
+      objectKey: `google-drive/${stored.driveFileId}`,
+      contentType: file.mimetype,
+      sizeBytes: stored.size,
       publicUrl,
-      cloudMirrorUrl,
       status: "stored" as const,
-      createdAt: new Date().toISOString(),
+      createdAt: uploadedAt,
     };
+  }
+
+  private hasExpectedImageSignature(contentType: string, buffer: Buffer): boolean {
+    if (contentType === "image/jpeg") {
+      return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+    }
+    if (contentType === "image/png") {
+      return buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    }
+    if (contentType === "image/webp") {
+      return buffer.length >= 12 && buffer.toString("ascii", 0, 4) === "RIFF" && buffer.toString("ascii", 8, 12) === "WEBP";
+    }
+    return false;
   }
 
   async listMediaObjects() {
@@ -1625,6 +1598,8 @@ export class Module2Service {
             ? meta.provider
             : "sakhi_cloud_bridge",
         objectKey: typeof meta.objectKey === "string" ? meta.objectKey : "",
+        driveFileId: typeof meta.driveFileId === "string" ? meta.driveFileId : null,
+        sizeBytes: typeof meta.sizeBytes === "number" ? meta.sizeBytes : null,
         publicUrl: typeof meta.publicUrl === "string" ? meta.publicUrl : "",
         createdAt: ev.createdAt.toISOString(),
       };
@@ -1639,99 +1614,36 @@ export class Module2Service {
     const event = await this.prisma.auditEvent.findFirst({
       where: {
         targetId: uploadId,
-        action: {
-          in: ["module2.media.uploaded", "module2.media.upload_requested"],
-        },
+        action: "module2.media.uploaded",
       },
       orderBy: { createdAt: "desc" },
     });
+    if (!event) {
+      throw new NotFoundException("The media upload record was not found.");
+    }
 
     const meta =
-      event?.redactedMetadata &&
+      event.redactedMetadata &&
       typeof event.redactedMetadata === "object" &&
       !Array.isArray(event.redactedMetadata)
         ? (event.redactedMetadata as Record<string, unknown>)
         : {};
-
-    if (
-      typeof meta.externalUrl === "string" &&
-      /^https?:\/\//i.test(meta.externalUrl)
-    ) {
-      return {
-        contentType: "text/plain",
-        buffer: Buffer.alloc(0),
-        redirectUrl: meta.externalUrl,
-      };
+    if (typeof meta.driveFileId !== "string" || meta.provider !== "google_drive") {
+      throw new NotFoundException(
+        "This legacy media record has no actual Google Drive file. Upload the image again to replace it.",
+      );
     }
 
-    if (typeof meta.dataUrl === "string" && meta.dataUrl.startsWith("data:")) {
-      const match = /^data:([^;]+);base64,(.+)$/s.exec(meta.dataUrl);
-      if (match) {
-        return {
-          contentType: match[1] || "image/png",
-          buffer: Buffer.from(match[2] ?? "", "base64"),
-        };
-      }
-    }
-
-    const preset =
-      typeof meta.presetTheme === "string" ? meta.presetTheme : "botanical_bloom";
-    const purpose = typeof meta.purpose === "string" ? meta.purpose : "post";
-    const relAsset =
-      purpose === "avatar"
-        ? "assets/images/profile/avatar_ananya.webp"
-        : preset.includes("beach")
-          ? "assets/images/explore/beach_sunset.webp"
-          : "assets/images/community/evening_walk_sunset.webp";
-    const candidatePaths = [
-      resolve(process.cwd(), "..", "app", relAsset),
-      resolve(process.cwd(), "app", relAsset),
-    ];
-    for (const p of candidatePaths) {
-      if (existsSync(p)) {
-        return {
-          contentType: p.endsWith(".png") ? "image/png" : "image/webp",
-          buffer: readFileSync(p),
-        };
-      }
-    }
-    const svg = this.renderStudioCloudSvg(uploadId, preset, purpose);
+    const media = await this.googleDrive.downloadFile(meta.driveFileId);
+    const storedContentType =
+      typeof meta.contentType === "string" &&
+      ["image/jpeg", "image/png", "image/webp"].includes(meta.contentType)
+        ? meta.contentType
+        : media.contentType;
     return {
-      contentType: "image/svg+xml",
-      buffer: Buffer.from(svg, "utf8"),
+      contentType: storedContentType,
+      buffer: media.buffer,
     };
-  }
-
-  private renderStudioCloudSvg(
-    uploadId: string,
-    preset: string,
-    purpose: string,
-  ): string {
-    const isSunset = preset.includes("sunset") || preset.includes("walk");
-    const bgStart = isSunset ? "#FAD0C4" : "#F3E5F5";
-    const bgEnd = isSunset ? "#FFD1FF" : "#FCE4EC";
-    const accent = isSunset ? "#C85A82" : "#7B3FA0";
-    const label =
-      purpose === "avatar" ? "Sakhi Cloud Portrait" : "Sakhi Cloud Media";
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400" width="600" height="400">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="${bgStart}"/>
-      <stop offset="100%" stop-color="${bgEnd}"/>
-    </linearGradient>
-  </defs>
-  <rect width="600" height="400" rx="28" fill="url(#bg)"/>
-  <circle cx="480" cy="95" r="58" fill="#FFF8E7" fill-opacity="0.78"/>
-  <path d="M0 310 Q160 250 320 295 T600 275 L600 400 L0 400 Z" fill="${accent}" fill-opacity="0.18"/>
-  <g transform="translate(300,195)">
-    <path d="M0 0 C-35 -45 -15 -75 0 -70 C15 -75 35 -45 0 0 Z" fill="#F8C8DC" stroke="#3B222E" stroke-width="2.2"/>
-    <path d="M0 0 C45 -35 75 -15 70 0 C75 15 45 35 0 0 Z" fill="#DEC2F5" stroke="#3B222E" stroke-width="2.2"/>
-    <path d="M0 0 C35 45 15 75 0 70 C-15 75 -35 45 0 0 Z" fill="#F8C8DC" stroke="#3B222E" stroke-width="2.2"/>
-    <path d="M0 0 C-45 35 -75 15 -70 0 C-75 -15 -45 -35 0 0 Z" fill="#DEC2F5" stroke="#3B222E" stroke-width="2.2"/>
-    <circle cx="0" cy="0" r="10" fill="#3B222E"/>
-  </g>
-  <text x="300" y="355" text-anchor="middle" font-family="sans-serif" font-size="18" font-weight="bold" fill="#3B222E">${label} • ${uploadId.slice(0, 8)}</text>
-</svg>`;
   }
 
   async toggleBlockedUser(
