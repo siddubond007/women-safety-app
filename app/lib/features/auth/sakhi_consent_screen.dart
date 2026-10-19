@@ -73,6 +73,10 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
           builder: (_) => SakhiAuthStatusScreen(
             authService: widget.authService,
             accountState: result.accountState,
+            statusMessage: result.message != null &&
+                    result.message!.startsWith('Profile saved. The optional photo')
+                ? result.message
+                : null,
           ),
         ),
         (_) => false,
