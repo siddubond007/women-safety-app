@@ -1507,20 +1507,6 @@ export class Module2Service {
     const publicUrl = `${localBaseUrl}/module2/media/object/${uploadId}`;
     const uploadedAt = new Date().toISOString();
 
-    await this.prisma.mediaAsset.create({
-      data: {
-        id: uploadId,
-        accountId: session.accountId,
-        purpose: dto.purpose,
-        provider: "google_drive",
-        driveFileId: stored.driveFileId,
-        fileName: stored.storedName,
-        contentType: file.mimetype,
-        sizeBytes: stored.size,
-        mediaUrl: publicUrl,
-      },
-    });
-
     await this.prisma.auditEvent.create({
       data: {
         actorType: "MEMBER",
@@ -1584,25 +1570,36 @@ export class Module2Service {
 
   async listMediaObjects(authorization: string | undefined) {
     const session = await this.auth.authenticateAuthorization(authorization);
-    const assets = await this.prisma.mediaAsset.findMany({
-      where: { accountId: session.accountId },
+    const events = await this.prisma.auditEvent.findMany({
+      where: {
+        actorId: session.accountId,
+        action: "module2.media.uploaded",
+      },
       orderBy: { createdAt: "desc" },
       take: 40,
     });
-    return assets.map((asset) => ({
-      uploadId: asset.id,
-      action: "module2.media.uploaded",
-      actorId: asset.accountId,
-      fileName: asset.fileName,
-      purpose: asset.purpose,
-      contentType: asset.contentType,
-      provider: asset.provider,
-      objectKey: `google-drive/${asset.driveFileId}`,
-      driveFileId: asset.driveFileId,
-      sizeBytes: asset.sizeBytes,
-      publicUrl: asset.mediaUrl,
-      createdAt: asset.createdAt.toISOString(),
-    }));
+    return events.map((event) => {
+      const meta =
+        event.redactedMetadata &&
+        typeof event.redactedMetadata === "object" &&
+        !Array.isArray(event.redactedMetadata)
+          ? (event.redactedMetadata as Record<string, unknown>)
+          : {};
+      return {
+        uploadId: event.targetId ?? event.id,
+        action: event.action,
+        actorId: event.actorId,
+        fileName: typeof meta.fileName === "string" ? meta.fileName : "media",
+        purpose: typeof meta.purpose === "string" ? meta.purpose : "post",
+        contentType: typeof meta.contentType === "string" ? meta.contentType : "image/jpeg",
+        provider: typeof meta.provider === "string" ? meta.provider : "google_drive",
+        objectKey: typeof meta.objectKey === "string" ? meta.objectKey : "",
+        driveFileId: typeof meta.driveFileId === "string" ? meta.driveFileId : null,
+        sizeBytes: typeof meta.sizeBytes === "number" ? meta.sizeBytes : null,
+        publicUrl: typeof meta.publicUrl === "string" ? meta.publicUrl : "",
+        createdAt: event.createdAt.toISOString(),
+      };
+    });
   }
 
   async resolveMediaObject(uploadId: string): Promise<{
@@ -1610,15 +1607,37 @@ export class Module2Service {
     buffer: Buffer;
     redirectUrl?: string;
   }> {
-    const asset = await this.prisma.mediaAsset.findUnique({
-      where: { id: uploadId },
+    const event = await this.prisma.auditEvent.findFirst({
+      where: {
+        targetId: uploadId,
+        action: "module2.media.uploaded",
+      },
+      orderBy: { createdAt: "desc" },
     });
-    if (!asset) {
-      throw new NotFoundException("The media asset was not found.");
+    if (!event) {
+      throw new NotFoundException("The media upload record was not found.");
     }
-    const media = await this.googleDrive.downloadFile(asset.driveFileId);
+
+    const meta =
+      event.redactedMetadata &&
+      typeof event.redactedMetadata === "object" &&
+      !Array.isArray(event.redactedMetadata)
+        ? (event.redactedMetadata as Record<string, unknown>)
+        : {};
+    if (typeof meta.driveFileId !== "string" || meta.provider !== "google_drive") {
+      throw new NotFoundException(
+        "This legacy media record has no actual Google Drive file. Upload the image again to replace it.",
+      );
+    }
+
+    const media = await this.googleDrive.downloadFile(meta.driveFileId);
+    const storedContentType =
+      typeof meta.contentType === "string" &&
+      ["image/jpeg", "image/png", "image/webp"].includes(meta.contentType)
+        ? meta.contentType
+        : media.contentType;
     return {
-      contentType: asset.contentType,
+      contentType: storedContentType,
       buffer: media.buffer,
     };
   }
