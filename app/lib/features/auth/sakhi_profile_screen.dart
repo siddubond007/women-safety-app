@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../core/assets/app_assets.dart';
-import '../../core/constants/mock_data.dart';
 import '../../core/theme/sakhi_design_system.dart';
 import '../../core/widgets/sakhi_avatar.dart';
 import 'auth_policy.dart';
@@ -32,6 +32,9 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
   final _emailController = TextEditingController();
   DateTime? _dateOfBirth;
   String? _selectedPhotoPath;
+  List<int>? _pendingPhotoBytes;
+  String? _pendingPhotoFileName;
+  String? _pendingPhotoContentType;
   bool _photoSkipped = false;
   bool _isUploadingPhoto = false;
   bool _attemptedContinue = false;
@@ -66,6 +69,49 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
       confirmText: 'Confirm date',
     );
     if (picked != null && mounted) setState(() => _dateOfBirth = picked);
+  }
+
+  Future<void> _pickRegistrationPhoto() async {
+    setState(() => _isUploadingPhoto = true);
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1600,
+        maxHeight: 1600,
+        imageQuality: 88,
+      );
+      if (picked == null || !mounted) return;
+      final extension = picked.name.toLowerCase().split('.').last;
+      final contentType = switch (extension) {
+        'jpg' || 'jpeg' => 'image/jpeg',
+        'png' => 'image/png',
+        'webp' => 'image/webp',
+        _ => null,
+      };
+      if (contentType == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Choose a JPG, PNG, or WebP image.')),
+        );
+        return;
+      }
+      final bytes = await picked.readAsBytes();
+      if (!mounted) return;
+      setState(() {
+        _selectedPhotoPath = picked.path;
+        _pendingPhotoBytes = bytes;
+        _pendingPhotoFileName = picked.name;
+        _pendingPhotoContentType = contentType;
+        _photoSkipped = false;
+      });
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('The selected photo could not be read. Please try another image.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isUploadingPhoto = false);
+    }
   }
 
   Future<void> _openPhotoAndCloudUploadSheet() async {
@@ -121,6 +167,9 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
                     onTap: () {
                       setState(() {
                         _selectedPhotoPath = asset;
+                        _pendingPhotoBytes = null;
+                        _pendingPhotoFileName = null;
+                        _pendingPhotoContentType = null;
                         _photoSkipped = false;
                       });
                       Navigator.pop(ctx);
@@ -157,25 +206,14 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                icon: const Icon(Icons.cloud_upload_outlined, size: 18),
-                label: const Text('Upload Studio Photo to Backend Cloud Storage'),
-                onPressed: () async {
-                  Navigator.pop(ctx);
-                  setState(() => _isUploadingPhoto = true);
-                  final uploadedUrl = await SakhiPrototypeState.instance
-                      .uploadMediaToCloud(
-                        purpose: 'avatar',
-                        fileName: 'registration_avatar.svg',
-                        presetTheme: 'botanical_bloom',
-                      );
-                  if (!mounted) return;
-                  setState(() {
-                    _isUploadingPhoto = false;
-                    _selectedPhotoPath =
-                        uploadedUrl ?? AppAssets.avatarAnanya;
-                    _photoSkipped = false;
-                  });
-                },
+                icon: const Icon(Icons.photo_library_outlined, size: 18),
+                label: Text(_isUploadingPhoto ? 'Selecting photo…' : 'Choose Photo From Device'),
+                onPressed: _isUploadingPhoto
+                    ? null
+                    : () async {
+                        Navigator.pop(ctx);
+                        await _pickRegistrationPhoto();
+                      },
               ),
             ),
             const SizedBox(height: 10),
@@ -202,6 +240,9 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
                         url.startsWith('https://')) {
                       setState(() {
                         _selectedPhotoPath = url;
+                        _pendingPhotoBytes = null;
+                        _pendingPhotoFileName = null;
+                        _pendingPhotoContentType = null;
                         _photoSkipped = false;
                       });
                     }
@@ -246,7 +287,10 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
       email: _emailController.text.trim().isEmpty
           ? null
           : _emailController.text.trim(),
-      photoPath: _selectedPhotoPath,
+      photoPath: _pendingPhotoBytes == null ? _selectedPhotoPath : null,
+      photoBytes: _pendingPhotoBytes,
+      photoFileName: _pendingPhotoFileName,
+      photoContentType: _pendingPhotoContentType,
     );
     Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -428,7 +472,16 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
             const SizedBox(height: SakhiSpacing.xs),
             Row(
               children: [
-                if (_selectedPhotoPath != null)
+                if (_pendingPhotoBytes != null)
+                  ClipOval(
+                    child: Image.memory(
+                      _pendingPhotoBytes!,
+                      width: 54,
+                      height: 54,
+                      fit: BoxFit.cover,
+                    ),
+                  )
+                else if (_selectedPhotoPath != null)
                   SakhiAvatar(imageAsset: _selectedPhotoPath!, size: 54)
                 else
                   Container(
@@ -465,6 +518,9 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
                   onPressed: () => setState(() {
                     _photoSkipped = true;
                     _selectedPhotoPath = null;
+                    _pendingPhotoBytes = null;
+                    _pendingPhotoFileName = null;
+                    _pendingPhotoContentType = null;
                   }),
                   child: Text(_photoSkipped ? 'Skipped' : 'Skip'),
                 ),
@@ -472,9 +528,11 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
             ),
             const SizedBox(height: SakhiSpacing.xs),
             Text(
-              _selectedPhotoPath != null
-                  ? 'Photo selected and ready to save to PostgreSQL & Cloud Storage.'
-                  : 'Email and profile photo are optional. You can upload to Cloud Storage or continue without either.',
+              _pendingPhotoBytes != null
+                  ? 'Your photo will upload to your private Google Drive after account creation.'
+                  : _selectedPhotoPath != null
+                      ? 'The selected portrait will be saved with your profile.'
+                      : 'Email and profile photo are optional. You can continue without either.',
               style: const TextStyle(
                 color: SakhiColors.mutedPlum,
                 fontSize: 12,
