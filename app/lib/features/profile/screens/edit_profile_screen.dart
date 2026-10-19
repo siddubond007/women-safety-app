@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_assets.dart';
 import '../../../core/constants/mock_data.dart';
 import '../../../core/theme/app_colors.dart';
@@ -26,6 +27,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late List<String> _interests;
   late String _selectedAvatar;
   bool _isSaving = false;
+  bool _isUploadingAvatar = false;
 
   static const List<Map<String, String>> _avatarPresets = [
     {'label': 'Siddhu', 'asset': AppAssets.avatarSiddhu},
@@ -157,22 +159,65 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               child: OutlinedButton.icon(
                 icon: const Icon(Icons.cloud_upload_outlined, size: 18),
                 label: const Text('Upload New Avatar to Backend Cloud Storage'),
-                onPressed: () async {
-                  Navigator.pop(ctx);
-                  final uploadedUrl = await SakhiPrototypeState.instance
-                      .uploadMediaToCloud(
-                        purpose: 'avatar',
-                        fileName: 'profile_avatar_cloud.svg',
-                        presetTheme: 'botanical_bloom',
-                      );
-                  if (!mounted || uploadedUrl == null) return;
-                  setState(() => _selectedAvatar = uploadedUrl);
-                  SakhiPrototypeState.instance.updateAvatar(uploadedUrl);
-                  SakhiDialogs.showPrototypeSnackbar(
-                    context,
-                    'Avatar uploaded to Backend Cloud Storage & saved in PostgreSQL!',
-                  );
-                },
+                onPressed: _isUploadingAvatar
+                    ? null
+                    : () async {
+                        Navigator.pop(ctx);
+                        final picked = await ImagePicker().pickImage(
+                          source: ImageSource.gallery,
+                          maxWidth: 1600,
+                          maxHeight: 1600,
+                          imageQuality: 88,
+                        );
+                        if (!mounted || picked == null) return;
+                        final extension = picked.name.toLowerCase().split('.').last;
+                        final contentType = switch (extension) {
+                          'jpg' || 'jpeg' => 'image/jpeg',
+                          'png' => 'image/png',
+                          'webp' => 'image/webp',
+                          _ => null,
+                        };
+                        if (contentType == null) {
+                          SakhiDialogs.showPrototypeSnackbar(
+                            context,
+                            'Choose a JPG, PNG, or WebP image.',
+                          );
+                          return;
+                        }
+                        setState(() => _isUploadingAvatar = true);
+                        SakhiDialogs.showPrototypeSnackbar(
+                          context,
+                          'Uploading your photo to Google Drive…',
+                        );
+                        String? uploadedUrl;
+                        try {
+                          uploadedUrl = await SakhiPrototypeState.instance
+                              .uploadMediaToCloud(
+                                purpose: 'avatar',
+                                fileName: picked.name,
+                                fileBytes: await picked.readAsBytes(),
+                                contentType: contentType,
+                              );
+                        } finally {
+                          if (mounted) {
+                            setState(() => _isUploadingAvatar = false);
+                          }
+                        }
+                        if (!mounted) return;
+                        if (uploadedUrl == null) {
+                          SakhiDialogs.showPrototypeSnackbar(
+                            context,
+                            'Upload failed. Check Google Drive connection and retry.',
+                          );
+                          return;
+                        }
+                        setState(() => _selectedAvatar = uploadedUrl!);
+                        SakhiPrototypeState.instance.updateAvatar(uploadedUrl);
+                        SakhiDialogs.showPrototypeSnackbar(
+                          context,
+                          'Profile photo uploaded to Google Drive and saved to PostgreSQL.',
+                        );
+                      },
               ),
             ),
             const SizedBox(height: 10),
