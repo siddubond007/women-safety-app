@@ -98,7 +98,9 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
       if (!mounted) return;
       if (bytes.isEmpty || bytes.length > 10 * 1024 * 1024) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Choose an image no larger than 10 MB.')),
+          const SnackBar(
+            content: Text('Choose an image no larger than 10 MB.'),
+          ),
         );
         return;
       }
@@ -112,7 +114,11 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('The selected photo could not be read. Please try another image.')),
+          const SnackBar(
+            content: Text(
+              'The selected photo could not be read. Please try another image.',
+            ),
+          ),
         );
       }
     } finally {
@@ -122,7 +128,8 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
 
   Future<void> _openPhotoAndCloudUploadSheet() async {
     final urlController = TextEditingController(
-      text: (_selectedPhotoPath != null && _selectedPhotoPath!.startsWith('http'))
+      text:
+          (_selectedPhotoPath != null && _selectedPhotoPath!.startsWith('http'))
           ? _selectedPhotoPath!
           : '',
     );
@@ -213,7 +220,11 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
               width: double.infinity,
               child: OutlinedButton.icon(
                 icon: const Icon(Icons.photo_library_outlined, size: 18),
-                label: Text(_isUploadingPhoto ? 'Selecting photo…' : 'Choose Photo From Device'),
+                label: Text(
+                  _isUploadingPhoto
+                      ? 'Selecting photo…'
+                      : 'Choose Photo From Device',
+                ),
                 onPressed: _isUploadingPhoto
                     ? null
                     : () async {
@@ -481,7 +492,7 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
                 if (_pendingPhotoBytes != null)
                   ClipOval(
                     child: Image.memory(
-                      _pendingPhotoBytes!,
+                      Uint8List.fromList(_pendingPhotoBytes!),
                       width: 54,
                       height: 54,
                       fit: BoxFit.cover,
@@ -507,15 +518,16 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
                 Expanded(
                   child: OutlinedButton.icon(
                     key: const Key('auth-profile-add-photo-button'),
-                    onPressed:
-                        _isUploadingPhoto ? null : _openPhotoAndCloudUploadSheet,
+                    onPressed: _isUploadingPhoto
+                        ? null
+                        : _openPhotoAndCloudUploadSheet,
                     icon: const Icon(Icons.add_a_photo_outlined, size: 18),
                     label: Text(
                       _isUploadingPhoto
                           ? 'Uploading…'
                           : _selectedPhotoPath != null
-                              ? 'Change photo'
-                              : 'Add photo',
+                          ? 'Change photo'
+                          : 'Add photo',
                     ),
                   ),
                 ),
@@ -537,8 +549,8 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
               _pendingPhotoBytes != null
                   ? 'Your photo will upload to your private Google Drive after account creation.'
                   : _selectedPhotoPath != null
-                      ? 'The selected portrait will be saved with your profile.'
-                      : 'Email and profile photo are optional. You can continue without either.',
+                  ? 'The selected portrait will be saved with your profile.'
+                  : 'Email and profile photo are optional. You can continue without either.',
               style: const TextStyle(
                 color: SakhiColors.mutedPlum,
                 fontSize: 12,

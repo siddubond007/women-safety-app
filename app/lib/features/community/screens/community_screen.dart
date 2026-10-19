@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import '../../../core/constants/app_assets.dart';
+import 'package:image_picker/image_picker.dart';
+
 import '../../../core/constants/mock_data.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -49,21 +50,73 @@ class _CommunityScreenState extends State<CommunityScreen> {
   }
 
   Future<void> _handleUploadPostMedia(String presetTheme) async {
-    setState(() => _isUploadingCloudMedia = true);
-    final url = await SakhiPrototypeState.instance.uploadMediaToCloud(
-      purpose: 'post',
-      fileName: 'community_${presetTheme}_${DateTime.now().millisecondsSinceEpoch}.svg',
-      presetTheme: presetTheme,
-    );
-    if (!mounted) return;
-    setState(() {
-      _isUploadingCloudMedia = false;
-      _attachedMediaUrl = url ?? AppAssets.eveningWalkSunset;
-    });
-    SakhiDialogs.showPrototypeSnackbar(
-      context,
-      'Photo uploaded to Backend Cloud Storage!',
-    );
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1920,
+        maxHeight: 1920,
+        imageQuality: 88,
+      );
+      if (picked == null || !mounted) return;
+
+      final extension = picked.name.toLowerCase().split('.').last;
+      final contentType = switch (extension) {
+        'jpg' || 'jpeg' => 'image/jpeg',
+        'png' => 'image/png',
+        'webp' => 'image/webp',
+        _ => null,
+      };
+
+      if (contentType == null) {
+        SakhiDialogs.showPrototypeSnackbar(
+          context,
+          'Choose a JPG, PNG, or WebP image.',
+        );
+        return;
+      }
+
+      final bytes = await picked.readAsBytes();
+      if (!mounted) return;
+
+      if (bytes.isEmpty || bytes.length > 10 * 1024 * 1024) {
+        SakhiDialogs.showPrototypeSnackbar(
+          context,
+          'Choose an image no larger than 10 MB.',
+        );
+        return;
+      }
+
+      setState(() => _isUploadingCloudMedia = true);
+
+      final url = await SakhiPrototypeState.instance.uploadMediaToCloud(
+        purpose: 'post',
+        fileName:
+            'community_${presetTheme}_${DateTime.now().millisecondsSinceEpoch}.$extension',
+        fileBytes: bytes,
+        contentType: contentType,
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _isUploadingCloudMedia = false;
+        _attachedMediaUrl = url;
+      });
+
+      SakhiDialogs.showPrototypeSnackbar(
+        context,
+        url == null
+            ? 'Image upload failed. Please sign in and try again.'
+            : 'Photo uploaded to Sakhi Media.',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isUploadingCloudMedia = false);
+      SakhiDialogs.showPrototypeSnackbar(
+        context,
+        'Unable to upload this image. Please try again.',
+      );
+    }
   }
 
   void _publishPost() {
@@ -267,40 +320,40 @@ class _CommunityScreenState extends State<CommunityScreen> {
                             controller: _postController,
                             maxLines: 3,
                             decoration: const InputDecoration(
-                              hintText:
-                                  'Write your community post (saved directly to PostgreSQL)...',
+                              hintText: 'Write your community post (saved directly to PostgreSQL)...',
                             ),
                           ),
                           const SizedBox(height: 10),
                           Wrap(
                             spacing: 6,
                             runSpacing: 6,
-                            children: [
-                              'Wellness',
-                              'WomenInTech',
-                              'Self-Care',
-                              'Safety Tips',
-                              'Book Club',
-                            ].map((badge) {
-                              final selected = _selectedBadge == badge;
-                              return ChoiceChip(
-                                label: Text(
-                                  badge,
-                                  style: TextStyle(
-                                    fontSize: 11.5,
-                                    fontWeight: FontWeight.w700,
-                                    color: selected
-                                        ? Colors.white
-                                        : AppColors.primaryPurple,
-                                  ),
-                                ),
-                                selected: selected,
-                                selectedColor: AppColors.primaryPurple,
-                                backgroundColor: AppColors.pastelLavender,
-                                onSelected: (_) =>
-                                    setState(() => _selectedBadge = badge),
-                              );
-                            }).toList(),
+                            children:
+                                [
+                                  'Wellness',
+                                  'WomenInTech',
+                                  'Self-Care',
+                                  'Safety Tips',
+                                  'Book Club',
+                                ].map((badge) {
+                                  final selected = _selectedBadge == badge;
+                                  return ChoiceChip(
+                                    label: Text(
+                                      badge,
+                                      style: TextStyle(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w700,
+                                        color: selected
+                                            ? Colors.white
+                                            : AppColors.primaryPurple,
+                                      ),
+                                    ),
+                                    selected: selected,
+                                    selectedColor: AppColors.primaryPurple,
+                                    backgroundColor: AppColors.pastelLavender,
+                                    onSelected: (_) =>
+                                        setState(() => _selectedBadge = badge),
+                                  );
+                                }).toList(),
                           ),
                           const SizedBox(height: 10),
                           Row(
@@ -326,9 +379,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                 ),
                                 onPressed: _isUploadingCloudMedia
                                     ? null
-                                    : () => _handleUploadPostMedia(
-                                          'sunset_walk',
-                                        ),
+                                    : () =>
+                                          _handleUploadPostMedia('sunset_walk'),
                               ),
                               const Spacer(),
                               SakhiPillButton(
