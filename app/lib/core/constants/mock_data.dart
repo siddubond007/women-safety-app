@@ -757,7 +757,36 @@ class SakhiPrototypeState extends ChangeNotifier {
     );
   }
 
-  Future<String?> uploadMediaToCloud({required String purpose, required String fileName, String? externalUrl, String? presetTheme}) async { try { final token = await _client.readAccessToken(); final response = await _client.post('module2/media/upload', authenticated: token != null && token.isNotEmpty, body: {'fileName': fileName, 'contentType': 'image/webp', 'purpose': purpose, if (externalUrl != null && externalUrl.isNotEmpty) 'externalUrl': externalUrl, if (presetTheme != null && presetTheme.isNotEmpty) 'presetTheme': presetTheme}); final publicUrl = response['publicUrl']?.toString(); if (publicUrl != null && publicUrl.isNotEmpty) { if (purpose == 'avatar') { currentUser.avatarAsset = publicUrl; notifyListeners(); } return publicUrl; } } catch (_) {} return null; }
+  Future<String?> uploadMediaToCloud({
+    required String purpose,
+    required String fileName,
+    required List<int> fileBytes,
+    required String contentType,
+  }) async {
+    try {
+      final token = await _client.readAccessToken();
+      if (token == null || token.isEmpty) return null;
+      final response = await _client.postMultipart(
+        'module2/media/binary-upload',
+        authenticated: true,
+        fields: {'purpose': purpose},
+        fileBytes: fileBytes,
+        fileName: fileName,
+        contentType: contentType,
+      );
+      final publicUrl = response['publicUrl']?.toString();
+      if (publicUrl != null && publicUrl.isNotEmpty) {
+        if (purpose == 'avatar') {
+          currentUser.avatarAsset = publicUrl;
+          notifyListeners();
+        }
+        return publicUrl;
+      }
+    } catch (_) {
+      // The caller shows a generic connection/provider error; never log file bytes or tokens.
+    }
+    return null;
+  }
 
   void updateAvatar(String avatarAssetOrUrl) {
     final trimmed = avatarAssetOrUrl.trim();
