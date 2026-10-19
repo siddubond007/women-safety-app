@@ -1,4 +1,7 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../core/constants/mock_data.dart';
 import '../../core/navigation/app_routes.dart';
@@ -304,7 +307,9 @@ class _CreatePostSheet extends StatefulWidget {
 
 class _CreatePostSheetState extends State<_CreatePostSheet> {
   final TextEditingController _controller = TextEditingController();
-  String _audience = 'VERIFIED_MEMBERS';
+  Uint8List? _selectedImageBytes;
+  String? _selectedImageFileName;
+  String? _selectedImageContentType;
   bool _saving = false;
   String? _error;
 
@@ -314,15 +319,72 @@ class _CreatePostSheetState extends State<_CreatePostSheet> {
     super.dispose();
   }
 
+  Future<void> _pickPostImage() async {
+    final picked = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1920,
+      maxHeight: 1920,
+      imageQuality: 88,
+    );
+    if (picked == null || !mounted) return;
+    final extension = picked.name.toLowerCase().split('.').last;
+    final contentType = switch (extension) {
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'png' => 'image/png',
+      'webp' => 'image/webp',
+      _ => null,
+    };
+    if (contentType == null) {
+      setState(() => _error = 'Choose a JPG, PNG, or WebP image.');
+      return;
+    }
+    try {
+      final bytes = await picked.readAsBytes();
+      if (!mounted) return;
+      if (bytes.length > 10 * 1024 * 1024) {
+        setState(() => _error = 'Images must be 10 MB or smaller.');
+        return;
+      }
+      setState(() {
+        _selectedImageBytes = bytes;
+        _selectedImageFileName = picked.name;
+        _selectedImageContentType = contentType;
+        _error = null;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _error = 'The selected image could not be read.');
+    }
+  }
+
   Future<void> _publish() async {
     if (_saving) return;
     setState(() {
       _saving = true;
       _error = null;
     });
+
+    String? imageUrl;
+    if (_selectedImageBytes != null) {
+      imageUrl = await widget.state.uploadMediaFile(
+        purpose: 'post',
+        fileName: _selectedImageFileName ?? 'community-post.jpg',
+        contentType: _selectedImageContentType ?? 'image/jpeg',
+        fileBytes: _selectedImageBytes!,
+      );
+      if (!mounted) return;
+      if (imageUrl == null) {
+        setState(() {
+          _saving = false;
+          _error = widget.state.errorMessage ??
+              'The image was not uploaded. Check Google Drive connection and retry.';
+        });
+        return;
+      }
+    }
+
     final success = await widget.state.createPost(
       _controller.text,
-      audience: _audience,
+      imageAsset: imageUrl,
     );
     if (!mounted) return;
     if (success) {
@@ -358,18 +420,47 @@ class _CreatePostSheetState extends State<_CreatePostSheet> {
               decoration: const InputDecoration(hintText: 'Share a thought, wellness tip, or question...'),
             ),
             const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              initialValue: _audience,
-              decoration: const InputDecoration(labelText: 'Who can see this post'),
-              items: const [
-                DropdownMenuItem(value: 'VERIFIED_MEMBERS', child: Text('Verified members')),
-                DropdownMenuItem(value: 'FOLLOWERS', child: Text('My followers')),
-                DropdownMenuItem(value: 'ONLY_ME', child: Text('Only me')),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _saving ? null : _pickPostImage,
+                    icon: const Icon(Icons.add_photo_alternate_outlined),
+                    label: Text(_selectedImageBytes == null ? 'Add photo' : 'Change photo'),
+                  ),
+                ),
+                if (_selectedImageBytes != null)
+                  IconButton(
+                    tooltip: 'Remove selected photo',
+                    onPressed: _saving
+                        ? null
+                        : () => setState(() {
+                              _selectedImageBytes = null;
+                              _selectedImageFileName = null;
+                              _selectedImageContentType = null;
+                            }),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
               ],
-              onChanged: _saving ? null : (value) {
-                if (value != null) setState(() => _audience = value);
-              },
             ),
+            if (_selectedImageBytes != null) ...[
+              const SizedBox(height: 8),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.memory(
+                  _selectedImageBytes!,
+                  width: double.infinity,
+                  height: 160,
+                  fit: BoxFit.cover,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'The photo will upload to your private Google Drive when you publish.',
+                style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+              ),
+            ],
+
             if (_error != null) ...[
               const SizedBox(height: 10),
               Text(_error!, style: const TextStyle(color: AppColors.sosRed, fontSize: 12.5)),
