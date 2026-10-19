@@ -979,7 +979,7 @@ svg { flex-shrink: 0; }
   overflow-wrap: anywhere;
 }
 
-.member-create-description {
+.member-directory-heading .member-create-description {
   max-width: 980px;
   margin: 8px 0 0;
   color: #706176;
@@ -998,7 +998,3 @@ svg { flex-shrink: 0; }
   white-space: normal;
 }
 
-.member-section-description {
-  margin-top: 10px;
-  margin-bottom: 14px;
-}
