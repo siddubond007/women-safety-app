@@ -311,6 +311,7 @@ class BackendAuthService implements AuthService {
   }
 
   @override
+  @override
   Future<AccountCreationResult> createAccount({
     required MemberProfileDraft profile,
     required MemberConsentRecord consent,
@@ -327,7 +328,9 @@ class BackendAuthService implements AuthService {
           'displayName': profile.displayName.trim(),
           'dateOfBirth': dateString,
           'email': profile.email,
-          if (profile.photoPath != null && profile.photoPath!.trim().isNotEmpty)
+          if (profile.photoBytes == null &&
+              profile.photoPath != null &&
+              profile.photoPath!.trim().isNotEmpty)
             'avatarAsset': profile.photoPath!.trim(),
           'termsVersion': consent.termsVersion,
           'privacyVersion': consent.privacyVersion,
@@ -336,11 +339,48 @@ class BackendAuthService implements AuthService {
         },
       );
 
+      var message = data['message'] is String
+          ? data['message'] as String
+          : 'Profile saved by the development backend.';
+      final photoBytes = profile.photoBytes;
+      if (photoBytes != null && photoBytes.isNotEmpty) {
+        final fileName = profile.photoFileName ?? 'profile-photo.jpg';
+        final contentType = profile.photoContentType ?? 'image/jpeg';
+        if (photoBytes.length <= 10 * 1024 * 1024 &&
+            const {'image/jpeg', 'image/png', 'image/webp'}.contains(contentType)) {
+          try {
+            final upload = await apiClient.postMultipart(
+              'module2/media/binary-upload',
+              authenticated: true,
+              fields: const {'purpose': 'avatar'},
+              fileBytes: photoBytes,
+              fileName: fileName,
+              contentType: contentType,
+            );
+            final publicUrl = upload['publicUrl']?.toString();
+            if (publicUrl != null && publicUrl.startsWith('http')) {
+              await apiClient.put(
+                'module2/profile/avatar',
+                authenticated: true,
+                body: {'avatarAsset': publicUrl},
+              );
+              message = 'Profile saved and photo uploaded to private Google Drive.';
+            } else {
+              message = 'Profile saved. The optional photo upload did not complete; you can try again from Edit Profile.';
+            }
+          } catch (_) {
+            // Photo is optional: do not report account creation as failed if the
+            // Drive upload is unavailable. The member can retry from Edit Profile.
+            message = 'Profile saved. The optional photo upload did not complete; you can try again from Edit Profile.';
+          }
+        } else {
+          message = 'Profile saved. The optional photo was not uploaded because it is too large or uses an unsupported image format.';
+        }
+      }
+
       return AccountCreationResult(
         accountState: _accountState(data['accountState']),
-        message: data['message'] is String
-            ? data['message'] as String
-            : 'Profile saved by the development backend.',
+        message: message,
       );
     } on BackendApiException catch (error) {
       throw _mapError(error);
