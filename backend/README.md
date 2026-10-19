@@ -132,12 +132,12 @@ The optional media pipeline stores real JPG, PNG, or WebP file bytes in the Goog
    `http://127.0.0.1:3001/api/v1/integrations/google-drive/callback`
 3. From `backend/`, run:
    ```powershell
-   .\\scripts\\Set-GoogleDriveCredentials.ps1
+   .\scripts\Set-GoogleDriveCredentials.ps1
    ```
-   Enter the OAuth client ID and the active client secret at the hidden prompt. The script encrypts both using Windows DPAPI and saves them outside the repository at `%LOCALAPPDATA%\\Sakhi\\credentials\\google-drive-credentials.dpapi.json`. Do not commit or share this file or the secret.
+   Enter the OAuth client ID and the active client secret at the hidden prompt. The script encrypts both using Windows DPAPI and saves them outside the repository at `%LOCALAPPDATA%\Sakhi\credentials\google-drive-credentials.dpapi.json`. Do not commit or share this file or the secret.
 4. Apply the new media metadata migration to the dedicated Sakhi development DB:
    ```powershell
-   .\\scripts\\db-migrate.ps1 -Environment dev
+   .\scripts\db-migrate.ps1 -Environment dev
    ```
    This wrapper uses `sakhi_dev_migrator`; it does not reset or drop the database. The migration grants the runtime app role only the SELECT and INSERT privileges required on `media_assets`.
 5. Start the local backend using `.\scripts\start-dev.ps1 -Environment dev`. The wrapper loads the DPAPI credentials and defaults the backend to `127.0.0.1:3001`.
