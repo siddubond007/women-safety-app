@@ -90,6 +90,13 @@ export class RequestMediaUploadDto {
   purpose!: "avatar" | "post" | "verification";
 }
 
+export class UploadBinaryMediaDto {
+  @ApiProperty({ enum: ["avatar", "post"] })
+  @IsString()
+  @IsIn(["avatar", "post"])
+  purpose!: "avatar" | "post";
+}
+
 export class UploadMediaObjectDto {
   @ApiProperty({ example: "cloud_upload.png" })
   @IsString()
