@@ -252,7 +252,7 @@ export function MemberManagementPage() {
         <div className="member-directory-heading">
           <div><span className="panel-kicker">ADD LIVE DATABASE USER</span><h2>Create a new Sakhi member in PostgreSQL</h2><p>New members created here are immediately saved in <code>member_accounts</code>, <code>member_profiles</code>, and <code>community_directory_profiles</code>.</p></div>
         </div>
-        <form className="member-filter-toolbar" onSubmit={createNewMember}>
+        <form className="member-filter-toolbar member-create-toolbar" onSubmit={createNewMember}>
           <label className="member-filter-select"><span>Display Name</span><input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. Divya Krishnan" required /></label>
           <label className="member-filter-select"><span>Mobile (E.164)</span><input type="text" value={newPhone} onChange={(e) => setNewPhone(e.target.value)} placeholder="+919845099111" required /></label>
           <label className="member-filter-select"><span>Bio</span><input type="text" value={newBio} onChange={(e) => setNewBio(e.target.value)} placeholder="Bio shown in app" /></label>
@@ -284,7 +284,7 @@ export function MemberManagementPage() {
                   member.accountStatus === "ACTIVE" && member.verificationStatus === "VERIFIED";
                 return (
                   <tr key={member.id}>
-                    <td><button className="member-identity-button" type="button" onClick={() => openEditor(member)}><span className="member-avatar">{initials(member.displayName)}</span><span><strong>{member.displayName}</strong><small>{member.reference}</small></span></button></td>
+                    <td><button className="member-identity-button" type="button" onClick={() => openEditor(member)}><span className="member-avatar">{initials(member.displayName)}</span><span className="member-identity-copy"><strong>{member.displayName}</strong><small>{member.reference}</small></span></button></td>
                     <td><strong>{member.phoneE164 ?? member.phoneMasked}</strong></td>
                     <td>{formatDate(member.registeredAt)}</td>
                     <td><StatusPill tone={accountTone(member.accountStatus)}>{accountLabels[member.accountStatus]}</StatusPill></td>
