@@ -81,7 +81,7 @@ export class Module2Controller {
   @Post("media/presign")
   @HttpCode(200)
   @ApiOkResponse({
-    description: "Generates a cloud-ready presigned upload URL for user avatars or post images.",
+    description: "Legacy metadata-only presign route disabled; use the authenticated multipart binary upload endpoint after connecting Google Drive.",
   })
   requestMediaUpload(
     @Headers("authorization") authorization: string | undefined,
@@ -122,7 +122,7 @@ export class Module2Controller {
   @Post("media/upload")
   @HttpCode(200)
   @ApiOkResponse({
-    description: "Uploads and persists a user avatar or post photo to backend cloud storage and returns its live URL.",
+    description: "Legacy JSON/placeholder upload route disabled; use the authenticated multipart binary upload endpoint for real file bytes.",
   })
   uploadMediaObject(
     @Headers("authorization") authorization: string | undefined,
@@ -157,7 +157,8 @@ export class Module2Controller {
       return;
     }
     res.setHeader("Content-Type", media.contentType);
-    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.setHeader("Cache-Control", "private, max-age=300");
+    res.setHeader("X-Content-Type-Options", "nosniff");
     res.status(200).send(media.buffer);
   }
 
