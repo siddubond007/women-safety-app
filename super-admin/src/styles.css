@@ -260,6 +260,15 @@ svg { flex-shrink: 0; }
 .dashboard-footnote > svg { color: #ad8eb4; }
 .dashboard-footnote span { flex: 1; min-width: 180px; }
 .dashboard-footnote a { display: inline-flex; align-items: center; gap: 4px; color: #9c4770; font-weight: 700; white-space: nowrap; }
+/* Responsive account-management card */
+.dashboard-account-panel { padding: 19px; }
+.dashboard-account-heading > div { flex: 1 1 auto; min-width: 0; }
+.dashboard-account-heading > .button { flex: 0 1 auto; max-width: 100%; white-space: normal; text-align: center; }
+.dashboard-account-heading h2, .dashboard-account-heading p { overflow-wrap: anywhere; }
+@media (max-width: 700px) {
+  .dashboard-account-heading { flex-direction: column; align-items: stretch; }
+  .dashboard-account-heading > .button { width: 100%; }
+}
 .dashboard-footnote a:hover { color: #772846; }
 .page-footer { display: flex; justify-content: space-between; gap: 12px; padding: 22px 0 2px; margin-top: 7px; border-top: 1px solid #eee7ef; color: #b0a5b3; font-size: 10px; letter-spacing: .65px; }
 .page-footer > span:last-child { letter-spacing: 0; font-size: 11px; }
@@ -530,13 +539,14 @@ svg { flex-shrink: 0; }
 .member-toast button { display: grid; place-items: center; border: 0; padding: 0; color: #72957f; background: transparent; }
 
 .member-drawer-overlay { position: fixed; inset: 0; z-index: 100; display: flex; justify-content: flex-end; background: rgba(47, 31, 51, .28); backdrop-filter: blur(2px); animation: member-overlay-in .15s ease-out; }
-.member-detail-drawer { display: flex; flex-direction: column; width: min(540px, 100%); height: 100dvh; background: #fff; box-shadow: -16px 0 50px rgba(47,31,51,.15); animation: member-drawer-in .18s ease-out; }
+.member-detail-drawer { display: flex; flex-direction: column; min-height: 0; overflow: hidden; width: min(540px, 100%); height: 100dvh; background: #fff; box-shadow: -16px 0 50px rgba(47,31,51,.15); animation: member-drawer-in .18s ease-out; }
 .member-drawer-header { min-height: 67px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 22px; border-bottom: 1px solid #f0e8f0; }
 .member-drawer-header > div { display: flex; flex-direction: column; gap: 4px; }
 .member-drawer-ref { color: #6d5878; font-family: Manrope, sans-serif; font-size: 13px; font-weight: 800; letter-spacing: .3px; }
 .member-drawer-close, .member-modal-close { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid #eee5ef; border-radius: 9px; background: #fff; color: #8f7b98; }
 .member-drawer-close:hover, .member-modal-close:hover { background: #faf5fa; }
-.member-drawer-scroll { flex: 1; overflow: auto; padding: 22px; }
+.member-drawer-form { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: hidden; }
+.member-drawer-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 22px; }
 .member-detail-profile { display: flex; flex-direction: column; align-items: center; padding: 9px 8px 22px; text-align: center; border-bottom: 1px solid #f0e9f1; }
 .member-avatar--large { width: 61px; height: 61px; flex-basis: 61px; border-radius: 19px; font-size: 17px; }
 .member-detail-profile h2 { margin: 12px 0 4px; font-family: Manrope, sans-serif; font-size: 23px; letter-spacing: -.7px; color: #3d2e45; }
@@ -572,7 +582,7 @@ svg { flex-shrink: 0; }
 .member-audit-empty { display: flex; align-items: center; gap: 8px; padding: 12px; border: 1px dashed #e7dbe9; border-radius: 9px; color: #a397a7; font-size: 11px; line-height: 1.5; }
 .member-drawer-security-note { display: flex; align-items: flex-start; gap: 7px; margin: 0 0 12px; padding: 10px; border-radius: 8px; background: #faf6fb; color: #96839d; font-size: 11px; line-height: 1.6; }
 .member-drawer-security-note svg { flex: 0 0 auto; margin-top: 1px; }
-.member-drawer-footer { display: flex; justify-content: flex-end; padding: 13px 22px; border-top: 1px solid #f0e8f0; background: #fff; }
+.member-drawer-footer { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 13px 22px; border-top: 1px solid #f0e8f0; background: #fff; }
 
 .member-modal-overlay { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 18px; overflow-y: auto; background: rgba(45, 28, 49, .38); backdrop-filter: blur(3px); animation: member-overlay-in .15s ease-out; }
 .member-action-modal { width: min(475px, 100%); padding: 23px; border: 1px solid #eee0ed; border-radius: 16px; background: #fff; box-shadow: 0 22px 70px rgba(47,31,51,.2); }

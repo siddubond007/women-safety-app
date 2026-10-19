@@ -110,8 +110,8 @@ export function DashboardPage() {
           <div className="table-note"><ShieldCheck size={14} /><span>All counts and queue entries above come from the backend response. Unconnected platform modules are not represented with invented metrics.</span></div>
         </section>
 
-        <section className="panel">
-          <div className="panel-heading"><div><span className="panel-kicker">ACCOUNT MANAGEMENT</span><h2>Real member records</h2><p>Search accounts and change development-only account/verification status with an audit reason.</p></div><Link className="button button--secondary" to="/members">Open member directory</Link></div>
+        <section className="panel dashboard-account-panel">
+          <div className="panel-heading dashboard-account-heading"><div><span className="panel-kicker">ACCOUNT MANAGEMENT</span><h2>Real member records</h2><p>Search accounts and change development-only account/verification status with an audit reason.</p></div><Link className="button button--secondary" to="/members">Open member directory</Link></div>
         </section>
         <div className="dashboard-footnote"><ShieldCheck size={15} /><span>Local development/test environment. Manual state overrides are not real-world eligibility decisions.</span><Link to="/settings">About this environment →</Link></div>
       </>}
