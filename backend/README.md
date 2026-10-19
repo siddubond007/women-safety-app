@@ -135,7 +135,7 @@ The optional media pipeline stores real JPG, PNG, or WebP file bytes in the Goog
    .\scripts\Set-GoogleDriveCredentials.ps1
    ```
    Enter the OAuth client ID and the active client secret at the hidden prompt. The script encrypts both using Windows DPAPI and saves them outside the repository at `%LOCALAPPDATA%\Sakhi\credentials\google-drive-credentials.dpapi.json`. Do not commit or share this file or the secret.
-4. Start the local backend using ` .\scripts\start-dev.ps1 -Environment dev` (without the extra leading space in PowerShell). The wrapper loads the DPAPI credentials and defaults the backend to `127.0.0.1:3001`.
+4. Start the local backend using `.\scripts\start-dev.ps1 -Environment dev`. The wrapper loads the DPAPI credentials and defaults the backend to `127.0.0.1:3001`.
 5. Open `http://127.0.0.1:3001/api/v1/integrations/google-drive/connect` in the same Windows browser, sign in using the configured test user, and approve Sakhi's Drive access. The callback stores the refresh token using DPAPI. Confirm:
    `http://127.0.0.1:3001/api/v1/integrations/google-drive/status`
    should report `configured: true` and `connected: true`.
