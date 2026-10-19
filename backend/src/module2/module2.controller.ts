@@ -135,8 +135,10 @@ export class Module2Controller {
   @ApiOkResponse({
     description: "Lists recent user media uploads stored in the backend cloud storage pipeline.",
   })
-  listMediaObjects() {
-    return this.module2.listMediaObjects();
+  listMediaObjects(
+    @Headers("authorization") authorization: string | undefined,
+  ) {
+    return this.module2.listMediaObjects(authorization);
   }
 
   @Get("media/object/:uploadId")
