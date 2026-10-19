@@ -122,7 +122,7 @@ The runner checks the feature branch, performs only the idempotent synthetic see
 
 ## Local Google Drive media storage (dev/test only)
 
-The optional media pipeline stores real JPG, PNG, or WebP file bytes in the Google Drive account that completes the local OAuth flow. PostgreSQL stores the corresponding `media_assets` row (owner, purpose, Drive file ID, MIME type, byte size and backend media URL); an audit event records the upload. It does not store image bytes in PostgreSQL. Verification evidence uploads are intentionally not enabled.
+The optional media pipeline stores real JPG, PNG, or WebP file bytes in the Google Drive account that completes the local OAuth flow. Actual image bytes live in Drive; the backend uses the existing PostgreSQL `audit_events` records to retain the owner, purpose, Drive file ID, MIME type, byte size and backend media URL. This feature does not add a database migration or change database grants. Verification-evidence uploads are intentionally not enabled.
 
 ### One-time setup on Windows
 
@@ -135,13 +135,8 @@ The optional media pipeline stores real JPG, PNG, or WebP file bytes in the Goog
    .\scripts\Set-GoogleDriveCredentials.ps1
    ```
    Enter the OAuth client ID and the active client secret at the hidden prompt. The script encrypts both using Windows DPAPI and saves them outside the repository at `%LOCALAPPDATA%\Sakhi\credentials\google-drive-credentials.dpapi.json`. Do not commit or share this file or the secret.
-4. Apply the new media metadata migration to the dedicated Sakhi development DB:
-   ```powershell
-   .\scripts\db-migrate.ps1 -Environment dev
-   ```
-   This wrapper uses `sakhi_dev_migrator`; it does not reset or drop the database. The migration grants the runtime app role only the SELECT and INSERT privileges required on `media_assets`.
-5. Start the local backend using `.\scripts\start-dev.ps1 -Environment dev`. The wrapper loads the DPAPI credentials and defaults the backend to `127.0.0.1:3001`.
-6. Open `http://127.0.0.1:3001/api/v1/integrations/google-drive/connect` in the same Windows browser, sign in using the configured test user, and approve Sakhi's Drive access. The callback stores the refresh token using DPAPI. Confirm:
+4. Start the local backend using ` .\scripts\start-dev.ps1 -Environment dev` (without the extra leading space in PowerShell). The wrapper loads the DPAPI credentials and defaults the backend to `127.0.0.1:3001`.
+5. Open `http://127.0.0.1:3001/api/v1/integrations/google-drive/connect` in the same Windows browser, sign in using the configured test user, and approve Sakhi's Drive access. The callback stores the refresh token using DPAPI. Confirm:
    `http://127.0.0.1:3001/api/v1/integrations/google-drive/status`
    should report `configured: true` and `connected: true`.
 
@@ -151,8 +146,7 @@ The `SAKHI_GOOGLE_DRIVE_*` settings are backend-process variables only; never ex
 
 - Authenticated multipart endpoint: `POST /api/v1/module2/media/binary-upload`, with one `file` field and a `purpose` field of `avatar` or `post`.
 - Accepted content: JPG/JPEG, PNG or WebP, at most 10 MiB. The backend checks both MIME type and file signature.
-- The actual binary is uploaded to a private `Sakhi Media` folder in the connected Drive account. The Drive file ID and ownership metadata are stored in `media_assets`; profile-photo URLs and community post image references use the backend media URL.
+- The actual binary is uploaded to a private `Sakhi Media` folder in the connected Drive account. The Drive file ID and ownership metadata are saved to the existing PostgreSQL audit metadata; profile-photo URLs and community post image references use the backend media URL.
 - Metadata-only `media/presign` and JSON placeholder `media/upload` routes are disabled and reject calls rather than claiming an image was stored.
 - The local OAuth application remains in Testing. Google OAuth refresh tokens issued while an external app remains in Testing expire after seven days for non-basic scopes, so reconnect Drive when the status endpoint reports it is no longer connected.
 - This is a local development integration, not a production-ready media authorization/CDN layer. The opaque backend media URL is not currently protected by per-user authorization. Do not upload verification evidence or other sensitive media; add authorization, retention, deletion and production OAuth review before deployment.
-
