@@ -81,6 +81,7 @@ model MemberAccount {
   sosEvents               SafetySosEvent[]
   moderationBlocks        MemberModerationBlock[]
   userReports             MemberUserReport[]
+  mediaAssets              MediaAsset[]
 
   @@map("member_accounts")
 }
@@ -404,6 +405,23 @@ model MemberUserReport {
 
   @@index([reporterAccountId, createdAt], map: "member_user_reports_reporter_created_idx")
   @@map("member_user_reports")
+}
+
+model MediaAsset {
+  id          String        @id @default(uuid()) @db.Uuid
+  accountId   String        @map("account_id") @db.Uuid
+  purpose     String        @db.VarChar(16)
+  provider    String        @default("google_drive") @db.VarChar(32)
+  driveFileId String        @unique(map: "media_assets_drive_file_id_key") @map("drive_file_id") @db.VarChar(255)
+  fileName    String        @map("file_name") @db.VarChar(180)
+  contentType String        @map("content_type") @db.VarChar(64)
+  sizeBytes   Int           @map("size_bytes")
+  mediaUrl    String        @map("media_url") @db.VarChar(512)
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  account     MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([accountId, purpose, createdAt], map: "media_assets_account_purpose_created_idx")
+  @@map("media_assets")
 }
 
 model AuditEvent {
