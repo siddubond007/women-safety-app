@@ -1,6 +1,7 @@
 param(
   [ValidateSet('dev', 'test')]
-  [string]$Environment = 'dev'
+  [string]$Environment = 'dev',
+  [switch]$Watch
 )
 
 $ErrorActionPreference = 'Stop'
@@ -36,9 +37,24 @@ if ([string]::IsNullOrWhiteSpace($env:HOST)) { $env:HOST = '127.0.0.1' }
 Push-Location $backendRoot
 try {
   Write-Host 'Sakhi DEV/TEST ONLY mode: OTP codes are echoed to the local app; no SMS is sent.'
-  Write-Host 'Super Admin Reviewer Token: sakhi-local-dev-super-admin-token-2026'
+  Write-Host ('Super Admin Reviewer Token: ' + $env:SAKHI_ADMIN_REVIEW_TOKEN)
   Write-Host 'Minimum age 13 is a temporary local testing rule, not approved production policy.'
-  & npm.cmd run start:dev
+  if ($Watch) {
+    Write-Host 'Watch mode: TypeScript changes will rebuild automatically and Node will restart the API.'
+    & npm.cmd run build
+    if ($LASTEXITCODE -ne 0) {
+      throw ('Initial backend build exited with code ' + $LASTEXITCODE)
+    }
+
+    $tscPath = Join-Path $backendRoot 'node_modules\.bin\tsc.cmd'
+    $buildConfigPath = Join-Path $backendRoot 'tsconfig.build.json'
+    $watchCommand = "`"$tscPath`" -p `"$buildConfigPath`" --watch --preserveWatchOutput"
+    Start-Process -FilePath 'cmd.exe' -ArgumentList @('/k', $watchCommand) -WorkingDirectory $backendRoot
+    Write-Host 'A separate TypeScript watcher window is open. Leave it running during development.'
+    & node.exe --watch dist/main.js
+  } else {
+    & npm.cmd run start:dev
+  }
   if ($LASTEXITCODE -ne 0) {
     throw ('Backend process exited with code ' + $LASTEXITCODE)
   }
