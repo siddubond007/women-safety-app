@@ -793,7 +793,7 @@ svg { flex-shrink: 0; }
   min-width: 0;
 }
 
-.member-identity-copy {
+.member-identity-button > .member-identity-copy {
   flex: 1 1 auto;
   width: 0;
 }
@@ -998,3 +998,123 @@ svg { flex-shrink: 0; }
   white-space: normal;
 }
 
+/* Eligibility review uses a plain identity block, not the clickable identity button.
+   Give each column a usable width so names/reference codes cannot collapse vertically. */
+.eligibility-review-page .member-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.eligibility-review-page .member-table {
+  width: 100%;
+  min-width: 1240px;
+  table-layout: fixed;
+}
+
+.eligibility-review-page .member-table th:nth-child(1),
+.eligibility-review-page .member-table td:nth-child(1) { width: 230px; }
+
+.eligibility-review-page .member-table th:nth-child(2),
+.eligibility-review-page .member-table td:nth-child(2) { width: 145px; }
+
+.eligibility-review-page .member-table th:nth-child(3),
+.eligibility-review-page .member-table td:nth-child(3) { width: 130px; }
+
+.eligibility-review-page .member-table th:nth-child(4),
+.eligibility-review-page .member-table td:nth-child(4) { width: 145px; }
+
+.eligibility-review-page .member-table th:nth-child(5),
+.eligibility-review-page .member-table td:nth-child(5) { width: 190px; }
+
+.eligibility-review-page .member-table th:nth-child(6),
+.eligibility-review-page .member-table td:nth-child(6) { width: 255px; }
+
+.eligibility-review-page .member-table th:nth-child(7),
+.eligibility-review-page .member-table td:nth-child(7) { width: 145px; }
+
+.eligibility-review-page .member-table td:first-child .member-identity-copy {
+  width: auto;
+  min-width: 190px;
+  max-width: 100%;
+  flex: 0 1 auto;
+}
+
+.eligibility-review-page .member-table td:first-child .member-identity-copy strong {
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+.eligibility-review-page .member-table td:first-child .member-identity-copy small {
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
+.eligibility-review-page .member-table td:nth-child(2),
+.eligibility-review-page .member-table td:nth-child(3),
+.eligibility-review-page .member-table td:nth-child(4),
+.eligibility-review-page .member-table td:nth-child(5) {
+  white-space: nowrap;
+}
+
+.eligibility-review-page .eligibility-review-modal .member-form-helper {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.eligibility-review-page .eligibility-review-modal .member-form-helper > span:first-child {
+  color: #806e75;
+  line-height: 1.45;
+}
+
+
+
+/* Eligibility review readability and clear validation states */
+.eligibility-review-panel .member-table-scroll {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.eligibility-review-panel .member-table {
+  width: 100%;
+  min-width: 1120px;
+  table-layout: auto;
+}
+
+.eligibility-review-panel .member-table th:first-child,
+.eligibility-review-panel .member-table tbody td:first-child {
+  width: 220px;
+  min-width: 220px;
+}
+
+.eligibility-review-panel .member-table .member-identity-copy {
+  display: flex;
+  flex-direction: column;
+  width: 180px;
+  min-width: 180px;
+  gap: 4px;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.eligibility-review-panel .member-table .member-identity-copy strong,
+.eligibility-review-panel .member-table .member-identity-copy small {
+  overflow-wrap: normal;
+  word-break: normal;
+  white-space: normal;
+}
+
+.eligibility-review-decision-buttons .button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+  filter: saturate(.45);
+  box-shadow: none;
+}
+
+.eligibility-review-reason-hint {
+  color: #8a6878;
+  font-size: 11px;
+  line-height: 1.5;
+}
