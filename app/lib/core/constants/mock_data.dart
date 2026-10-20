@@ -522,8 +522,9 @@ class SakhiPrototypeState extends ChangeNotifier {
     for (final post in [...communityPosts, ...exploreRecommendedPosts]) {
       for (final rawTag in post.hashtags) {
         final tag = rawTag.startsWith('#') ? rawTag : '#$rawTag';
-        if (tag.length > 1)
+        if (tag.length > 1) {
           counts.update(tag, (count) => count + 1, ifAbsent: () => 1);
+        }
       }
     }
     final tags = counts.keys.toList()
