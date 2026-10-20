@@ -7,7 +7,10 @@ export class GoogleDriveIntegrationController {
   constructor(private readonly googleDrive: GoogleDriveStorageService) {}
 
   @Get("status")
-  status() {
+  async status(@Query("verify") verify?: string) {
+    if (verify === "true") {
+      return this.googleDrive.verifyConnectionStatus(true);
+    }
     return this.googleDrive.status();
   }
 

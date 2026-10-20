@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Activity, AlertCircle, CheckCircle2, Clock3, RefreshCw, ShieldCheck, Users } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { StatusPill } from "../components/StatusPill";
@@ -40,12 +40,18 @@ export function DashboardPage() {
   const [seeding, setSeeding] = useState(false);
   const [seedNotice, setSeedNotice] = useState("");
 
+  function requestRefresh() {
+    setLoading(true);
+    setError("");
+    setRefresh((value) => value + 1);
+  }
+
   async function triggerLiveSeed() {
     setSeeding(true);
     try {
       const res = await adminApi<{ message: string }>("/admin-review/seed-live-data", { method: "POST", body: {} });
       setSeedNotice(res.message);
-      setRefresh((v) => v + 1);
+      requestRefresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to seed database.");
     } finally {
@@ -53,29 +59,38 @@ export function DashboardPage() {
     }
   }
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const [members, queue] = await Promise.all([
-        adminApi<MemberSummaryResponse>("/admin-review/members?page=1&pageSize=1"),
-        adminApi<ReviewQueueItem[]>("/admin-review/queue"),
-      ]);
-      setData({ summary: members.summary, queue });
-    } catch (cause) {
-      if (cause instanceof AdminApiError && cause.statusCode === 401) {
-        adminAuthService.signOut();
-        navigate("/login", { replace: true });
-        return;
-      }
-      setError(cause instanceof Error ? cause.message : "Live dashboard data could not be loaded.");
-      setData(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [navigate]);
+  useEffect(() => {
+    let active = true;
 
-  useEffect(() => { void load(); }, [load, refresh]);
+    const fetchDashboard = async () => {
+      try {
+        const [members, queue] = await Promise.all([
+          adminApi<MemberSummaryResponse>("/admin-review/members?page=1&pageSize=1"),
+          adminApi<ReviewQueueItem[]>("/admin-review/queue"),
+        ]);
+        if (active) {
+          setData({ summary: members.summary, queue });
+          setError("");
+        }
+      } catch (cause) {
+        if (!active) return;
+        if (cause instanceof AdminApiError && cause.statusCode === 401) {
+          adminAuthService.signOut();
+          navigate("/login", { replace: true });
+          return;
+        }
+        setError(cause instanceof Error ? cause.message : "Live dashboard data could not be loaded.");
+        setData(null);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    void fetchDashboard();
+    return () => {
+      active = false;
+    };
+  }, [navigate, refresh]);
 
   const metrics = data ? [
     { id: "accounts", label: "Registered accounts", value: data.summary.totalAccounts, detail: "Persisted in PostgreSQL", icon: Users, tone: "rose" },
@@ -88,11 +103,11 @@ export function DashboardPage() {
     <div className="dashboard-page">
       <section className="page-heading">
         <div><div className="eyebrow"><span className="eyebrow-line" /> THE BIG PICTURE</div><h1>Overview dashboard</h1><p>Live account and eligibility information from the Sakhi development database.</p></div>
-        <div className="heading-meta"><StatusPill tone="green"><span className="status-pill__dot" /> LIVE DATABASE</StatusPill><button className="button button--primary" type="button" onClick={() => void triggerLiveSeed()} disabled={seeding || loading}>{seeding ? "Syncing…" : "Sync 8 Users & 11 Live Posts"}</button><button className="button button--secondary" type="button" onClick={() => setRefresh((value) => value + 1)} disabled={loading}><RefreshCw size={14} /> Refresh data</button></div>
+        <div className="heading-meta"><StatusPill tone="green"><span className="status-pill__dot" /> LIVE DATABASE</StatusPill><button className="button button--primary" type="button" onClick={() => void triggerLiveSeed()} disabled={seeding || loading}>{seeding ? "Syncing…" : "Sync 8 Users & 11 Live Posts"}</button><button className="button button--secondary" type="button" onClick={requestRefresh} disabled={loading}><RefreshCw size={14} /> Refresh data</button></div>
       </section>
 
       {seedNotice && <div className="member-toast" role="status" style={{ marginBottom: 16 }}><CheckCircle2 size={17} /><span>{seedNotice}</span></div>}
-      {error && <section className="panel dashboard-state" role="alert"><div><AlertCircle size={26} /><h2>Live data unavailable</h2><p>{error}</p><p>The dashboard will not substitute fictional counts or sample records.</p><button className="button button--secondary" type="button" onClick={() => setRefresh((value) => value + 1)}>Retry connection</button></div></section>}
+      {error && <section className="panel dashboard-state" role="alert"><div><AlertCircle size={26} /><h2>Live data unavailable</h2><p>{error}</p><p>The dashboard will not substitute fictional counts or sample records.</p><button className="button button--secondary" type="button" onClick={requestRefresh}>Retry connection</button></div></section>}
 
       {loading && !data && !error && <section className="panel dashboard-state" aria-busy="true"><div><Activity size={24} /><h2>Loading database records</h2><p>Fetching live account counts and the actual eligibility-review queue.</p></div></section>}
 

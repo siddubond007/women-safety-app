@@ -39,15 +39,8 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
   bool _isUploadingPhoto = false;
   bool _attemptedContinue = false;
 
-  static const List<Map<String, String>> _portraitPresets = [
-    {'label': 'Ananya', 'asset': AppAssets.avatarAnanya},
-    {'label': 'Meera', 'asset': AppAssets.avatarMeera},
-    {'label': 'Kavya', 'asset': AppAssets.avatarKavya},
-    {'label': 'Ishita', 'asset': AppAssets.avatarIshita},
-    {'label': 'Priya', 'asset': AppAssets.avatarPriya},
-    {'label': 'Sneha', 'asset': AppAssets.avatarSneha},
-    {'label': 'Siddhu', 'asset': AppAssets.avatarSiddhu},
-  ];
+  static const List<Map<String, String>> _portraitPresets =
+      AppAssets.defaultAvatarPresets;
 
   @override
   void dispose() {
@@ -71,11 +64,11 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
     if (picked != null && mounted) setState(() => _dateOfBirth = picked);
   }
 
-  Future<void> _pickRegistrationPhoto() async {
+  Future<void> _pickRegistrationPhoto(ImageSource source) async {
     setState(() => _isUploadingPhoto = true);
     try {
       final picked = await ImagePicker().pickImage(
-        source: ImageSource.gallery,
+        source: source,
         maxWidth: 1600,
         maxHeight: 1600,
         imageQuality: 88,
@@ -96,10 +89,10 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
       }
       final bytes = await picked.readAsBytes();
       if (!mounted) return;
-      if (bytes.isEmpty || bytes.length > 10 * 1024 * 1024) {
+      if (bytes.isEmpty || bytes.length > 8 * 1024 * 1024) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Choose an image no larger than 10 MB.'),
+            content: Text('Choose an image no larger than 8 MB.'),
           ),
         );
         return;
@@ -126,14 +119,7 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
     }
   }
 
-  Future<void> _openPhotoAndCloudUploadSheet() async {
-    final urlController = TextEditingController(
-      text:
-          (_selectedPhotoPath != null && _selectedPhotoPath!.startsWith('http'))
-          ? _selectedPhotoPath!
-          : '',
-    );
-
+  Future<void> _openPhotoAndAvatarSheet() async {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -153,7 +139,7 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Choose Profile Portrait or Cloud Upload',
+              'Choose Profile Photo or Default Avatar',
               style: TextStyle(
                 color: SakhiColors.plum,
                 fontSize: 17,
@@ -162,10 +148,49 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
             ),
             const SizedBox(height: 6),
             const Text(
-              'Select an illustrated studio portrait, upload a custom cloud avatar to the backend, or paste a Cloud Storage URL:',
+              'Select a real photo from your device gallery or camera, or choose one of our 12 original illustrated Sakhi women avatars:',
               style: SakhiTypography.body,
             ),
             const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.photo_library_outlined, size: 18),
+                    label: const Text('Device Gallery'),
+                    onPressed: _isUploadingPhoto
+                        ? null
+                        : () async {
+                            Navigator.pop(ctx);
+                            await _pickRegistrationPhoto(ImageSource.gallery);
+                          },
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.photo_camera_outlined, size: 18),
+                    label: const Text('Take Photo'),
+                    onPressed: _isUploadingPhoto
+                        ? null
+                        : () async {
+                            Navigator.pop(ctx);
+                            await _pickRegistrationPhoto(ImageSource.camera);
+                          },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'Or choose a default Sakhi woman avatar:',
+              style: TextStyle(
+                color: SakhiColors.plum,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 10),
             SizedBox(
               height: 84,
               child: ListView.separated(
@@ -175,7 +200,8 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
                 itemBuilder: (_, index) {
                   final item = _portraitPresets[index];
                   final asset = item['asset']!;
-                  final selected = _selectedPhotoPath == asset;
+                  final selected =
+                      _pendingPhotoBytes == null && _selectedPhotoPath == asset;
                   return GestureDetector(
                     onTap: () {
                       setState(() {
@@ -215,59 +241,13 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
                 },
               ),
             ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.photo_library_outlined, size: 18),
-                label: Text(
-                  _isUploadingPhoto
-                      ? 'Selecting photo…'
-                      : 'Choose Photo From Device',
-                ),
-                onPressed: _isUploadingPhoto
-                    ? null
-                    : () async {
-                        Navigator.pop(ctx);
-                        await _pickRegistrationPhoto();
-                      },
-              ),
-            ),
             const SizedBox(height: 10),
-            TextField(
-              controller: urlController,
-              decoration: const InputDecoration(
-                labelText: 'Or paste Cloud Storage URL (https://...)',
-                hintText: 'https://media.sakhi.dev/avatars/profile.webp',
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Close'),
               ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Close'),
-                ),
-                const SizedBox(width: 8),
-                FilledButton(
-                  onPressed: () {
-                    final url = urlController.text.trim();
-                    if (url.startsWith('http://') ||
-                        url.startsWith('https://')) {
-                      setState(() {
-                        _selectedPhotoPath = url;
-                        _pendingPhotoBytes = null;
-                        _pendingPhotoFileName = null;
-                        _pendingPhotoContentType = null;
-                        _photoSkipped = false;
-                      });
-                    }
-                    Navigator.pop(ctx);
-                  },
-                  child: const Text('Save Photo'),
-                ),
-              ],
             ),
           ],
         ),
@@ -483,7 +463,7 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
             ),
             const SizedBox(height: SakhiSpacing.lg),
             const Text(
-              'PROFILE PHOTO · CLOUD STORAGE READY',
+              'PROFILE PHOTO · DEVICE GALLERY OR ILLUSTRATED AVATAR',
               style: SakhiTypography.categoryLabel,
             ),
             const SizedBox(height: SakhiSpacing.xs),
@@ -501,18 +481,9 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
                 else if (_selectedPhotoPath != null)
                   SakhiAvatar(imageAsset: _selectedPhotoPath!, size: 54)
                 else
-                  Container(
-                    width: 54,
-                    height: 54,
-                    decoration: const BoxDecoration(
-                      color: SakhiColors.pink,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.person_outline_rounded,
-                      color: SakhiColors.purple,
-                      size: 30,
-                    ),
+                  SakhiAvatar(
+                    imageAsset: AppAssets.forKey(_nameController.text),
+                    size: 54,
                   ),
                 const SizedBox(width: SakhiSpacing.sm),
                 Expanded(
@@ -520,14 +491,15 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
                     key: const Key('auth-profile-add-photo-button'),
                     onPressed: _isUploadingPhoto
                         ? null
-                        : _openPhotoAndCloudUploadSheet,
+                        : _openPhotoAndAvatarSheet,
                     icon: const Icon(Icons.add_a_photo_outlined, size: 18),
                     label: Text(
                       _isUploadingPhoto
-                          ? 'Uploading…'
-                          : _selectedPhotoPath != null
-                          ? 'Change photo'
-                          : 'Add photo',
+                          ? 'Selecting…'
+                          : (_selectedPhotoPath != null ||
+                                  _pendingPhotoBytes != null)
+                              ? 'Change photo'
+                              : 'Add photo',
                     ),
                   ),
                 ),
@@ -547,10 +519,10 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
             const SizedBox(height: SakhiSpacing.xs),
             Text(
               _pendingPhotoBytes != null
-                  ? 'Your photo will upload to your private Google Drive after account creation.'
+                  ? 'Your photo will upload to your private Google Drive folder after account creation.'
                   : _selectedPhotoPath != null
-                  ? 'The selected portrait will be saved with your profile.'
-                  : 'Email and profile photo are optional. You can continue without either.',
+                      ? 'The selected Sakhi women\'s avatar will be saved with your profile.'
+                      : 'Email and profile photo are optional. You can continue with a default Sakhi avatar.',
               style: const TextStyle(
                 color: SakhiColors.mutedPlum,
                 fontSize: 12,

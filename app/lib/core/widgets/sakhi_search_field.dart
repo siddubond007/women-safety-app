@@ -3,11 +3,12 @@ import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 
-/// Soft pill search input matching Screen 1 and Screen 10.
+/// Soft pill search input matching Screen 1, Screen 3, and Screen 10.
 class SakhiSearchField extends StatelessWidget {
   final String hintText;
   final TextEditingController? controller;
   final ValueChanged<String>? onChanged;
+  final ValueChanged<String>? onSubmitted;
   final VoidCallback? onClear;
 
   const SakhiSearchField({
@@ -15,6 +16,7 @@ class SakhiSearchField extends StatelessWidget {
     required this.hintText,
     this.controller,
     this.onChanged,
+    this.onSubmitted,
     this.onClear,
   });
 
@@ -29,6 +31,8 @@ class SakhiSearchField extends StatelessWidget {
       child: TextField(
         controller: controller,
         onChanged: onChanged,
+        onSubmitted: onSubmitted,
+        textInputAction: TextInputAction.search,
         style: AppTypography.bodyRegular.copyWith(color: AppColors.textPrimary),
         decoration: InputDecoration(
           hintText: hintText,
@@ -36,7 +40,8 @@ class SakhiSearchField extends StatelessWidget {
           fillColor: Colors.transparent,
           filled: true,
           isDense: true,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
           prefixIcon: const Icon(
             Icons.search_rounded,
             color: AppColors.primaryPurple,

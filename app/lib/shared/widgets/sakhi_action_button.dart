@@ -18,19 +18,32 @@ class SakhiPrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final button = FilledButton.icon(
+    final button = FilledButton(
       onPressed: onPressed,
-      icon: Icon(icon, size: 22),
-      label: Text(label),
       style: FilledButton.styleFrom(
         backgroundColor: SakhiColors.purple,
         foregroundColor: Colors.white,
         minimumSize: const Size(0, 54),
-        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(SakhiRadii.control),
         ),
+      ),
+      child: Row(
+        mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 20),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              label,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
+          ),
+        ],
       ),
     );
 

@@ -1,111 +1,204 @@
-import { Body, Controller, Get, Headers, Param, ParseUUIDPipe, Post, Query } from "@nestjs/common";
-import { ApiHeader, ApiOkResponse, ApiTags } from "@nestjs/swagger";
-import { AdminReviewService } from "./admin-review.service.js";
-import { ManualEligibilityDecisionDto } from "./admin-review.dto.js";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Headers,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Put,
+  Query,
+} from "@nestjs/common";
 import { DevelopmentMemberStateDto } from "./admin-member-state.dto.js";
+import { ManualEligibilityDecisionDto } from "./admin-review.dto.js";
+import { AdminReviewService } from "./admin-review.service.js";
 
-@ApiTags("admin-review")
-@ApiHeader({ name: "X-Sakhi-Admin-Token", required: true, description: "Shared reviewer token for local dev/test only. Never use this mechanism in production." })
+function pickAdminToken(primary?: string, fallback?: string): string | undefined {
+  return primary?.trim() || fallback?.trim() || undefined;
+}
+
 @Controller("admin-review")
 export class AdminReviewController {
-  constructor(private readonly review: AdminReviewService) {}
+  constructor(private readonly adminReview: AdminReviewService) {}
 
   @Get("session")
-  @ApiOkResponse({ description: "Validates local dev/test reviewer access." })
-  session(@Headers("x-sakhi-admin-token") token?: string) {
-    return this.review.session(token);
+  session(
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+  ) {
+    return this.adminReview.session(pickAdminToken(token, altToken));
+  }
+
+  @Get("queue")
+  queue(
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+  ) {
+    return this.adminReview.queue(pickAdminToken(token, altToken));
   }
 
   @Get("members")
-  @ApiOkResponse({ description: "Lists persisted member accounts from the development database." })
   members(
     @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Query("page") page?: string,
     @Query("pageSize") pageSize?: string,
     @Query("search") search?: string,
     @Query("accountStatus") accountStatus?: string,
     @Query("verificationStatus") verificationStatus?: string,
   ) {
-    return this.review.members(token, page, pageSize, search, accountStatus, verificationStatus);
+    return this.adminReview.members(
+      pickAdminToken(token, altToken),
+      page,
+      pageSize,
+      search,
+      accountStatus,
+      verificationStatus,
+    );
   }
 
   @Post("members/create")
-  @ApiOkResponse({ description: "Creates a new database member account and community profile from Super Admin." })
+  @HttpCode(201)
   createMember(
-    @Headers("x-sakhi-admin-token") token: string | undefined,
     @Body() body: Record<string, unknown>,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
   ) {
-    return this.review.createMember(body, token);
+    return this.adminReview.createMember(body, pickAdminToken(token, altToken));
   }
 
-  @Post("members/:accountId/state")
-  @ApiOkResponse({ description: "Updates a member's persisted development account/verification state." })
+  @Patch("members/:accountId/state")
   updateMemberState(
-    @Headers("x-sakhi-admin-token") token: string | undefined,
-    @Param("accountId", new ParseUUIDPipe({ version: "4" })) accountId: string,
+    @Param("accountId", new ParseUUIDPipe()) accountId: string,
     @Body() dto: DevelopmentMemberStateDto,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
   ) {
-    return this.review.updateMemberState(accountId, dto, token);
-  }
-
-  @Get("queue")
-  @ApiOkResponse({ description: "Lists explicit pending manual-review submissions." })
-  queue(@Headers("x-sakhi-admin-token") token?: string) {
-    return this.review.queue(token);
-  }
-
-  @Get("history")
-  @ApiOkResponse({ description: "Returns persisted manual-review decision history." })
-  history(@Headers("x-sakhi-admin-token") token?: string) {
-    return this.review.history(token);
+    return this.adminReview.updateMemberState(
+      accountId,
+      dto,
+      pickAdminToken(token, altToken),
+    );
   }
 
   @Post("submissions/:submissionId/decision")
-  @ApiOkResponse({ description: "Records a decision for a pending manual-review submission." })
+  @HttpCode(200)
   decide(
-    @Headers("x-sakhi-admin-token") token: string | undefined,
-    @Param("submissionId", new ParseUUIDPipe({ version: "4" })) submissionId: string,
+    @Param("submissionId", new ParseUUIDPipe()) submissionId: string,
     @Body() dto: ManualEligibilityDecisionDto,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
   ) {
-    return this.review.decide(submissionId, dto, token);
+    return this.adminReview.decide(
+      submissionId,
+      dto,
+      pickAdminToken(token, altToken),
+    );
   }
 
   @Post("seed-live-data")
-  @ApiOkResponse({ description: "Populates/upserts rich live PostgreSQL users, posts, groups, and wellness items." })
-  seedLiveData(@Headers("x-sakhi-admin-token") token?: string) {
-    return this.review.seedLiveData(token);
+  @HttpCode(200)
+  seedLiveData(
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+  ) {
+    return this.adminReview.seedLiveData(pickAdminToken(token, altToken));
   }
 
   @Get("community")
-  @ApiOkResponse({ description: "Returns live PostgreSQL community posts, explore posts, and groups." })
-  community(@Headers("x-sakhi-admin-token") token?: string) {
-    return this.review.communityOverview(token);
+  communityOverview(
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+  ) {
+    return this.adminReview.communityOverview(pickAdminToken(token, altToken));
   }
 
   @Post("community/posts")
-  @ApiOkResponse({ description: "Creates a new live community/explore post in PostgreSQL." })
-  createCommunityPost(
-    @Headers("x-sakhi-admin-token") token: string | undefined,
+  @HttpCode(201)
+  createAdminPost(
     @Body() body: Record<string, unknown>,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
   ) {
-    return this.review.createAdminPost(body, token);
+    return this.adminReview.createAdminPost(body, pickAdminToken(token, altToken));
   }
 
-  @Post("community/posts/:postId/delete")
-  @ApiOkResponse({ description: "Deletes a community post from PostgreSQL." })
-  deleteCommunityPost(
-    @Headers("x-sakhi-admin-token") token: string | undefined,
-    @Param("postId", new ParseUUIDPipe({ version: "4" })) postId: string,
+  @Delete("community/posts/:postId")
+  deleteAdminPost(
+    @Param("postId") postId: string,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
   ) {
-    return this.review.deleteAdminPost(postId, token);
+    return this.adminReview.deleteAdminPost(postId, pickAdminToken(token, altToken));
+  }
+
+  @Put("categories/:slug")
+  updateCategoryConfig(
+    @Param("slug") slug: string,
+    @Body() body: Record<string, unknown>,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+  ) {
+    return this.adminReview.updateCategoryConfig(
+      slug,
+      body,
+      pickAdminToken(token, altToken),
+    );
+  }
+
+  @Post("reports/:reportId/resolve")
+  @HttpCode(200)
+  resolveReport(
+    @Param("reportId") reportId: string,
+    @Body() body: Record<string, unknown>,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+  ) {
+    return this.adminReview.resolveReport(
+      reportId,
+      body,
+      pickAdminToken(token, altToken),
+    );
+  }
+
+  @Post("posts/:postId/moderate")
+  @HttpCode(200)
+  moderatePost(
+    @Param("postId") postId: string,
+    @Body() body: Record<string, unknown>,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+  ) {
+    return this.adminReview.moderatePost(
+      postId,
+      body,
+      pickAdminToken(token, altToken),
+    );
+  }
+
+  @Post("comments/:commentId/moderate")
+  @HttpCode(200)
+  moderateComment(
+    @Param("commentId") commentId: string,
+    @Body() body: Record<string, unknown>,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+  ) {
+    return this.adminReview.moderateComment(
+      commentId,
+      body,
+      pickAdminToken(token, altToken),
+    );
   }
 
   @Get("operations")
-  @ApiOkResponse({
-    description:
-      "Returns live PostgreSQL data for moderation reports, SOS events, wellness items, cloud media uploads, and audit logs.",
-  })
-  operations(@Headers("x-sakhi-admin-token") token?: string) {
-    return this.review.operationsOverview(token);
+  operationsOverview(
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+  ) {
+    return this.adminReview.operationsOverview(pickAdminToken(token, altToken));
   }
 }

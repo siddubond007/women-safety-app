@@ -287,8 +287,8 @@ class SakhiPrototypeBinding {
 
   static final SakhiPrototypeBinding instance = SakhiPrototypeBinding._();
 
-  Future<void> bind(Module2State state) async {
-    await SakhiPrototypeState.instance.bind(state);
+  void bind(Module2State state) {
+    SakhiPrototypeState.instance.bind(state);
   }
 
   Future<void> loadRouteData(String route) =>

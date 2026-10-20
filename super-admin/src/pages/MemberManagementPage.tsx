@@ -167,7 +167,7 @@ export function MemberManagementPage() {
     setError("");
     try {
       await adminApi("/admin-review/members/" + encodeURIComponent(member.id) + "/state", {
-        method: "POST",
+        method: "PATCH",
         body: {
           accountStatus: nextAccountStatus,
           verificationStatus: nextVerificationStatus,
@@ -205,7 +205,7 @@ export function MemberManagementPage() {
     setActionError("");
     try {
       await adminApi("/admin-review/members/" + encodeURIComponent(selected.id) + "/state", {
-        method: "POST",
+        method: "PATCH",
         body: { accountStatus, verificationStatus, reason: reason.trim() },
       });
       setNotice(`Saved state (${accountStatus} / ${verificationStatus}) for ${selected.displayName}. Tap "Check account state again" in the mobile app!`);

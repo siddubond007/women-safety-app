@@ -4,6 +4,7 @@ import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 
 /// Primary filled purple pill button and secondary outlined pill button.
+/// Uses Flexible text wrapping to prevent overflow on narrow 320px viewports.
 class SakhiPillButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
@@ -53,11 +54,15 @@ class SakhiPillButton extends StatelessWidget {
                 Icon(icon, size: 16, color: fg),
                 const SizedBox(width: 6),
               ],
-              Text(
-                label,
-                style: AppTypography.chipLabel.copyWith(
-                  color: fg,
-                  fontWeight: FontWeight.w700,
+              Flexible(
+                child: Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                  style: AppTypography.chipLabel.copyWith(
+                    color: fg,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ],

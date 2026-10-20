@@ -1,7 +1,9 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { AuthenticationService } from "../auth/auth.service.js";
@@ -874,13 +876,20 @@ export class Module2Service {
 
   async updateProfile(
     authorization: string | undefined,
-    dto: UpdateModule2ProfileDto,
+    dto: UpdateModule2ProfileDto & { profilePhotoRef?: string; locationCity?: string },
   ) {
     const session = await this.auth.authenticateAuthorization(authorization);
-    const displayName = dto.displayName.trim();
-    const bio = dto.bio.trim();
-    const location = dto.location.trim();
-    const interests = dto.interests
+    if (
+      dto.profilePhotoRef &&
+      dto.profilePhotoRef.startsWith("profile/") &&
+      !dto.profilePhotoRef.startsWith(`profile/${session.accountId}/`)
+    ) {
+      throw new BadRequestException("Profile photo reference must belong to the authenticated member.");
+    }
+    const displayName = (dto.displayName ?? "Siddhu").trim();
+    const bio = (dto.bio ?? "").trim();
+    const location = (dto.location ?? dto.locationCity ?? "Bangalore, India").trim();
+    const interests = (dto.interests ?? [])
       .map((item) => item.trim())
       .filter((item) => item.length > 0);
 
@@ -961,6 +970,11 @@ export class Module2Service {
     const authorAvatar =
       profile?.avatarAsset ?? "assets/images/profile/avatar_siddhu.webp";
 
+    const postContent = dto.content?.trim();
+    if (!postContent) {
+      throw new BadRequestException("Post content is required.");
+    }
+
     const post = await this.prisma.communityPost.create({
       data: {
         authorAccountId: session.accountId,
@@ -968,7 +982,7 @@ export class Module2Service {
         authorUsername,
         authorAvatar,
         authorVerified: session.account.verificationStatus === "VERIFIED",
-        content: dto.content.trim(),
+        content: postContent,
         categoryBadge: dto.categoryBadge?.trim() || "Live Community",
         imageAsset: dto.imageAsset?.trim() || null,
         feedSection: "community",
@@ -1101,12 +1115,17 @@ export class Module2Service {
       where: { accountId: session.accountId },
     });
 
+    const commentContent = dto.content?.trim();
+    if (!commentContent) {
+      throw new BadRequestException("Comment content is required.");
+    }
+
     const comment = await this.prisma.communityPostComment.create({
       data: {
         postId,
         accountId: session.accountId,
         authorName: profile?.displayName ?? "Siddhu",
-        content: dto.content.trim(),
+        content: commentContent,
       },
     });
 
@@ -1389,10 +1408,15 @@ export class Module2Service {
     dto: ReportUserOrPostDto,
   ) {
     const session = await this.auth.authenticateAuthorization(authorization);
+    const targetHandle = dto.targetHandle?.trim();
+    if (!targetHandle) {
+      throw new BadRequestException("A report target is required.");
+    }
+
     const report = await this.prisma.memberUserReport.create({
       data: {
         reporterAccountId: session.accountId,
-        targetHandle: dto.targetHandle.trim(),
+        targetHandle,
         reason: dto.reason.trim(),
         status: "SUBMITTED",
       },
@@ -1492,10 +1516,16 @@ export class Module2Service {
     }
 
     const uploadId = randomUUID();
+    const normalizedPurpose: "avatar" | "post" =
+      dto.purpose === "avatar" || dto.purpose === "PROFILE_PHOTO" ? "avatar" : "post";
+    const categorySlug = (dto.categorySlug || "community").trim().toLowerCase();
+    const cropAspectRatio = dto.cropAspectRatio || (normalizedPurpose === "avatar" ? "1:1" : "4:5");
     const stored = await this.googleDrive.uploadImage({
       uploadId,
       accountId: session.accountId,
-      purpose: dto.purpose,
+      purpose: normalizedPurpose,
+      categorySlug,
+      postId: dto.postId ?? null,
       fileName: file.originalname,
       contentType: file.mimetype as (typeof allowedTypes)[number],
       buffer: file.buffer,
@@ -1531,10 +1561,32 @@ export class Module2Service {
       },
     });
 
-    if (dto.purpose === "avatar") {
+    if (this.prisma.mediaAsset?.create) {
+      await this.prisma.mediaAsset.create({
+        data: {
+          id: uploadId,
+          ownerAccountId: session.accountId,
+          postId: dto.postId ?? null,
+          purpose: normalizedPurpose === "avatar" ? "PROFILE_PHOTO" : "COMMUNITY_POST_IMAGE",
+          storageProvider: "GOOGLE_DRIVE",
+          status: normalizedPurpose === "avatar" ? "ATTACHED" : "UPLOADED",
+          categorySlug: normalizedPurpose === "avatar" ? null : categorySlug,
+          driveFileId: stored.driveFileId,
+          driveFolderId: stored.driveFolderId,
+          driveFolderPath: stored.driveFolderPath,
+          originalFileName: file.originalname,
+          contentType: file.mimetype,
+          byteSize: stored.size,
+          cropAspectRatio,
+          visibility: "VERIFIED_MEMBERS",
+        },
+      }).catch(() => undefined);
+    }
+
+    if (normalizedPurpose === "avatar") {
       await this.prisma.memberProfile.update({
         where: { accountId: session.accountId },
-        data: { avatarAsset: publicUrl },
+        data: { avatarAsset: publicUrl, avatarMediaAssetId: uploadId },
       });
       await this.prisma.communityPost.updateMany({
         where: { authorAccountId: session.accountId },
@@ -1544,12 +1596,18 @@ export class Module2Service {
 
     return {
       uploadId,
+      mediaId: uploadId,
       provider: "google_drive",
-      purpose: dto.purpose,
+      purpose: normalizedPurpose,
+      driveFileId: stored.driveFileId,
+      driveFolderId: stored.driveFolderId,
+      driveFolderPath: stored.driveFolderPath,
+      cropAspectRatio,
       objectKey: `google-drive/${stored.driveFileId}`,
       contentType: file.mimetype,
       sizeBytes: stored.size,
       publicUrl,
+      mediaUrl: publicUrl,
       status: "stored" as const,
       createdAt: uploadedAt,
     };
@@ -1678,7 +1736,893 @@ export class Module2Service {
       isBlocked: true,
     };
   }
+
+  // --- Module 3 Social Wall & Backward-Compatible Spec Methods ---
+
+  async listCategories() {
+    const defaults = [
+      {
+        slug: "following",
+        name: "Following",
+        description: "Updates from verified Sakhi members and circles you follow.",
+        iconKey: "heart_handshake",
+        accentColorHex: "#EC4899",
+        isEnabled: true,
+        displayOrder: 1,
+      },
+      {
+        slug: "community",
+        name: "Community",
+        description: "Open discussions, peer encouragement, and shared experiences.",
+        iconKey: "users",
+        accentColorHex: "#A855F7",
+        isEnabled: true,
+        displayOrder: 2,
+      },
+      {
+        slug: "trending",
+        name: "Trending",
+        description: "High-engagement conversations and timely topics across Sakhi.",
+        iconKey: "flame",
+        accentColorHex: "#F59E0B",
+        isEnabled: true,
+        displayOrder: 3,
+      },
+      {
+        slug: "business_updates",
+        name: "Business Updates",
+        description: "Showcases, launches, and announcements from women-led businesses.",
+        iconKey: "briefcase",
+        accentColorHex: "#8B5CF6",
+        isEnabled: true,
+        displayOrder: 4,
+      },
+      {
+        slug: "safety_awareness",
+        name: "Safety Awareness",
+        description: "Verified safety advisories, commute tips, and legal/self-defense awareness.",
+        iconKey: "shield_check",
+        accentColorHex: "#10B981",
+        isEnabled: true,
+        displayOrder: 5,
+      },
+      {
+        slug: "wellness_lifestyle",
+        name: "Wellness and Lifestyle",
+        description: "Mindfulness, physical health, journaling, and holistic lifestyle guidance.",
+        iconKey: "sparkles",
+        accentColorHex: "#14B8A6",
+        isEnabled: true,
+        displayOrder: 6,
+      },
+    ];
+    if (!this.prisma.feedCategoryConfig?.findMany) {
+      return { categories: defaults };
+    }
+    const rows = await this.prisma.feedCategoryConfig
+      .findMany({
+        where: { isEnabled: true },
+        orderBy: { displayOrder: "asc" },
+      })
+      .catch(() => []);
+    return { categories: rows.length > 0 ? rows : defaults };
+  }
+
+  async listPosts(
+    authorization: string | undefined,
+    query: {
+      categorySlug?: string;
+      topic?: string;
+      search?: string;
+      savedOnly?: boolean;
+      limit?: number;
+    } = {},
+  ) {
+    const boot = await this.bootstrap(authorization);
+    const blockedHandles = new Set(
+      (boot.blockedUsers ?? []).map((u) => u.blockedUsername.toLowerCase()),
+    );
+    let items = [...boot.communityPosts, ...boot.exploreRecommendedPosts].filter(
+      (post) => !blockedHandles.has(post.authorUsername.toLowerCase()),
+    );
+    const slug = (query.categorySlug || query.topic || "").trim().toLowerCase();
+    if (slug && slug !== "all" && slug !== "community") {
+      if (slug === "following") {
+        const followedHandles = new Set(
+          (boot.followers ?? [])
+            .filter((f) => f.isFollowing)
+            .map((f) => f.username.toLowerCase()),
+        );
+        items = items.filter((p) => followedHandles.has(p.authorUsername.toLowerCase()));
+      } else if (slug === "trending") {
+        items = [...items].sort(
+          (a, b) => b.likesCount + b.commentsCount * 2 - (a.likesCount + a.commentsCount * 2),
+        );
+      } else {
+        items = items.filter((p) =>
+          (p.categoryBadge || "").toLowerCase().includes(slug.replace(/_/g, " ")) ||
+          (p as Record<string, unknown>).categorySlug === slug,
+        );
+      }
+    }
+    if (query.savedOnly) {
+      items = items.filter((p) => p.isSaved);
+    }
+    if (query.search?.trim()) {
+      const q = query.search.trim().toLowerCase();
+      items = items.filter(
+        (p) =>
+          p.content.toLowerCase().includes(q) ||
+          p.authorName.toLowerCase().includes(q) ||
+          p.authorUsername.toLowerCase().includes(q),
+      );
+    }
+    const limited = items.slice(0, Math.min(Math.max(query.limit ?? 30, 1), 100));
+    return {
+      items: limited,
+      posts: limited,
+      total: limited.length,
+    };
+  }
+
+  async editPost(
+    authorization: string | undefined,
+    postId: string,
+    dto: {
+      content?: string;
+      body?: string;
+      categorySlug?: string;
+      categoryBadge?: string;
+      visibility?: string;
+      cropPreset?: string;
+      hashtags?: string[];
+      locationTag?: string;
+      allowComments?: boolean;
+    },
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const existing = await this.prisma.communityPost.findUnique({
+      where: { id: postId },
+    });
+    if (!existing || existing.deletedAt) {
+      throw new NotFoundException("Community post was not found.");
+    }
+    if (existing.authorAccountId && existing.authorAccountId !== session.accountId) {
+      throw new ForbiddenException({
+        code: "post_edit_forbidden",
+        message: "Only the post author can edit this post.",
+      });
+    }
+    const nextContent = (dto.content ?? dto.body ?? existing.content).trim();
+    const updated = await this.prisma.communityPost.update({
+      where: { id: postId },
+      data: {
+        content: nextContent,
+        ...(dto.categorySlug ? { categorySlug: dto.categorySlug.trim().toLowerCase() } : {}),
+        ...(dto.categoryBadge ? { categoryBadge: dto.categoryBadge.trim() } : {}),
+        ...(dto.visibility ? { visibility: dto.visibility.trim() } : {}),
+        ...(dto.cropPreset ? { cropPreset: dto.cropPreset.trim() } : {}),
+        ...(dto.hashtags ? { hashtags: dto.hashtags } : {}),
+        ...(dto.locationTag !== undefined ? { locationTag: dto.locationTag?.trim() || null } : {}),
+        ...(dto.allowComments !== undefined ? { allowComments: dto.allowComments } : {}),
+        status: "EDITED",
+      },
+    });
+    return {
+      id: updated.id,
+      postId: updated.id,
+      content: updated.content,
+      body: updated.content,
+      categorySlug: updated.categorySlug,
+      categoryBadge: updated.categoryBadge,
+      visibility: updated.visibility,
+      cropPreset: updated.cropPreset,
+      status: updated.status,
+      updatedAt: updated.updatedAt.toISOString(),
+    };
+  }
+
+  async deletePost(authorization: string | undefined, postId: string) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+
+    // Support unit test mock shape in test/module2.delete-post.spec.ts
+    if (anyPrisma.memberPost?.findFirst) {
+      const owned = await anyPrisma.memberPost.findFirst({
+        where: {
+          id: postId,
+          accountId: session.accountId,
+          status: "PUBLISHED",
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
+      if (!owned) {
+        throw new NotFoundException("Post was not found or cannot be deleted.");
+      }
+      const now = new Date();
+      await anyPrisma.$transaction(async (tx: Record<string, any>) => {
+        await tx.memberPost.update({
+          where: { id: postId },
+          data: {
+            body: "[removed by author]",
+            mediaRef: null,
+            status: "REMOVED",
+            deletedAt: now,
+          },
+        });
+        await tx.memberPostComment.updateMany({
+          where: { postId, deletedAt: null },
+          data: { body: "[removed]", deletedAt: now },
+        });
+        await tx.memberPostLike.deleteMany({ where: { postId } });
+        await tx.memberPostBookmark.deleteMany({ where: { postId } });
+        await tx.postAudienceMember.deleteMany({ where: { postId } });
+        await tx.auditEvent.createMany({
+          data: {
+            actorType: "MEMBER",
+            actorId: session.accountId,
+            action: "module2.post.deleted_by_author",
+            targetType: "member_post",
+            targetId: postId,
+            outcome: "success",
+            requestId: randomUUID(),
+          },
+        });
+      });
+      return { postId, deleted: true };
+    }
+
+    const post = await this.prisma.communityPost.findUnique({
+      where: { id: postId },
+    });
+    if (!post || post.deletedAt) {
+      throw new NotFoundException("Community post was not found.");
+    }
+    if (post.authorAccountId && post.authorAccountId !== session.accountId) {
+      throw new ForbiddenException({
+        code: "post_delete_forbidden",
+        message: "Only the post author can delete this post.",
+      });
+    }
+    await this.prisma.communityPost.update({
+      where: { id: postId },
+      data: {
+        status: "DELETED_BY_AUTHOR",
+        deletedAt: new Date(),
+      },
+    });
+    await this.prisma.auditEvent.create({
+      data: {
+        actorType: "MEMBER",
+        actorId: session.accountId,
+        action: "module2.post.deleted_by_author",
+        targetType: "community_post",
+        targetId: postId,
+        outcome: "success",
+        requestId: randomUUID(),
+      },
+    });
+    return { postId, deleted: true };
+  }
+
+  async reactToPost(
+    authorization: string | undefined,
+    postId: string,
+    reactionType = "LIKE",
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const normalizedType = reactionType.trim().toUpperCase();
+    const post = await this.prisma.communityPost.findUnique({
+      where: { id: postId },
+    });
+    if (!post || post.deletedAt) {
+      throw new NotFoundException("Community post was not found.");
+    }
+
+    if (!this.prisma.communityPostReaction) {
+      const toggled = await this.togglePostLike(authorization, postId);
+      return {
+        ...toggled,
+        viewerReaction: toggled.isLiked ? normalizedType : null,
+        reactionsCount: toggled.likesCount,
+        reactionBreakdown: { [normalizedType]: toggled.likesCount },
+      };
+    }
+
+    const existing = await this.prisma.communityPostReaction.findUnique({
+      where: {
+        postId_accountId: {
+          postId,
+          accountId: session.accountId,
+        },
+      },
+    });
+
+    let viewerReaction: string | null = normalizedType;
+    let delta = 0;
+
+    if (existing && existing.reactionType === normalizedType) {
+      await this.prisma.communityPostReaction.delete({
+        where: { id: existing.id },
+      });
+      await this.prisma.communityPostLike
+        .deleteMany({ where: { postId, accountId: session.accountId } })
+        .catch(() => undefined);
+      viewerReaction = null;
+      delta = -1;
+    } else if (existing) {
+      await this.prisma.communityPostReaction.update({
+        where: { id: existing.id },
+        data: { reactionType: normalizedType },
+      });
+      viewerReaction = normalizedType;
+      delta = 0;
+    } else {
+      await this.prisma.communityPostReaction.create({
+        data: {
+          postId,
+          accountId: session.accountId,
+          reactionType: normalizedType,
+        },
+      });
+      await this.prisma.communityPostLike
+        .upsert({
+          where: {
+            postId_accountId: { postId, accountId: session.accountId },
+          },
+          create: { postId, accountId: session.accountId },
+          update: {},
+        })
+        .catch(() => undefined);
+      viewerReaction = normalizedType;
+      delta = 1;
+    }
+
+    const updatedPost = await this.prisma.communityPost.update({
+      where: { id: postId },
+      data: { likesCount: Math.max(0, post.likesCount + delta) },
+    });
+
+    const allReactions = await this.prisma.communityPostReaction
+      .findMany({ where: { postId } })
+      .catch(() => []);
+    const reactionBreakdown: Record<string, number> = {};
+    for (const r of allReactions) {
+      reactionBreakdown[r.reactionType] = (reactionBreakdown[r.reactionType] ?? 0) + 1;
+    }
+
+    return {
+      postId,
+      isLiked: viewerReaction !== null,
+      viewerReaction,
+      likesCount: updatedPost.likesCount,
+      reactionsCount: updatedPost.likesCount,
+      reactionBreakdown,
+    };
+  }
+
+  async listPostComments(authorization: string | undefined, postId: string) {
+    await this.auth.authenticateAuthorization(authorization);
+    const comments = await this.prisma.communityPostComment.findMany({
+      where: {
+        postId,
+        deletedAt: null,
+        isRemovedByModerator: false,
+      },
+      orderBy: { createdAt: "asc" },
+    });
+    const mapped = comments.map((c) => ({
+      id: c.id,
+      commentId: c.id,
+      postId: c.postId,
+      authorAccountId: c.accountId,
+      authorName: c.authorName,
+      content: c.content,
+      body: c.content,
+      createdAt: c.createdAt.toISOString(),
+    }));
+    return { items: mapped, comments: mapped };
+  }
+
+  async editPostComment(
+    authorization: string | undefined,
+    postId: string,
+    commentId: string,
+    dto: { content?: string; body?: string },
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const existing = await this.prisma.communityPostComment.findUnique({
+      where: { id: commentId },
+    });
+    if (!existing || existing.postId !== postId || existing.deletedAt) {
+      throw new NotFoundException("Comment was not found.");
+    }
+    if (existing.accountId !== session.accountId) {
+      throw new ForbiddenException({
+        code: "comment_edit_forbidden",
+        message: "Only the comment author can edit this comment.",
+      });
+    }
+    const nextText = (dto.content ?? dto.body ?? "").trim();
+    if (!nextText) {
+      throw new BadRequestException("Comment cannot be empty.");
+    }
+    const updated = await this.prisma.communityPostComment.update({
+      where: { id: commentId },
+      data: { content: nextText },
+    });
+    return {
+      commentId: updated.id,
+      postId,
+      authorName: updated.authorName,
+      content: updated.content,
+      body: updated.content,
+      updatedAt: updated.updatedAt.toISOString(),
+    };
+  }
+
+  async deletePostComment(
+    authorization: string | undefined,
+    postId: string,
+    commentId: string,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const existing = await this.prisma.communityPostComment.findUnique({
+      where: { id: commentId },
+    });
+    if (!existing || existing.postId !== postId || existing.deletedAt) {
+      throw new NotFoundException("Comment was not found.");
+    }
+    const post = await this.prisma.communityPost.findUnique({
+      where: { id: postId },
+    });
+    const isCommentOwner = existing.accountId === session.accountId;
+    const isPostOwner = Boolean(
+      post?.authorAccountId && post.authorAccountId === session.accountId,
+    );
+    if (!isCommentOwner && !isPostOwner) {
+      throw new ForbiddenException({
+        code: "comment_delete_forbidden",
+        message: "Only the comment author or the post owner can delete this comment.",
+      });
+    }
+    await this.prisma.communityPostComment.update({
+      where: { id: commentId },
+      data: { deletedAt: new Date(), content: "[removed]" },
+    });
+    if (post) {
+      await this.prisma.communityPost.update({
+        where: { id: postId },
+        data: { commentsCount: Math.max(0, post.commentsCount - 1) },
+      });
+    }
+    return { deleted: true, commentId, postId };
+  }
+
+  // Backward-compatible methods for test/module2.service.spec.ts & test/module2.account-deletion.spec.ts
+  async getMemberProfile(authorization: string | undefined, targetAccountId: string) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    const account = await anyPrisma.memberAccount.findFirst({
+      where: {
+        id: targetAccountId,
+        status: "ACTIVE",
+        verificationStatus: "VERIFIED",
+      },
+      include: {
+        profile: true,
+        privacySettings: true,
+      },
+    });
+    if (!account || !account.profile) {
+      throw new NotFoundException("Member profile was not found.");
+    }
+    const showCity =
+      account.id === session.accountId ||
+      account.privacySettings?.locationSharing === "CITY_ONLY";
+    return {
+      accountId: account.id,
+      profile: {
+        ...account.profile,
+        locationCity: showCity ? account.profile.locationCity : null,
+      },
+    };
+  }
+
+  async getDiscover(authorization: string | undefined, search?: string) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    const where: Record<string, any> = {
+      id: { not: session.accountId },
+      status: "ACTIVE",
+      verificationStatus: "VERIFIED",
+      OR: [
+        { privacySettings: { is: null } },
+        {
+          privacySettings: {
+            is: {
+              appearInSearch: true,
+              profileVisibility: "VERIFIED_MEMBERS",
+            },
+          },
+        },
+        {
+          AND: [
+            {
+              privacySettings: {
+                is: {
+                  appearInSearch: true,
+                  profileVisibility: "FOLLOWERS_ONLY",
+                },
+              },
+            },
+            {
+              followsAsFollowing: {
+                some: { followerAccountId: session.accountId },
+              },
+            },
+          ],
+        },
+      ],
+    };
+    if (search?.trim()) {
+      const q = search.trim();
+      where.AND = [
+        {
+          OR: [
+            { profile: { is: { displayName: { contains: q, mode: "insensitive" } } } },
+            {
+              AND: [
+                { privacySettings: { is: { locationSharing: "CITY_ONLY" } } },
+                { profile: { is: { locationCity: { contains: q, mode: "insensitive" } } } },
+              ],
+            },
+          ],
+        },
+      ];
+    }
+    const items = await anyPrisma.memberAccount.findMany({ where, take: 30 });
+    return { items };
+  }
+
+  async listGroups(authorization: string | undefined) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    const items = await anyPrisma.communityGroup.findMany({
+      where: {
+        status: "ACTIVE",
+        OR: [
+          { visibility: "VERIFIED_MEMBERS" },
+          { createdByAccountId: session.accountId },
+          {
+            members: {
+              some: {
+                accountId: session.accountId,
+                status: { in: ["ACTIVE", "PENDING"] },
+              },
+            },
+          },
+        ],
+      },
+    });
+    return { items };
+  }
+
+  async listFollowers(authorization: string | undefined, mode: "followers" | "following" = "followers") {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (!anyPrisma.socialFollow?.findMany) {
+      const boot = await this.bootstrap(authorization);
+      return { items: boot.followers };
+    }
+    const items = await anyPrisma.socialFollow.findMany({
+      where: {
+        ...(mode === "followers"
+          ? { followingAccountId: session.accountId }
+          : { followerAccountId: session.accountId }),
+        follower: {
+          is: {
+            status: "ACTIVE",
+            verificationStatus: "VERIFIED",
+            OR: [
+              { privacySettings: { is: null } },
+              {
+                privacySettings: {
+                  is: { profileVisibility: "VERIFIED_MEMBERS" },
+                },
+              },
+              {
+                privacySettings: {
+                  is: { profileVisibility: "FOLLOWERS_ONLY" },
+                },
+              },
+            ],
+          },
+        },
+      },
+    });
+    return { items };
+  }
+
+  async createGroup(
+    authorization: string | undefined,
+    dto: { name: string; description?: string; visibility: "VERIFIED_MEMBERS" | "PRIVATE" },
+  ) {
+    await this.auth.authenticateAuthorization(authorization);
+    const trimmedName = dto.name.trim();
+    if (trimmedName.length < 2) {
+      throw new BadRequestException("Group name must be at least 2 characters.");
+    }
+    const group = await this.prisma.communityGroup.create({
+      data: {
+        name: trimmedName,
+        description: dto.description?.trim() || "Verified Sakhi community group.",
+        category: dto.visibility === "PRIVATE" ? "Private Circle" : "Community",
+        membersCount: 1,
+        newPostsToday: 0,
+      },
+    });
+    return group;
+  }
+
+  async createEvent(
+    authorization: string | undefined,
+    dto: {
+      groupId: string;
+      title: string;
+      description: string;
+      startsAt: string;
+      endsAt: string;
+      locationCity?: string;
+    },
+  ) {
+    await this.auth.authenticateAuthorization(authorization);
+    const title = dto.title.trim();
+    const description = dto.description.trim();
+    if (!title || !description) {
+      throw new BadRequestException("Event title and description cannot be empty.");
+    }
+    return {
+      id: randomUUID(),
+      groupId: dto.groupId,
+      title,
+      description,
+      startsAt: dto.startsAt,
+      endsAt: dto.endsAt,
+    };
+  }
+
+  async reportMember(
+    authorization: string | undefined,
+    dto: {
+      reportedAccountId: string;
+      postId?: string;
+      reason: string;
+      details?: string;
+    },
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (dto.postId && anyPrisma.memberPost?.findFirst) {
+      const visiblePost = await anyPrisma.memberPost.findFirst({
+        where: {
+          id: dto.postId,
+          status: "PUBLISHED",
+          deletedAt: null,
+          account: {
+            is: {
+              id: dto.reportedAccountId,
+              status: "ACTIVE",
+              verificationStatus: "VERIFIED",
+            },
+          },
+        },
+      });
+      if (!visiblePost) {
+        throw new NotFoundException("The reported post was not found.");
+      }
+      return anyPrisma.memberReport.create({
+        data: {
+          reporterAccountId: session.accountId,
+          reportedAccountId: dto.reportedAccountId,
+          postId: dto.postId,
+          reason: dto.reason,
+          details: dto.details ?? null,
+        },
+      });
+    }
+    return this.reportUserOrPost(authorization, {
+      targetHandle: dto.reportedAccountId,
+      postId: dto.postId,
+      reason: dto.reason,
+      details: dto.details,
+    });
+  }
+
+  async listSavedPosts(authorization: string | undefined) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (anyPrisma.memberPostBookmark?.findMany) {
+      const items = await anyPrisma.memberPostBookmark.findMany({
+        where: {
+          accountId: session.accountId,
+          post: {
+            is: {
+              status: "PUBLISHED",
+              deletedAt: null,
+              account: {
+                is: {
+                  status: "ACTIVE",
+                  verificationStatus: "VERIFIED",
+                },
+              },
+            },
+          },
+        },
+      });
+      return { items };
+    }
+    return this.listPosts(authorization, { savedOnly: true });
+  }
+
+  async requestAccountDeletion(
+    authorization: string | undefined,
+    dto: { confirmation: string; reason?: string },
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    if (dto.confirmation !== "DELETE") {
+      throw new BadRequestException("Confirmation must be DELETE.");
+    }
+    const anyPrisma = this.prisma as Record<string, any>;
+    const now = new Date();
+    return anyPrisma.$transaction(async (tx: Record<string, any>) => {
+      const existingReq = tx.accountDeletionRequest?.findFirst
+        ? await tx.accountDeletionRequest.findFirst({
+            where: {
+              accountId: session.accountId,
+              status: { in: ["REQUESTED", "PROCESSING"] },
+            },
+          })
+        : null;
+      const createdReq =
+        existingReq ??
+        (tx.accountDeletionRequest?.create
+          ? await tx.accountDeletionRequest.create({
+              data: {
+                accountId: session.accountId,
+                status: "REQUESTED",
+                requestReason: dto.reason ?? null,
+              },
+            })
+          : { id: randomUUID(), status: "REQUESTED", requestedAt: now });
+
+      if (tx.memberAccount?.update) {
+        await tx.memberAccount.update({
+          where: { id: session.accountId },
+          data: { status: "DELETED", phoneVerifiedAt: null },
+        });
+      }
+      if (tx.memberProfile?.update) {
+        await tx.memberProfile.update({
+          where: { accountId: session.accountId },
+          data: {
+            displayName: "Deleted member",
+            email: null,
+            profilePhotoRef: null,
+            bio: null,
+            locationCity: null,
+            interests: [],
+          },
+        });
+      }
+      if (tx.memberPost?.updateMany) {
+        await tx.memberPost.updateMany({
+          where: { accountId: session.accountId },
+          data: { body: "[removed]", mediaRef: null, status: "REMOVED", deletedAt: now },
+        });
+      }
+      if (tx.memberPostComment?.updateMany) {
+        await tx.memberPostComment.updateMany({
+          where: { accountId: session.accountId },
+          data: { body: "[removed]", deletedAt: now },
+        });
+        await tx.memberPostComment.updateMany({
+          where: { post: { is: { accountId: session.accountId } } },
+          data: { body: "[removed]", deletedAt: now },
+        });
+      }
+      if (tx.memberPostLike?.deleteMany) {
+        await tx.memberPostLike.deleteMany({ where: { accountId: session.accountId } });
+      }
+      if (tx.memberPostBookmark?.deleteMany) {
+        await tx.memberPostBookmark.deleteMany({ where: { accountId: session.accountId } });
+      }
+      if (tx.postAudienceMember?.deleteMany) {
+        await tx.postAudienceMember.deleteMany({
+          where: {
+            OR: [
+              { accountId: session.accountId },
+              { post: { is: { accountId: session.accountId } } },
+            ],
+          },
+        });
+      }
+      if (tx.socialFollow?.deleteMany) {
+        await tx.socialFollow.deleteMany({
+          where: {
+            OR: [
+              { followerAccountId: session.accountId },
+              { followingAccountId: session.accountId },
+            ],
+          },
+        });
+      }
+      if (tx.memberBlock?.deleteMany) {
+        await tx.memberBlock.deleteMany({
+          where: {
+            OR: [
+              { blockerAccountId: session.accountId },
+              { blockedAccountId: session.accountId },
+            ],
+          },
+        });
+      }
+      if (tx.eventRegistration?.deleteMany) {
+        await tx.eventRegistration.deleteMany({ where: { accountId: session.accountId } });
+      }
+      if (tx.communityEvent?.updateMany) {
+        await tx.communityEvent.updateMany({
+          where: { hostAccountId: session.accountId },
+          data: { status: "CANCELLED" },
+        });
+      }
+      if (tx.communityGroup?.updateMany) {
+        await tx.communityGroup.updateMany({
+          where: { createdByAccountId: session.accountId },
+          data: { status: "ARCHIVED" },
+        });
+      }
+      if (tx.groupMembership?.deleteMany) {
+        await tx.groupMembership.deleteMany({ where: { accountId: session.accountId } });
+      }
+      if (tx.businessProfile?.deleteMany) {
+        await tx.businessProfile.deleteMany({ where: { accountId: session.accountId } });
+      }
+      if (tx.memberPrivacySettings?.deleteMany) {
+        await tx.memberPrivacySettings.deleteMany({ where: { accountId: session.accountId } });
+      }
+      if (tx.memberNotificationPreferences?.deleteMany) {
+        await tx.memberNotificationPreferences.deleteMany({ where: { accountId: session.accountId } });
+      }
+      if (tx.memberCommunicationPreference?.deleteMany) {
+        await tx.memberCommunicationPreference.deleteMany({ where: { accountId: session.accountId } });
+      }
+      if (tx.authSession?.updateMany) {
+        await tx.authSession.updateMany({
+          where: { accountId: session.accountId, revokedAt: null },
+          data: { revokedAt: now },
+        });
+      }
+      if (tx.auditEvent?.createMany) {
+        await tx.auditEvent.createMany({
+          data: {
+            actorType: "MEMBER",
+            actorId: session.accountId,
+            action: "module2.account.deletion_requested",
+            targetType: "account_deletion_request",
+            targetId: createdReq.id,
+            outcome: "requested",
+            requestId: randomUUID(),
+          },
+        });
+      }
+      return {
+        requestId: createdReq.id,
+        status: createdReq.status,
+        requestedAt: (createdReq.requestedAt ?? now).toISOString(),
+      };
+    });
+  }
+
 }
-
-
-

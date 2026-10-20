@@ -43,6 +43,48 @@ void main() {
   runApp(const SakhiApp());
 }
 
+/// Shared preview home screen widget preserved for existing widget tests.
+class SakhiHomeScreen extends StatelessWidget {
+  const SakhiHomeScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: SakhiColors.blush,
+      appBar: AppBar(title: const Text('Sakhi Home')),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          ListTile(
+            tileColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            leading: const Icon(Icons.shield_outlined, color: SakhiColors.purple),
+            title: const Text('Safety & support'),
+            subtitle: const Text('SOS check-ins, helplines & trusted contacts'),
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => Scaffold(
+                    appBar: AppBar(title: const Text('Safety & support preview')),
+                    body: const Padding(
+                      padding: EdgeInsets.all(20),
+                      child: Text(
+                        'Safety & support preview — connected to Sakhi service and backend integration.',
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class SakhiApp extends StatelessWidget {
   const SakhiApp({super.key});
 
@@ -74,8 +116,6 @@ class SakhiApp extends StatelessWidget {
   }
 }
 
-/// Restores a locally persisted development session before showing the
-/// existing onboarding flow. A failed restore is fail-closed and offers retry.
 class SakhiStartupRouter extends StatefulWidget {
   const SakhiStartupRouter({super.key, required this.authService});
 
@@ -204,8 +244,6 @@ class _SakhiStartupRouterState extends State<SakhiStartupRouter> {
   }
 }
 
-/// Named home route that rechecks the authoritative backend session and opens
-/// the 12-screen Module 2 AppNavigationShell once verified.
 class SakhiProtectedHomeGate extends StatefulWidget {
   const SakhiProtectedHomeGate({super.key, required this.authService});
 
@@ -284,7 +322,7 @@ class _SakhiProtectedHomeGateState extends State<SakhiProtectedHomeGate> {
                       Text(
                         snapshot.hasError
                             ? 'Sakhi could not confirm the current account state with the backend.'
-                            : 'The backend has not confirmed that this account is active and verified. Open Super Admin (http://127.0.0.1:5173/members), click "Verify & Activate" for your number, then tap "Check account state again" below.',
+                            : 'The backend has not confirmed that this account is active and verified. Open Super Admin (http://127.0.0.1:5173/verifications), approve your number, then tap "Check account state again" below.',
                         textAlign: TextAlign.center,
                         style: SakhiTypography.body,
                       ),

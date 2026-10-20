@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../core/assets/app_assets.dart';
 import '../../core/theme/sakhi_design_system.dart';
+import '../eligibility/eligibility_intro_screen.dart';
+import '../eligibility/eligibility_verification_service.dart';
 import 'auth_policy.dart';
 import 'auth_service.dart';
 import 'sakhi_auth_status_screen.dart';
@@ -68,19 +70,28 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
         ),
       );
       if (!mounted) return;
-      await Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute<void>(
-          builder: (_) => SakhiAuthStatusScreen(
-            authService: widget.authService,
-            accountState: result.accountState,
-            statusMessage: result.message != null &&
-                    result.message!.startsWith('Profile saved. The optional photo')
-                ? result.message
-                : null,
+      if (widget.authService.isDevelopmentBackend) {
+        await Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute<void>(
+            builder: (_) => SakhiAuthStatusScreen(
+              authService: widget.authService,
+              accountState: result.accountState,
+              statusMessage: result.message != null &&
+                      result.message!
+                          .startsWith('Profile saved. The optional photo')
+                  ? result.message
+                  : null,
+            ),
           ),
-        ),
-        (_) => false,
-      );
+          (_) => false,
+        );
+      } else {
+        setState(() {
+          _isSuccess = true;
+          _createdAccountState = result.accountState;
+          _statusMessage = result.message ?? 'Account request accepted.';
+        });
+      }
     } on AuthServiceException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -255,6 +266,23 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
               child: const Text('Back to profile'),
             ),
           ),
+          if (widget.authService.isDemo) ...[
+            const SizedBox(height: SakhiSpacing.xxs),
+            Center(
+              child: TextButton.icon(
+                key: const Key('eligibility-preview-entry-button'),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const EligibilityIntroScreen(
+                      service: DemoEligibilityVerificationService(),
+                    ),
+                  ),
+                ),
+                icon: const Icon(Icons.verified_user_outlined, size: 18),
+                label: const Text('Preview eligibility verification'),
+              ),
+            ),
+          ],
           if (_isSuccess) ...[
             const SizedBox(height: SakhiSpacing.xs),
             Center(

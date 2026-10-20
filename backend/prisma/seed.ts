@@ -93,6 +93,24 @@ async function main(): Promise<void> {
       },
     });
 
+    const categories = [
+      { slug: "following", name: "Following", description: "Updates from verified Sakhi members and circles you follow.", iconKey: "heart_handshake", accentColorHex: "#EC4899", isEnabled: true, displayOrder: 1 },
+      { slug: "community", name: "Community", description: "Open discussions, peer encouragement, and shared experiences.", iconKey: "users", accentColorHex: "#A855F7", isEnabled: true, displayOrder: 2 },
+      { slug: "trending", name: "Trending", description: "High-engagement conversations and timely topics across Sakhi.", iconKey: "flame", accentColorHex: "#F59E0B", isEnabled: true, displayOrder: 3 },
+      { slug: "business_updates", name: "Business Updates", description: "Showcases, launches, and announcements from women-led businesses.", iconKey: "briefcase", accentColorHex: "#8B5CF6", isEnabled: true, displayOrder: 4 },
+      { slug: "safety_awareness", name: "Safety Awareness", description: "Verified safety advisories, commute tips, and legal/self-defense awareness.", iconKey: "shield_check", accentColorHex: "#10B981", isEnabled: true, displayOrder: 5 },
+      { slug: "wellness_lifestyle", name: "Wellness and Lifestyle", description: "Mindfulness, physical health, journaling, and holistic lifestyle guidance.", iconKey: "sparkles", accentColorHex: "#14B8A6", isEnabled: true, displayOrder: 6 },
+    ];
+    for (const cat of categories) {
+      if ((prisma as Record<string, any>).feedCategoryConfig?.upsert) {
+        await (prisma as Record<string, any>).feedCategoryConfig.upsert({
+          where: { slug: cat.slug },
+          update: cat,
+          create: { ...cat, updatedBy: "prisma-seed" },
+        });
+      }
+    }
+
     const accountIdByUsername = new Map<string, string>();
     for (const member of SEEDED_COMMUNITY_MEMBERS) {
       const acc = await prisma.memberAccount.upsert({

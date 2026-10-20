@@ -77,21 +77,24 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
   String get _heading => switch (_accountState) {
     AuthAccountState.existingAccount => 'Account verified & active',
     AuthAccountState.newAccount => 'Continue setting up Sakhi',
-    AuthAccountState.pendingVerification => 'Home access is locked until verified',
+    AuthAccountState.pendingVerification => 'One more step',
     AuthAccountState.restricted => 'Account access needs attention',
   };
 
   String get _description {
     if (widget.authService.isDevelopmentBackend) {
+      final restoredPrefix = widget.isRestoredSession
+          ? 'Your saved development session was checked with the local backend. '
+          : '';
       return switch (_accountState) {
         AuthAccountState.existingAccount =>
-          'Your account is ACTIVE and VERIFIED in the backend. Tap below to open the Sakhi Home screen.',
+          '${restoredPrefix}Your account is ACTIVE and VERIFIED in the backend. Tap below to open the Sakhi Home screen.',
         AuthAccountState.newAccount =>
-          'Your local development OTP was accepted. Complete the profile and policy acknowledgement to finish registration.',
+          '${restoredPrefix}Your local development OTP was accepted. Complete the profile and policy acknowledgement to finish registration.',
         AuthAccountState.pendingVerification =>
-          'Your account is registered in PostgreSQL as Pending Verification. Open the Super Admin panel (http://127.0.0.1:5173), click "Verify & Activate" for your number, and then tap "Check account state again" below to open the Home screen.',
+          '${restoredPrefix}Home access is locked until verified. Your account is registered in PostgreSQL as Pending Verification. Open the Super Admin panel (http://127.0.0.1:5173), approve verification for your number, and then tap "Check account state again" below.',
         AuthAccountState.restricted =>
-          'The backend reports this account as restricted. Update its state in Super Admin to restore access.',
+          '${restoredPrefix}The backend reports this account as restricted. Update its state in Super Admin to restore access.',
       };
     }
     return switch (_accountState) {
@@ -133,7 +136,7 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
       } else {
         setState(() {
           _statusFeedback =
-              'Still pending verification in PostgreSQL. Verify this member in Super Admin (http://127.0.0.1:5173/members), then tap Check again.';
+              'Still pending verification in PostgreSQL. Verify this member in Super Admin (http://127.0.0.1:5173/verifications), then tap Check again.';
         });
       }
     } on AuthServiceException catch (error) {

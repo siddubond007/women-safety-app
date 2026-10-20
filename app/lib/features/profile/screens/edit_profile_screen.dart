@@ -11,7 +11,8 @@ import '../../../core/widgets/sakhi_buttons.dart';
 import '../../../core/widgets/sakhi_chip.dart';
 import '../../../core/widgets/sakhi_dialogs.dart';
 
-/// Screen 7 — Edit Profile (connected to PostgreSQL + Cloud Upload ready)
+/// Screen 7 — Edit Profile (connected to PostgreSQL + Google Drive Upload + 12 Default Women Avatars).
+/// Never asks the user to paste a Cloud Storage URL.
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
 
@@ -29,15 +30,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   bool _isSaving = false;
   bool _isUploadingAvatar = false;
 
-  static const List<Map<String, String>> _avatarPresets = [
-    {'label': 'Siddhu', 'asset': AppAssets.avatarSiddhu},
-    {'label': 'Ananya', 'asset': AppAssets.avatarAnanya},
-    {'label': 'Meera', 'asset': AppAssets.avatarMeera},
-    {'label': 'Kavya', 'asset': AppAssets.avatarKavya},
-    {'label': 'Ishita', 'asset': AppAssets.avatarIshita},
-    {'label': 'Priya', 'asset': AppAssets.avatarPriya},
-    {'label': 'Sneha', 'asset': AppAssets.avatarSneha},
-  ];
+  static const List<Map<String, String>> _avatarPresets =
+      AppAssets.defaultAvatarPresets;
 
   @override
   void initState() {
@@ -61,14 +55,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   Future<void> _handleSave() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isSaving = true);
-    SakhiPrototypeState.instance.updateProfile(
+    await SakhiPrototypeState.instance.updateProfile(
       displayName: _nameController.text.trim(),
       bio: _bioController.text.trim(),
       location: _locationController.text.trim(),
       interests: _interests,
       avatarAsset: _selectedAvatar,
     );
-    await Future<void>.delayed(const Duration(milliseconds: 250));
+    await Future<void>.delayed(const Duration(milliseconds: 200));
     if (!mounted) return;
     setState(() => _isSaving = false);
     SakhiDialogs.showPrototypeSnackbar(
@@ -80,10 +74,74 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
   }
 
-  void _openAvatarAndCloudPicker() {
-    final urlController = TextEditingController(
-      text: _selectedAvatar.startsWith('http') ? _selectedAvatar : '',
+  Future<void> _pickAndUploadPhoto(ImageSource source) async {
+    final picked = await ImagePicker().pickImage(
+      source: source,
+      maxWidth: 1440,
+      maxHeight: 1440,
+      imageQuality: 88,
     );
+    if (!mounted || picked == null) return;
+    final extension = picked.name.toLowerCase().split('.').last;
+    final contentType = switch (extension) {
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'png' => 'image/png',
+      'webp' => 'image/webp',
+      _ => null,
+    };
+    if (contentType == null) {
+      SakhiDialogs.showPrototypeSnackbar(
+        context,
+        'Choose a JPG, PNG, or WebP image.',
+      );
+      return;
+    }
+    final bytes = await picked.readAsBytes();
+    if (!mounted) return;
+    if (bytes.isEmpty || bytes.length > 8 * 1024 * 1024) {
+      SakhiDialogs.showPrototypeSnackbar(
+        context,
+        'Choose an image under 8 MB.',
+      );
+      return;
+    }
+
+    setState(() => _isUploadingAvatar = true);
+    SakhiDialogs.showPrototypeSnackbar(
+      context,
+      'Uploading your photo to private Google Drive folder…',
+    );
+    String? uploadedUrl;
+    try {
+      uploadedUrl = await SakhiPrototypeState.instance.uploadMediaToCloud(
+        purpose: 'profile_photo',
+        fileName: picked.name.isEmpty ? 'profile_photo.jpg' : picked.name,
+        fileBytes: bytes,
+        contentType: contentType,
+        cropAspectRatio: '1:1',
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isUploadingAvatar = false);
+      }
+    }
+    if (!mounted) return;
+    if (uploadedUrl == null) {
+      SakhiDialogs.showPrototypeSnackbar(
+        context,
+        'Upload failed—your previous profile photo was preserved. Check backend connection and retry.',
+      );
+      return;
+    }
+    setState(() => _selectedAvatar = uploadedUrl!);
+    SakhiPrototypeState.instance.updateAvatar(uploadedUrl);
+    SakhiDialogs.showPrototypeSnackbar(
+      context,
+      'Profile photo uploaded to Google Drive and saved to PostgreSQL.',
+    );
+  }
+
+  void _openAvatarAndCloudPicker() {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -103,15 +161,50 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Choose Avatar or Cloud Image URL',
+              'Update Profile Photo or Default Avatar',
               style: AppTypography.sectionTitle,
             ),
             const SizedBox(height: 6),
             const Text(
-              'Select one of the crisp HD illustrated portraits or paste a Cloud Storage URL (S3 / R2 / Firebase / Cloudinary):',
+              'Upload a real photo from your device (stored privately in Google Drive under users/{id}/profile) or choose one of our 12 original illustrated Sakhi women avatars:',
               style: AppTypography.subtitle,
             ),
             const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.photo_library_outlined, size: 18),
+                    label: const Text('Choose from Gallery'),
+                    onPressed: _isUploadingAvatar
+                        ? null
+                        : () {
+                            Navigator.pop(ctx);
+                            _pickAndUploadPhoto(ImageSource.gallery);
+                          },
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.photo_camera_outlined, size: 18),
+                    label: const Text('Take Photo'),
+                    onPressed: _isUploadingAvatar
+                        ? null
+                        : () {
+                            Navigator.pop(ctx);
+                            _pickAndUploadPhoto(ImageSource.camera);
+                          },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Or choose an illustrated Sakhi default avatar:',
+              style: AppTypography.bodyMedium,
+            ),
+            const SizedBox(height: 10),
             SizedBox(
               height: 86,
               child: ListView.separated(
@@ -153,107 +246,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 },
               ),
             ),
-            const SizedBox(height: 14),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.cloud_upload_outlined, size: 18),
-                label: const Text('Upload New Avatar to Backend Cloud Storage'),
-                onPressed: _isUploadingAvatar
-                    ? null
-                    : () async {
-                        Navigator.pop(ctx);
-                        final picked = await ImagePicker().pickImage(
-                          source: ImageSource.gallery,
-                          maxWidth: 1600,
-                          maxHeight: 1600,
-                          imageQuality: 88,
-                        );
-                        if (!mounted || picked == null) return;
-                        final extension = picked.name.toLowerCase().split('.').last;
-                        final contentType = switch (extension) {
-                          'jpg' || 'jpeg' => 'image/jpeg',
-                          'png' => 'image/png',
-                          'webp' => 'image/webp',
-                          _ => null,
-                        };
-                        if (contentType == null) {
-                          SakhiDialogs.showPrototypeSnackbar(
-                            context,
-                            'Choose a JPG, PNG, or WebP image.',
-                          );
-                          return;
-                        }
-                        setState(() => _isUploadingAvatar = true);
-                        SakhiDialogs.showPrototypeSnackbar(
-                          context,
-                          'Uploading your photo to Google Drive…',
-                        );
-                        String? uploadedUrl;
-                        try {
-                          uploadedUrl = await SakhiPrototypeState.instance
-                              .uploadMediaToCloud(
-                                purpose: 'avatar',
-                                fileName: picked.name,
-                                fileBytes: await picked.readAsBytes(),
-                                contentType: contentType,
-                              );
-                        } finally {
-                          if (mounted) {
-                            setState(() => _isUploadingAvatar = false);
-                          }
-                        }
-                        if (!mounted) return;
-                        if (uploadedUrl == null) {
-                          SakhiDialogs.showPrototypeSnackbar(
-                            context,
-                            'Upload failed. Check Google Drive connection and retry.',
-                          );
-                          return;
-                        }
-                        setState(() => _selectedAvatar = uploadedUrl!);
-                        SakhiPrototypeState.instance.updateAvatar(uploadedUrl);
-                        SakhiDialogs.showPrototypeSnackbar(
-                          context,
-                          'Profile photo uploaded to Google Drive and saved to PostgreSQL.',
-                        );
-                      },
-              ),
-            ),
             const SizedBox(height: 10),
-            TextField(
-              controller: urlController,
-              decoration: const InputDecoration(
-                labelText: 'Cloud Image URL (https://...)',
-                hintText: 'https://your-cloud-bucket.example.com/avatar.webp',
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Close'),
               ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Cancel'),
-                ),
-                const SizedBox(width: 8),
-                SakhiPillButton(
-                  label: 'Use Cloud URL',
-                  onPressed: () {
-                    final url = urlController.text.trim();
-                    if (url.startsWith('http://') ||
-                        url.startsWith('https://')) {
-                      setState(() => _selectedAvatar = url);
-                      SakhiPrototypeState.instance.updateAvatar(url);
-                      Navigator.pop(ctx);
-                      SakhiDialogs.showPrototypeSnackbar(
-                        context,
-                        'Cloud avatar URL linked and saved to backend!',
-                      );
-                    }
-                  },
-                ),
-              ],
             ),
           ],
         ),
@@ -316,7 +315,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 ),
 
                 const SizedBox(height: 16),
-                // Standalone Reusable Botanical Flowers + Profile Avatar + Camera Control
                 Center(
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -346,6 +344,17 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     ],
                   ),
                 ),
+                if (_isUploadingAvatar) ...[
+                  const SizedBox(height: 10),
+                  const Center(
+                    child: SizedBox(
+                      width: 180,
+                      child: LinearProgressIndicator(
+                        color: AppColors.primaryPurple,
+                      ),
+                    ),
+                  ),
+                ],
 
                 const SizedBox(height: 22),
                 Text(

@@ -23,14 +23,17 @@ type GoogleDriveFile = {
   name?: string;
   mimeType?: string;
   size?: string;
+  parents?: string[];
 };
 
 @Injectable()
 export class GoogleDriveStorageService {
   private readonly pendingStates = new Map<string, number>();
   private rootFolderId: string | null = null;
+  private readonly folderCache = new Map<string, string>();
 
   status() {
+    const rootName = this.rootFolderName();
     return {
       provider: "google_drive",
       configured: Boolean(
@@ -39,7 +42,61 @@ export class GoogleDriveStorageService {
       ),
       connected: Boolean(process.env.SAKHI_GOOGLE_DRIVE_REFRESH_TOKEN?.trim()),
       scope: DRIVE_SCOPE,
-      storageFolder: "Sakhi Media",
+      storageFolder: rootName,
+      rootFolderName: rootName,
+      hierarchy: {
+        profilePattern: `${rootName}/users/{opaqueUserId}/profile`,
+        feedPattern: `${rootName}/feeds/{categorySlug}/{opaqueUserId}/{postId}`,
+      },
+    };
+  }
+
+  async verifyConnectionStatus(performRemoteCheck = false) {
+    const base = this.status();
+    if (!performRemoteCheck || !base.configured || !base.connected) {
+      return { ...base, rootFolderId: this.rootFolderId, verifiedAt: null };
+    }
+    try {
+      const accessToken = await this.getAccessToken();
+      const rootFolderId = await this.ensureRootFolder(accessToken);
+      return {
+        ...base,
+        rootFolderId,
+        verifiedAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        ...base,
+        connected: false,
+        rootFolderId: null,
+        verifiedAt: new Date().toISOString(),
+        errorMessage:
+          error instanceof Error ? error.message : "Google Drive verification failed.",
+      };
+    }
+  }
+
+  buildMediaHierarchySegments(options: {
+    purpose: "avatar" | "post" | "PROFILE_PHOTO" | "COMMUNITY_POST_IMAGE" | "COMMUNITY_POST_VIDEO";
+    accountId: string;
+    categorySlug?: string | null;
+    postId?: string | null;
+  }): { segments: string[]; displayPath: string } {
+    const rootName = this.rootFolderName();
+    const safeUserId = this.sanitizeSegment(options.accountId, "unknown-user");
+    if (options.purpose === "avatar" || options.purpose === "PROFILE_PHOTO") {
+      const segments = ["users", safeUserId, "profile"];
+      return {
+        segments,
+        displayPath: [rootName, ...segments].join("/"),
+      };
+    }
+    const safeCategory = this.sanitizeSegment(options.categorySlug || "community", "community");
+    const safePostSegment = this.sanitizeSegment(options.postId || "staging", "staging");
+    const segments = ["feeds", safeCategory, safeUserId, safePostSegment];
+    return {
+      segments,
+      displayPath: [rootName, ...segments].join("/"),
     };
   }
 
@@ -87,7 +144,6 @@ export class GoogleDriveStorageService {
     });
     const token = (await response.json().catch(() => ({}))) as GoogleTokenResponse;
     if (!response.ok || !token.refresh_token) {
-      // Never include the token endpoint response in the exception or logs.
       throw new ServiceUnavailableException(
         "Google did not return an offline refresh token. Reconnect and approve the requested Drive access.",
       );
@@ -96,21 +152,36 @@ export class GoogleDriveStorageService {
     await this.persistRefreshToken(token.refresh_token);
     process.env.SAKHI_GOOGLE_DRIVE_REFRESH_TOKEN = token.refresh_token;
     this.rootFolderId = null;
+    this.folderCache.clear();
   }
 
   async uploadImage(input: {
     uploadId: string;
     accountId: string;
     purpose: "avatar" | "post";
+    categorySlug?: string | null;
+    postId?: string | null;
     fileName: string;
     contentType: "image/jpeg" | "image/png" | "image/webp";
     buffer: Buffer;
-  }): Promise<{ driveFileId: string; storedName: string; size: number }> {
+  }): Promise<{
+    driveFileId: string;
+    driveFolderId: string;
+    driveFolderPath: string;
+    storedName: string;
+    size: number;
+  }> {
     if (input.buffer.length === 0) {
       throw new ServiceUnavailableException("The selected image is empty.");
     }
     const accessToken = await this.getAccessToken();
-    const parentId = await this.ensureRootFolder(accessToken);
+    const hierarchy = this.buildMediaHierarchySegments({
+      purpose: input.purpose,
+      accountId: input.accountId,
+      categorySlug: input.categorySlug,
+      postId: input.postId,
+    });
+    const parentId = await this.ensureFolderHierarchy(accessToken, hierarchy.segments);
     const safeFileName = this.safeFileName(input.fileName);
     const storedName = `${input.purpose}_${input.accountId.slice(0, 8)}_${input.uploadId}_${safeFileName}`;
     const metadata = {
@@ -120,6 +191,8 @@ export class GoogleDriveStorageService {
       appProperties: {
         sakhiUploadId: input.uploadId,
         sakhiPurpose: input.purpose,
+        sakhiAccountId: input.accountId,
+        sakhiCategorySlug: input.categorySlug || "community",
       },
     };
     const boundary = `sakhi_${randomBytes(18).toString("hex")}`;
@@ -150,9 +223,66 @@ export class GoogleDriveStorageService {
     }
     return {
       driveFileId: file.id,
+      driveFolderId: parentId,
+      driveFolderPath: hierarchy.displayPath,
       storedName: file.name ?? storedName,
       size: Number(file.size ?? input.buffer.length),
     };
+  }
+
+  async moveFileToPostFolder(options: {
+    driveFileId: string;
+    accountId: string;
+    categorySlug: string;
+    postId: string;
+  }): Promise<{ driveFolderId: string; driveFolderPath: string }> {
+    const hierarchy = this.buildMediaHierarchySegments({
+      purpose: "post",
+      accountId: options.accountId,
+      categorySlug: options.categorySlug,
+      postId: options.postId,
+    });
+    const status = this.status();
+    if (!status.configured || !status.connected) {
+      return { driveFolderId: "local-folder", driveFolderPath: hierarchy.displayPath };
+    }
+    try {
+      const accessToken = await this.getAccessToken();
+      const targetFolderId = await this.ensureFolderHierarchy(accessToken, hierarchy.segments);
+      const getRes = await fetch(
+        `${DRIVE_API}/files/${encodeURIComponent(options.driveFileId)}?fields=id,parents`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      );
+      if (getRes.ok) {
+        const meta = (await getRes.json().catch(() => ({}))) as GoogleDriveFile;
+        const removeParents = (meta.parents ?? []).join(",");
+        const patchUrl = new URL(`${DRIVE_API}/files/${encodeURIComponent(options.driveFileId)}`);
+        patchUrl.searchParams.set("addParents", targetFolderId);
+        if (removeParents) patchUrl.searchParams.set("removeParents", removeParents);
+        await fetch(patchUrl, {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            appProperties: {
+              sakhiCategorySlug: options.categorySlug,
+              sakhiPostId: options.postId,
+            },
+          }),
+        });
+      }
+      return {
+        driveFolderId: targetFolderId,
+        driveFolderPath: hierarchy.displayPath,
+      };
+    } catch {
+      return {
+        driveFolderId: "unchanged",
+        driveFolderPath: hierarchy.displayPath,
+      };
+    }
   }
 
   async downloadFile(driveFileId: string): Promise<{ buffer: Buffer; contentType: string }> {
@@ -206,7 +336,9 @@ export class GoogleDriveStorageService {
 
   private async ensureRootFolder(accessToken: string): Promise<string> {
     if (this.rootFolderId) return this.rootFolderId;
-    const query = "name = 'Sakhi Media' and mimeType = 'application/vnd.google-apps.folder' and trashed = false";
+    const rootName = this.rootFolderName();
+    const escaped = rootName.replace(/\x27/g, "\\\x27");
+    const query = `name = \x27${escaped}\x27 and mimeType = \x27application/vnd.google-apps.folder\x27 and trashed = false`;
     const listUrl = new URL(`${DRIVE_API}/files`);
     listUrl.searchParams.set("q", query);
     listUrl.searchParams.set("pageSize", "20");
@@ -229,7 +361,7 @@ export class GoogleDriveStorageService {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        name: "Sakhi Media",
+        name: rootName,
         mimeType: DRIVE_FOLDER_MIME,
       }),
     });
@@ -240,6 +372,72 @@ export class GoogleDriveStorageService {
       );
     }
     this.rootFolderId = created.id;
+    return created.id;
+  }
+
+  private async ensureFolderHierarchy(
+    accessToken: string,
+    segments: string[],
+  ): Promise<string> {
+    let currentParentId = await this.ensureRootFolder(accessToken);
+    let cumulativeKey = this.rootFolderName();
+    for (const rawSegment of segments) {
+      const segment = this.sanitizeSegment(rawSegment, "general");
+      cumulativeKey = `${cumulativeKey}/${segment}`;
+      const cached = this.folderCache.get(cumulativeKey);
+      if (cached) {
+        currentParentId = cached;
+        continue;
+      }
+      const childId = await this.findOrCreateChildFolder(
+        accessToken,
+        currentParentId,
+        segment,
+      );
+      this.folderCache.set(cumulativeKey, childId);
+      currentParentId = childId;
+    }
+    return currentParentId;
+  }
+
+  private async findOrCreateChildFolder(
+    accessToken: string,
+    parentId: string,
+    folderName: string,
+  ): Promise<string> {
+    const escapedName = folderName.replace(/\x27/g, "\\\x27");
+    const escapedParent = parentId.replace(/\x27/g, "\\\x27");
+    const query = `name = \x27${escapedName}\x27 and \x27${escapedParent}\x27 in parents and mimeType = \x27${DRIVE_FOLDER_MIME}\x27 and trashed = false`;
+    const listUrl = new URL(`${DRIVE_API}/files`);
+    listUrl.searchParams.set("q", query);
+    listUrl.searchParams.set("pageSize", "5");
+    listUrl.searchParams.set("fields", "files(id,name)");
+    const listRes = await fetch(listUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const listed = (await listRes.json().catch(() => ({}))) as {
+      files?: GoogleDriveFile[];
+    };
+    if (listRes.ok && listed.files?.[0]?.id) {
+      return listed.files[0].id;
+    }
+
+    const createRes = await fetch(`${DRIVE_API}/files?fields=id,name`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: folderName,
+        mimeType: DRIVE_FOLDER_MIME,
+        parents: [parentId],
+      }),
+    });
+    const created = (await createRes.json().catch(() => ({}))) as GoogleDriveFile;
+    if (!createRes.ok || !created.id) {
+      return parentId;
+    }
     return created.id;
   }
 
@@ -298,8 +496,10 @@ export class GoogleDriveStorageService {
   }
 
   private assertClientConfigured(): void {
-    if (!process.env.SAKHI_GOOGLE_DRIVE_CLIENT_ID?.trim() ||
-        !process.env.SAKHI_GOOGLE_DRIVE_CLIENT_SECRET?.trim()) {
+    if (
+      !process.env.SAKHI_GOOGLE_DRIVE_CLIENT_ID?.trim() ||
+      !process.env.SAKHI_GOOGLE_DRIVE_CLIENT_SECRET?.trim()
+    ) {
       throw new ServiceUnavailableException(
         "Google Drive OAuth is not configured. Run backend/scripts/Set-GoogleDriveCredentials.ps1 and restart the dev backend.",
       );
@@ -314,6 +514,10 @@ export class GoogleDriveStorageService {
     return process.env.SAKHI_GOOGLE_DRIVE_CLIENT_SECRET?.trim() ?? "";
   }
 
+  private rootFolderName(): string {
+    return process.env.SAKHI_GOOGLE_DRIVE_ROOT_FOLDER?.trim() || "Sakhi Media";
+  }
+
   private redirectUri(): string {
     return (
       process.env.SAKHI_GOOGLE_DRIVE_REDIRECT_URI?.trim() ||
@@ -321,8 +525,18 @@ export class GoogleDriveStorageService {
     );
   }
 
+  private sanitizeSegment(raw: string, fallback: string): string {
+    const cleaned = (raw ?? "")
+      .trim()
+      .replace(/[^a-zA-Z0-9_-]/g, "_")
+      .slice(0, 80);
+    return cleaned.length > 0 ? cleaned : fallback;
+  }
+
   private safeFileName(fileName: string): string {
-    const normalized = fileName.replace(/[\\/]/g, "_").replace(/[^a-zA-Z0-9._-]/g, "_");
+    const normalized = fileName
+      .replace(/[\\/]/g, "_")
+      .replace(/[^a-zA-Z0-9._-]/g, "_");
     const trimmed = normalized.slice(-100);
     return trimmed && trimmed !== "." ? trimmed : "image";
   }

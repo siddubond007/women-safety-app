@@ -13,7 +13,7 @@ import '../../features/settings/screens/privacy_settings_screen.dart';
 import '../../features/wellness/screens/wellness_screen.dart';
 import 'app_navigation_shell.dart';
 
-/// Centralized route definitions for all 12 Sakhi UI screens.
+/// Centralized route definitions for all Module 2 & Module 3 Sakhi UI screens.
 class AppRoutes {
   AppRoutes._();
 
@@ -24,11 +24,15 @@ class AppRoutes {
   static const String wellness = '/wellness'; // Screen 4
   static const String safety = '/safety'; // Screen 5
   static const String profile = '/profile'; // Screen 6
+  static const String memberProfile = '/member-profile';
   static const String editProfile = '/edit-profile'; // Screen 7
   static const String privacySettings = '/privacy-settings'; // Screen 8
   static const String notificationPreferences =
       '/notification-preferences'; // Screen 9
   static const String followers = '/followers'; // Screen 10
+  static const String following = '/following';
+  static const String groups = '/groups';
+  static const String myGroups = '/my-groups';
   static const String accountSecurity = '/account-security'; // Screen 11
   static const String moreOptions = '/more-options'; // Screen 12
 
@@ -40,10 +44,14 @@ class AppRoutes {
         wellness: (_) => const WellnessScreen(showBackButton: true),
         safety: (_) => const SafetyScreen(showBackButton: true),
         profile: (_) => const Scaffold(body: ProfileScreen()),
+        memberProfile: (_) => const Scaffold(body: ProfileScreen()),
         editProfile: (_) => const EditProfileScreen(),
         privacySettings: (_) => const PrivacySettingsScreen(),
         notificationPreferences: (_) => const NotificationPreferencesScreen(),
         followers: (_) => const FollowersFollowingScreen(),
+        following: (_) => const FollowersFollowingScreen(),
+        groups: (_) => const Scaffold(body: ExploreScreen()),
+        myGroups: (_) => const Scaffold(body: ExploreScreen()),
         accountSecurity: (_) => const AccountSecurityScreen(),
         moreOptions: (_) => const MoreOptionsMenuScreen(),
       };

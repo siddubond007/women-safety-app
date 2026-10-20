@@ -2,25 +2,31 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   HttpCode,
   Param,
-  ParseUUIDPipe,
+  Patch,
   Post,
   Put,
+  Query,
   Res,
   UploadedFile,
   UseInterceptors,
 } from "@nestjs/common";
-import { ApiBearerAuth, ApiOkResponse, ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
+import type { Response } from "express";
 import {
   CreateCommunityPostDto,
   CreateEmergencyContactDto,
   CreatePostCommentDto,
+  EditCommunityPostDto,
+  EditPostCommentDto,
+  ReactToPostDto,
   RecordSafetyEventDto,
   ReportUserOrPostDto,
+  RequestAccountDeletionDto,
   RequestMediaUploadDto,
   ToggleBlockedUserDto,
   ToggleTwoFactorDto,
@@ -29,78 +35,98 @@ import {
   UpdateNotificationPreferenceDto,
   UpdatePrivacyPreferenceDto,
   UpdateSecurityPinDto,
-  UploadMediaObjectDto,
   UploadBinaryMediaDto,
+  UploadMediaObjectDto,
 } from "./module2.dto.js";
 import { Module2Service } from "./module2.service.js";
 
-@ApiTags("module2")
-@ApiBearerAuth()
 @Controller("module2")
 export class Module2Controller {
-  constructor(private readonly module2: Module2Service) {}
-
-  @Get("bootstrap")
-  @ApiOkResponse({
-    description:
-      "Returns the full database-backed state for all 12 Sakhi Module 2 screens.",
-  })
-  bootstrap(@Headers("authorization") authorization: string | undefined) {
-    return this.module2.bootstrap(authorization);
-  }
+  constructor(private readonly service: Module2Service) {}
 
   @Get("public-feed")
-  @ApiOkResponse({
-    description:
-      "Returns live PostgreSQL community posts, explore posts, groups, followers directory, and wellness catalog.",
-  })
   publicFeed() {
-    return this.module2.publicFeed();
+    return this.service.publicFeed();
+  }
+
+  @Get("bootstrap")
+  bootstrap(@Headers("authorization") authorization?: string) {
+    return this.service.bootstrap(authorization);
+  }
+
+  @Get("categories")
+  listCategories() {
+    return this.service.listCategories();
+  }
+
+  @Get("posts")
+  listPosts(
+    @Headers("authorization") authorization?: string,
+    @Query("categorySlug") categorySlug?: string,
+    @Query("topic") topic?: string,
+    @Query("search") search?: string,
+    @Query("savedOnly") savedOnly?: string,
+    @Query("limit") limit?: string,
+  ) {
+    return this.service.listPosts(authorization, {
+      categorySlug,
+      topic,
+      search,
+      savedOnly: savedOnly === "true" || savedOnly === "1",
+      limit: limit ? Number(limit) : undefined,
+    });
   }
 
   @Put("profile")
-  @HttpCode(200)
-  @ApiOkResponse({ description: "Updates member profile, bio, location, and interests." })
   updateProfile(
     @Headers("authorization") authorization: string | undefined,
     @Body() dto: UpdateModule2ProfileDto,
   ) {
-    return this.module2.updateProfile(authorization, dto);
+    return this.service.updateProfile(authorization, dto);
+  }
+
+  @Patch("profile")
+  patchProfile(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: UpdateModule2ProfileDto,
+  ) {
+    return this.service.updateProfile(authorization, dto);
   }
 
   @Put("profile/avatar")
-  @HttpCode(200)
-  @ApiOkResponse({ description: "Updates the member profile avatar asset or Cloud URL." })
   updateAvatar(
     @Headers("authorization") authorization: string | undefined,
     @Body() dto: UpdateAvatarDto,
   ) {
-    return this.module2.updateAvatar(authorization, dto);
+    return this.service.updateAvatar(authorization, dto);
   }
 
-  @Post("media/presign")
+  @Post("media/upload-request")
   @HttpCode(200)
-  @ApiOkResponse({
-    description: "Legacy metadata-only presign route disabled; use the authenticated multipart binary upload endpoint after connecting Google Drive.",
-  })
   requestMediaUpload(
     @Headers("authorization") authorization: string | undefined,
     @Body() dto: RequestMediaUploadDto,
   ) {
-    return this.module2.requestMediaUpload(authorization, dto);
+    return this.service.requestMediaUpload(authorization, dto);
+  }
+
+  @Post("media/upload-object")
+  @HttpCode(201)
+  uploadMediaObject(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: UploadMediaObjectDto,
+  ) {
+    return this.service.uploadMediaObject(authorization, dto);
   }
 
   @Post("media/binary-upload")
-  @HttpCode(200)
+  @HttpCode(201)
   @UseInterceptors(
     FileInterceptor("file", {
-      limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 1 },
+      limits: { fileSize: 10 * 1024 * 1024, files: 1 },
     }),
   )
-  @ApiOkResponse({
-    description: "Uploads an actual validated image file to the connected private Google Drive and stores its metadata.",
-  })
-  uploadBinaryMedia(
+  uploadMediaFile(
     @Headers("authorization") authorization: string | undefined,
     @UploadedFile()
     file:
@@ -114,184 +140,261 @@ export class Module2Controller {
     @Body() dto: UploadBinaryMediaDto,
   ) {
     if (!file) {
-      throw new BadRequestException("Choose an image file to upload.");
+      throw new BadRequestException("Select an image file before uploading.");
     }
-    return this.module2.uploadMediaFile(authorization, file, dto);
+    return this.service.uploadMediaFile(authorization, file, dto);
   }
 
   @Post("media/upload")
-  @HttpCode(200)
-  @ApiOkResponse({
-    description: "Legacy JSON/placeholder upload route disabled; use the authenticated multipart binary upload endpoint for real file bytes.",
-  })
-  uploadMediaObject(
+  @HttpCode(201)
+  @UseInterceptors(
+    FileInterceptor("file", {
+      limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+    }),
+  )
+  uploadMediaFileAlias(
     @Headers("authorization") authorization: string | undefined,
-    @Body() dto: UploadMediaObjectDto,
+    @UploadedFile()
+    file:
+      | {
+          originalname: string;
+          mimetype: string;
+          buffer: Buffer;
+          size: number;
+        }
+      | undefined,
+    @Body() dto: UploadBinaryMediaDto,
   ) {
-    return this.module2.uploadMediaObject(authorization, dto);
+    if (!file) {
+      throw new BadRequestException("Select an image file before uploading.");
+    }
+    return this.service.uploadMediaFile(authorization, file, dto);
   }
 
-  @Get("media")
-  @ApiOkResponse({
-    description: "Lists recent user media uploads stored in the backend cloud storage pipeline.",
-  })
-  listMediaObjects(
-    @Headers("authorization") authorization: string | undefined,
-  ) {
-    return this.module2.listMediaObjects(authorization);
+  @Get("media/objects")
+  listMediaObjects(@Headers("authorization") authorization?: string) {
+    return this.service.listMediaObjects(authorization);
   }
 
   @Get("media/object/:uploadId")
-  @ApiOkResponse({
-    description: "Streams a stored user upload image from the backend/cloud storage bridge.",
-  })
-  async serveMediaObject(
-    @Param("uploadId", new ParseUUIDPipe({ version: "4" })) uploadId: string,
-    @Res() res: {
-      setHeader: (name: string, value: string) => void;
-      status: (code: number) => { send: (body: Buffer | string) => void };
-      redirect: (url: string) => void;
-    },
+  async getMediaObject(
+    @Param("uploadId") uploadId: string,
+    @Res() response: Response,
   ) {
-    const media = await this.module2.resolveMediaObject(uploadId);
+    const media = await this.service.resolveMediaObject(uploadId);
     if (media.redirectUrl) {
-      res.redirect(media.redirectUrl);
-      return;
+      return response.redirect(302, media.redirectUrl);
     }
-    res.setHeader("Content-Type", media.contentType);
-    res.setHeader("Cache-Control", "private, max-age=300");
-    res.setHeader("X-Content-Type-Options", "nosniff");
-    res.status(200).send(media.buffer);
+    response.setHeader("Content-Type", media.contentType);
+    response.setHeader("Cache-Control", "private, max-age=300");
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    return response.status(200).send(media.buffer);
   }
 
   @Post("posts")
-  @HttpCode(200)
-  @ApiOkResponse({ description: "Creates a new community feed post." })
+  @HttpCode(201)
   createPost(
     @Headers("authorization") authorization: string | undefined,
     @Body() dto: CreateCommunityPostDto,
   ) {
-    return this.module2.createPost(authorization, dto);
+    return this.service.createPost(authorization, {
+      ...dto,
+      content: (dto.content ?? dto.body ?? "").trim(),
+      imageAsset: dto.imageAsset ?? dto.mediaAsset,
+    });
+  }
+
+  @Patch("posts/:postId")
+  editPost(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("postId") postId: string,
+    @Body() dto: EditCommunityPostDto,
+  ) {
+    return this.service.editPost(authorization, postId, dto);
+  }
+
+  @Delete("posts/:postId")
+  deletePost(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("postId") postId: string,
+  ) {
+    return this.service.deletePost(authorization, postId);
+  }
+
+  @Post("posts/:postId/react")
+  @HttpCode(200)
+  reactToPost(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("postId") postId: string,
+    @Body() dto: ReactToPostDto,
+  ) {
+    return this.service.reactToPost(authorization, postId, dto.reactionType);
   }
 
   @Post("posts/:postId/like")
   @HttpCode(200)
-  @ApiOkResponse({ description: "Toggles like status on a community post." })
-  toggleLike(
+  togglePostLike(
     @Headers("authorization") authorization: string | undefined,
-    @Param("postId", new ParseUUIDPipe({ version: "4" })) postId: string,
+    @Param("postId") postId: string,
   ) {
-    return this.module2.togglePostLike(authorization, postId);
+    return this.service.togglePostLike(authorization, postId);
   }
 
   @Post("posts/:postId/save")
   @HttpCode(200)
-  @ApiOkResponse({ description: "Toggles bookmark/save status on a community post." })
-  toggleSave(
+  togglePostSave(
     @Headers("authorization") authorization: string | undefined,
-    @Param("postId", new ParseUUIDPipe({ version: "4" })) postId: string,
+    @Param("postId") postId: string,
   ) {
-    return this.module2.togglePostSave(authorization, postId);
+    return this.service.togglePostSave(authorization, postId);
+  }
+
+  @Get("posts/:postId/comments")
+  listPostComments(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("postId") postId: string,
+  ) {
+    return this.service.listPostComments(authorization, postId);
   }
 
   @Post("posts/:postId/comments")
-  @HttpCode(200)
-  @ApiOkResponse({ description: "Adds a comment to a community post." })
-  addComment(
+  @HttpCode(201)
+  addPostComment(
     @Headers("authorization") authorization: string | undefined,
-    @Param("postId", new ParseUUIDPipe({ version: "4" })) postId: string,
+    @Param("postId") postId: string,
     @Body() dto: CreatePostCommentDto,
   ) {
-    return this.module2.addPostComment(authorization, postId, dto);
+    return this.service.addPostComment(authorization, postId, {
+      content: (dto.content ?? dto.body ?? "").trim(),
+    });
+  }
+
+  @Patch("posts/:postId/comments/:commentId")
+  editPostComment(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("postId") postId: string,
+    @Param("commentId") commentId: string,
+    @Body() dto: EditPostCommentDto,
+  ) {
+    return this.service.editPostComment(authorization, postId, commentId, dto);
+  }
+
+  @Delete("posts/:postId/comments/:commentId")
+  deletePostComment(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("postId") postId: string,
+    @Param("commentId") commentId: string,
+  ) {
+    return this.service.deletePostComment(authorization, postId, commentId);
   }
 
   @Post("followers/:profileId/toggle")
   @HttpCode(200)
-  @ApiOkResponse({ description: "Toggles follow status for a community profile." })
   toggleFollow(
     @Headers("authorization") authorization: string | undefined,
-    @Param("profileId", new ParseUUIDPipe({ version: "4" })) profileId: string,
+    @Param("profileId") profileId: string,
   ) {
-    return this.module2.toggleFollow(authorization, profileId);
+    return this.service.toggleFollow(authorization, profileId);
+  }
+
+  @Post("members/:profileId/follow")
+  @HttpCode(200)
+  toggleMemberFollowAlias(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("profileId") profileId: string,
+  ) {
+    return this.service.toggleFollow(authorization, profileId);
   }
 
   @Put("privacy")
-  @HttpCode(200)
-  @ApiOkResponse({ description: "Updates a member privacy setting." })
   updatePrivacy(
     @Headers("authorization") authorization: string | undefined,
     @Body() dto: UpdatePrivacyPreferenceDto,
   ) {
-    return this.module2.updatePrivacyPreference(authorization, dto);
+    return this.service.updatePrivacyPreference(authorization, dto);
   }
 
   @Put("notifications")
-  @HttpCode(200)
-  @ApiOkResponse({ description: "Updates a member notification preference." })
   updateNotification(
     @Headers("authorization") authorization: string | undefined,
     @Body() dto: UpdateNotificationPreferenceDto,
   ) {
-    return this.module2.updateNotificationPreference(authorization, dto);
+    return this.service.updateNotificationPreference(authorization, dto);
   }
 
   @Post("safety/events")
-  @HttpCode(200)
-  @ApiOkResponse({ description: "Records a safety SOS or location share event." })
+  @HttpCode(201)
   recordSafetyEvent(
     @Headers("authorization") authorization: string | undefined,
     @Body() dto: RecordSafetyEventDto,
   ) {
-    return this.module2.recordSafetyEvent(authorization, dto);
+    return this.service.recordSafetyEvent(authorization, dto);
   }
 
   @Post("safety/contacts")
-  @HttpCode(200)
-  @ApiOkResponse({ description: "Adds a trusted emergency contact." })
+  @HttpCode(201)
   addEmergencyContact(
     @Headers("authorization") authorization: string | undefined,
     @Body() dto: CreateEmergencyContactDto,
   ) {
-    return this.module2.addEmergencyContact(authorization, dto);
+    return this.service.addEmergencyContact(authorization, dto);
   }
 
-  @Post("security/two-factor")
-  @HttpCode(200)
-  @ApiOkResponse({ description: "Updates two-factor authentication state." })
+  @Put("security/two-factor")
   toggleTwoFactor(
     @Headers("authorization") authorization: string | undefined,
     @Body() dto: ToggleTwoFactorDto,
   ) {
-    return this.module2.toggleTwoFactor(authorization, dto);
+    return this.service.toggleTwoFactor(authorization, dto);
   }
 
-  @Post("security/pin")
-  @HttpCode(200)
-  @ApiOkResponse({ description: "Updates the member security PIN." })
-  updatePin(
+  @Put("security/pin")
+  updateSecurityPin(
     @Headers("authorization") authorization: string | undefined,
     @Body() dto: UpdateSecurityPinDto,
   ) {
-    return this.module2.updateSecurityPin(authorization, dto);
+    return this.service.updateSecurityPin(authorization, dto);
   }
 
   @Post("moderation/report")
-  @HttpCode(200)
-  @ApiOkResponse({ description: "Submits a user or post moderation report." })
-  report(
+  @HttpCode(201)
+  reportUserOrPost(
     @Headers("authorization") authorization: string | undefined,
     @Body() dto: ReportUserOrPostDto,
   ) {
-    return this.module2.reportUserOrPost(authorization, dto);
+    return this.service.reportUserOrPost(authorization, {
+      ...dto,
+      targetHandle: dto.targetHandle ?? dto.reportedAccountId ?? dto.postId ?? "@community",
+    });
+  }
+
+  @Post("reports")
+  @HttpCode(201)
+  reportAlias(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: ReportUserOrPostDto,
+  ) {
+    return this.service.reportUserOrPost(authorization, {
+      ...dto,
+      targetHandle: dto.targetHandle ?? dto.reportedAccountId ?? dto.postId ?? "@community",
+    });
   }
 
   @Post("moderation/block")
   @HttpCode(200)
-  @ApiOkResponse({ description: "Toggles a blocked user record." })
-  toggleBlock(
+  toggleBlockedUser(
     @Headers("authorization") authorization: string | undefined,
     @Body() dto: ToggleBlockedUserDto,
   ) {
-    return this.module2.toggleBlockedUser(authorization, dto);
+    return this.service.toggleBlockedUser(authorization, dto);
+  }
+
+  @Post("account/delete")
+  @HttpCode(200)
+  requestAccountDeletion(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: RequestAccountDeletionDto,
+  ) {
+    return this.service.requestAccountDeletion(authorization, dto);
   }
 }

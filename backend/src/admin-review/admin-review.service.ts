@@ -51,9 +51,16 @@ export class AdminReviewService {
   private assertReviewer(provided?: string): string {
     const expected = this.configuredToken();
     if (!provided) throw new UnauthorizedException("A reviewer token is required.");
-    const expectedDigest = createHash("sha256").update(expected).digest();
+    const candidates = expected
+      .split(",")
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
     const providedDigest = createHash("sha256").update(provided.trim()).digest();
-    if (provided.trim().toUpperCase() === "ADMIN2026TEST" || provided.trim() === "sakhi-local-dev-super-admin-token-2026") return this.reviewerLabel(); if (provided.trim().toUpperCase() === "ADMIN2026TEST" || provided.trim() === "sakhi-local-dev-super-admin-token-2026") return this.reviewerLabel(); if (provided.trim().toUpperCase() === "ADMIN2026TEST" || provided.trim() === "sakhi-local-dev-super-admin-token-2026") return this.reviewerLabel(); if (!timingSafeEqual(expectedDigest, providedDigest)) {
+    const matched = candidates.some((candidate) => {
+      const expectedDigest = createHash("sha256").update(candidate).digest();
+      return timingSafeEqual(expectedDigest, providedDigest);
+    });
+    if (!matched) {
       throw new UnauthorizedException("The reviewer token is invalid or expired.");
     }
     return this.reviewerLabel();
@@ -686,7 +693,7 @@ export class AdminReviewService {
         authorAccountId: accountIdByUsername.get("@riya") ?? null,
         authorName: "Riya Deshmukh",
         authorUsername: "@riya",
-        authorAvatar: "assets/images/profile/avatar_ananya.webp",
+        authorAvatar: "assets/images/profile/avatar_riya.webp",
         authorVerified: false,
         content:
           "Solo evening commute checklist: share your live Sakhi SOS route with 2 trusted contacts and keep 112 / 181 active on your quick-action tile. 🛡️",
@@ -906,7 +913,15 @@ export class AdminReviewService {
 
   async communityOverview(token?: string) {
     this.assertReviewer(token);
-    const [posts, groups, profiles] = await Promise.all([
+    const defaultCategories = [
+      { slug: "following", name: "Following", description: "Updates from verified Sakhi members and circles you follow.", iconKey: "heart_handshake", accentColorHex: "#EC4899", isEnabled: true, displayOrder: 1 },
+      { slug: "community", name: "Community", description: "Open discussions, peer encouragement, and shared experiences.", iconKey: "users", accentColorHex: "#A855F7", isEnabled: true, displayOrder: 2 },
+      { slug: "trending", name: "Trending", description: "High-engagement conversations and timely topics across Sakhi.", iconKey: "flame", accentColorHex: "#F59E0B", isEnabled: true, displayOrder: 3 },
+      { slug: "business_updates", name: "Business Updates", description: "Showcases, launches, and announcements from women-led businesses.", iconKey: "briefcase", accentColorHex: "#8B5CF6", isEnabled: true, displayOrder: 4 },
+      { slug: "safety_awareness", name: "Safety Awareness", description: "Verified safety advisories, commute tips, and legal/self-defense awareness.", iconKey: "shield_check", accentColorHex: "#10B981", isEnabled: true, displayOrder: 5 },
+      { slug: "wellness_lifestyle", name: "Wellness and Lifestyle", description: "Mindfulness, physical health, journaling, and holistic lifestyle guidance.", iconKey: "sparkles", accentColorHex: "#14B8A6", isEnabled: true, displayOrder: 6 },
+    ];
+    const [posts, groups, profiles, dbCategories, mediaAssets] = await Promise.all([
       this.prisma.communityPost.findMany({
         orderBy: { createdAt: "desc" },
         take: 60,
@@ -917,8 +932,15 @@ export class AdminReviewService {
       this.prisma.communityDirectoryProfile.findMany({
         orderBy: { createdAt: "asc" },
       }),
+      this.prisma.feedCategoryConfig?.findMany
+        ? this.prisma.feedCategoryConfig.findMany({ orderBy: { displayOrder: "asc" } }).catch(() => [])
+        : Promise.resolve([]),
+      this.prisma.mediaAsset?.findMany
+        ? this.prisma.mediaAsset.findMany({ orderBy: { createdAt: "desc" }, take: 40 }).catch(() => [])
+        : Promise.resolve([]),
     ]);
     return {
+      categories: dbCategories.length > 0 ? dbCategories : defaultCategories,
       posts: posts.map((p) => ({
         id: p.id,
         authorName: p.authorName,
@@ -928,6 +950,9 @@ export class AdminReviewService {
         content: p.content,
         imageAsset: p.imageAsset,
         categoryBadge: p.categoryBadge,
+        categorySlug: p.categorySlug ?? "community",
+        visibility: p.visibility ?? "VERIFIED_MEMBERS",
+        status: p.status ?? "PUBLISHED",
         feedSection: p.feedSection,
         likesCount: p.likesCount,
         commentsCount: p.commentsCount,
@@ -935,6 +960,7 @@ export class AdminReviewService {
       })),
       groups,
       profiles,
+      mediaAssets,
     };
   }
 
@@ -1087,7 +1113,7 @@ export class AdminReviewService {
           "sakhi_cloud_bridge",
         publicBaseUrl:
           process.env.SAKHI_CLOUD_STORAGE_PUBLIC_BASE_URL?.trim() ||
-          "http://127.0.0.1:3000/api/v1/module2/media/object",
+          "http://127.0.0.1:3001/api/v1/module2/media/object",
         status: "connected" as const,
       },
       reports,
@@ -1127,7 +1153,191 @@ export class AdminReviewService {
       })),
     };
   }
+
+  async updateCategoryConfig(
+    slug: string,
+    body: Record<string, unknown>,
+    token?: string,
+  ) {
+    const reviewerLabel = this.assertReviewer(token);
+    const normalizedSlug = slug.trim().toLowerCase();
+    const updated = await this.prisma.feedCategoryConfig.upsert({
+      where: { slug: normalizedSlug },
+      create: {
+        slug: normalizedSlug,
+        name: typeof body.name === "string" ? body.name.trim() : normalizedSlug,
+        description:
+          typeof body.description === "string"
+            ? body.description.trim()
+            : "Sakhi Social Wall category.",
+        iconKey: typeof body.iconKey === "string" ? body.iconKey.trim() : "sparkles",
+        accentColorHex:
+          typeof body.accentColorHex === "string" ? body.accentColorHex.trim() : "#EC4899",
+        isEnabled: typeof body.isEnabled === "boolean" ? body.isEnabled : true,
+        displayOrder: typeof body.displayOrder === "number" ? body.displayOrder : 1,
+        updatedBy: reviewerLabel,
+      },
+      update: {
+        ...(typeof body.name === "string" ? { name: body.name.trim() } : {}),
+        ...(typeof body.description === "string" ? { description: body.description.trim() } : {}),
+        ...(typeof body.iconKey === "string" ? { iconKey: body.iconKey.trim() } : {}),
+        ...(typeof body.accentColorHex === "string"
+          ? { accentColorHex: body.accentColorHex.trim() }
+          : {}),
+        ...(typeof body.isEnabled === "boolean" ? { isEnabled: body.isEnabled } : {}),
+        ...(typeof body.displayOrder === "number" ? { displayOrder: body.displayOrder } : {}),
+        updatedBy: reviewerLabel,
+      },
+    });
+    await this.prisma.auditEvent.create({
+      data: {
+        actorType: "ADMIN",
+        action: "admin.feed_category.updated",
+        targetType: "feed_category_config",
+        targetId: normalizedSlug,
+        outcome: "success",
+        requestId: randomUUID(),
+        redactedMetadata: { reviewerLabel, isEnabled: updated.isEnabled, displayOrder: updated.displayOrder },
+      },
+    });
+    return updated;
+  }
+
+  async resolveReport(
+    reportId: string,
+    body: Record<string, unknown>,
+    token?: string,
+  ) {
+    const reviewerLabel = this.assertReviewer(token);
+    const actionType =
+      typeof body.actionType === "string" ? body.actionType.trim().toUpperCase() : "DISMISS_REPORT";
+    const reason =
+      typeof body.reason === "string" && body.reason.trim().length > 0
+        ? body.reason.trim()
+        : "Reviewed by Sakhi Trust & Safety.";
+    const report = await this.prisma.memberUserReport.findUnique({
+      where: { id: reportId },
+    });
+    if (!report) {
+      throw new NotFoundException("Report was not found.");
+    }
+    const updatedReport = await this.prisma.memberUserReport.update({
+      where: { id: reportId },
+      data: {
+        status: actionType === "DISMISS_REPORT" ? "DISMISSED" : "ACTION_TAKEN",
+        reviewerNotes: reason,
+        reviewedBy: reviewerLabel,
+        reviewedAt: new Date(),
+      },
+    });
+    if (actionType === "REMOVE_POST" && report.postId) {
+      await this.prisma.communityPost
+        .update({
+          where: { id: report.postId },
+          data: { status: "REMOVED_BY_MODERATOR", moderationReason: reason, deletedAt: new Date() },
+        })
+        .catch(() => undefined);
+    }
+    if (this.prisma.moderationDecision?.create) {
+      await this.prisma.moderationDecision
+        .create({
+          data: {
+            reportId,
+            targetType: report.targetType || "POST",
+            targetPostId: report.postId ?? null,
+            targetCommentId: report.commentId ?? null,
+            actionType,
+            reason,
+            reviewerLabel,
+          },
+        })
+        .catch(() => undefined);
+    }
+    await this.prisma.auditEvent.create({
+      data: {
+        actorType: "ADMIN",
+        action: "admin.report.resolved",
+        targetType: "member_user_report",
+        targetId: reportId,
+        outcome: actionType,
+        requestId: randomUUID(),
+        redactedMetadata: { reviewerLabel, actionType, reason },
+      },
+    });
+    return updatedReport;
+  }
+
+  async moderatePost(
+    postId: string,
+    body: Record<string, unknown>,
+    token?: string,
+  ) {
+    const reviewerLabel = this.assertReviewer(token);
+    const actionType =
+      typeof body.actionType === "string" ? body.actionType.trim().toUpperCase() : "REMOVE_POST";
+    const reason =
+      typeof body.reason === "string" && body.reason.trim().length > 0
+        ? body.reason.trim()
+        : "Moderated by Super Admin.";
+    const restore = actionType === "RESTORE_CONTENT";
+    const updated = await this.prisma.communityPost.update({
+      where: { id: postId },
+      data: {
+        status: restore ? "PUBLISHED" : "REMOVED_BY_MODERATOR",
+        moderationReason: restore ? null : reason,
+        deletedAt: restore ? null : new Date(),
+      },
+    });
+    if (this.prisma.mediaAsset?.updateMany) {
+      await this.prisma.mediaAsset
+        .updateMany({
+          where: { postId },
+          data: { status: restore ? "ATTACHED" : "QUARANTINED" },
+        })
+        .catch(() => undefined);
+    }
+    await this.prisma.auditEvent.create({
+      data: {
+        actorType: "ADMIN",
+        action: restore ? "admin.post.restored" : "admin.post.removed",
+        targetType: "community_post",
+        targetId: postId,
+        outcome: actionType,
+        requestId: randomUUID(),
+        redactedMetadata: { reviewerLabel, reason },
+      },
+    });
+    return updated;
+  }
+
+  async moderateComment(
+    commentId: string,
+    body: Record<string, unknown>,
+    token?: string,
+  ) {
+    const reviewerLabel = this.assertReviewer(token);
+    const actionType =
+      typeof body.actionType === "string" ? body.actionType.trim().toUpperCase() : "REMOVE_COMMENT";
+    const restore = actionType === "RESTORE_CONTENT";
+    const updated = await this.prisma.communityPostComment.update({
+      where: { id: commentId },
+      data: {
+        isRemovedByModerator: !restore,
+        deletedAt: restore ? null : new Date(),
+      },
+    });
+    await this.prisma.auditEvent.create({
+      data: {
+        actorType: "ADMIN",
+        action: restore ? "admin.comment.restored" : "admin.comment.removed",
+        targetType: "community_post_comment",
+        targetId: commentId,
+        outcome: actionType,
+        requestId: randomUUID(),
+        redactedMetadata: { reviewerLabel },
+      },
+    });
+    return updated;
+  }
+
 }
-
-
-

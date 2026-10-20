@@ -61,12 +61,15 @@ class _ExploreScreenState extends State<ExploreScreen> {
   Future<void> _search(String value) async {
     final state = SakhiPrototypeState.instance;
     state.searchQuery = value.trim();
-    await Future.wait([
+    await Future.wait<void>(<Future<void>>[
       state.loadDiscover(query: value),
       state.loadFeed(query: value),
-      state.backend?.loadGroups(query: value) ?? Future<bool>.value(false),
-      state.backend?.loadEvents(query: value) ?? Future<bool>.value(false),
-      state.backend?.loadExperts(query: value) ?? Future<bool>.value(false),
+      state.backend?.loadGroups(query: value).then<void>((_) {}) ??
+          Future<void>.value(),
+      state.backend?.loadEvents(query: value).then<void>((_) {}) ??
+          Future<void>.value(),
+      state.backend?.loadExperts(query: value).then<void>((_) {}) ??
+          Future<void>.value(),
     ]);
   }
 

@@ -1,187 +1,320 @@
-import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import {
   ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsEmail,
   IsIn,
+  IsISO8601,
+  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
   Matches,
+  Max,
   MaxLength,
+  Min,
   MinLength,
 } from "class-validator";
 
 export class UpdateModule2ProfileDto {
-  @ApiProperty({ example: "Siddhu" })
   @IsString()
   @IsNotEmpty()
-  @MinLength(2)
-  @MaxLength(100)
+  @MaxLength(80)
   displayName!: string;
 
-  @ApiProperty({
-    example:
-      "A passionate learner, exploring wellness, technology and meaningful connections. 💜",
-  })
   @IsString()
   @MaxLength(300)
   bio!: string;
 
-  @ApiProperty({ example: "Bangalore, India" })
   @IsString()
+  @IsNotEmpty()
   @MaxLength(120)
   location!: string;
 
-  @ApiProperty({
-    example: ["Mental Wellness", "Travel", "Reading", "WomenInTech", "Art", "Fitness"],
-  })
   @IsArray()
-  @ArrayMaxSize(15)
+  @ArrayMaxSize(16)
   @IsString({ each: true })
+  @MaxLength(40, { each: true })
   interests!: string[];
 
-  @ApiPropertyOptional({ example: "siddhu@example.com" })
   @IsOptional()
   @IsEmail()
-  @MaxLength(254)
+  @MaxLength(160)
   email?: string;
 
-  @ApiPropertyOptional({ example: "https://sakhi.example.com/studio" })
   @IsOptional()
   @IsString()
   @MaxLength(255)
   businessProfileUrl?: string;
 
-  @ApiPropertyOptional({ example: "assets/images/profile/avatar_siddhu.webp" })
   @IsOptional()
   @IsString()
   @MaxLength(255)
   avatarAsset?: string;
 }
 
-export class UpdateAvatarDto {
-  @ApiProperty({
-    example: "assets/images/profile/avatar_ananya.webp",
-    description: "Local asset path or remote Cloud Storage HTTPS URL",
-  })
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(255)
-  avatarAsset!: string;
-}
-
-export class RequestMediaUploadDto {
-  @ApiProperty({ example: "profile_avatar.png" })
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(120)
-  fileName!: string;
-
-  @ApiProperty({ example: "image/png" })
-  @IsString()
-  @IsIn(["image/png", "image/jpeg", "image/webp", "image/svg+xml"])
-  contentType!: "image/png" | "image/jpeg" | "image/webp" | "image/svg+xml";
-
-  @ApiProperty({ enum: ["avatar", "post", "verification"] })
-  @IsString()
-  @IsIn(["avatar", "post", "verification"])
-  purpose!: "avatar" | "post" | "verification";
-}
-
-export class UploadBinaryMediaDto {
-  @ApiProperty({ enum: ["avatar", "post"] })
-  @IsString()
-  @IsIn(["avatar", "post"])
-  purpose!: "avatar" | "post";
-}
-
-export class UploadMediaObjectDto {
-  @ApiProperty({ example: "cloud_upload.png" })
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(120)
-  fileName!: string;
-
-  @ApiProperty({ example: "image/png" })
-  @IsString()
-  @IsIn(["image/png", "image/jpeg", "image/webp", "image/svg+xml"])
-  contentType!: "image/png" | "image/jpeg" | "image/webp" | "image/svg+xml";
-
-  @ApiProperty({ enum: ["avatar", "post", "verification"] })
-  @IsString()
-  @IsIn(["avatar", "post", "verification"])
-  purpose!: "avatar" | "post" | "verification";
-
-  @ApiPropertyOptional({
-    description: "Optional base64 data URI (data:image/png;base64,...) to store in backend cloud bridge",
-  })
+export class UpdateProfileDto {
   @IsOptional()
   @IsString()
-  @MaxLength(1500000)
-  dataUrl?: string;
+  @MaxLength(80)
+  displayName?: string;
 
-  @ApiPropertyOptional({
-    description: "Optional external HTTPS URL or cloud bucket object URL",
-  })
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(160)
+  email?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(500)
-  externalUrl?: string;
+  bio?: string;
 
-  @ApiPropertyOptional({
-    description: "Optional visual theme preset when generating a studio cloud asset",
-  })
   @IsOptional()
   @IsString()
-  @MaxLength(64)
-  presetTheme?: string;
+  @MaxLength(120)
+  location?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  locationCity?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(16)
+  @IsString({ each: true })
+  @MaxLength(40, { each: true })
+  interests?: string[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  @Matches(/^(?!.*\.\.)(profile\/[0-9a-fA-F-]{36}\/[a-zA-Z0-9._-]+|assets\/images\/[a-zA-Z0-9/_.-]+|https?:\/\/127\.0\.0\.1:\d+\/api\/v1\/module2\/media\/object\/[0-9a-fA-F-]{36})$/, {
+    message: "profilePhotoRef must be a valid scoped profile photo reference.",
+  })
+  profilePhotoRef?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  avatarAsset?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  businessProfileUrl?: string;
 }
 
 export class CreateCommunityPostDto {
-  @ApiProperty({
-    example: "Taking time for a mindful evening walk today 🌸💜",
-  })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  @MinLength(1)
-  @MaxLength(1000)
-  content!: string;
+  @MinLength(2)
+  @MaxLength(2000)
+  content?: string;
 
-  @ApiPropertyOptional({ example: "Wellness" })
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(2000)
+  body?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(64)
   categoryBadge?: string;
 
-  @ApiPropertyOptional({ example: "assets/images/community/evening_walk_sunset.webp" })
   @IsOptional()
   @IsString()
-  @MaxLength(255)
+  @MaxLength(40)
+  categorySlug?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(["VERIFIED_MEMBERS", "FOLLOWERS_ONLY", "PRIVATE_SELF", "Verified members", "Followers only", "Only me"])
+  visibility?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(["1:1", "4:5", "16:9"])
+  cropPreset?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  hashtags?: string[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  locationTag?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  allowComments?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  shareToBusinessProfile?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
   imageAsset?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  mediaAsset?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  mediaUploadIds?: string[];
+}
+
+export class CreatePostDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(5000)
+  body!: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(["VERIFIED_MEMBERS", "FOLLOWERS", "SELECTED_MEMBERS", "ONLY_ME", "FOLLOWERS_ONLY", "PRIVATE_SELF"])
+  audience?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  mediaRef?: string;
+}
+
+export class EditCommunityPostDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(2000)
+  content?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(2000)
+  body?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  categorySlug?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  categoryBadge?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  visibility?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(["1:1", "4:5", "16:9"])
+  cropPreset?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  hashtags?: string[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  locationTag?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  allowComments?: boolean;
+}
+
+export class ReactToPostDto {
+  @IsString()
+  @IsIn(["LIKE", "LOVE", "SUPPORT", "INSPIRED", "HAPPY", "GRATEFUL", "STRONG", "CARE"])
+  reactionType!: string;
 }
 
 export class CreatePostCommentDto {
-  @ApiProperty({ example: "So inspiring! Thank you for sharing 💜" })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MinLength(1)
   @MaxLength(500)
-  content!: string;
+  content?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(500)
+  body?: string;
+}
+
+export class EditPostCommentDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(500)
+  content?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(500)
+  body?: string;
+}
+
+export class CreateCommunityGroupDto {
+  @IsString()
+  @MinLength(2)
+  @MaxLength(120)
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string;
+
+  @IsString()
+  @IsIn(["VERIFIED_MEMBERS", "PRIVATE"])
+  visibility!: "VERIFIED_MEMBERS" | "PRIVATE";
+}
+
+export class CreateCommunityEventDto {
+  @IsString()
+  @IsNotEmpty()
+  groupId!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(160)
+  title!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(3000)
+  description!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  locationCity?: string;
+
+  @IsISO8601()
+  startsAt!: string;
+
+  @IsISO8601()
+  endsAt!: string;
 }
 
 export class UpdatePrivacyPreferenceDto {
-  @ApiProperty({
-    enum: [
-      "view_profile",
-      "message_me",
-      "see_posts",
-      "show_location",
-      "search_results",
-      "business_enquiries",
-    ],
-  })
   @IsString()
   @IsIn([
     "view_profile",
@@ -199,7 +332,6 @@ export class UpdatePrivacyPreferenceDto {
     | "search_results"
     | "business_enquiries";
 
-  @ApiProperty({ example: "Verified members only" })
   @IsString()
   @IsNotEmpty()
   @MaxLength(64)
@@ -207,17 +339,6 @@ export class UpdatePrivacyPreferenceDto {
 }
 
 export class UpdateNotificationPreferenceDto {
-  @ApiProperty({
-    enum: [
-      "community_updates",
-      "group_activity",
-      "wellness_reminders",
-      "safety_alerts",
-      "messages",
-      "business_enquiries",
-      "marketing_updates",
-    ],
-  })
   @IsString()
   @IsIn([
     "community_updates",
@@ -237,20 +358,19 @@ export class UpdateNotificationPreferenceDto {
     | "business_enquiries"
     | "marketing_updates";
 
-  @ApiProperty({ example: true })
   @IsBoolean()
   isEnabled!: boolean;
 }
 
 export class RecordSafetyEventDto {
-  @ApiProperty({
-    enum: ["SOS_TRIGGERED", "LOCATION_SHARED", "HELPLINE_OPENED"],
-  })
   @IsString()
-  @IsIn(["SOS_TRIGGERED", "LOCATION_SHARED", "HELPLINE_OPENED"])
-  eventType!: "SOS_TRIGGERED" | "LOCATION_SHARED" | "HELPLINE_OPENED";
+  @IsIn(["SOS_ACTIVATED", "LOCATION_SHARED", "FAKE_CALL_TRIGGERED", "AUDIO_RECORDING_STARTED"])
+  eventType!:
+    | "SOS_ACTIVATED"
+    | "LOCATION_SHARED"
+    | "FAKE_CALL_TRIGGERED"
+    | "AUDIO_RECORDING_STARTED";
 
-  @ApiPropertyOptional({ example: "Bangalore, India" })
   @IsOptional()
   @IsString()
   @MaxLength(120)
@@ -258,63 +378,172 @@ export class RecordSafetyEventDto {
 }
 
 export class CreateEmergencyContactDto {
-  @ApiProperty({ example: "Lakshmi Devi" })
   @IsString()
-  @IsNotEmpty()
-  @MaxLength(100)
+  @MinLength(2)
+  @MaxLength(80)
   name!: string;
 
-  @ApiProperty({ example: "Mother" })
   @IsString()
-  @IsNotEmpty()
-  @MaxLength(64)
+  @MinLength(2)
+  @MaxLength(50)
   relationship!: string;
 
-  @ApiProperty({ example: "+919845011223" })
   @IsString()
-  @Matches(/^\+[1-9]\d{7,14}$/, {
-    message: "Enter a valid international phone number (e.g. +919845011223).",
-  })
+  @MinLength(8)
+  @MaxLength(20)
   phoneE164!: string;
 }
 
 export class ToggleTwoFactorDto {
-  @ApiProperty({ example: true })
   @IsBoolean()
   enabled!: boolean;
 }
 
 export class UpdateSecurityPinDto {
-  @ApiProperty({ example: "4829" })
   @IsString()
-  @Matches(/^\d{4,6}$/, { message: "PIN must be 4 to 6 digits." })
+  @MinLength(4)
+  @MaxLength(6)
+  currentPin!: string;
+
+  @IsString()
+  @MinLength(4)
+  @MaxLength(6)
   newPin!: string;
 }
 
 export class ReportUserOrPostDto {
-  @ApiProperty({ example: "@kavya" })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  @MaxLength(100)
-  targetHandle!: string;
+  @MaxLength(80)
+  targetHandle?: string;
 
-  @ApiProperty({ example: "Harassment or unkind behavior" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  targetType?: string;
+
+  @IsOptional()
+  @IsString()
+  postId?: string;
+
+  @IsOptional()
+  @IsString()
+  commentId?: string;
+
+  @IsOptional()
+  @IsString()
+  reportedAccountId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  category?: string;
+
+  @IsString()
+  @MinLength(3)
+  @MaxLength(300)
+  reason!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  details?: string;
+}
+
+export class UpdateAvatarDto {
   @IsString()
   @IsNotEmpty()
-  @MaxLength(500)
-  reason!: string;
+  @MaxLength(255)
+  avatarAsset!: string;
+}
+
+export class RequestMediaUploadDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(140)
+  fileName!: string;
+
+  @IsString()
+  @IsIn(["image/jpeg", "image/png", "image/webp", "video/mp4"])
+  contentType!: "image/jpeg" | "image/png" | "image/webp" | "video/mp4";
+
+  @IsString()
+  @IsIn(["avatar", "post", "wellness"])
+  purpose!: "avatar" | "post" | "wellness";
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(25_000_000)
+  byteSize?: number;
+}
+
+export class UploadMediaObjectDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  uploadId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(140)
+  fileName!: string;
+
+  @IsString()
+  @IsIn(["image/jpeg", "image/png", "image/webp", "video/mp4"])
+  contentType!: "image/jpeg" | "image/png" | "image/webp" | "video/mp4";
+
+  @IsString()
+  @IsIn(["avatar", "post", "wellness"])
+  purpose!: "avatar" | "post" | "wellness";
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  checksumSha256?: string;
+}
+
+export class UploadBinaryMediaDto {
+  @IsOptional()
+  @IsString()
+  @IsIn(["avatar", "post", "PROFILE_PHOTO", "COMMUNITY_POST_IMAGE", "COMMUNITY_POST_VIDEO"])
+  purpose?: "avatar" | "post" | "PROFILE_PHOTO" | "COMMUNITY_POST_IMAGE" | "COMMUNITY_POST_VIDEO";
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  categorySlug?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  postId?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(["1:1", "4:5", "16:9"])
+  cropAspectRatio?: string;
 }
 
 export class ToggleBlockedUserDto {
-  @ApiProperty({ example: "@spam_account" })
   @IsString()
   @IsNotEmpty()
   @MaxLength(50)
   blockedUsername!: string;
 
-  @ApiProperty({ example: "Spam Account" })
   @IsString()
   @IsNotEmpty()
-  @MaxLength(100)
+  @MaxLength(80)
   blockedDisplayName!: string;
+}
+
+export class RequestAccountDeletionDto {
+  @IsString()
+  @IsIn(["DELETE"])
+  confirmation!: "DELETE";
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
 }

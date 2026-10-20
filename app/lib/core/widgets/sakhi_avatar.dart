@@ -1,12 +1,16 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../../shared/widgets/sakhi_crisp_art.dart';
+import '../assets/app_assets.dart';
 import '../theme/app_colors.dart';
 
-/// Circular user avatar with optional camera edit button, infinite-DPI vector
-/// portrait rendering for built-in test profiles, and automatic Cloud/Network
-/// URL support (`http://` / `https://`).
+/// Circular user avatar with optional camera edit button, distinct local
+/// women's illustrated portraits (`assets/images/profile/avatar_*.webp`),
+/// and remote backend media URL support (`http://`, `https://`, or `/api/v1/`).
 class SakhiAvatar extends StatelessWidget {
   final String imageAsset;
+  final String? fallbackLabel;
+  final Uint8List? memoryBytes;
   final double size;
   final bool showEditCameraBadge;
   final VoidCallback? onCameraTap;
@@ -15,21 +19,72 @@ class SakhiAvatar extends StatelessWidget {
   const SakhiAvatar({
     super.key,
     required this.imageAsset,
+    this.fallbackLabel,
+    this.memoryBytes,
     this.size = 44,
     this.showEditCameraBadge = false,
     this.onCameraTap,
     this.borderWidth = 2.0,
   });
 
-  bool get _isNetworkUrl =>
-      imageAsset.startsWith('http://') || imageAsset.startsWith('https://');
+  bool get _isNetworkUrl {
+    final trimmed = imageAsset.trim();
+    return trimmed.startsWith('http://') ||
+        trimmed.startsWith('https://') ||
+        trimmed.startsWith('/api/v1/');
+  }
 
   @override
   Widget build(BuildContext context) {
+    final effectiveKey =
+        imageAsset.trim().isNotEmpty ? imageAsset.trim() : (fallbackLabel ?? '');
+    final localAvatarAsset = AppAssets.forKey(effectiveKey);
     final crispFallback = SakhiCrispAvatarArt(
-      assetOrUrl: imageAsset,
+      assetOrUrl: localAvatarAsset,
       size: size,
     );
+
+    Widget avatarContent;
+    if (memoryBytes != null && memoryBytes!.isNotEmpty) {
+      avatarContent = Image.memory(
+        memoryBytes!,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+      );
+    } else if (_isNetworkUrl) {
+      final resolvedUrl = AppAssets.resolveRemoteMediaUrl(imageAsset);
+      avatarContent = Image.network(
+        resolvedUrl,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        filterQuality: FilterQuality.high,
+        isAntiAlias: true,
+        errorBuilder: (_, _, _) => Container(
+          color: AppColors.pastelPink,
+          alignment: Alignment.center,
+          child: Tooltip(
+            message: 'Uploaded photo unavailable',
+            child: Icon(
+              Icons.broken_image_outlined,
+              color: AppColors.primaryPurple,
+              size: size * 0.42,
+            ),
+          ),
+        ),
+      );
+    } else {
+      avatarContent = Image.asset(
+        localAvatarAsset,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        filterQuality: FilterQuality.high,
+        isAntiAlias: true,
+        errorBuilder: (_, _, _) => crispFallback,
+      );
+    }
 
     return Stack(
       clipBehavior: Clip.none,
@@ -49,19 +104,7 @@ class SakhiAvatar extends StatelessWidget {
               ),
             ],
           ),
-          child: ClipOval(
-            child: _isNetworkUrl
-                ? Image.network(
-                    imageAsset,
-                    width: size,
-                    height: size,
-                    fit: BoxFit.cover,
-                    filterQuality: FilterQuality.high,
-                    isAntiAlias: true,
-                    errorBuilder: (_, _, _) => crispFallback,
-                  )
-                : crispFallback,
-          ),
+          child: ClipOval(child: avatarContent),
         ),
         if (showEditCameraBadge)
           Positioned(

@@ -1,4 +1,4 @@
-/// Reusable asset locations across Onboarding, Auth, Eligibility, and Module 2 screens.
+/// Reusable asset locations across Onboarding, Auth, Eligibility, Module 2, and Module 3 screens.
 abstract final class AppAssets {
   // Stage 1 Onboarding & Auth illustrations
   static const String onboardingWelcome =
@@ -58,7 +58,7 @@ abstract final class AppAssets {
     flowerEucalyptusSage,
   ];
 
-  // Module 2 Brand logos
+  // Brand logos
   static const String sakhiLogo = 'assets/brand/sakhi_logo.webp';
   static const String sakhiLogoSvg = 'assets/brand/sakhi_logo.svg';
   static const String sakhiShieldLogo = 'assets/brand/sakhi_shield_logo.webp';
@@ -71,11 +71,19 @@ abstract final class AppAssets {
   // Screen 2: Explore
   static const String beachSunset = 'assets/images/explore/beach_sunset.webp';
 
-  // Screen 3: Community
+  // Screen 3: Community & Module 3 Social Wall editorial illustrations
   static const String eveningWalkSunset =
       'assets/images/community/evening_walk_sunset.webp';
   static const String breathingExerciseIllustration =
       'assets/images/community/breathing_exercise_illustration.webp';
+  static const String communityCircleGathering =
+      'assets/images/community/community_circle_gathering.webp';
+  static const String businessArtisanStudio =
+      'assets/images/community/business_artisan_studio.webp';
+  static const String safetyNightCommuteGuide =
+      'assets/images/community/safety_night_commute_guide.webp';
+  static const String wellnessMorningJournal =
+      'assets/images/community/wellness_morning_journal.webp';
 
   // Screen 4: Wellness
   static const String wellnessHeroIllustration =
@@ -86,7 +94,7 @@ abstract final class AppAssets {
   // Screen 5: Safety
   static const String safetyMapBg = 'assets/images/safety/safety_map_bg.webp';
 
-  // Screen 6, 7 & 10: Profile & Avatars
+  // 12 Diverse Original Fictional Women Default Avatars
   static const String avatarSiddhu = 'assets/images/profile/avatar_siddhu.webp';
   static const String avatarAnanya = 'assets/images/profile/avatar_ananya.webp';
   static const String avatarKavya = 'assets/images/profile/avatar_kavya.webp';
@@ -94,6 +102,80 @@ abstract final class AppAssets {
   static const String avatarIshita = 'assets/images/profile/avatar_ishita.webp';
   static const String avatarPriya = 'assets/images/profile/avatar_priya.webp';
   static const String avatarSneha = 'assets/images/profile/avatar_sneha.webp';
+  static const String avatarRiya = 'assets/images/profile/avatar_riya.webp';
+  static const String avatarDivya = 'assets/images/profile/avatar_divya.webp';
+  static const String avatarZoya = 'assets/images/profile/avatar_zoya.webp';
+  static const String avatarLakshmi =
+      'assets/images/profile/avatar_lakshmi.webp';
+  static const String avatarNisha = 'assets/images/profile/avatar_nisha.webp';
+
+  static const List<String> allDefaultWomenAvatars = [
+    avatarSiddhu,
+    avatarAnanya,
+    avatarMeera,
+    avatarKavya,
+    avatarIshita,
+    avatarPriya,
+    avatarSneha,
+    avatarRiya,
+    avatarDivya,
+    avatarZoya,
+    avatarLakshmi,
+    avatarNisha,
+  ];
+
+  static const List<Map<String, String>> defaultAvatarPresets = [
+    {'label': 'Siddhu', 'asset': avatarSiddhu},
+    {'label': 'Ananya', 'asset': avatarAnanya},
+    {'label': 'Meera', 'asset': avatarMeera},
+    {'label': 'Kavya', 'asset': avatarKavya},
+    {'label': 'Ishita', 'asset': avatarIshita},
+    {'label': 'Priya', 'asset': avatarPriya},
+    {'label': 'Sneha', 'asset': avatarSneha},
+    {'label': 'Riya', 'asset': avatarRiya},
+    {'label': 'Divya', 'asset': avatarDivya},
+    {'label': 'Zoya', 'asset': avatarZoya},
+    {'label': 'Lakshmi', 'asset': avatarLakshmi},
+    {'label': 'Nisha', 'asset': avatarNisha},
+  ];
+
+  /// Deterministically maps an accountId, username, or display name to one of
+  /// the 12 distinct illustrated women avatars when no uploaded photo is set.
+  static String forKey(String? key) {
+    final cleaned = (key ?? '').trim();
+    if (cleaned.startsWith('assets/images/profile/') &&
+        allDefaultWomenAvatars.contains(cleaned)) {
+      return cleaned;
+    }
+    if (cleaned.isEmpty) {
+      return avatarSiddhu;
+    }
+    var hash = 0;
+    for (var i = 0; i < cleaned.length; i++) {
+      hash = (hash * 31 + cleaned.codeUnitAt(i)) & 0x7fffffff;
+    }
+    return allDefaultWomenAvatars[hash % allDefaultWomenAvatars.length];
+  }
+
+  /// Resolves relative `/api/v1/module2/media/object/...` paths against the
+  /// configured backend API base URL.
+  static String resolveRemoteMediaUrl(String rawUrl) {
+    final trimmed = rawUrl.trim();
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return trimmed;
+    }
+    const baseUrl = String.fromEnvironment(
+      'SAKHI_API_BASE_URL',
+      defaultValue: 'http://127.0.0.1:3001/api/v1',
+    );
+    final parsed = Uri.parse(baseUrl);
+    final origin =
+        '${parsed.scheme}://${parsed.host}${parsed.hasPort ? ':${parsed.port}' : ''}';
+    if (trimmed.startsWith('/api/')) {
+      return '$origin$trimmed';
+    }
+    return '$baseUrl/${trimmed.replaceFirst(RegExp(r'^/+'), '')}';
+  }
 
   // Botanical decorations
   static const String botanicalSprigLeft =

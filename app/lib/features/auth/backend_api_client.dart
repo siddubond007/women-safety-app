@@ -21,10 +21,7 @@ class BackendApiException implements Exception {
 }
 
 /// Small native HTTP client used by the development backend adapter.
-///
-/// No request/response bodies, OTPs, bearer tokens or profile fields are
-/// logged. The base URL is injected at build time; production auth remains
-/// unconfigured until a production provider and API environment are approved.
+/// Defaults to port 3001 (matching backend/scripts/start-dev.ps1).
 class BackendApiClient {
   BackendApiClient({
     String? baseUrl,
@@ -34,14 +31,11 @@ class BackendApiClient {
            baseUrl ??
            const String.fromEnvironment(
              'SAKHI_API_BASE_URL',
-             defaultValue: 'http://127.0.0.1:3000/api/v1',
+             defaultValue: 'http://127.0.0.1:3001/api/v1',
            ),
        _httpClient = httpClient ?? HttpClient(),
        _secureStorage = secureStorage ?? const FlutterSecureStorage() {
     _httpClient.connectionTimeout = const Duration(seconds: 8);
-    // The local Node backend closes idle keep-alive sockets quickly. Keep the
-    // client's idle timeout shorter so later form submissions don't reuse a
-    // socket the server has already closed.
     _httpClient.idleTimeout = const Duration(seconds: 4);
   }
 
@@ -96,8 +90,18 @@ class BackendApiClient {
     bool authenticated = false,
   }) => _send('PUT', path, body: body, authenticated: authenticated);
 
-  /// Sends one actual file as multipart/form-data. The file bytes are never
-  /// logged, base64-encoded, or copied into JSON.
+  Future<Map<String, dynamic>> patch(
+    String path, {
+    Map<String, Object?> body = const <String, Object?>{},
+    bool authenticated = false,
+  }) => _send('PATCH', path, body: body, authenticated: authenticated);
+
+  Future<Map<String, dynamic>> delete(
+    String path, {
+    Map<String, Object?>? body,
+    bool authenticated = false,
+  }) => _send('DELETE', path, body: body, authenticated: authenticated);
+
   Future<Map<String, dynamic>> postMultipart(
     String path, {
     required List<int> fileBytes,
@@ -228,8 +232,6 @@ class BackendApiClient {
           .timeout(const Duration(seconds: 12));
       requestStage = 'preparing request';
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      // Configure every header before writing any body bytes. Dart can make
-      // request headers immutable as soon as request.write() begins.
       if (authenticated) {
         final token = await readAccessToken();
         if (token == null || token.isEmpty) {
@@ -243,8 +245,6 @@ class BackendApiClient {
       }
       if (body != null) {
         request.headers.contentType = ContentType.json;
-      }
-      if (body != null) {
         request.write(jsonEncode(body));
       }
 
@@ -302,8 +302,6 @@ class BackendApiClient {
       final detailDescription = detail.isEmpty
           ? 'unspecified HTTP transport error'
           : detail;
-      // Log only the method, endpoint path and transport metadata. Never log
-      // request/response bodies, OTPs, access tokens, or profile details.
       debugPrint(
         'Sakhi API transport failure: $method $path; '
         'stage=$requestStage; response=$responseDescription; '

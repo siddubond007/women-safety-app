@@ -74,6 +74,8 @@ model MemberAccount {
   postLikes               CommunityPostLike[]
   postSaves               CommunityPostSave[]
   postComments            CommunityPostComment[]
+  postReactions           CommunityPostReaction[]
+  mediaAssets             MediaAsset[]
   follows                 MemberFollow[]
   privacyPreference       MemberPrivacyPreference?
   notificationPreference  MemberNotificationPreference?
@@ -94,6 +96,9 @@ model MemberProfile {
   avatarAsset          String        @default("assets/images/profile/avatar_siddhu.webp") @map("avatar_asset") @db.VarChar(255)
   interests            Json          @default("[\"Mental Wellness\",\"Travel\",\"Reading\",\"WomenInTech\",\"Art\",\"Fitness\"]") @db.JsonB
   businessProfileUrl   String?       @map("business_profile_url") @db.VarChar(255)
+  avatarMediaAssetId   String?       @map("avatar_media_asset_id") @db.Uuid
+  businessProfileName  String?       @map("business_profile_name") @db.VarChar(120)
+  businessCategory     String?       @map("business_category") @db.VarChar(80)
   twoFactorEnabled     Boolean       @default(false) @map("two_factor_enabled")
   securityPinUpdatedAt DateTime?     @map("security_pin_updated_at") @db.Timestamptz(6)
   dateOfBirth          DateTime      @map("date_of_birth") @db.Date
@@ -226,9 +231,24 @@ model CommunityPost {
   likes                    CommunityPostLike[]
   saves                    CommunityPostSave[]
   comments                 CommunityPostComment[]
+  reactions                CommunityPostReaction[]
+  mediaAssets              MediaAsset[]
+  categorySlug             String                 @default("community") @map("category_slug") @db.VarChar(40)
+  visibility               String                 @default("VERIFIED_MEMBERS") @db.VarChar(32)
+  status                   String                 @default("PUBLISHED") @db.VarChar(32)
+  hashtags                 Json                   @default("[]") @db.JsonB
+  locationTag              String?                @map("location_tag") @db.VarChar(120)
+  allowComments            Boolean                @default(true) @map("allow_comments")
+  shareToBusinessProfile   Boolean                @default(false) @map("share_to_business_profile")
+  cropPreset               String                 @default("4:5") @map("crop_preset") @db.VarChar(16)
+  savesCount               Int                    @default(0) @map("saves_count")
+  sharesCount              Int                    @default(0) @map("shares_count")
+  moderationReason         String?                @map("moderation_reason") @db.VarChar(500)
+  deletedAt                DateTime?              @map("deleted_at") @db.Timestamptz(6)
 
   @@index([feedSection, createdAt], map: "community_posts_section_created_idx")
   @@index([authorAccountId, createdAt], map: "community_posts_author_created_idx")
+  @@index([categorySlug, status, createdAt], map: "community_posts_category_status_created_idx")
   @@map("community_posts")
 }
 
@@ -263,9 +283,12 @@ model CommunityPostComment {
   postId     String        @map("post_id") @db.Uuid
   accountId  String        @map("account_id") @db.Uuid
   authorName String        @map("author_name") @db.VarChar(100)
-  content    String        @db.VarChar(500)
-  createdAt  DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  post       CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  content              String        @db.VarChar(500)
+  createdAt            DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  isRemovedByModerator Boolean       @default(false) @map("is_removed_by_moderator")
+  deletedAt            DateTime?     @map("deleted_at") @db.Timestamptz(6)
+  updatedAt            DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  post                 CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   account    MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@index([postId, createdAt], map: "community_post_comments_post_created_idx")
@@ -400,6 +423,14 @@ model MemberUserReport {
   reason            String        @db.VarChar(500)
   status            String        @default("SUBMITTED") @db.VarChar(32)
   createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  targetType        String        @default("POST") @map("target_type") @db.VarChar(32)
+  postId            String?       @map("post_id") @db.Uuid
+  commentId         String?       @map("comment_id") @db.Uuid
+  category          String        @default("SAFETY_CONCERN") @db.VarChar(64)
+  details           String?       @db.VarChar(1000)
+  reviewerNotes     String?       @map("reviewer_notes") @db.VarChar(1000)
+  reviewedBy        String?       @map("reviewed_by") @db.VarChar(120)
+  reviewedAt        DateTime?     @map("reviewed_at") @db.Timestamptz(6)
   reporterAccount   MemberAccount @relation(fields: [reporterAccountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@index([reporterAccountId, createdAt], map: "member_user_reports_reporter_created_idx")
@@ -422,4 +453,85 @@ model AuditEvent {
   @@index([actorType, actorId, createdAt], map: "audit_events_actor_created_idx")
   @@index([action, createdAt], map: "audit_events_action_created_idx")
   @@map("audit_events")
+}
+
+model FeedCategoryConfig {
+  slug           String   @id @db.VarChar(40)
+  name           String   @db.VarChar(80)
+  description    String   @db.VarChar(300)
+  iconKey        String   @default("sparkles") @map("icon_key") @db.VarChar(40)
+  accentColorHex String   @default("#EC4899") @map("accent_color_hex") @db.VarChar(16)
+  isEnabled      Boolean  @default(true) @map("is_enabled")
+  displayOrder   Int      @default(0) @map("display_order")
+  updatedBy      String?  @map("updated_by") @db.VarChar(120)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([isEnabled, displayOrder], map: "feed_category_configs_enabled_order_idx")
+  @@map("feed_category_configs")
+}
+
+model MediaAsset {
+  id               String    @id @default(uuid()) @db.Uuid
+  ownerAccountId   String    @map("owner_account_id") @db.Uuid
+  postId           String?   @map("post_id") @db.Uuid
+  purpose          String    @default("COMMUNITY_POST_IMAGE") @db.VarChar(32)
+  storageProvider  String    @default("GOOGLE_DRIVE") @map("storage_provider") @db.VarChar(32)
+  status           String    @default("UPLOADED") @db.VarChar(32)
+  categorySlug     String?   @map("category_slug") @db.VarChar(40)
+  driveFileId      String?   @map("drive_file_id") @db.VarChar(160)
+  driveFolderId    String?   @map("drive_folder_id") @db.VarChar(160)
+  driveFolderPath  String    @map("drive_folder_path") @db.VarChar(500)
+  localAssetPath   String?   @map("local_asset_path") @db.VarChar(255)
+  originalFileName String    @map("original_file_name") @db.VarChar(255)
+  contentType      String    @map("content_type") @db.VarChar(80)
+  byteSize         Int       @map("byte_size")
+  widthPx          Int?      @map("width_px")
+  heightPx         Int?      @map("height_px")
+  cropAspectRatio  String    @default("4:5") @map("crop_aspect_ratio") @db.VarChar(16)
+  sha256Checksum   String?   @map("sha256_checksum") @db.VarChar(64)
+  visibility       String    @default("VERIFIED_MEMBERS") @db.VarChar(32)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  owner MemberAccount  @relation(fields: [ownerAccountId], references: [id], onDelete: Cascade)
+  post  CommunityPost? @relation(fields: [postId], references: [id], onDelete: SetNull)
+
+  @@index([ownerAccountId, purpose, status], map: "media_assets_owner_purpose_status_idx")
+  @@index([postId, status], map: "media_assets_post_status_idx")
+  @@index([driveFileId], map: "media_assets_drive_file_id_idx")
+  @@map("media_assets")
+}
+
+model CommunityPostReaction {
+  id           String   @id @default(uuid()) @db.Uuid
+  postId       String   @map("post_id") @db.Uuid
+  accountId    String   @map("account_id") @db.Uuid
+  reactionType String   @default("LIKE") @map("reaction_type") @db.VarChar(32)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  post    CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  account MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, accountId], map: "community_post_reactions_post_account_key")
+  @@index([postId, reactionType], map: "community_post_reactions_post_type_idx")
+  @@map("community_post_reactions")
+}
+
+model ModerationDecision {
+  id              String   @id @default(uuid()) @db.Uuid
+  reportId        String?  @map("report_id") @db.Uuid
+  targetType      String   @map("target_type") @db.VarChar(32)
+  targetAccountId String?  @map("target_account_id") @db.Uuid
+  targetPostId    String?  @map("target_post_id") @db.Uuid
+  targetCommentId String?  @map("target_comment_id") @db.Uuid
+  actionType      String   @map("action_type") @db.VarChar(40)
+  reason          String   @db.VarChar(1000)
+  reviewerLabel   String   @map("reviewer_label") @db.VarChar(120)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([targetType, createdAt], map: "moderation_decisions_target_created_idx")
+  @@map("moderation_decisions")
 }
