@@ -1,11 +1,21 @@
 import { defineConfig } from "prisma/config";
-
-type SakhiEnvironment = "dev" | "test";
+import {
+  assertSakhiDatabaseTarget,
+  parseSakhiEnvironment,
+} from "./src/config/database-target.js";
 
 function getMigrationDatasourceUrl(): string {
-  const environment = (process.env.SAKHI_ENV ?? "dev") as SakhiEnvironment;
-  if (environment !== "dev" && environment !== "test") {
-    throw new Error("Only Sakhi dev/test environments are enabled in Stage 1.");
+  const environment = parseSakhiEnvironment(process.env.SAKHI_ENV);
+  const suppliedUrl = process.env.SAKHI_MIGRATOR_DATABASE_URL;
+
+  if (environment === "staging") {
+    if (!suppliedUrl) {
+      throw new Error(
+        "Staging migrations require an explicit SAKHI_MIGRATOR_DATABASE_URL supplied securely to the migration process.",
+      );
+    }
+    assertSakhiDatabaseTarget(suppliedUrl, "migrator", "staging");
+    return suppliedUrl;
   }
 
   const expectedDatabase = environment === "test" ? "sakhi_test" : "sakhi_dev";
@@ -17,27 +27,12 @@ function getMigrationDatasourceUrl(): string {
     ":SCHEMA_ONLY_DO_NOT_CONNECT@127.0.0.1:5432/" +
     expectedDatabase +
     "?schema=public";
-  const value = process.env.SAKHI_MIGRATOR_DATABASE_URL ?? fallback;
+  const value = suppliedUrl ?? fallback;
 
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    throw new Error("SAKHI_MIGRATOR_DATABASE_URL is not a valid URL.");
-  }
-
-  const database = decodeURIComponent(parsed.pathname.slice(1));
-  const username = decodeURIComponent(parsed.username);
-  if (
-    !["postgres:", "postgresql:"].includes(parsed.protocol) ||
-    !["127.0.0.1", "localhost"].includes(parsed.hostname) ||
-    database !== expectedDatabase ||
-    username !== expectedUser ||
-    parsed.searchParams.get("schema") !== "public"
-  ) {
-    throw new Error(
-      "Database target rejected: migrations may only target the matching local Sakhi database.",
-    );
+  // The placeholder fallback is only for offline commands such as prisma generate.
+  // Any real local connection string must still pass the dev/test database guard.
+  if (suppliedUrl) {
+    assertSakhiDatabaseTarget(suppliedUrl, "migrator", environment);
   }
 
   return value;

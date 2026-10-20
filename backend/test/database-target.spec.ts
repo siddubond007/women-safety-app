@@ -118,9 +118,74 @@ describe("Sakhi database-target guard", () => {
     });
     expect(() =>
       validateRuntimeEnvironment({ ...base, HOST: "0.0.0.0" }),
-    ).toThrow(/127\.0\.0\.1/);
+    ).toThrow(/local loopback listener/);
     expect(() =>
       validateRuntimeEnvironment({ ...base, NODE_ENV: "production" }),
     ).toThrow(/production startup is disabled/);
+  });
+
+  it("accepts only the dedicated Supabase staging session-pooler target", () => {
+    const stagingUrl =
+      "postgresql://sakhi_staging_app.wmlpokholjfadyohdlgo:fixture-staging-secret-long-enough-0123456789@aws-0-ap-south-1.pooler.supabase.com:5432/postgres?schema=public&sslmode=require";
+
+    expect(
+      assertSakhiDatabaseTarget(stagingUrl, "app", "staging"),
+    ).toEqual({
+      environment: "staging",
+      databaseName: "postgres",
+      username: "sakhi_staging_app.wmlpokholjfadyohdlgo",
+    });
+
+    expect(() =>
+      assertSakhiDatabaseTarget(
+        stagingUrl.replace("aws-0-ap-south-1.pooler.supabase.com", "example.com"),
+        "app",
+        "staging",
+      ),
+    ).toThrow(/Staging database target rejected/);
+
+    expect(() =>
+      assertSakhiDatabaseTarget(
+        stagingUrl.replace("sakhi_staging_app.wmlpokholjfadyohdlgo", "postgres.wmlpokholjfadyohdlgo"),
+        "app",
+        "staging",
+      ),
+    ).toThrow(/Staging database target rejected/);
+  });
+
+  it("permits staging runtime only with production mode, HTTPS-ready host binding, and OTP disabled", () => {
+    const stagingConfig = {
+      SAKHI_ENV: "staging",
+      NODE_ENV: "production",
+      SAKHI_APP_DATABASE_URL:
+        "postgresql://sakhi_staging_app.wmlpokholjfadyohdlgo:fixture-staging-secret-long-enough-0123456789@aws-0-ap-south-1.pooler.supabase.com:5432/postgres?schema=public&sslmode=require",
+      HOST: "0.0.0.0",
+      PORT: "10000",
+      LOG_LEVEL: "info",
+      SAKHI_OTP_MODE: "disabled",
+      SAKHI_PREVIEW_MINIMUM_AGE_YEARS: "",
+    };
+
+    expect(validateRuntimeEnvironment(stagingConfig)).toMatchObject({
+      SAKHI_ENV: "staging",
+      NODE_ENV: "production",
+      HOST: "0.0.0.0",
+      SAKHI_OTP_MODE: "disabled",
+    });
+    expect(() =>
+      validateRuntimeEnvironment({ ...stagingConfig, HOST: "127.0.0.1" }),
+    ).toThrow(/HOST=0\.0\.0\.0/);
+    expect(() =>
+      validateRuntimeEnvironment({
+        ...stagingConfig,
+        SAKHI_OTP_MODE: "development",
+      }),
+    ).toThrow(/OTP disabled/);
+    expect(() =>
+      validateRuntimeEnvironment({
+        ...stagingConfig,
+        SAKHI_PREVIEW_MINIMUM_AGE_YEARS: "13",
+      }),
+    ).toThrow(/cannot be enabled in staging/);
   });
 });

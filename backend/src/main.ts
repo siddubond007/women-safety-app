@@ -20,7 +20,13 @@ async function bootstrap(): Promise<void> {
   app.use(helmet({ contentSecurityPolicy: false }));
   // Local Super Admin Vite origins only. CORS is not authorization; each
   // admin endpoint independently validates the server-side reviewer token.
-  const adminCorsOrigins = (process.env.SAKHI_ADMIN_CORS_ORIGIN ?? "http://127.0.0.1:5173,http://localhost:5173")
+  const isStaging = process.env.SAKHI_ENV === "staging";
+  const defaultAdminCorsOrigins = isStaging
+    ? ""
+    : "http://127.0.0.1:5173,http://localhost:5173";
+  const adminCorsOrigins = (
+    process.env.SAKHI_ADMIN_CORS_ORIGIN ?? defaultAdminCorsOrigins
+  )
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
@@ -31,12 +37,17 @@ async function bootstrap(): Promise<void> {
     } catch {
       throw new Error("SAKHI_ADMIN_CORS_ORIGIN contains an invalid origin.");
     }
-    if (
-      parsed.protocol !== "http:" ||
-      !["localhost", "127.0.0.1"].includes(parsed.hostname) ||
-      parsed.origin !== origin
-    ) {
-      throw new Error("Admin CORS origins must be exact localhost/127.0.0.1 HTTP origins.");
+    const validOrigin = isStaging
+      ? parsed.protocol === "https:" && parsed.origin === origin
+      : parsed.protocol === "http:" &&
+        ["localhost", "127.0.0.1"].includes(parsed.hostname) &&
+        parsed.origin === origin;
+    if (!validOrigin) {
+      throw new Error(
+        isStaging
+          ? "Staging admin CORS origins must be exact HTTPS origins."
+          : "Local admin CORS origins must be exact localhost/127.0.0.1 HTTP origins.",
+      );
     }
   }
   app.enableCors({
@@ -64,10 +75,12 @@ async function bootstrap(): Promise<void> {
     .addTag("authentication")
     .addTag("eligibility")
     .build();
-  const document = SwaggerModule.createDocument(app, openApi);
-  SwaggerModule.setup("api/docs", app, document, {
-    swaggerOptions: { persistAuthorization: false },
-  });
+  if (process.env.NODE_ENV !== "production") {
+    const document = SwaggerModule.createDocument(app, openApi);
+    SwaggerModule.setup("api/docs", app, document, {
+      swaggerOptions: { persistAuthorization: false },
+    });
+  }
 
   const port = Number(process.env.PORT ?? 3000);
   const host = process.env.HOST ?? "127.0.0.1";
