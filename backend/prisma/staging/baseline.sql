@@ -641,4 +641,124 @@ ALTER TABLE "community_post_reactions" ADD CONSTRAINT "community_post_reactions_
 -- AddForeignKey
 ALTER TABLE "community_post_reactions" ADD CONSTRAINT "community_post_reactions_account_id_fkey" FOREIGN KEY ("account_id") REFERENCES "member_accounts"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
+-- Eligibility status is still SQL-managed rather than represented in the Prisma model.
+CREATE TYPE "eligibility_verification_status" AS ENUM (
+  'NOT_VERIFIED',
+  'VERIFICATION_IN_PROGRESS',
+  'PENDING_MANUAL_REVIEW',
+  'VERIFIED',
+  'VERIFICATION_FAILED',
+  'TEMPORARILY_RESTRICTED',
+  'REVERIFICATION_REQUIRED'
+);
+ALTER TABLE "member_accounts"
+  ADD COLUMN "eligibility_status" "eligibility_verification_status"
+  NOT NULL DEFAULT 'NOT_VERIFIED';
+
+CREATE UNIQUE INDEX "eligibility_submissions_one_pending_per_account_idx"
+  ON "eligibility_submissions"("account_id")
+  WHERE "status" = 'PENDING_MANUAL_REVIEW';
+
+-- Raw SQL-managed eligibility support objects from the existing migrations.
+-- These are intentionally included in the fresh staging baseline even though
+-- they are not Prisma models in the current schema.
+CREATE TYPE "eligibility_verification_session_status" AS ENUM (
+  'CREATED', 'REDIRECT_READY', 'COMPLETED', 'FAILED', 'EXPIRED', 'CANCELLED'
+);
+
+CREATE TYPE "eligibility_support_request_category" AS ENUM (
+  'VERIFICATION_HELP', 'MANUAL_REVIEW_REQUEST',
+  'ACCESSIBILITY_ALTERNATIVE', 'APPEAL_GUIDANCE'
+);
+
+CREATE TYPE "eligibility_support_request_status" AS ENUM (
+  'OPEN', 'IN_REVIEW', 'RESOLVED', 'CLOSED'
+);
+
+CREATE TYPE "eligibility_provider_callback_outcome" AS ENUM (
+  'VERIFIED', 'PENDING_MANUAL_REVIEW', 'VERIFICATION_FAILED'
+);
+
+CREATE TABLE "eligibility_consents" (
+  "id" UUID NOT NULL,
+  "account_id" UUID NOT NULL,
+  "notice_version" VARCHAR(64) NOT NULL,
+  "accepted_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "biometric_processing_consented" BOOLEAN NOT NULL DEFAULT FALSE,
+  "source" VARCHAR(32) NOT NULL,
+  CONSTRAINT "eligibility_consents_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE "eligibility_verification_sessions" (
+  "id" UUID NOT NULL,
+  "account_id" UUID NOT NULL,
+  "consent_id" UUID NOT NULL,
+  "provider_key" VARCHAR(64) NOT NULL,
+  "provider_reference" VARCHAR(255),
+  "status" "eligibility_verification_session_status" NOT NULL DEFAULT 'CREATED',
+  "expires_at" TIMESTAMPTZ(6),
+  "completed_at" TIMESTAMPTZ(6),
+  "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updated_at" TIMESTAMPTZ(6) NOT NULL,
+  CONSTRAINT "eligibility_verification_sessions_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE "eligibility_support_requests" (
+  "id" UUID NOT NULL,
+  "account_id" UUID NOT NULL,
+  "category" "eligibility_support_request_category" NOT NULL,
+  "status" "eligibility_support_request_status" NOT NULL DEFAULT 'OPEN',
+  "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updated_at" TIMESTAMPTZ(6) NOT NULL,
+  CONSTRAINT "eligibility_support_requests_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE "eligibility_provider_callback_events" (
+  "id" UUID NOT NULL,
+  "provider_key" VARCHAR(64) NOT NULL,
+  "provider_event_id" VARCHAR(255) NOT NULL,
+  "session_id" UUID NOT NULL,
+  "outcome" "eligibility_provider_callback_outcome" NOT NULL,
+  "received_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "eligibility_provider_callback_events_pkey" PRIMARY KEY ("id")
+);
+
+CREATE UNIQUE INDEX "eligibility_sessions_provider_reference_key"
+  ON "eligibility_verification_sessions"("provider_key", "provider_reference");
+CREATE INDEX "eligibility_consents_account_accepted_idx"
+  ON "eligibility_consents"("account_id", "accepted_at");
+CREATE INDEX "eligibility_sessions_account_created_idx"
+  ON "eligibility_verification_sessions"("account_id", "created_at");
+CREATE INDEX "eligibility_sessions_status_expiry_idx"
+  ON "eligibility_verification_sessions"("status", "expires_at");
+CREATE INDEX "eligibility_support_account_created_idx"
+  ON "eligibility_support_requests"("account_id", "created_at");
+CREATE INDEX "eligibility_support_status_created_idx"
+  ON "eligibility_support_requests"("status", "created_at");
+CREATE UNIQUE INDEX "eligibility_provider_callback_event_key"
+  ON "eligibility_provider_callback_events"("provider_key", "provider_event_id");
+CREATE INDEX "eligibility_provider_callback_session_received_idx"
+  ON "eligibility_provider_callback_events"("session_id", "received_at");
+
+ALTER TABLE "eligibility_consents"
+  ADD CONSTRAINT "eligibility_consents_account_id_fkey"
+  FOREIGN KEY ("account_id") REFERENCES "member_accounts"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "eligibility_verification_sessions"
+  ADD CONSTRAINT "eligibility_sessions_account_id_fkey"
+  FOREIGN KEY ("account_id") REFERENCES "member_accounts"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "eligibility_verification_sessions"
+  ADD CONSTRAINT "eligibility_sessions_consent_id_fkey"
+  FOREIGN KEY ("consent_id") REFERENCES "eligibility_consents"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "eligibility_support_requests"
+  ADD CONSTRAINT "eligibility_support_account_id_fkey"
+  FOREIGN KEY ("account_id") REFERENCES "member_accounts"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "eligibility_provider_callback_events"
+  ADD CONSTRAINT "eligibility_provider_callback_events_session_id_fkey"
+  FOREIGN KEY ("session_id") REFERENCES "eligibility_verification_sessions"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
 COMMIT;

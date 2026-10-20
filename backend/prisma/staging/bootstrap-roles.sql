@@ -8,6 +8,5 @@ GRANT CONNECT ON DATABASE postgres TO sakhi_staging_migrator, sakhi_staging_app;
 GRANT USAGE, CREATE ON SCHEMA public TO sakhi_staging_migrator;
 GRANT USAGE ON SCHEMA public TO sakhi_staging_app;
 
-ALTER DEFAULT PRIVILEGES FOR ROLE sakhi_staging_migrator IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sakhi_staging_app;
-ALTER DEFAULT PRIVILEGES FOR ROLE sakhi_staging_migrator IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO sakhi_staging_app;
-ALTER DEFAULT PRIVILEGES FOR ROLE sakhi_staging_migrator IN SCHEMA public GRANT USAGE ON TYPES TO sakhi_staging_app;
+-- Do not give the app role blanket default CRUD privileges. The staging runtime
+-- grants are explicit and are applied by bootstrap-staging.ps1/db-migrate.ps1.

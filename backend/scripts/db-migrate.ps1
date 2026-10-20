@@ -43,6 +43,14 @@ try {
   if ($LASTEXITCODE -ne 0) {
     throw ('Migration deploy failed with code ' + $LASTEXITCODE + '. No reset or drop command is run by this wrapper.')
   }
+
+  if ($Environment -eq 'staging') {
+    # New migrations may create objects; reapply only the explicit runtime grants.
+    & .\node_modules\.bin\prisma.cmd db execute --file .\prisma\staging\runtime-grants.sql
+    if ($LASTEXITCODE -ne 0) {
+      throw 'Staging migrations completed but runtime grants failed. Do not deploy/restart the app until grants are repaired.'
+    }
+  }
 } finally {
   Remove-Item Env:SAKHI_MIGRATOR_DATABASE_URL -ErrorAction SilentlyContinue
   Remove-Item Env:SAKHI_ENV -ErrorAction SilentlyContinue

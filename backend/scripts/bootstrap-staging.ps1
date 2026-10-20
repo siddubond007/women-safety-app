@@ -25,6 +25,9 @@ try {
 
 Push-Location $backendRoot
 try {
+  & node .\scripts\audit-staging-baseline.cjs
+  if ($LASTEXITCODE -ne 0) { throw 'The checked-in staging baseline does not cover all existing migrations; no database changes were attempted.' }
+
   & node .\scripts\staging-preflight.cjs
   if ($LASTEXITCODE -ne 0) { throw 'Staging preflight failed; no schema changes were attempted.' }
 
