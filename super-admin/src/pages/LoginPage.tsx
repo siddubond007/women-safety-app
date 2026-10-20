@@ -3,7 +3,7 @@ import { ArrowRight, LockKeyhole, ShieldCheck, Sparkles } from "lucide-react";
 import { BrandMark } from "../components/BrandMark";
 import { StatusPill } from "../components/StatusPill";
 
-const DEFAULT_DEV_TOKEN = 'ADMIN2026TEST';
+const DEFAULT_DEV_TOKEN = "";
 
 interface LoginPageProps {
   onAuthenticate: (token: string) => Promise<void>;
@@ -47,11 +47,11 @@ export function LoginPage({ onAuthenticate }: LoginPageProps) {
           <div className="login-card-mark"><ShieldCheck size={24} /></div>
           <div className="login-card-kicker">LOCAL REVIEWER PORTAL</div>
           <h2 id="login-title">Reviewer sign in</h2>
-          <p className="login-card-description">The local development reviewer token is pre-filled below. Click Sign in to manage member verification states.</p>
+          <p className="login-card-description">Enter the local development reviewer token printed by the backend startup script, then sign in to review persisted member submissions.</p>
           <form onSubmit={submit}>
             <label className="member-form-label" htmlFor="reviewer-token">Reviewer token <span>Required</span></label>
             <input id="reviewer-token" className="admin-review-token-input" type="text" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} minLength={8} required aria-describedby="reviewer-token-help" />
-            <p id="reviewer-token-help" className="admin-review-help">Default local dev token: <code>{DEFAULT_DEV_TOKEN}</code></p>
+            <p id="reviewer-token-help" className="admin-review-help">Find it in the backend terminal after <code>Super Admin Reviewer Token:</code>.</p>
             {error && <p className="admin-review-error" role="alert">{error}</p>}
             <button className="button button--primary login-submit" type="submit" disabled={isSubmitting || token.trim().length < 8}>{isSubmitting ? "Checking reviewer access..." : "Sign in to review"} <ArrowRight size={17} /></button>
           </form>

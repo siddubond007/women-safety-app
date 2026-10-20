@@ -40,6 +40,14 @@ export class AdminReviewController {
     return this.adminReview.queue(pickAdminToken(token, altToken));
   }
 
+  @Get("history")
+  history(
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+  ) {
+    return this.adminReview.history(pickAdminToken(token, altToken));
+  }
+
   @Get("members")
   members(
     @Headers("x-sakhi-admin-token") token?: string,
