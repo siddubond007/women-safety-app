@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../core/assets/app_assets.dart';
+
 import '../../../core/constants/mock_data.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -9,6 +9,7 @@ import '../../../core/widgets/sakhi_botanical_flower.dart';
 import '../../../core/widgets/sakhi_buttons.dart';
 import '../../../core/widgets/sakhi_card.dart';
 import '../../../core/widgets/sakhi_dialogs.dart';
+import '../../../core/widgets/sakhi_remote_media_image.dart';
 import 'breathing_exercise_banner.dart';
 
 /// Module 3 Social Wall Post Card supporting 8 reaction types, comment CRUD with
@@ -104,7 +105,8 @@ class FeedPostCard extends StatelessWidget {
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
-                                if (showVerifiedCheck || post.authorVerified) ...[
+                                if (showVerifiedCheck ||
+                                    post.authorVerified) ...[
                                   const SizedBox(width: 4),
                                   const Icon(
                                     Icons.verified_rounded,
@@ -123,7 +125,8 @@ class FeedPostCard extends StatelessWidget {
                                   post.locationTag!,
                                 if (post.visibility == 'FOLLOWERS_ONLY')
                                   'Followers Only',
-                                if (post.visibility == 'PRIVATE_SELF') 'Only Me',
+                                if (post.visibility == 'PRIVATE_SELF')
+                                  'Only Me',
                               ].join(' • '),
                               style: AppTypography.subtitle,
                             ),
@@ -138,8 +141,9 @@ class FeedPostCard extends StatelessWidget {
                           ),
                           decoration: BoxDecoration(
                             color: AppColors.pastelLavender,
-                            borderRadius:
-                                BorderRadius.circular(AppSpacing.radiusPill),
+                            borderRadius: BorderRadius.circular(
+                              AppSpacing.radiusPill,
+                            ),
                           ),
                           child: Text(
                             post.categoryBadge!,
@@ -189,11 +193,9 @@ class FeedPostCard extends StatelessWidget {
                       child: AspectRatio(
                         aspectRatio: _aspectRatioForPreset(post.cropPreset),
                         child: _isRemoteUrl(post.imageAsset!)
-                            ? Image.network(
-                                AppAssets.resolveRemoteMediaUrl(post.imageAsset!),
+                            ? SakhiRemoteMediaImage(
+                                source: post.imageAsset!,
                                 fit: BoxFit.cover,
-                                filterQuality: FilterQuality.high,
-                                isAntiAlias: true,
                                 errorBuilder: (_, _, _) =>
                                     _buildImageFallback(),
                               )
@@ -373,10 +375,7 @@ class FeedPostCard extends StatelessWidget {
               size: 32,
             ),
             SizedBox(height: 4),
-            Text(
-              'Media unavailable right now',
-              style: AppTypography.subtitle,
-            ),
+            Text('Media unavailable right now', style: AppTypography.subtitle),
           ],
         ),
       ),
@@ -519,7 +518,10 @@ class FeedPostCard extends StatelessWidget {
                                   ),
                                 ),
                                 const SizedBox(height: 2),
-                                Text(comment.body, style: AppTypography.bodyRegular),
+                                Text(
+                                  comment.body,
+                                  style: AppTypography.bodyRegular,
+                                ),
                               ],
                             ),
                           ),
@@ -693,8 +695,10 @@ class FeedPostCard extends StatelessWidget {
   }
 
   void _showPostOptionsSheet(BuildContext context) {
-    final isOwn = post.isOwnPost ||
-        post.authorUsername == SakhiPrototypeState.instance.currentUser.username;
+    final isOwn =
+        post.isOwnPost ||
+        post.authorUsername ==
+            SakhiPrototypeState.instance.currentUser.username;
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: AppColors.cardSurface,

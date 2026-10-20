@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../../core/constants/mock_data.dart';
 import '../../../core/navigation/app_routes.dart';
 import '../../../core/theme/app_colors.dart';
@@ -19,11 +20,7 @@ class HomeScreen extends StatefulWidget {
   final ValueChanged<int>? onNavigateTab;
   final ValueChanged<String>? onNavigateRoute;
 
-  const HomeScreen({
-    super.key,
-    this.onNavigateTab,
-    this.onNavigateRoute,
-  });
+  const HomeScreen({super.key, this.onNavigateTab, this.onNavigateRoute});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -62,7 +59,8 @@ class _HomeScreenState extends State<HomeScreen> {
       animation: state,
       builder: (context, _) {
         final userName = state.currentUser.displayName;
-        final featuredPost = state.communityPosts.isNotEmpty
+        final featuredPost =
+            state.isBackendSynced && state.communityPosts.isNotEmpty
             ? state.communityPosts.first
             : null;
         return SafeArea(
@@ -157,23 +155,42 @@ class _HomeScreenState extends State<HomeScreen> {
                           vertical: 7,
                         ),
                         decoration: BoxDecoration(
-                          color: AppColors.pastelMint.withValues(alpha: 0.7),
+                          color:
+                              (state.isBackendSynced
+                                      ? AppColors.pastelMint
+                                      : AppColors.pastelLavender)
+                                  .withValues(alpha: 0.7),
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
-                            color: AppColors.wellnessGreen.withValues(alpha: 0.35),
+                            color:
+                                (state.isBackendSynced
+                                        ? AppColors.wellnessGreen
+                                        : AppColors.primaryPurple)
+                                    .withValues(alpha: 0.35),
                           ),
                         ),
                         child: Row(
                           children: [
-                            const Icon(
-                              Icons.cloud_done_rounded,
+                            Icon(
+                              state.isBackendSynced
+                                  ? Icons.cloud_done_rounded
+                                  : (state.isBackendSyncing
+                                        ? Icons.sync_rounded
+                                        : Icons.cloud_off_rounded),
                               size: 16,
-                              color: AppColors.wellnessGreen,
+                              color: state.isBackendSynced
+                                  ? AppColors.wellnessGreen
+                                  : AppColors.primaryPurple,
                             ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                'LIVE POSTGRESQL DB • ${state.communityPosts.length + state.exploreRecommendedPosts.length + state.profilePosts.length} Posts • ${state.totalDatabaseMembers} Members',
+                                state.isBackendSynced
+                                    ? 'LIVE POSTGRESQL DB • ${state.totalDatabasePosts} Posts • ${state.totalDatabaseMembers} Members'
+                                    : (state.isBackendSyncing
+                                          ? 'CONNECTING TO POSTGRESQL…'
+                                          : (state.lastSyncError ??
+                                                'LIVE DATA UNAVAILABLE')),
                                 style: const TextStyle(
                                   fontSize: 11.5,
                                   fontWeight: FontWeight.w700,
@@ -187,7 +204,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 if (!context.mounted) return;
                                 SakhiDialogs.showPrototypeSnackbar(
                                   context,
-                                  'Synced latest live records from PostgreSQL!',
+                                  state.lastSyncError ?? 'Synced latest live records from PostgreSQL!',
                                 );
                               },
                               child: const Padding(
@@ -261,9 +278,12 @@ class _HomeScreenState extends State<HomeScreen> {
                         icon: Icons.auto_awesome_rounded,
                         iconColor: AppColors.primaryPurple,
                         iconBgColor: AppColors.pastelLavender,
-                        title: '${state.communityPosts.length + 3} new posts',
-                        subtitle:
-                            'Fresh stories & tips from your wellness interests',
+                        title: state.isBackendSynced
+                            ? '${state.communityPosts.length} new posts'
+                            : 'Live posts unavailable',
+                        subtitle: state.isBackendSynced
+                            ? 'Fresh stories from the live Sakhi community'
+                            : 'Sign in to load real posts from PostgreSQL.',
                         badgeText: 'New',
                         flowerType: SakhiFlowerType.cherryBlossom,
                         onTap: () => _openTab(2, AppRoutes.community),
@@ -274,9 +294,12 @@ class _HomeScreenState extends State<HomeScreen> {
                         icon: Icons.groups_2_rounded,
                         iconColor: AppColors.wellnessGreen,
                         iconBgColor: AppColors.pastelMint,
-                        title: '${state.groups.length} active circles',
-                        subtitle:
-                            'Women in Tech Bangalore & Mindful Mornings updates',
+                        title: state.isBackendSynced
+                            ? '${state.groups.length} active circles'
+                            : 'Live circles unavailable',
+                        subtitle: state.isBackendSynced
+                            ? 'Member circles loaded from the backend'
+                            : 'Circle data appears after a live connection.',
                         badgeText: 'Active',
                         flowerType: SakhiFlowerType.eucalyptusSage,
                         onTap: () => _openTab(2, AppRoutes.community),
@@ -288,8 +311,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         iconColor: const Color(0xFFD63E85),
                         iconBgColor: AppColors.pastelPink,
                         title: 'Safety & Helpline Hub',
-                        subtitle:
-                            'Trusted contacts, live check-in & verified resources',
+                        subtitle: 'Trusted contacts, live check-in & verified resources',
                         badgeText: '24/7',
                         flowerType: SakhiFlowerType.roseClassic,
                         onTap: () => _openRoute(AppRoutes.safety),
@@ -305,15 +327,13 @@ class _HomeScreenState extends State<HomeScreen> {
                             gradient: const LinearGradient(
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
-                              colors: [
-                                Color(0xFFF5ECFB),
-                                Color(0xFFFDF2F7),
-                              ],
+                              colors: [Color(0xFFF5ECFB), Color(0xFFFDF2F7)],
                             ),
                             borderRadius: BorderRadius.circular(22),
                             border: Border.all(
-                              color: AppColors.primaryPurple
-                                  .withValues(alpha: 0.14),
+                              color: AppColors.primaryPurple.withValues(
+                                alpha: 0.14,
+                              ),
                             ),
                           ),
                           clipBehavior: Clip.antiAlias,

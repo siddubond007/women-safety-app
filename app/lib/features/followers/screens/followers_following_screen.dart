@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../../core/constants/mock_data.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -86,7 +87,8 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
                       TextButton(
                         onPressed: () {
                           setState(
-                            () => _showingFollowingOnly = !_showingFollowingOnly,
+                            () =>
+                                _showingFollowingOnly = !_showingFollowingOnly,
                           );
                         },
                         child: Text(
@@ -110,7 +112,15 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
 
                   const SizedBox(height: 14),
                   Expanded(
-                    child: filtered.isEmpty
+                    child: !state.isBackendSynced
+                        ? SakhiEmptyState(
+                            icon: Icons.cloud_off_outlined,
+                            title: 'Live profiles unavailable',
+                            message: state.lastSyncError ?? 'Sign in to load real follower and following records.',
+                            actionLabel: 'Retry connection',
+                            onAction: state.syncFromBackend,
+                          )
+                        : filtered.isEmpty
                         ? SakhiEmptyState(
                             icon: Icons.person_search_rounded,
                             title: 'No matching profiles',

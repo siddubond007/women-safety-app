@@ -37,11 +37,14 @@ class _CommunityScreenState extends State<CommunityScreen> {
   String _composerCategorySlug = 'community';
   String _selectedVisibility = 'VERIFIED_MEMBERS';
   String _selectedCropPreset = '4:5';
+  double _cropZoom = 1.0;
+  double _cropOffsetX = 0.0;
+  double _cropOffsetY = 0.0;
   Uint8List? _selectedImageOriginalBytes;
   Uint8List? _selectedImageCroppedBytes;
   String? _selectedImageName;
   String? _attachedEditorialAsset;
-  final Set<String> _selectedHashtags = {'#SakhiSisterhood'};
+  final Set<String> _selectedHashtags = <String>{};
   bool _allowComments = true;
   bool _shareToBusinessProfile = false;
 
@@ -80,46 +83,93 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
   Future<Uint8List> _cropBytesToAspectRatio(
     Uint8List rawBytes,
-    String preset,
-  ) async {
+    String preset, {
+    double zoom = 1.0,
+    double offsetX = 0.0,
+    double offsetY = 0.0,
+  }) async {
+    final codec = await ui.instantiateImageCodec(rawBytes);
     try {
-      final codec = await ui.instantiateImageCodec(rawBytes);
       final frame = await codec.getNextFrame();
       final src = frame.image;
-      final targetRatio = _aspectRatioForPreset(preset);
-      final srcRatio = src.width / src.height;
+      try {
+        final targetRatio = _aspectRatioForPreset(preset);
+        final srcRatio = src.width / src.height;
 
-      double cropW;
-      double cropH;
-      if (srcRatio > targetRatio) {
-        cropH = src.height.toDouble();
-        cropW = cropH * targetRatio;
-      } else {
-        cropW = src.width.toDouble();
-        cropH = cropW / targetRatio;
+        double baseW;
+        double baseH;
+        if (srcRatio > targetRatio) {
+          baseH = src.height.toDouble();
+          baseW = baseH * targetRatio;
+        } else {
+          baseW = src.width.toDouble();
+          baseH = baseW / targetRatio;
+        }
+
+        final safeZoom = zoom.clamp(1.0, 3.0);
+        final cropW = baseW / safeZoom;
+        final cropH = baseH / safeZoom;
+        final maxLeft = (src.width - cropW).clamp(0.0, src.width.toDouble());
+        final maxTop = (src.height - cropH).clamp(0.0, src.height.toDouble());
+        final left = (maxLeft / 2 + offsetX.clamp(-1.0, 1.0) * maxLeft / 2)
+            .clamp(0.0, maxLeft);
+        final top = (maxTop / 2 + offsetY.clamp(-1.0, 1.0) * maxTop / 2).clamp(
+          0.0,
+          maxTop,
+        );
+
+        const outW = 960;
+        final outH = (outW / targetRatio).round();
+        final recorder = ui.PictureRecorder();
+        final canvas = Canvas(recorder);
+        canvas.drawImageRect(
+          src,
+          Rect.fromLTWH(left, top, cropW, cropH),
+          Rect.fromLTWH(0, 0, outW.toDouble(), outH.toDouble()),
+          Paint()..filterQuality = FilterQuality.high,
+        );
+        final picture = recorder.endRecording();
+        final cropped = await picture.toImage(outW, outH);
+        try {
+          final byteData = await cropped.toByteData(
+            format: ui.ImageByteFormat.png,
+          );
+          if (byteData == null) {
+            throw StateError('Unable to encode the selected crop.');
+          }
+          return byteData.buffer.asUint8List();
+        } finally {
+          cropped.dispose();
+          picture.dispose();
+        }
+      } finally {
+        src.dispose();
       }
-      final offsetX = (src.width - cropW) / 2.0;
-      final offsetY = (src.height - cropH) / 2.0;
+    } finally {
+      codec.dispose();
+    }
+  }
 
-      const outW = 960;
-      final outH = (outW / targetRatio).round();
-      final recorder = ui.PictureRecorder();
-      final canvas = Canvas(recorder);
-      canvas.drawImageRect(
-        src,
-        Rect.fromLTWH(offsetX, offsetY, cropW, cropH),
-        Rect.fromLTWH(0, 0, outW.toDouble(), outH.toDouble()),
-        Paint()..filterQuality = FilterQuality.high,
+  Future<void> _applyCropSettings() async {
+    final original = _selectedImageOriginalBytes;
+    if (original == null) return;
+    try {
+      final cropped = await _cropBytesToAspectRatio(
+        original,
+        _selectedCropPreset,
+        zoom: _cropZoom,
+        offsetX: _cropOffsetX,
+        offsetY: _cropOffsetY,
       );
-      final picture = recorder.endRecording();
-      final cropped = await picture.toImage(outW, outH);
-      final byteData =
-          await cropped.toByteData(format: ui.ImageByteFormat.png);
-      if (byteData != null) {
-        return byteData.buffer.asUint8List();
-      }
-    } catch (_) {}
-    return rawBytes;
+      if (!mounted) return;
+      setState(() => _selectedImageCroppedBytes = cropped);
+    } catch (_) {
+      if (!mounted) return;
+      SakhiDialogs.showPrototypeSnackbar(
+        context,
+        'Crop could not be rendered. Your original photo remains selected.',
+      );
+    }
   }
 
   Future<void> _refreshLiveFeed() async {
@@ -127,9 +177,10 @@ class _CommunityScreenState extends State<CommunityScreen> {
     await SakhiPrototypeState.instance.syncFromBackend();
     if (!mounted) return;
     setState(() => _isRefreshing = false);
+    final state = SakhiPrototypeState.instance;
     SakhiDialogs.showPrototypeSnackbar(
       context,
-      'Synced live posts and categories from PostgreSQL database!',
+      state.lastSyncError ?? 'Synced live posts from PostgreSQL.',
     );
   }
 
@@ -151,12 +202,23 @@ class _CommunityScreenState extends State<CommunityScreen> {
         );
         return;
       }
-      final cropped = await _cropBytesToAspectRatio(bytes, _selectedCropPreset);
+      _cropZoom = 1.0;
+      _cropOffsetX = 0.0;
+      _cropOffsetY = 0.0;
+      final cropped = await _cropBytesToAspectRatio(
+        bytes,
+        _selectedCropPreset,
+        zoom: _cropZoom,
+        offsetX: _cropOffsetX,
+        offsetY: _cropOffsetY,
+      );
       if (!mounted) return;
       setState(() {
         _selectedImageOriginalBytes = bytes;
         _selectedImageCroppedBytes = cropped;
-        _selectedImageName = picked.name.isEmpty ? 'post_photo.png' : picked.name;
+        _selectedImageName = picked.name.isEmpty
+            ? 'post_photo.png'
+            : picked.name;
         _attachedEditorialAsset = null;
       });
     } catch (_) {
@@ -170,14 +232,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
   Future<void> _changeCropPreset(String preset) async {
     setState(() => _selectedCropPreset = preset);
-    if (_selectedImageOriginalBytes != null) {
-      final recropped = await _cropBytesToAspectRatio(
-        _selectedImageOriginalBytes!,
-        preset,
-      );
-      if (!mounted) return;
-      setState(() => _selectedImageCroppedBytes = recropped);
-    }
+    await _applyCropSettings();
   }
 
   Future<void> _publishPost() async {
@@ -217,7 +272,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
           return;
         }
         uploadedMediaUrl = uploadRes['mediaUrl'];
-        if (uploadRes['uploadId'] != null && uploadRes['uploadId']!.isNotEmpty) {
+        if (uploadRes['uploadId'] != null &&
+            uploadRes['uploadId']!.isNotEmpty) {
           mediaUploadIds.add(uploadRes['uploadId']!);
         }
       }
@@ -322,7 +378,10 @@ class _CommunityScreenState extends State<CommunityScreen> {
                         child: const Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text('Social Wall', style: AppTypography.appBarTitle),
+                            Text(
+                              'Social Wall',
+                              style: AppTypography.appBarTitle,
+                            ),
                             SizedBox(width: 4),
                             Icon(
                               Icons.keyboard_arrow_down_rounded,
@@ -481,7 +540,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                     selected: _selectedCropPreset == preset,
                                     selectedColor: AppColors.primaryPurple,
                                     backgroundColor: AppColors.pastelLavender,
-                                    onSelected: (_) => _changeCropPreset(preset),
+                                    onSelected: (_) =>
+                                        _changeCropPreset(preset),
                                   ),
                                 ),
                             ],
@@ -491,17 +551,73 @@ class _CommunityScreenState extends State<CommunityScreen> {
                             ClipRRect(
                               borderRadius: BorderRadius.circular(14),
                               child: AspectRatio(
-                                aspectRatio:
-                                    _aspectRatioForPreset(_selectedCropPreset),
-                                child: InteractiveViewer(
-                                  minScale: 1.0,
-                                  maxScale: 3.0,
-                                  child: Image.memory(
-                                    _selectedImageCroppedBytes!,
-                                    fit: BoxFit.cover,
-                                  ),
+                                aspectRatio: _aspectRatioForPreset(
+                                  _selectedCropPreset,
+                                ),
+                                child: Image.memory(
+                                  _selectedImageCroppedBytes!,
+                                  fit: BoxFit.cover,
+                                  filterQuality: FilterQuality.high,
                                 ),
                               ),
+                            ),
+                            Row(
+                              children: [
+                                const SizedBox(width: 58, child: Text('Zoom')),
+                                Expanded(
+                                  child: Slider(
+                                    value: _cropZoom,
+                                    min: 1.0,
+                                    max: 3.0,
+                                    divisions: 20,
+                                    label: '${_cropZoom.toStringAsFixed(1)}×',
+                                    activeColor: AppColors.primaryPurple,
+                                    onChanged: (value) =>
+                                        setState(() => _cropZoom = value),
+                                    onChangeEnd: (_) => _applyCropSettings(),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Row(
+                              children: [
+                                const SizedBox(
+                                  width: 58,
+                                  child: Text('Left / right'),
+                                ),
+                                Expanded(
+                                  child: Slider(
+                                    value: _cropOffsetX,
+                                    min: -1.0,
+                                    max: 1.0,
+                                    divisions: 20,
+                                    activeColor: AppColors.primaryPurple,
+                                    onChanged: (value) =>
+                                        setState(() => _cropOffsetX = value),
+                                    onChangeEnd: (_) => _applyCropSettings(),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Row(
+                              children: [
+                                const SizedBox(
+                                  width: 58,
+                                  child: Text('Up / down'),
+                                ),
+                                Expanded(
+                                  child: Slider(
+                                    value: _cropOffsetY,
+                                    min: -1.0,
+                                    max: 1.0,
+                                    divisions: 20,
+                                    activeColor: AppColors.primaryPurple,
+                                    onChanged: (value) =>
+                                        setState(() => _cropOffsetY = value),
+                                    onChangeEnd: (_) => _applyCropSettings(),
+                                  ),
+                                ),
+                              ],
                             ),
                             Align(
                               alignment: Alignment.centerRight,
@@ -510,6 +626,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                   _selectedImageOriginalBytes = null;
                                   _selectedImageCroppedBytes = null;
                                   _selectedImageName = null;
+                                  _cropZoom = 1.0;
+                                  _cropOffsetX = 0.0;
+                                  _cropOffsetY = 0.0;
                                 }),
                                 icon: const Icon(
                                   Icons.delete_outline,
@@ -526,8 +645,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
                             ClipRRect(
                               borderRadius: BorderRadius.circular(14),
                               child: AspectRatio(
-                                aspectRatio:
-                                    _aspectRatioForPreset(_selectedCropPreset),
+                                aspectRatio: _aspectRatioForPreset(
+                                  _selectedCropPreset,
+                                ),
                                 child: Image.asset(
                                   _attachedEditorialAsset!,
                                   fit: BoxFit.cover,
@@ -557,8 +677,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                 onPressed: _isUploadingCloudMedia
                                     ? null
                                     : () => _pickAndCropGalleryImage(
-                                          ImageSource.gallery,
-                                        ),
+                                        ImageSource.gallery,
+                                      ),
                               ),
                               OutlinedButton.icon(
                                 icon: const Icon(
@@ -569,8 +689,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                 onPressed: _isUploadingCloudMedia
                                     ? null
                                     : () => _pickAndCropGalleryImage(
-                                          ImageSource.camera,
-                                        ),
+                                        ImageSource.camera,
+                                      ),
                               ),
                               OutlinedButton.icon(
                                 icon: const Icon(
@@ -592,8 +712,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                             controller: _postController,
                             maxLines: 3,
                             decoration: const InputDecoration(
-                              hintText:
-                                  'Write your caption and #hashtags (saved to PostgreSQL)...',
+                              hintText: 'Write your caption and #hashtags (saved to PostgreSQL)...',
                             ),
                           ),
                           const SizedBox(height: 8),
@@ -731,7 +850,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
                               TextButton(
                                 onPressed: _isUploadingCloudMedia
                                     ? null
-                                    : () => setState(() => _showComposer = false),
+                                    : () =>
+                                          setState(() => _showComposer = false),
                                 child: const Text('Cancel'),
                               ),
                               const SizedBox(width: 8),
@@ -743,8 +863,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                   horizontal: 18,
                                   vertical: 9,
                                 ),
-                                onPressed:
-                                    _isUploadingCloudMedia ? null : _publishPost,
+                                onPressed: _isUploadingCloudMedia
+                                    ? null
+                                    : _publishPost,
                               ),
                             ],
                           ),
@@ -767,7 +888,47 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   ],
 
                   const SizedBox(height: 12),
-                  if (posts.isEmpty)
+                  if (!state.isBackendSynced)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: AppColors.cardSurface,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: AppColors.borderSubtle),
+                      ),
+                      child: Column(
+                        children: [
+                          if (state.isBackendSyncing)
+                            const CircularProgressIndicator(
+                              color: AppColors.primaryPurple,
+                            )
+                          else
+                            const Icon(
+                              Icons.cloud_off_outlined,
+                              color: AppColors.primaryPurple,
+                              size: 36,
+                            ),
+                          const SizedBox(height: 8),
+                          Text(
+                            state.isBackendSyncing
+                                ? 'Loading live Social Wall…'
+                                : (state.lastSyncError ??
+                                      'Live Social Wall data is unavailable.'),
+                            textAlign: TextAlign.center,
+                            style: AppTypography.subtitle,
+                          ),
+                          if (!state.isBackendSyncing) ...[
+                            const SizedBox(height: 12),
+                            SakhiPillButton(
+                              label: 'Retry connection',
+                              onPressed: _refreshLiveFeed,
+                            ),
+                          ],
+                        ],
+                      ),
+                    )
+                  else if (posts.isEmpty)
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(24),
@@ -852,7 +1013,10 @@ class _CommunityScreenState extends State<CommunityScreen> {
               ...categories.map(
                 (cat) => ListTile(
                   title: Text(cat.name),
-                  subtitle: Text(cat.description, style: AppTypography.subtitle),
+                  subtitle: Text(
+                    cat.description,
+                    style: AppTypography.subtitle,
+                  ),
                   trailing: _selectedCategorySlug == cat.slug
                       ? const Icon(
                           Icons.check_circle_rounded,

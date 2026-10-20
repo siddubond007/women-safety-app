@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../features/auth/backend_api_client.dart';
-import 'app_assets.dart';
 
 /// SRS 5.3 Feed Category model.
 class FeedCategoryModel {
@@ -37,7 +36,8 @@ class FeedCategoryModel {
     FeedCategoryModel(
       slug: 'community',
       name: 'Community',
-      description: 'Everyday stories, encouragement, and local circles across Sakhi.',
+      description:
+          'Everyday stories, encouragement, and local circles across Sakhi.',
       iconKey: 'sparkles',
       accentColorHex: '#9E3D64',
       displayOrder: 2,
@@ -69,7 +69,8 @@ class FeedCategoryModel {
     FeedCategoryModel(
       slug: 'wellness_lifestyle',
       name: 'Wellness and Lifestyle',
-      description: 'Cycle care, mindfulness, nutrition, and holistic wellbeing.',
+      description:
+          'Cycle care, mindfulness, nutrition, and holistic wellbeing.',
       iconKey: 'spa',
       accentColorHex: '#4A7C9B',
       displayOrder: 6,
@@ -111,9 +112,7 @@ class PostCommentItem {
       authorAccountId: authorId,
       authorName: authorName,
       authorUsername: json['authorUsername']?.toString() ?? '@member',
-      authorAvatar: rawAvatar.isNotEmpty
-          ? rawAvatar
-          : AppAssets.forKey(authorId.isNotEmpty ? authorId : authorName),
+      authorAvatar: rawAvatar,
       body: (json['body'] ?? json['text'] ?? '').toString(),
       createdAt: json['createdAt']?.toString() ?? 'Just now',
       isOwnComment: json['isOwnComment'] == true,
@@ -143,23 +142,23 @@ class UserProfileModel {
   int activeSessionsCount;
 
   UserProfileModel({
-    this.accountId = '00000000-0000-4000-8000-000000000001',
+    this.accountId = '',
     required this.displayName,
     required this.username,
     required this.bio,
     required this.location,
     required this.avatarAsset,
-    this.email = 'siddhu@example.com',
-    this.phoneMasked = '+91 ••••••2345',
-    this.phoneVerified = true,
-    this.verificationStatus = 'VERIFIED',
+    this.email = '',
+    this.phoneMasked = '',
+    this.phoneVerified = false,
+    this.verificationStatus = 'UNVERIFIED',
     required this.postsCount,
     required this.followersCount,
     required this.followingCount,
     required this.interests,
     this.businessProfileUrl,
-    this.twoFactorEnabled = true,
-    this.activeSessionsCount = 1,
+    this.twoFactorEnabled = false,
+    this.activeSessionsCount = 0,
   });
 
   String get name => displayName;
@@ -228,27 +227,31 @@ class FeedPostModel {
     this.viewerReaction,
     Map<String, int>? reactionBreakdown,
     List<PostCommentItem>? comments,
-  })  : reactionBreakdown = reactionBreakdown ?? <String, int>{},
-        comments = comments ?? <PostCommentItem>[];
+  }) : reactionBreakdown = reactionBreakdown ?? <String, int>{},
+       comments = comments ?? <PostCommentItem>[];
 
   String get audience => visibility;
   String? get reactionType => viewerReaction;
   int get reactionsCount => likesCount;
-  List<String> get mediaItems =>
-      imageAsset != null && imageAsset!.isNotEmpty ? <String>[imageAsset!] : const <String>[];
+  List<String> get mediaItems => imageAsset != null && imageAsset!.isNotEmpty
+      ? <String>[imageAsset!]
+      : const <String>[];
 
   factory FeedPostModel.fromJson(Map<String, dynamic> json) {
     final authorId = json['authorAccountId']?.toString() ?? '';
     final authorName = json['authorName']?.toString() ?? 'Sakhi Member';
     final rawAvatar =
-        (json['authorAvatar'] ?? json['authorAvatarUrl'] ?? json['authorAvatarAsset'] ?? '')
+        (json['authorAvatar'] ??
+                json['authorAvatarUrl'] ??
+                json['authorAvatarAsset'] ??
+                '')
             .toString();
     final rawComments = json['comments'];
     final parsedComments = rawComments is List
         ? rawComments
-            .whereType<Map<String, dynamic>>()
-            .map(PostCommentItem.fromJson)
-            .toList()
+              .whereType<Map<String, dynamic>>()
+              .map(PostCommentItem.fromJson)
+              .toList()
         : <PostCommentItem>[];
     final rawBreakdown = json['reactionBreakdown'];
     final parsedBreakdown = <String, int>{};
@@ -269,13 +272,15 @@ class FeedPostModel {
       authorAccountId: authorId,
       authorName: authorName,
       authorUsername: json['authorUsername']?.toString() ?? '@member',
-      authorAvatar: rawAvatar.isNotEmpty
-          ? rawAvatar
-          : AppAssets.forKey(authorId.isNotEmpty ? authorId : authorName),
-      authorVerified: json['authorVerified'] != false,
-      timestamp: (json['timestamp'] ?? json['createdAt'] ?? 'Just now').toString(),
-      content: (json['content'] ?? json['body'] ?? json['caption'] ?? '').toString(),
-      imageAsset: (json['imageAsset'] ?? json['mediaAsset'] ?? json['mediaUrl']) as String?,
+      authorAvatar: rawAvatar,
+      authorVerified: json['authorVerified'] == true,
+      timestamp: (json['timestamp'] ?? json['createdAt'] ?? 'Just now')
+          .toString(),
+      content: (json['content'] ?? json['body'] ?? json['caption'] ?? '')
+          .toString(),
+      imageAsset:
+          (json['imageAsset'] ?? json['mediaAsset'] ?? json['mediaUrl'])
+              as String?,
       categoryBadge: (json['categoryBadge'] ?? json['categorySlug']) as String?,
       categorySlug: (json['categorySlug'] ?? 'community').toString(),
       visibility: (json['visibility'] ?? 'VERIFIED_MEMBERS').toString(),
@@ -285,8 +290,11 @@ class FeedPostModel {
       allowComments: json['allowComments'] != false,
       shareToBusinessProfile: json['shareToBusinessProfile'] == true,
       hasBreathingExerciseCard: json['hasBreathingExerciseCard'] == true,
-      likesCount: ((json['reactionsCount'] ?? json['likesCount']) as num?)?.toInt() ?? 0,
-      commentsCount: (json['commentsCount'] as num?)?.toInt() ?? parsedComments.length,
+      likesCount:
+          ((json['reactionsCount'] ?? json['likesCount']) as num?)?.toInt() ??
+          0,
+      commentsCount:
+          (json['commentsCount'] as num?)?.toInt() ?? parsedComments.length,
       savesCount: (json['savesCount'] as num?)?.toInt() ?? 0,
       sharesCount: (json['sharesCount'] as num?)?.toInt() ?? 0,
       isLiked: json['isLiked'] == true || json['likedByViewer'] == true,
@@ -325,16 +333,15 @@ class FollowerUserModel {
   factory FollowerUserModel.fromJson(Map<String, dynamic> json) {
     final id = (json['id'] ?? json['accountId'] ?? '').toString();
     final name = json['name']?.toString() ?? '';
-    final rawAvatar = (json['avatarUrl'] ?? json['avatarAsset'] ?? '').toString();
+    final rawAvatar = (json['avatarUrl'] ?? json['avatarAsset'] ?? '')
+        .toString();
     return FollowerUserModel(
       id: id,
       name: name,
       username: json['username']?.toString() ?? '',
       location: (json['location'] ?? json['city'] ?? 'India').toString(),
       bio: json['bio'] as String?,
-      avatarAsset: rawAvatar.isNotEmpty
-          ? rawAvatar
-          : AppAssets.forKey(id.isNotEmpty ? id : name),
+      avatarAsset: rawAvatar,
       isFollowing: json['isFollowing'] == true,
     );
   }
@@ -387,7 +394,8 @@ class EmergencyContactModel {
       id: json['id']?.toString() ?? '',
       name: (json['name'] ?? json['contactName'] ?? '').toString(),
       relationship: json['relationship']?.toString() ?? '',
-      phoneE164: (json['phoneE164'] ?? json['phoneNumberMasked'] ?? '').toString(),
+      phoneE164: (json['phoneE164'] ?? json['phoneNumberMasked'] ?? '')
+          .toString(),
     );
   }
 }
@@ -406,8 +414,10 @@ class BlockedUserModel {
   factory BlockedUserModel.fromJson(Map<String, dynamic> json) {
     return BlockedUserModel(
       id: (json['id'] ?? json['accountId'] ?? '').toString(),
-      blockedUsername: (json['blockedUsername'] ?? json['username'] ?? '').toString(),
-      blockedDisplayName: (json['blockedDisplayName'] ?? json['name'] ?? '').toString(),
+      blockedUsername: (json['blockedUsername'] ?? json['username'] ?? '')
+          .toString(),
+      blockedDisplayName: (json['blockedDisplayName'] ?? json['name'] ?? '')
+          .toString(),
     );
   }
 }
@@ -452,15 +462,18 @@ class SakhiPrototypeState extends ChangeNotifier {
   BackendApiClient? _apiClient;
   dynamic _boundBackend;
   bool _isBackendSynced = false;
-  int totalDatabaseMembers = 9;
-  int totalDatabasePosts = 7;
-  String lastSyncSource = 'PostgreSQL Live DB';
+  bool _isBackendSyncing = false;
+  String? lastSyncError;
+  int totalDatabaseMembers = 0;
+  int totalDatabasePosts = 0;
+  String lastSyncSource = 'Backend not yet verified';
   bool showSavedPostsFirst = false;
   String searchQuery = '';
   String selectedCategorySlug = 'community';
 
   dynamic get backend => _boundBackend;
   bool get isBackendSynced => _isBackendSynced;
+  bool get isBackendSyncing => _isBackendSyncing;
 
   void bind(dynamic backendState) {
     _boundBackend = backendState;
@@ -477,27 +490,22 @@ class SakhiPrototypeState extends ChangeNotifier {
     FeedCategoryModel.defaultCategories,
   );
 
+  /// Neutral empty state until an authenticated backend profile is loaded.
   final UserProfileModel currentUser = UserProfileModel(
-    displayName: 'Siddhu',
-    username: '@siddhu_sakhi',
-    bio: 'Community mentor, evening walk organizer, and wellness advocate. 💜',
-    location: 'Hyderabad, India',
-    avatarAsset: AppAssets.avatarSiddhu,
-    email: 'siddhu.dev@sakhi.local',
-    phoneMasked: '+91 ••••••2345',
-    phoneVerified: true,
-    verificationStatus: 'VERIFIED',
-    postsCount: 4,
-    followersCount: 6,
-    followingCount: 5,
-    interests: [
-      'Mental Wellness',
-      'Safety Network',
-      'Mindfulness',
-      'WomenInTech',
-      'Art & Culture',
-      'Fitness',
-    ],
+    accountId: '',
+    displayName: 'Sakhi Member',
+    username: '',
+    bio: '',
+    location: '',
+    avatarAsset: '',
+    email: '',
+    phoneMasked: '',
+    phoneVerified: false,
+    verificationStatus: 'UNVERIFIED',
+    postsCount: 0,
+    followersCount: 0,
+    followingCount: 0,
+    interests: <String>[],
   );
 
   final List<String> exploreFilters = const [
@@ -508,344 +516,38 @@ class SakhiPrototypeState extends ChangeNotifier {
     'Events',
   ];
 
-  final List<String> trendingHashtags = const [
-    '#SakhiSisterhood',
-    '#SafeCommute',
-    '#WomenFounders',
-    '#Mindfulness',
-    '#CycleCare',
-    '#WomenInTech',
-  ];
+  /// Hashtags discovered from live posts, ranked by frequency.
+  List<String> get trendingHashtags {
+    final counts = <String, int>{};
+    for (final post in [...communityPosts, ...exploreRecommendedPosts]) {
+      for (final rawTag in post.hashtags) {
+        final tag = rawTag.startsWith('#') ? rawTag : '#$rawTag';
+        if (tag.length > 1)
+          counts.update(tag, (count) => count + 1, ifAbsent: () => 1);
+      }
+    }
+    final tags = counts.keys.toList()
+      ..sort((a, b) => counts[b]!.compareTo(counts[a]!));
+    return tags.take(12).toList(growable: false);
+  }
 
-  final List<FeedPostModel> communityPosts = [
-    FeedPostModel(
-      id: '00000000-0000-4000-8000-000000000101',
-      authorAccountId: '00000000-0000-4000-8000-000000000002',
-      authorName: 'Ananya Sharma',
-      authorUsername: '@ananya_sharma',
-      authorAvatar: AppAssets.avatarAnanya,
-      authorVerified: true,
-      timestamp: '2 hours ago',
-      categoryBadge: 'Safety Awareness',
-      categorySlug: 'safety_awareness',
-      cropPreset: '16:9',
-      locationTag: 'Jubilee Hills, Hyderabad',
-      hashtags: const ['#SafeCommute', '#EveningWalk', '#SakhiCircle'],
-      content:
-          'Evening walk check-in! Our Jubilee Hills walking circle completed our 5 km sunset route today. Well-lit stretches near Gate 3 and two patrolling Pink Hoysala vans spotted.',
-      imageAsset: AppAssets.eveningWalkSunset,
-      likesCount: 24,
-      commentsCount: 2,
-      savesCount: 14,
-      isLiked: true,
-      viewerReaction: 'SUPPORT',
-      reactionBreakdown: {'SUPPORT': 12, 'LOVE': 8, 'STRONG': 4},
-      comments: [
-        PostCommentItem(
-          id: '00000000-0000-4000-8000-000000000201',
-          authorName: 'Siddhu',
-          authorUsername: '@siddhu_sakhi',
-          authorAvatar: AppAssets.avatarSiddhu,
-          body: 'Love this! Count me in for Thursday\'s 6 PM circle near Gate 3.',
-          createdAt: '1h ago',
-          isOwnComment: true,
-          canEdit: true,
-          canDelete: true,
-        ),
-        PostCommentItem(
-          id: '00000000-0000-4000-8000-000000000202',
-          authorName: 'Priya Verma',
-          authorUsername: '@priya_moves',
-          authorAvatar: AppAssets.avatarPriya,
-          body: 'Thank you for mapping the well-lit stretch—super helpful for evening runners.',
-          createdAt: '42m ago',
-        ),
-      ],
-    ),
-    FeedPostModel(
-      id: '00000000-0000-4000-8000-000000000102',
-      authorAccountId: '00000000-0000-4000-8000-000000000003',
-      authorName: 'Meera Nair',
-      authorUsername: '@meera_wellness',
-      authorAvatar: AppAssets.avatarMeera,
-      authorVerified: true,
-      timestamp: '4 hours ago',
-      categoryBadge: 'Wellness and Lifestyle',
-      categorySlug: 'wellness_lifestyle',
-      cropPreset: '1:1',
-      locationTag: 'Kochi, India',
-      hashtags: const ['#Mindfulness', '#CycleSyncing', '#Wellness'],
-      content:
-          '4-7-8 box breathing before bed has transformed my luteal-phase sleep quality. Inhale quietly for 4s, hold for 7s, exhale slowly for 8s. Try 4 rounds tonight!',
-      imageAsset: AppAssets.breathingExerciseIllustration,
-      hasBreathingExerciseCard: true,
-      likesCount: 41,
-      commentsCount: 1,
-      savesCount: 29,
-      isLiked: true,
-      isSaved: true,
-      viewerReaction: 'GRATEFUL',
-      reactionBreakdown: {'GRATEFUL': 20, 'CARE': 15, 'LOVE': 6},
-      comments: [
-        PostCommentItem(
-          id: '00000000-0000-4000-8000-000000000203',
-          authorName: 'Sneha Kulkarni',
-          authorUsername: '@sneha_reads',
-          authorAvatar: AppAssets.avatarSneha,
-          body: 'Tried 4 rounds last night and fell asleep in 10 minutes!',
-          createdAt: '2h ago',
-        ),
-      ],
-    ),
-    FeedPostModel(
-      id: '00000000-0000-4000-8000-000000000103',
-      authorAccountId: '00000000-0000-4000-8000-000000000004',
-      authorName: 'Kavya Reddy',
-      authorUsername: '@kavya_creates',
-      authorAvatar: AppAssets.avatarKavya,
-      authorVerified: true,
-      timestamp: '6 hours ago',
-      categoryBadge: 'Business Updates',
-      categorySlug: 'business_updates',
-      cropPreset: '16:9',
-      locationTag: 'Banjara Hills Studio, Hyderabad',
-      hashtags: const ['#WomenFounders', '#HandloomIndia', '#BusinessUpdates'],
-      content:
-          'Our women-led handloom & terracotta studio just shipped 120 festive gift hampers crafted by 18 rural women artisans in Telangana. Thank you Sakhi sisters for cheering us on!',
-      imageAsset: AppAssets.businessArtisanStudio,
-      likesCount: 53,
-      commentsCount: 1,
-      savesCount: 22,
-      isLiked: true,
-      viewerReaction: 'INSPIRED',
-      reactionBreakdown: {'INSPIRED': 28, 'LOVE': 18, 'HAPPY': 7},
-      comments: [
-        PostCommentItem(
-          id: '00000000-0000-4000-8000-000000000204',
-          authorName: 'Siddhu',
-          authorUsername: '@siddhu_sakhi',
-          authorAvatar: AppAssets.avatarSiddhu,
-          body: 'So proud of your artisan team, Kavya! Ordering two hampers for Diwali.',
-          createdAt: '3h ago',
-          isOwnComment: true,
-          canEdit: true,
-          canDelete: true,
-        ),
-      ],
-    ),
-    FeedPostModel(
-      id: '00000000-0000-4000-8000-000000000104',
-      authorAccountId: '00000000-0000-4000-8000-000000000001',
-      authorName: 'Siddhu',
-      authorUsername: '@siddhu_sakhi',
-      authorAvatar: AppAssets.avatarSiddhu,
-      authorVerified: true,
-      timestamp: '1 day ago',
-      categoryBadge: 'Community',
-      categorySlug: 'community',
-      cropPreset: '16:9',
-      locationTag: 'KBR Park, Hyderabad',
-      hashtags: const ['#SakhiSisterhood', '#CommunityFirst', '#WeekendWalk'],
-      content:
-          'Grateful for this verified space where we can share honest health, career, and safety updates without noise. Hosting our Saturday sunrise walk & chai circle at KBR Park!',
-      imageAsset: AppAssets.communityCircleGathering,
-      likesCount: 38,
-      commentsCount: 0,
-      savesCount: 18,
-      isOwnPost: true,
-      canEdit: true,
-      canDelete: true,
-      reactionBreakdown: {'LOVE': 22, 'SUPPORT': 16},
-    ),
-    FeedPostModel(
-      id: '00000000-0000-4000-8000-000000000105',
-      authorAccountId: '00000000-0000-4000-8000-000000000005',
-      authorName: 'Ishita Roy',
-      authorUsername: '@ishita_codes',
-      authorAvatar: AppAssets.avatarIshita,
-      authorVerified: true,
-      timestamp: '1 day ago',
-      categoryBadge: 'Trending',
-      categorySlug: 'trending',
-      cropPreset: '16:9',
-      locationTag: 'Pune, India',
-      hashtags: const ['#WomenInTech', '#CareerReturn', '#Mentorship'],
-      content:
-          'Reviewing 15 portfolios this weekend for women returning to tech after a career break! Drop a comment if you\'d like a 20-minute 1:1 product design or resume review.',
-      imageAsset: AppAssets.beachSunset,
-      likesCount: 64,
-      commentsCount: 1,
-      savesCount: 34,
-      reactionBreakdown: {'INSPIRED': 34, 'GRATEFUL': 20, 'SUPPORT': 10},
-      comments: [
-        PostCommentItem(
-          id: '00000000-0000-4000-8000-000000000205',
-          authorName: 'Kavya Reddy',
-          authorUsername: '@kavya_creates',
-          authorAvatar: AppAssets.avatarKavya,
-          body: 'Sharing this with two designers in our Hyderabad circle returning from maternity leave!',
-          createdAt: '18h ago',
-        ),
-      ],
-    ),
-  ];
+  final List<FeedPostModel> communityPosts = [];
 
-  final List<FeedPostModel> exploreRecommendedPosts = [
-    FeedPostModel(
-      id: '00000000-0000-4000-8000-000000000107',
-      authorName: 'Priya Verma',
-      authorUsername: '@priya_moves',
-      authorAvatar: AppAssets.avatarPriya,
-      authorVerified: true,
-      timestamp: '2 hours ago',
-      categoryBadge: 'Safety Awareness',
-      categorySlug: 'safety_awareness',
-      content:
-          'Quick reminder for night metro & cab commuters: keep your primary emergency contact starred in Sakhi SOS and share your live trip check-in before boarding.',
-      imageAsset: AppAssets.safetyNightCommuteGuide,
-      likesCount: 96,
-      commentsCount: 14,
-      isLiked: false,
-      isSaved: false,
-    ),
-  ];
+  final List<FeedPostModel> exploreRecommendedPosts = [];
 
-  final List<FeedPostModel> profilePosts = [
-    FeedPostModel(
-      id: '00000000-0000-4000-8000-000000000104',
-      authorName: 'Siddhu',
-      authorUsername: '@siddhu_sakhi',
-      authorAvatar: AppAssets.avatarSiddhu,
-      authorVerified: true,
-      timestamp: '1 day ago',
-      categoryBadge: 'Community',
-      categorySlug: 'community',
-      content:
-          'Grateful for this verified space where we can share honest health, career, and safety updates without noise. Hosting our Saturday sunrise walk & chai circle at KBR Park!',
-      imageAsset: AppAssets.communityCircleGathering,
-      likesCount: 38,
-      commentsCount: 0,
-      isLiked: true,
-      isSaved: false,
-      isOwnPost: true,
-      canEdit: true,
-      canDelete: true,
-    ),
-  ];
+  final List<FeedPostModel> profilePosts = [];
 
   List<FeedPostModel> get savedPosts =>
       communityPosts.where((p) => p.isSaved).toList(growable: false);
 
-  final List<CommunityGroupModel> groups = [
-    const CommunityGroupModel(
-      id: 'group_1',
-      name: 'Safe Commute Circle • Hyderabad',
-      description: '285 members • Verified metro buddies & cab check-ins',
-      category: 'Safety',
-      membersCount: 285,
-      newPostsToday: 4,
-    ),
-    const CommunityGroupModel(
-      id: 'group_2',
-      name: 'Mindful Mornings & Cycle Care',
-      description: '413 members • Daily breathwork & wellness check-ins',
-      category: 'Health & Wellness',
-      membersCount: 413,
-      newPostsToday: 3,
-    ),
-    const CommunityGroupModel(
-      id: 'group_3',
-      name: 'Women Founders & Creators Guild',
-      description: '196 members • Peer feedback & business showcases',
-      category: 'Business Updates',
-      membersCount: 196,
-      newPostsToday: 2,
-    ),
-  ];
+  final List<CommunityGroupModel> groups = [];
 
-  final List<FollowerUserModel> followers = [
-    FollowerUserModel(
-      id: '00000000-0000-4000-8000-000000000002',
-      name: 'Ananya Sharma',
-      username: '@ananya_sharma',
-      location: 'Bengaluru, India',
-      bio: 'Urban mobility researcher & safe-commute circle lead.',
-      avatarAsset: AppAssets.avatarAnanya,
-      isFollowing: true,
-    ),
-    FollowerUserModel(
-      id: '00000000-0000-4000-8000-000000000003',
-      name: 'Meera Nair',
-      username: '@meera_wellness',
-      location: 'Kochi, India',
-      bio: 'Breathwork facilitator and holistic cycle nutrition coach.',
-      avatarAsset: AppAssets.avatarMeera,
-      isFollowing: true,
-    ),
-    FollowerUserModel(
-      id: '00000000-0000-4000-8000-000000000004',
-      name: 'Kavya Reddy',
-      username: '@kavya_creates',
-      location: 'Hyderabad, India',
-      bio: 'Founder at Terracotta & Looms • Women-led artisan collective.',
-      avatarAsset: AppAssets.avatarKavya,
-      isFollowing: true,
-    ),
-    FollowerUserModel(
-      id: '00000000-0000-4000-8000-000000000005',
-      name: 'Ishita Roy',
-      username: '@ishita_codes',
-      location: 'Pune, India',
-      bio: 'Product designer mentoring early-career women in technology.',
-      avatarAsset: AppAssets.avatarIshita,
-      isFollowing: true,
-    ),
-    FollowerUserModel(
-      id: '00000000-0000-4000-8000-000000000006',
-      name: 'Priya Verma',
-      username: '@priya_moves',
-      location: 'Mumbai, India',
-      bio: 'Run club captain & women\'s strength training coach.',
-      avatarAsset: AppAssets.avatarPriya,
-      isFollowing: false,
-    ),
-    FollowerUserModel(
-      id: '00000000-0000-4000-8000-000000000007',
-      name: 'Sneha Kulkarni',
-      username: '@sneha_reads',
-      location: 'Nagpur, India',
-      bio: 'Community archivist, botanical illustrator & book circle host.',
-      avatarAsset: AppAssets.avatarSneha,
-      isFollowing: false,
-    ),
-    FollowerUserModel(
-      id: '00000000-0000-4000-8000-000000000008',
-      name: 'Zoya Khan',
-      username: '@zoya_bakes',
-      location: 'Delhi, India',
-      bio: 'Sourdough & millet patisserie founder • Small-batch wholesome bakes.',
-      avatarAsset: AppAssets.avatarZoya,
-      isFollowing: true,
-    ),
-  ];
+  final List<FollowerUserModel> followers = [];
 
   List<FollowerUserModel> get following =>
       followers.where((f) => f.isFollowing).toList(growable: false);
 
-  final List<EmergencyContactModel> emergencyContacts = [
-    const EmergencyContactModel(
-      id: 'ec_1',
-      name: 'Lakshmi Devi',
-      relationship: 'Mother',
-      phoneE164: '+919845011223',
-    ),
-    const EmergencyContactModel(
-      id: 'ec_2',
-      name: 'Ananya Sharma',
-      relationship: 'Trusted Friend',
-      phoneE164: '+919880044556',
-    ),
-  ];
+  final List<EmergencyContactModel> emergencyContacts = [];
 
   final List<BlockedUserModel> blockedUsers = [];
 
@@ -880,11 +582,7 @@ class SakhiPrototypeState extends ChangeNotifier {
       id: 'show_location',
       title: 'Show my location',
       selectedValue: 'General location only',
-      options: [
-        'General location only',
-        'City only',
-        'Hidden',
-      ],
+      options: ['General location only', 'City only', 'Hidden'],
       icon: Icons.location_on_outlined,
     ),
     PrivacySettingItem(
@@ -999,16 +697,20 @@ class SakhiPrototypeState extends ChangeNotifier {
         communityPosts
           ..clear()
           ..addAll(
-            rawPosts
-                .whereType<Map<String, dynamic>>()
-                .map(FeedPostModel.fromJson),
+            rawPosts.whereType<Map<String, dynamic>>().map(
+              FeedPostModel.fromJson,
+            ),
           );
         notifyListeners();
       }
     } catch (_) {}
   }
 
-  Future<void> loadDiscover({String? query, String? search, String? category}) async {
+  Future<void> loadDiscover({
+    String? query,
+    String? search,
+    String? category,
+  }) async {
     await syncFromBackend();
   }
 
@@ -1032,7 +734,8 @@ class SakhiPrototypeState extends ChangeNotifier {
               .whereType<Map<String, dynamic>>()
               .map(PostCommentItem.fromJson)
               .toList();
-          communityPosts[idx].commentsCount = communityPosts[idx].comments.length;
+          communityPosts[idx].commentsCount =
+              communityPosts[idx].comments.length;
           notifyListeners();
         }
       }
@@ -1042,9 +745,26 @@ class SakhiPrototypeState extends ChangeNotifier {
   /// Loads live PostgreSQL data from `/api/v1/module2/bootstrap` when an
   /// authenticated backend token is available.
   Future<void> syncFromBackend() async {
+    if (_isBackendSyncing) return;
+    _isBackendSyncing = true;
+    lastSyncError = null;
+    notifyListeners();
     try {
-      final token = await _client.readAccessToken();
-      if (token == null || token.isEmpty) return;
+      String? token;
+      try {
+        token = await _client.readAccessToken();
+      } catch (_) {
+        _isBackendSynced = false;
+        lastSyncError = 'Sign in to load your live Social Wall and profile.';
+        lastSyncSource = 'Authentication required';
+        return;
+      }
+      if (token == null || token.isEmpty) {
+        _isBackendSynced = false;
+        lastSyncError = 'Sign in to load your live Social Wall and profile.';
+        lastSyncSource = 'Authentication required';
+        return;
+      }
       final data = await _client.get('module2/bootstrap', authenticated: true);
 
       final userMap = data['currentUser'] ?? data['user'];
@@ -1058,35 +778,39 @@ class SakhiPrototypeState extends ChangeNotifier {
         currentUser.bio = userMap['bio']?.toString() ?? currentUser.bio;
         currentUser.location =
             (userMap['city'] ?? userMap['location'])?.toString() ??
-                currentUser.location;
+            currentUser.location;
         final uploadedUrl = userMap['avatarUrl']?.toString();
         final rawAvatarAsset = userMap['avatarAsset']?.toString();
+        final candidateAvatar = (uploadedUrl ?? rawAvatarAsset ?? '').trim();
         currentUser.avatarAsset =
-            (uploadedUrl != null && uploadedUrl.isNotEmpty)
-                ? uploadedUrl
-                : AppAssets.forKey(rawAvatarAsset ?? currentUser.accountId);
+            candidateAvatar.startsWith('http://') ||
+                candidateAvatar.startsWith('https://') ||
+                candidateAvatar.startsWith('/api/v1/') ||
+                candidateAvatar.startsWith('assets/')
+            ? candidateAvatar
+            : '';
         currentUser.email = userMap['email']?.toString() ?? currentUser.email;
         currentUser.phoneMasked =
             userMap['phoneMasked']?.toString() ?? currentUser.phoneMasked;
         currentUser.phoneVerified = userMap['phoneVerified'] != false;
         currentUser.verificationStatus =
             (userMap['eligibilityStatus'] ?? userMap['verificationStatus'])
-                    ?.toString() ??
-                'VERIFIED';
+                ?.toString() ??
+            'VERIFIED';
         currentUser.postsCount =
             (userMap['postsCount'] as num?)?.toInt() ?? currentUser.postsCount;
         currentUser.followersCount =
             (userMap['followersCount'] as num?)?.toInt() ??
-                currentUser.followersCount;
+            currentUser.followersCount;
         currentUser.followingCount =
             (userMap['followingCount'] as num?)?.toInt() ??
-                currentUser.followingCount;
+            currentUser.followingCount;
         currentUser.twoFactorEnabled = userMap['twoFactorEnabled'] == true;
         currentUser.activeSessionsCount =
             (userMap['activeSessionsCount'] as num?)?.toInt() ?? 1;
       }
 
-      final rawInterests = data['interests'];
+      final rawInterests = data['interests'] ?? userMap['interests'];
       if (rawInterests is List) {
         currentUser.interests = rawInterests.map((e) => e.toString()).toList();
       }
@@ -1109,53 +833,85 @@ class SakhiPrototypeState extends ChangeNotifier {
             .toList();
       }
 
-      final rawCommunity = data['posts'] ?? data['communityPosts'];
-      if (rawCommunity is List && rawCommunity.isNotEmpty) {
+      final rawCommunity = data['communityPosts'] ?? data['posts'];
+      if (rawCommunity is List) {
         communityPosts
           ..clear()
           ..addAll(
-            rawCommunity
-                .whereType<Map<String, dynamic>>()
-                .map(FeedPostModel.fromJson),
+            rawCommunity.whereType<Map<String, dynamic>>().map(
+              FeedPostModel.fromJson,
+            ),
           );
-        totalDatabasePosts = communityPosts.length;
+      }
+      final rawExplorePosts = data['exploreRecommendedPosts'];
+      if (rawExplorePosts is List) {
+        exploreRecommendedPosts
+          ..clear()
+          ..addAll(
+            rawExplorePosts.whereType<Map<String, dynamic>>().map(
+              FeedPostModel.fromJson,
+            ),
+          );
+      }
+      totalDatabasePosts =
+          (data['totalDatabasePosts'] as num?)?.toInt() ??
+          communityPosts.length;
+
+      final rawProfilePosts = data['profilePosts'];
+      if (rawProfilePosts is List) {
+        profilePosts
+          ..clear()
+          ..addAll(
+            rawProfilePosts
+                .whereType<Map<String, dynamic>>()
+                .map(FeedPostModel.fromJson)
+                .where(
+                  (post) =>
+                      post.id.isNotEmpty &&
+                      post.authorAccountId == currentUser.accountId,
+                ),
+          );
       }
 
       final rawGroups = data['groups'];
-      if (rawGroups is List && rawGroups.isNotEmpty) {
+      if (rawGroups is List) {
         groups
           ..clear()
           ..addAll(
-            rawGroups
-                .whereType<Map<String, dynamic>>()
-                .map(CommunityGroupModel.fromJson),
+            rawGroups.whereType<Map<String, dynamic>>().map(
+              CommunityGroupModel.fromJson,
+            ),
           );
       }
 
       final rawFollowers = data['discoverMembers'] ?? data['followers'];
-      if (rawFollowers is List && rawFollowers.isNotEmpty) {
+      if (rawFollowers is List) {
         followers
           ..clear()
           ..addAll(
-            rawFollowers
-                .whereType<Map<String, dynamic>>()
-                .map(FollowerUserModel.fromJson),
+            rawFollowers.whereType<Map<String, dynamic>>().map(
+              FollowerUserModel.fromJson,
+            ),
           );
-        totalDatabaseMembers = followers.length + 1;
       }
+      totalDatabaseMembers =
+          (data['totalDatabaseMembers'] as num?)?.toInt() ??
+          totalDatabaseMembers;
 
       final rawSafety = data['safety'];
-      if (rawSafety is Map<String, dynamic>) {
-        final rawContacts = rawSafety['emergencyContacts'];
-        if (rawContacts is List && rawContacts.isNotEmpty) {
-          emergencyContacts
-            ..clear()
-            ..addAll(
-              rawContacts
-                  .whereType<Map<String, dynamic>>()
-                  .map(EmergencyContactModel.fromJson),
-            );
-        }
+      final rawContacts =
+          data['emergencyContacts'] ??
+          (rawSafety is Map<String, dynamic>
+              ? rawSafety['emergencyContacts']
+              : null);
+      if (rawContacts is List) {
+        emergencyContacts
+          ..clear()
+          ..addAll(
+            rawContacts.whereType<Map<String, dynamic>>().map(
+              EmergencyContactModel.fromJson,
+            ),
+          );
       }
 
       final rawBlocked = data['blockedUsers'];
@@ -1163,16 +919,22 @@ class SakhiPrototypeState extends ChangeNotifier {
         blockedUsers
           ..clear()
           ..addAll(
-            rawBlocked
-                .whereType<Map<String, dynamic>>()
-                .map(BlockedUserModel.fromJson),
+            rawBlocked.whereType<Map<String, dynamic>>().map(
+              BlockedUserModel.fromJson,
+            ),
           );
       }
 
       _isBackendSynced = true;
-      notifyListeners();
+      lastSyncError = null;
+      lastSyncSource = 'PostgreSQL Live DB';
     } catch (_) {
-      // Keep local defaults when offline or during widget tests.
+      _isBackendSynced = false;
+      lastSyncError = 'Live Sakhi data could not be loaded. Check the connection and retry.';
+      lastSyncSource = 'Backend unavailable';
+    } finally {
+      _isBackendSyncing = false;
+      notifyListeners();
     }
   }
 
@@ -1251,8 +1013,8 @@ class SakhiPrototypeState extends ChangeNotifier {
       if (token == null || token.isEmpty) return null;
       final normalizedPurpose =
           (purpose == 'avatar' || purpose == 'profile_photo')
-              ? 'profile_photo'
-              : 'community_post';
+          ? 'profile_photo'
+          : 'community_post';
       final response = await _client.postMultipart(
         'module2/media/upload',
         authenticated: true,
@@ -1266,19 +1028,19 @@ class SakhiPrototypeState extends ChangeNotifier {
         contentType: contentType,
       );
       final mediaUrl =
-          (response['mediaUrl'] ?? response['mediaAsset'] ?? response['publicUrl'] ?? '')
+          (response['mediaUrl'] ??
+                  response['mediaAsset'] ??
+                  response['publicUrl'] ??
+                  '')
               .toString();
-      final uploadId =
-          (response['uploadId'] ?? response['mediaId'] ?? '').toString();
-      if (mediaUrl.isNotEmpty) {
+      final uploadId = (response['uploadId'] ?? response['mediaId'] ?? '')
+          .toString();
+      if (mediaUrl.isNotEmpty && uploadId.isNotEmpty) {
         if (normalizedPurpose == 'profile_photo') {
           currentUser.avatarAsset = mediaUrl;
           notifyListeners();
         }
-        return {
-          'uploadId': uploadId,
-          'mediaUrl': mediaUrl,
-        };
+        return {'uploadId': uploadId, 'mediaUrl': mediaUrl};
       }
     } catch (_) {}
     return null;
@@ -1370,72 +1132,61 @@ class SakhiPrototypeState extends ChangeNotifier {
     List<String> mediaUploadIds = const [],
   }) async {
     final trimmed = content.trim();
-    if (trimmed.isEmpty && imageAsset == null && mediaUploadIds.isEmpty) {
+    final hasLocalAsset =
+        imageAsset != null && imageAsset.trim().startsWith('assets/');
+    if (trimmed.isEmpty && !hasLocalAsset && mediaUploadIds.isEmpty) {
       return false;
     }
-    final newPost = FeedPostModel(
-      id: 'custom_${DateTime.now().millisecondsSinceEpoch}',
-      authorAccountId: currentUser.accountId,
-      authorName: currentUser.displayName,
-      authorUsername: currentUser.username,
-      authorAvatar: currentUser.avatarAsset,
-      authorVerified: currentUser.verificationStatus == 'VERIFIED',
-      timestamp: 'Just now',
-      content: trimmed,
-      categoryBadge: categoryBadge ?? categorySlug,
-      categorySlug: categorySlug,
-      visibility: visibility,
-      cropPreset: cropPreset,
-      hashtags: hashtags,
-      locationTag: locationTag,
-      allowComments: allowComments,
-      shareToBusinessProfile: shareToBusinessProfile,
-      imageAsset: imageAsset,
-      isOwnPost: true,
-      canEdit: true,
-      canDelete: true,
-    );
-    communityPosts.insert(0, newPost);
-    profilePosts.insert(0, newPost);
-    currentUser.postsCount += 1;
-    notifyListeners();
 
     try {
       final token = await _client.readAccessToken();
-      if (token != null && token.isNotEmpty) {
-        final created = await _client.post(
-          'module2/posts',
-          authenticated: true,
-          body: {
-            'body': trimmed,
-            'categorySlug': categorySlug,
-            'visibility': visibility,
-            'cropPreset': cropPreset,
-            'hashtags': hashtags,
-            if (locationTag != null && locationTag.trim().isNotEmpty)
-              'locationTag': locationTag.trim(),
-            'allowComments': allowComments,
-            'shareToBusinessProfile': shareToBusinessProfile,
-            if (imageAsset != null &&
-                imageAsset.trim().isNotEmpty &&
-                (imageAsset.startsWith('assets/') || imageAsset.startsWith('/api/')))
-              'mediaAsset': imageAsset.trim(),
-            if (mediaUploadIds.isNotEmpty) 'mediaUploadIds': mediaUploadIds,
-          },
-        );
-        final postMap = created['post'] is Map<String, dynamic>
-            ? created['post'] as Map<String, dynamic>
-            : created;
-        final serverId = postMap['id'];
-        if (serverId is String && serverId.isNotEmpty) {
-          final parsed = FeedPostModel.fromJson(postMap);
-          communityPosts[0] = parsed;
-          profilePosts[0] = parsed;
-          notifyListeners();
-        }
+      if (token == null || token.isEmpty) return false;
+      final created = await _client.post(
+        'module2/posts',
+        authenticated: true,
+        body: {
+          'content': trimmed,
+          'categoryBadge': categoryBadge ?? categorySlug,
+          'categorySlug': categorySlug,
+          'visibility': visibility,
+          'cropPreset': cropPreset,
+          'hashtags': hashtags,
+          if (locationTag != null && locationTag.trim().isNotEmpty)
+            'locationTag': locationTag.trim(),
+          'allowComments': allowComments,
+          'shareToBusinessProfile': shareToBusinessProfile,
+          if (hasLocalAsset) 'imageAsset': imageAsset.trim(),
+          if (mediaUploadIds.isNotEmpty) 'mediaUploadIds': mediaUploadIds,
+        },
+      );
+      final postMap = created['post'] is Map<String, dynamic>
+          ? created['post'] as Map<String, dynamic>
+          : created;
+      final serverId = postMap['id']?.toString() ?? '';
+      if (serverId.isEmpty || serverId.startsWith('custom_')) return false;
+
+      final parsed = FeedPostModel.fromJson(postMap);
+      communityPosts.removeWhere((post) => post.id == parsed.id);
+      communityPosts.insert(0, parsed);
+      profilePosts.removeWhere(
+        (post) =>
+            post.id == parsed.id ||
+            (post.authorAccountId.isNotEmpty &&
+                post.authorAccountId == currentUser.accountId &&
+                post.id.startsWith('custom_')),
+      );
+      if (parsed.authorAccountId == currentUser.accountId) {
+        profilePosts.insert(0, parsed);
       }
+      currentUser.postsCount =
+          (created['postsCount'] as num?)?.toInt() ??
+          currentUser.postsCount + 1;
+      _isBackendSynced = true;
+      lastSyncError = null;
+      notifyListeners();
       return true;
     } catch (_) {
+      // A failed API call never leaves a fake locally published post behind.
       return false;
     }
   }
@@ -1476,7 +1227,9 @@ class SakhiPrototypeState extends ChangeNotifier {
   }
 
   Future<bool> deletePost(dynamic postOrId) async {
-    final postId = postOrId is FeedPostModel ? postOrId.id : postOrId.toString();
+    final postId = postOrId is FeedPostModel
+        ? postOrId.id
+        : postOrId.toString();
     communityPosts.removeWhere((p) => p.id == postId);
     profilePosts.removeWhere((p) => p.id == postId);
     currentUser.postsCount = (currentUser.postsCount - 1).clamp(0, 9999);
@@ -1485,10 +1238,7 @@ class SakhiPrototypeState extends ChangeNotifier {
     unawaited(
       _sendAuthenticatedRequest((client) async {
         if (RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(postId)) {
-          await client.delete(
-            'module2/posts/$postId',
-            authenticated: true,
-          );
+          await client.delete('module2/posts/$postId', authenticated: true);
         }
       }),
     );
@@ -1570,7 +1320,10 @@ class SakhiPrototypeState extends ChangeNotifier {
             orElse: () => communityPosts.first,
           );
     post.isSaved = !post.isSaved;
-    post.savesCount = (post.savesCount + (post.isSaved ? 1 : -1)).clamp(0, 999999);
+    post.savesCount = (post.savesCount + (post.isSaved ? 1 : -1)).clamp(
+      0,
+      999999,
+    );
     notifyListeners();
 
     unawaited(
@@ -1728,10 +1481,7 @@ class SakhiPrototypeState extends ChangeNotifier {
     return toggleNotificationPref('marketing_updates', accepted);
   }
 
-  void recordSafetyEvent(
-    String eventType, {
-    String? locationLabel,
-  }) {
+  void recordSafetyEvent(String eventType, {String? locationLabel}) {
     unawaited(
       _sendAuthenticatedRequest((client) async {
         await client.post(
@@ -1817,7 +1567,8 @@ class SakhiPrototypeState extends ChangeNotifier {
           'module2/reports',
           authenticated: true,
           body: {
-            if (postId != null && RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(postId))
+            if (postId != null &&
+                RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(postId))
               'postId': postId,
             'category': category ?? 'inappropriate_content',
             'reason': reason,

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:women_safety_app/core/constants/mock_data.dart';
 import 'package:women_safety_app/core/navigation/app_navigation_shell.dart';
 import 'package:women_safety_app/features/account_security/screens/account_security_screen.dart';
 import 'package:women_safety_app/features/followers/screens/followers_following_screen.dart';
@@ -22,22 +21,29 @@ void main() {
       expect(find.text('Sakhi'), findsOneWidget);
       expect(find.textContaining('Good Morning'), findsOneWidget);
       expect(find.text('For You Today'), findsOneWidget);
-      expect(find.text('5 new posts'), findsOneWidget);
+      expect(find.text('Live posts unavailable'), findsOneWidget);
+      expect(find.textContaining('LIVE POSTGRESQL DB'), findsNothing);
 
       // Tap Explore tab (Screen 2)
       await tester.tap(find.text('Explore').last);
       await tester.pumpAndSettle();
-      expect(find.text('Trending Topics'), findsOneWidget);
+      expect(find.text('Explore topics'), findsOneWidget);
+      expect(find.text('Kavya Nair'), findsNothing);
 
       // Tap Community tab (Screen 3)
       await tester.tap(find.text('Community').last);
       await tester.pumpAndSettle();
-      expect(find.text('Kavya Nair'), findsOneWidget);
+      expect(
+        find.text('Sign in to load your live Social Wall and profile.'),
+        findsOneWidget,
+      );
+      expect(find.text('Kavya Nair'), findsNothing);
 
       // Tap Profile tab (Screen 6)
       await tester.tap(find.text('Profile').last);
       await tester.pumpAndSettle();
-      expect(find.text('@siddhu'), findsOneWidget);
+      expect(find.text('Sakhi Member'), findsOneWidget);
+      expect(find.text('@siddhu'), findsNothing);
       expect(find.text('Edit Profile'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
@@ -82,15 +88,8 @@ void main() {
         const MaterialApp(home: FollowersFollowingScreen()),
       );
       await tester.pumpAndSettle();
-      expect(find.text('Ananya Rao'), findsOneWidget);
-      final beforeFollowing =
-          SakhiPrototypeState.instance.currentUser.followingCount;
-      await tester.tap(find.text('Follow').first);
-      await tester.pumpAndSettle();
-      expect(
-        SakhiPrototypeState.instance.currentUser.followingCount,
-        beforeFollowing + 1,
-      );
+      expect(find.text('Live profiles unavailable'), findsOneWidget);
+      expect(find.text('Ananya Rao'), findsNothing);
 
       // Screen 11: Account & Security
       await tester.pumpWidget(const MaterialApp(home: AccountSecurityScreen()));

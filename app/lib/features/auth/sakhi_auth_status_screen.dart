@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/assets/app_assets.dart';
@@ -66,20 +67,24 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
       if (refreshed == AuthAccountState.existingAccount) {
         _autoPollTimer?.cancel();
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute<void>(
-            builder: (_) => const AppNavigationShell(),
-          ),
+          MaterialPageRoute<void>(builder: (_) => const AppNavigationShell()),
         );
       }
     } catch (_) {}
   }
 
-  String get _heading => switch (_accountState) {
-    AuthAccountState.existingAccount => 'Account verified & active',
-    AuthAccountState.newAccount => 'Continue setting up Sakhi',
-    AuthAccountState.pendingVerification => 'One more step',
-    AuthAccountState.restricted => 'Account access needs attention',
-  };
+  String get _heading {
+    if (widget.authService.isDemo &&
+        _accountState == AuthAccountState.existingAccount) {
+      return 'Welcome back';
+    }
+    return switch (_accountState) {
+      AuthAccountState.existingAccount => 'Account verified & active',
+      AuthAccountState.newAccount => 'Continue setting up Sakhi',
+      AuthAccountState.pendingVerification => 'One more step',
+      AuthAccountState.restricted => 'Account access needs attention',
+    };
+  }
 
   String get _description {
     if (widget.authService.isDevelopmentBackend) {
@@ -98,14 +103,10 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
       };
     }
     return switch (_accountState) {
-      AuthAccountState.existingAccount =>
-        'The login route has been previewed. A real account session has not been established.',
-      AuthAccountState.newAccount =>
-        'Continue through the registration steps to complete the profile and required consent.',
-      AuthAccountState.pendingVerification =>
-        'This account state requires follow-up from a configured authentication service before access can be granted.',
-      AuthAccountState.restricted =>
-        'This account state must be resolved by the configured account service.',
+      AuthAccountState.existingAccount => 'The login route has been previewed, but no authenticated session exists. Protected Home remains locked until a configured authentication backend confirms the account.',
+      AuthAccountState.newAccount => 'Continue through the registration steps to complete the profile and required consent.',
+      AuthAccountState.pendingVerification => 'This account state requires follow-up from a configured authentication service before access can be granted.',
+      AuthAccountState.restricted => 'This account state must be resolved by the configured account service.',
     };
   }
 
@@ -129,14 +130,11 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
       });
       if (refreshed == AuthAccountState.existingAccount) {
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute<void>(
-            builder: (_) => const AppNavigationShell(),
-          ),
+          MaterialPageRoute<void>(builder: (_) => const AppNavigationShell()),
         );
       } else {
         setState(() {
-          _statusFeedback =
-              'Still pending verification in PostgreSQL. Verify this member in Super Admin (http://127.0.0.1:5173/verifications), then tap Check again.';
+          _statusFeedback = 'Still pending verification in PostgreSQL. Verify this member in Super Admin (http://127.0.0.1:5173/verifications), then tap Check again.';
         });
       }
     } on AuthServiceException catch (error) {
@@ -145,7 +143,8 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _statusFeedback = 'Could not reach the backend. Check that the server is running.';
+        _statusFeedback =
+            'Could not reach the backend. Check that the server is running.';
       });
     } finally {
       if (mounted) setState(() => _isCheckingState = false);
@@ -179,11 +178,9 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
     try {
       await widget.authService.logout();
     } on AuthServiceException {
-      warning =
-          'Signed out on this device, but the backend could not confirm server-session revocation.';
+      warning = 'Signed out on this device, but the backend could not confirm server-session revocation.';
     } catch (_) {
-      warning =
-          'Signed out on this device, but the backend could not confirm server-session revocation.';
+      warning = 'Signed out on this device, but the backend could not confirm server-session revocation.';
     }
 
     if (!mounted) return;
@@ -242,7 +239,7 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
             const SizedBox(height: SakhiSpacing.md),
             SakhiAuthStatusMessage(message: _statusFeedback!),
           ],
-          if (isVerified) ...[
+          if (isVerified && widget.authService.isDevelopmentBackend) ...[
             const SizedBox(height: SakhiSpacing.lg),
             FilledButton.icon(
               key: const Key('auth-status-home-button'),
@@ -325,7 +322,9 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
                   )
                 : const Icon(Icons.logout_rounded),
             label: Text(
-              _isSigningOut ? 'Signing out…' : 'Sign out & return to mobile login',
+              _isSigningOut
+                  ? 'Signing out…'
+                  : 'Sign out & return to mobile login',
             ),
           ),
         ],

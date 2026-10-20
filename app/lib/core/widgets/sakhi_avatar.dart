@@ -1,8 +1,11 @@
 import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+
 import '../../shared/widgets/sakhi_crisp_art.dart';
 import '../assets/app_assets.dart';
 import '../theme/app_colors.dart';
+import 'sakhi_remote_media_image.dart';
 
 /// Circular user avatar with optional camera edit button, distinct local
 /// women's illustrated portraits (`assets/images/profile/avatar_*.webp`),
@@ -36,13 +39,22 @@ class SakhiAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final effectiveKey =
-        imageAsset.trim().isNotEmpty ? imageAsset.trim() : (fallbackLabel ?? '');
-    final localAvatarAsset = AppAssets.forKey(effectiveKey);
-    final crispFallback = SakhiCrispAvatarArt(
-      assetOrUrl: localAvatarAsset,
-      size: size,
-    );
+    final hasLocalPhoto = imageAsset.trim().isNotEmpty;
+    final effectiveKey = imageAsset.trim();
+    final localAvatarAsset = hasLocalPhoto
+        ? AppAssets.forKey(effectiveKey)
+        : '';
+    final crispFallback = hasLocalPhoto
+        ? SakhiCrispAvatarArt(assetOrUrl: localAvatarAsset, size: size)
+        : Container(
+            color: AppColors.pastelLavender,
+            alignment: Alignment.center,
+            child: Icon(
+              Icons.person_outline_rounded,
+              color: AppColors.primaryPurple,
+              size: size * 0.55,
+            ),
+          );
 
     Widget avatarContent;
     if (memoryBytes != null && memoryBytes!.isNotEmpty) {
@@ -53,14 +65,11 @@ class SakhiAvatar extends StatelessWidget {
         fit: BoxFit.cover,
       );
     } else if (_isNetworkUrl) {
-      final resolvedUrl = AppAssets.resolveRemoteMediaUrl(imageAsset);
-      avatarContent = Image.network(
-        resolvedUrl,
+      avatarContent = SakhiRemoteMediaImage(
+        source: imageAsset,
         width: size,
         height: size,
         fit: BoxFit.cover,
-        filterQuality: FilterQuality.high,
-        isAntiAlias: true,
         errorBuilder: (_, _, _) => Container(
           color: AppColors.pastelPink,
           alignment: Alignment.center,
@@ -74,7 +83,7 @@ class SakhiAvatar extends StatelessWidget {
           ),
         ),
       );
-    } else {
+    } else if (hasLocalPhoto) {
       avatarContent = Image.asset(
         localAvatarAsset,
         width: size,
@@ -84,6 +93,8 @@ class SakhiAvatar extends StatelessWidget {
         isAntiAlias: true,
         errorBuilder: (_, _, _) => crispFallback,
       );
+    } else {
+      avatarContent = crispFallback;
     }
 
     return Stack(

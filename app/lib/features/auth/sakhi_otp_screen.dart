@@ -127,12 +127,27 @@ class _SakhiOtpScreenState extends State<SakhiOtpScreen> {
               ),
             );
           } else if (accountState == AuthAccountState.existingAccount) {
-            await Navigator.of(context).pushAndRemoveUntil(
-              MaterialPageRoute<void>(
-                builder: (_) => const AppNavigationShell(),
-              ),
-              (_) => false,
-            );
+            if (widget.authService.isDevelopmentBackend) {
+              await Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute<void>(
+                  builder: (_) => const AppNavigationShell(),
+                ),
+                (_) => false,
+              );
+            } else {
+              // A simulated OTP must never establish an authenticated session
+              // or unlock protected Home, even when it previews an existing account.
+              await Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute<void>(
+                  builder: (_) => SakhiAuthStatusScreen(
+                    authService: widget.authService,
+                    accountState: AuthAccountState.existingAccount,
+                    statusMessage: 'Demo verification only. No authenticated session exists; protected Home remains locked.',
+                  ),
+                ),
+                (_) => false,
+              );
+            }
           } else {
             await Navigator.of(context).pushAndRemoveUntil(
               MaterialPageRoute<void>(

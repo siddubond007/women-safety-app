@@ -9,6 +9,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   Max,
   MaxLength,
@@ -89,9 +90,13 @@ export class UpdateProfileDto {
   @IsOptional()
   @IsString()
   @MaxLength(255)
-  @Matches(/^(?!.*\.\.)(profile\/[0-9a-fA-F-]{36}\/[a-zA-Z0-9._-]+|assets\/images\/[a-zA-Z0-9/_.-]+|https?:\/\/127\.0\.0\.1:\d+\/api\/v1\/module2\/media\/object\/[0-9a-fA-F-]{36})$/, {
-    message: "profilePhotoRef must be a valid scoped profile photo reference.",
-  })
+  @Matches(
+    /^(?!.*\.\.)(profile\/[0-9a-fA-F-]{36}\/[a-zA-Z0-9._-]+|assets\/images\/[a-zA-Z0-9/_.-]+|https?:\/\/127\.0\.0\.1:\d+\/api\/v1\/module2\/media\/object\/[0-9a-fA-F-]{36})$/,
+    {
+      message:
+        "profilePhotoRef must be a valid scoped profile photo reference.",
+    },
+  )
   profilePhotoRef?: string;
 
   @IsOptional()
@@ -108,13 +113,11 @@ export class UpdateProfileDto {
 export class CreateCommunityPostDto {
   @IsOptional()
   @IsString()
-  @MinLength(2)
   @MaxLength(2000)
   content?: string;
 
   @IsOptional()
   @IsString()
-  @MinLength(2)
   @MaxLength(2000)
   body?: string;
 
@@ -130,7 +133,14 @@ export class CreateCommunityPostDto {
 
   @IsOptional()
   @IsString()
-  @IsIn(["VERIFIED_MEMBERS", "FOLLOWERS_ONLY", "PRIVATE_SELF", "Verified members", "Followers only", "Only me"])
+  @IsIn([
+    "VERIFIED_MEMBERS",
+    "FOLLOWERS_ONLY",
+    "PRIVATE_SELF",
+    "Verified members",
+    "Followers only",
+    "Only me",
+  ])
   visibility?: string;
 
   @IsOptional()
@@ -168,7 +178,8 @@ export class CreateCommunityPostDto {
 
   @IsOptional()
   @IsArray()
-  @IsString({ each: true })
+  @ArrayMaxSize(4)
+  @IsUUID("4", { each: true })
   mediaUploadIds?: string[];
 }
 
@@ -180,7 +191,14 @@ export class CreatePostDto {
 
   @IsOptional()
   @IsString()
-  @IsIn(["VERIFIED_MEMBERS", "FOLLOWERS", "SELECTED_MEMBERS", "ONLY_ME", "FOLLOWERS_ONLY", "PRIVATE_SELF"])
+  @IsIn([
+    "VERIFIED_MEMBERS",
+    "FOLLOWERS",
+    "SELECTED_MEMBERS",
+    "ONLY_ME",
+    "FOLLOWERS_ONLY",
+    "PRIVATE_SELF",
+  ])
   audience?: string;
 
   @IsOptional()
@@ -239,7 +257,16 @@ export class EditCommunityPostDto {
 
 export class ReactToPostDto {
   @IsString()
-  @IsIn(["LIKE", "LOVE", "SUPPORT", "INSPIRED", "HAPPY", "GRATEFUL", "STRONG", "CARE"])
+  @IsIn([
+    "LIKE",
+    "LOVE",
+    "SUPPORT",
+    "INSPIRED",
+    "HAPPY",
+    "GRATEFUL",
+    "STRONG",
+    "CARE",
+  ])
   reactionType!: string;
 }
 
@@ -364,7 +391,12 @@ export class UpdateNotificationPreferenceDto {
 
 export class RecordSafetyEventDto {
   @IsString()
-  @IsIn(["SOS_ACTIVATED", "LOCATION_SHARED", "FAKE_CALL_TRIGGERED", "AUDIO_RECORDING_STARTED"])
+  @IsIn([
+    "SOS_ACTIVATED",
+    "LOCATION_SHARED",
+    "FAKE_CALL_TRIGGERED",
+    "AUDIO_RECORDING_STARTED",
+  ])
   eventType!:
     | "SOS_ACTIVATED"
     | "LOCATION_SHARED"
@@ -506,8 +538,21 @@ export class UploadMediaObjectDto {
 export class UploadBinaryMediaDto {
   @IsOptional()
   @IsString()
-  @IsIn(["avatar", "post", "PROFILE_PHOTO", "COMMUNITY_POST_IMAGE", "COMMUNITY_POST_VIDEO"])
-  purpose?: "avatar" | "post" | "PROFILE_PHOTO" | "COMMUNITY_POST_IMAGE" | "COMMUNITY_POST_VIDEO";
+  @IsIn([
+    "avatar",
+    "post",
+    "profile_photo",
+    "community_post",
+    "PROFILE_PHOTO",
+    "COMMUNITY_POST_IMAGE",
+  ])
+  purpose?:
+    | "avatar"
+    | "post"
+    | "profile_photo"
+    | "community_post"
+    | "PROFILE_PHOTO"
+    | "COMMUNITY_POST_IMAGE";
 
   @IsOptional()
   @IsString()

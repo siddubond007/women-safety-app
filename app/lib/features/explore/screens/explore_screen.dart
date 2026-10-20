@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../../core/constants/mock_data.dart';
 import '../../../core/navigation/app_routes.dart';
 import '../../../core/theme/app_colors.dart';
@@ -40,6 +41,14 @@ class _ExploreScreenState extends State<ExploreScreen> {
     return AnimatedBuilder(
       animation: state,
       builder: (context, _) {
+        final topicTags = state.isBackendSynced
+            ? state.communityPosts
+                  .expand((post) => post.hashtags)
+                  .map((tag) => tag.startsWith('#') ? tag : '#$tag')
+                  .toSet()
+                  .toList()
+            : <String>[];
+
         return SafeArea(
           bottom: false,
           child: SingleChildScrollView(
@@ -109,31 +118,43 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   ),
 
                   const SizedBox(height: 20),
-                  const SakhiSectionHeader(title: 'Trending Topics'),
+                  SakhiSectionHeader(
+                    title: state.isBackendSynced
+                        ? 'Topics from live posts'
+                        : 'Explore topics',
+                  ),
                   const SizedBox(height: 10),
 
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: state.trendingHashtags.map((tag) {
-                      final selected = _selectedHashtag == tag;
-                      return SakhiChip(
-                        label: tag,
-                        isSelected: selected,
-                        onTap: () {
-                          setState(() {
-                            _selectedHashtag = selected ? null : tag;
-                          });
-                          SakhiDialogs.showPrototypeSnackbar(
-                            context,
-                            selected
-                                ? 'Cleared topic filter'
-                                : 'Filtering by $tag',
-                          );
-                        },
-                      );
-                    }).toList(),
-                  ),
+                  if (topicTags.isNotEmpty)
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: topicTags.map((tag) {
+                        final selected = _selectedHashtag == tag;
+                        return SakhiChip(
+                          label: tag,
+                          isSelected: selected,
+                          onTap: () {
+                            setState(() {
+                              _selectedHashtag = selected ? null : tag;
+                            });
+                            SakhiDialogs.showPrototypeSnackbar(
+                              context,
+                              selected
+                                  ? 'Cleared topic filter'
+                                  : 'Filtering by $tag',
+                            );
+                          },
+                        );
+                      }).toList(),
+                    )
+                  else
+                    Text(
+                      state.isBackendSynced
+                          ? 'Hashtags will appear here as members publish posts.'
+                          : 'Sign in to discover topics from real community posts.',
+                      style: AppTypography.subtitle,
+                    ),
 
                   const SizedBox(height: 18),
                   // 2x2 Category Cards with distinct reusable botanical flowers

@@ -36,10 +36,6 @@ const DEFAULT_INTERESTS = [
   "Fitness",
 ];
 
-const BASE_FOLLOWERS_COUNT = 560;
-const BASE_FOLLOWING_COUNT = 310;
-const BASE_POSTS_COUNT = 123;
-
 export const SEEDED_COMMUNITY_MEMBERS = [
   {
     phoneE164: "+919999992222",
@@ -52,7 +48,14 @@ export const SEEDED_COMMUNITY_MEMBERS = [
     status: "ACTIVE" as const,
     verificationStatus: "VERIFIED" as const,
     defaultFollowing: false,
-    interests: ["Mental Wellness", "Travel", "Reading", "WomenInTech", "Art", "Fitness"],
+    interests: [
+      "Mental Wellness",
+      "Travel",
+      "Reading",
+      "WomenInTech",
+      "Art",
+      "Fitness",
+    ],
   },
   {
     phoneE164: "+919845010101",
@@ -170,23 +173,47 @@ export class Module2Service {
     if (phoneE164.startsWith("+91") && phoneE164.length >= 7) {
       return `+91 ••••••${phoneE164.slice(-4)}`;
     }
-    return phoneE164.length > 4
-      ? `••••••${phoneE164.slice(-4)}`
-      : phoneE164;
+    return phoneE164.length > 4 ? `••••••${phoneE164.slice(-4)}` : phoneE164;
   }
 
   private parseInterests(raw: unknown): string[] {
-    if (Array.isArray(raw)) {
-      const items = raw
-        .filter((item): item is string => typeof item === "string")
-        .map((item) => item.trim())
-        .filter((item) => item.length > 0);
-      if (items.length > 0) return items;
-    }
-    return [...DEFAULT_INTERESTS];
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
   }
 
-  private deriveUsername(displayName: string, existingUsername?: string | null): string {
+  private resolveMemberAvatar(
+    avatarAsset?: string | null,
+    avatarMediaAssetId?: string | null,
+  ): string {
+    const asset = (avatarAsset ?? "").trim();
+    if (!asset) return "";
+    if (
+      asset.startsWith("http://") ||
+      asset.startsWith("https://") ||
+      asset.startsWith("/api/v1/")
+    ) {
+      return asset;
+    }
+    if (avatarMediaAssetId) return asset;
+    // The schema's legacy avatar_* image default is a demo illustration, not
+    // a member-uploaded photo. Do not present it as if it belonged to the user.
+    if (
+      /^assets\/images\/profile\/avatar_[^/]+\.(webp|png|jpg|jpeg)$/i.test(
+        asset,
+      )
+    ) {
+      return "";
+    }
+    return asset;
+  }
+
+  private deriveUsername(
+    displayName: string,
+    existingUsername?: string | null,
+  ): string {
     if (existingUsername && existingUsername.trim().length > 0) {
       return existingUsername.startsWith("@")
         ? existingUsername.trim()
@@ -196,7 +223,7 @@ export class Module2Service {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "")
       .slice(0, 20);
-    return `@${slug || "siddhu"}`;
+    return `@${slug || "member"}`;
   }
 
   async ensureDefaultCatalogSeeded(preferredAccountId?: string): Promise<void> {
@@ -257,10 +284,12 @@ export class Module2Service {
 
         // Ensure pending members have an active EligibilitySubmission in the Super Admin queue
         if (acc.verificationStatus === "UNVERIFIED") {
-          const existingSub = await this.prisma.eligibilitySubmission.findFirst({
-            where: { accountId: acc.id, status: "PENDING_MANUAL_REVIEW" },
-            select: { id: true },
-          });
+          const existingSub = await this.prisma.eligibilitySubmission.findFirst(
+            {
+              where: { accountId: acc.id, status: "PENDING_MANUAL_REVIEW" },
+              select: { id: true },
+            },
+          );
           if (!existingSub) {
             await this.prisma.eligibilitySubmission.create({
               data: {
@@ -295,7 +324,8 @@ export class Module2Service {
       },
       {
         name: "Safe Solo Travelers India",
-        description: "640 members • Verified city guides & SOS check-in buddies",
+        description:
+          "640 members • Verified city guides & SOS check-in buddies",
         category: "Safety & Travel",
         membersCount: 640,
         newPostsToday: 3,
@@ -332,7 +362,8 @@ export class Module2Service {
         title: "Mental Wellness",
         subtitle: "Daily grounding rituals, stress relief & peer support",
         durationLabel: "6 exercises",
-        thumbAsset: "assets/images/community/breathing_exercise_illustration.webp",
+        thumbAsset:
+          "assets/images/community/breathing_exercise_illustration.webp",
       },
       {
         slug: "fitness-nutrition",
@@ -369,9 +400,7 @@ export class Module2Service {
 
     // 4. Upsert 11 rich, unmistakably live PostgreSQL Community, Explore, and Profile posts
     const siddhuId =
-      preferredAccountId ??
-      accountIdByUsername.get("@siddhu") ??
-      null;
+      preferredAccountId ?? accountIdByUsername.get("@siddhu") ?? null;
 
     const livePosts = [
       {
@@ -581,88 +610,33 @@ export class Module2Service {
     }
   }
 
-  async publicFeed() {
-    await this.ensureDefaultCatalogSeeded();
-    const [allPosts, directoryProfiles, groups, wellnessResources, totalMembers] =
-      await Promise.all([
-        this.prisma.communityPost.findMany({
-          orderBy: { createdAt: "desc" },
-          take: 50,
-        }),
-        this.prisma.communityDirectoryProfile.findMany({
-          orderBy: { createdAt: "asc" },
-        }),
-        this.prisma.communityGroup.findMany({
-          orderBy: { membersCount: "desc" },
-        }),
-        this.prisma.wellnessResource.findMany({
-          orderBy: { createdAt: "asc" },
-        }),
-        this.prisma.memberAccount.count(),
-      ]);
-
-    const mappedPosts = allPosts.map((post) => ({
-      id: post.id,
-      authorName: post.authorName,
-      authorUsername: post.authorUsername,
-      authorAvatar: post.authorAvatar,
-      authorVerified: post.authorVerified,
-      timestamp: this.formatRelativeTime(post.createdAt),
-      content: post.content,
-      imageAsset: post.imageAsset,
-      categoryBadge: post.categoryBadge,
-      feedSection: post.feedSection,
-      hasBreathingExerciseCard: post.hasBreathingExerciseCard,
-      likesCount: post.likesCount,
-      commentsCount: post.commentsCount,
-      isLiked: false,
-      isSaved: false,
-    }));
-
+  async publicFeed(authorization?: string) {
+    // This route is retained for compatibility, but media/feed data is never public
+    // by omission: use the same authenticated visibility-filtered query as bootstrap.
+    const data = await this.bootstrap(authorization);
     return {
-      source: "postgresql_live" as const,
-      totalDatabaseMembers: totalMembers,
-      totalDatabasePosts: allPosts.length,
-      communityPosts: mappedPosts.filter((p) => p.feedSection === "community"),
-      exploreRecommendedPosts: mappedPosts.filter((p) => p.feedSection === "explore"),
-      profilePosts: mappedPosts.filter((p) => p.feedSection === "profile"),
-      groups: groups.map((g) => ({
-        id: g.id,
-        name: g.name,
-        description: g.description,
-        category: g.category,
-        membersCount: g.membersCount,
-        newPostsToday: g.newPostsToday,
-      })),
-      followers: directoryProfiles.map((dir) => ({
-        id: dir.id,
-        name: dir.name,
-        username: dir.username,
-        avatarAsset: dir.avatarAsset,
-        bio: dir.bio,
-        isFollowing: dir.defaultFollowing,
-      })),
-      wellnessResources: wellnessResources.map((w) => ({
-        id: w.id,
-        slug: w.slug,
-        category: w.category,
-        title: w.title,
-        subtitle: w.subtitle,
-        durationLabel: w.durationLabel,
-        thumbAsset: w.thumbAsset,
-      })),
+      source: data.source,
+      totalDatabaseMembers: data.totalDatabaseMembers,
+      totalDatabasePosts: data.totalDatabasePosts,
+      communityPosts: data.communityPosts,
+      exploreRecommendedPosts: data.exploreRecommendedPosts,
+      groups: data.groups,
+      followers: data.followers,
+      wellnessResources: data.wellnessResources,
     };
   }
 
   async bootstrap(authorization?: string) {
     const session = await this.auth.authenticateAuthorization(authorization);
-    await this.ensureDefaultCatalogSeeded(session.accountId);
 
     const [
       profile,
       privacyPref,
       notificationPref,
       allPosts,
+      ownedProfilePosts,
+      ownedProfilePostCount,
+      totalDatabasePosts,
       userLikes,
       userSaves,
       directoryProfiles,
@@ -684,8 +658,34 @@ export class Module2Service {
         where: { accountId: session.accountId },
       }),
       this.prisma.communityPost.findMany({
+        where: {
+          deletedAt: null,
+          status: { in: ["PUBLISHED", "EDITED"] },
+        },
         orderBy: { createdAt: "desc" },
         take: 50,
+      }),
+      this.prisma.communityPost.findMany({
+        where: {
+          authorAccountId: session.accountId,
+          deletedAt: null,
+          status: { in: ["PUBLISHED", "EDITED"] },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      }),
+      this.prisma.communityPost.count({
+        where: {
+          authorAccountId: session.accountId,
+          deletedAt: null,
+          status: { in: ["PUBLISHED", "EDITED"] },
+        },
+      }),
+      this.prisma.communityPost.count({
+        where: {
+          deletedAt: null,
+          status: { in: ["PUBLISHED", "EDITED"] },
+        },
       }),
       this.prisma.communityPostLike.findMany({
         where: { accountId: session.accountId },
@@ -739,82 +739,125 @@ export class Module2Service {
         id: dir.id,
         name: dir.name,
         username: dir.username,
-        avatarAsset: dir.avatarAsset,
+        avatarAsset: this.resolveMemberAvatar(dir.avatarAsset),
         bio: dir.bio,
         isFollowing,
       };
     });
 
-    const activeFollowingCount =
-      BASE_FOLLOWING_COUNT +
-      mappedFollowers.filter((f) => f.isFollowing).length;
+    const activeFollowingCount = userFollows.filter(
+      (follow) => follow.isFollowing,
+    ).length;
+    const currentUsername = this.deriveUsername(
+      profile?.displayName ?? "Sakhi Member",
+      profile?.username,
+    );
+    const currentDirectoryProfile = directoryProfiles.find(
+      (directoryProfile) => directoryProfile.username === currentUsername,
+    );
+    const activeFollowersCount = currentDirectoryProfile
+      ? await this.prisma.memberFollow.count({
+          where: {
+            directoryProfileId: currentDirectoryProfile.id,
+            isFollowing: true,
+          },
+        })
+      : 0;
 
+    const isViewerVerified = session.account.verificationStatus === "VERIFIED";
+    const followedDirectoryIds = new Set(
+      userFollows
+        .filter((follow) => follow.isFollowing)
+        .map((follow) => follow.directoryProfileId),
+    );
+    const directoryIdByUsername = new Map(
+      directoryProfiles.map((directoryProfile) => [
+        directoryProfile.username,
+        directoryProfile.id,
+      ]),
+    );
+    const canViewPost = (post: (typeof allPosts)[number]) => {
+      if (post.authorAccountId === session.accountId) return true;
+      if (post.visibility === "PRIVATE_SELF") return false;
+      if (post.visibility === "FOLLOWERS_ONLY") {
+        const ownerDirectoryId = directoryIdByUsername.get(post.authorUsername);
+        return Boolean(
+          isViewerVerified &&
+          ownerDirectoryId &&
+          followedDirectoryIds.has(ownerDirectoryId),
+        );
+      }
+      return isViewerVerified;
+    };
     const mapPost = (post: (typeof allPosts)[number]) => ({
       id: post.id,
+      postId: post.id,
+      authorAccountId: post.authorAccountId ?? "",
       authorName: post.authorName,
       authorUsername: post.authorUsername,
-      authorAvatar: post.authorAvatar,
+      authorAvatar: this.resolveMemberAvatar(post.authorAvatar),
       authorVerified: post.authorVerified,
       timestamp: this.formatRelativeTime(post.createdAt),
+      createdAt: post.createdAt.toISOString(),
       content: post.content,
+      body: post.content,
       imageAsset: post.imageAsset,
+      mediaAsset: post.imageAsset,
       categoryBadge: post.categoryBadge,
+      categorySlug: post.categorySlug,
+      visibility: post.visibility,
+      cropPreset: post.cropPreset,
+      hashtags: Array.isArray(post.hashtags) ? post.hashtags : [],
+      locationTag: post.locationTag,
+      allowComments: post.allowComments,
+      shareToBusinessProfile: post.shareToBusinessProfile,
       feedSection: post.feedSection,
+      status: post.status,
       hasBreathingExerciseCard: post.hasBreathingExerciseCard,
       likesCount: post.likesCount,
       commentsCount: post.commentsCount,
-      isLiked:
-        likedSet.has(post.id) ||
-        (userLikes.length === 0 &&
-          (post.id === "11111111-1111-4111-8111-111111111105" ||
-            post.id === "11111111-1111-4111-8111-111111111104")),
-      isSaved:
-        savedSet.has(post.id) ||
-        (userSaves.length === 0 &&
-          post.id === "11111111-1111-4111-8111-111111111102"),
+      savesCount: post.savesCount,
+      sharesCount: post.sharesCount,
+      isLiked: likedSet.has(post.id),
+      isSaved: savedSet.has(post.id),
+      isOwnPost: post.authorAccountId === session.accountId,
+      canEdit: post.authorAccountId === session.accountId,
+      canDelete: post.authorAccountId === session.accountId,
     });
 
-    const mappedPosts = allPosts.map(mapPost);
+    const mappedPosts = allPosts.filter(canViewPost).map(mapPost);
     const communityPosts = mappedPosts.filter(
-      (p) => p.feedSection === "community",
+      (post) => post.feedSection === "community",
     );
     const exploreRecommendedPosts = mappedPosts.filter(
-      (p) => p.feedSection === "explore",
+      (post) => post.feedSection === "explore",
     );
-    const currentUsername = this.deriveUsername(
-      profile?.displayName ?? "Siddhu",
-      profile?.username,
-    );
-    const profilePosts = mappedPosts.filter(
-      (p) =>
-        p.feedSection === "profile" ||
-        p.authorUsername === currentUsername,
-    );
+    const profilePosts = ownedProfilePosts.map(mapPost);
 
-    const displayName = profile?.displayName ?? "Siddhu";
+    const displayName = profile?.displayName ?? "Sakhi Member";
     const username = currentUsername;
 
     return {
       source: "postgresql_live" as const,
       totalDatabaseMembers,
-      totalDatabasePosts: allPosts.length,
+      totalDatabasePosts,
       user: {
         accountId: session.accountId,
         displayName,
         username,
-        bio:
-          profile?.bio ??
-          "A passionate learner, exploring wellness, technology and meaningful connections. 💜",
-        location: profile?.location ?? "Bangalore, India",
-        avatarAsset:
-          profile?.avatarAsset ?? "assets/images/profile/avatar_siddhu.webp",
-        email: profile?.email ?? "siddhu@example.com",
+        bio: profile?.bio ?? "",
+        location: profile?.location ?? "",
+        avatarAsset: this.resolveMemberAvatar(
+          profile?.avatarAsset,
+          profile?.avatarMediaAssetId,
+        ),
+        email: profile?.email ?? "",
         phoneMasked: this.maskPhone(session.account.phoneE164),
         phoneVerified: Boolean(session.account.phoneVerifiedAt),
         verificationStatus: session.account.verificationStatus,
         accountStatus: session.account.status,
-        postsCount: BASE_POSTS_COUNT + profilePosts.length,
-        followersCount: BASE_FOLLOWERS_COUNT,
+        postsCount: ownedProfilePostCount,
+        followersCount: activeFollowersCount,
         followingCount: activeFollowingCount,
         interests: this.parseInterests(profile?.interests),
         businessProfileUrl: profile?.businessProfileUrl ?? null,
@@ -876,7 +919,10 @@ export class Module2Service {
 
   async updateProfile(
     authorization: string | undefined,
-    dto: UpdateModule2ProfileDto & { profilePhotoRef?: string; locationCity?: string },
+    dto: Partial<UpdateModule2ProfileDto> & {
+      profilePhotoRef?: string;
+      locationCity?: string;
+    },
   ) {
     const session = await this.auth.authenticateAuthorization(authorization);
     if (
@@ -884,18 +930,30 @@ export class Module2Service {
       dto.profilePhotoRef.startsWith("profile/") &&
       !dto.profilePhotoRef.startsWith(`profile/${session.accountId}/`)
     ) {
-      throw new BadRequestException("Profile photo reference must belong to the authenticated member.");
+      throw new BadRequestException(
+        "Profile photo reference must belong to the authenticated member.",
+      );
     }
-    const displayName = (dto.displayName ?? "Siddhu").trim();
-    const bio = (dto.bio ?? "").trim();
-    const location = (dto.location ?? dto.locationCity ?? "Bangalore, India").trim();
-    const interests = (dto.interests ?? [])
-      .map((item) => item.trim())
-      .filter((item) => item.length > 0);
-
     const existing = await this.prisma.memberProfile.findUnique({
       where: { accountId: session.accountId },
     });
+    const displayName = (
+      dto.displayName ??
+      existing?.displayName ??
+      "Sakhi Member"
+    ).trim();
+    const bio = (dto.bio ?? existing?.bio ?? "").trim();
+    const location = (
+      dto.location ??
+      dto.locationCity ??
+      existing?.location ??
+      "Bangalore, India"
+    ).trim();
+    const interests = (
+      dto.interests ?? this.parseInterests(existing?.interests)
+    )
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
 
     const updated = await this.prisma.memberProfile.upsert({
       where: { accountId: session.accountId },
@@ -908,7 +966,8 @@ export class Module2Service {
         interests,
         email: dto.email?.trim().toLowerCase() ?? null,
         businessProfileUrl: dto.businessProfileUrl?.trim() ?? null,
-        avatarAsset: dto.avatarAsset?.trim() || "assets/images/profile/avatar_siddhu.webp",
+        avatarAsset: dto.avatarAsset?.trim() || "",
+        profilePhotoRef: dto.profilePhotoRef?.trim() || null,
         dateOfBirth: new Date("2000-01-01T00:00:00.000Z"),
       },
       update: {
@@ -924,6 +983,9 @@ export class Module2Service {
           : {}),
         ...(dto.avatarAsset !== undefined && dto.avatarAsset.trim().length > 0
           ? { avatarAsset: dto.avatarAsset.trim() }
+          : {}),
+        ...(dto.profilePhotoRef !== undefined
+          ? { profilePhotoRef: dto.profilePhotoRef.trim() || null }
           : {}),
       },
     });
@@ -949,10 +1011,14 @@ export class Module2Service {
       username: this.deriveUsername(updated.displayName, updated.username),
       bio: updated.bio,
       location: updated.location,
-      avatarAsset: updated.avatarAsset,
+      avatarAsset: this.resolveMemberAvatar(
+        updated.avatarAsset,
+        updated.avatarMediaAssetId,
+      ),
       interests: this.parseInterests(updated.interests),
       email: updated.email,
       businessProfileUrl: updated.businessProfileUrl,
+      profilePhotoRef: updated.profilePhotoRef,
     };
   }
 
@@ -964,59 +1030,162 @@ export class Module2Service {
     const profile = await this.prisma.memberProfile.findUnique({
       where: { accountId: session.accountId },
     });
-
-    const authorName = profile?.displayName ?? "Siddhu";
+    const authorName = profile?.displayName ?? "Sakhi Member";
     const authorUsername = this.deriveUsername(authorName, profile?.username);
-    const authorAvatar =
-      profile?.avatarAsset ?? "assets/images/profile/avatar_siddhu.webp";
-
-    const postContent = dto.content?.trim();
-    if (!postContent) {
-      throw new BadRequestException("Post content is required.");
+    const authorAvatar = this.resolveMemberAvatar(
+      profile?.avatarAsset,
+      profile?.avatarMediaAssetId,
+    );
+    const postContent = (dto.content ?? dto.body ?? "").trim();
+    const mediaUploadIds = [...new Set(dto.mediaUploadIds ?? [])];
+    const suppliedMedia =
+      dto.imageAsset?.trim() || dto.mediaAsset?.trim() || "";
+    if (!postContent && mediaUploadIds.length === 0 && !suppliedMedia) {
+      throw new BadRequestException(
+        "Add a caption or attach a photo before publishing.",
+      );
     }
-
-    const post = await this.prisma.communityPost.create({
-      data: {
-        authorAccountId: session.accountId,
-        authorName,
-        authorUsername,
-        authorAvatar,
-        authorVerified: session.account.verificationStatus === "VERIFIED",
-        content: postContent,
-        categoryBadge: dto.categoryBadge?.trim() || "Live Community",
-        imageAsset: dto.imageAsset?.trim() || null,
-        feedSection: "community",
-      },
-    });
-
-    await this.prisma.auditEvent.create({
-      data: {
-        actorType: "MEMBER",
-        actorId: session.accountId,
-        action: "module2.community_post.created",
-        targetType: "community_post",
-        targetId: post.id,
-        outcome: "success",
-        requestId: randomUUID(),
-      },
+    const visibilityAliases: Record<string, string> = {
+      "Verified members": "VERIFIED_MEMBERS",
+      "Followers only": "FOLLOWERS_ONLY",
+      "Only me": "PRIVATE_SELF",
+    };
+    const visibilityInput = (dto.visibility ?? "VERIFIED_MEMBERS").trim();
+    const visibility = visibilityAliases[visibilityInput] ?? visibilityInput;
+    if (
+      !["VERIFIED_MEMBERS", "FOLLOWERS_ONLY", "PRIVATE_SELF"].includes(
+        visibility,
+      )
+    ) {
+      throw new BadRequestException("Choose a supported post visibility.");
+    }
+    const categorySlug = (dto.categorySlug ?? "community").trim().toLowerCase();
+    const hashtags = (dto.hashtags ?? [])
+      .map((tag) => tag.trim().replace(/^#+/, ""))
+      .filter((tag) => tag.length > 0)
+      .map((tag) => `#${tag}`);
+    const safeLocalAsset = suppliedMedia.startsWith("assets/")
+      ? suppliedMedia
+      : null;
+    if (suppliedMedia && mediaUploadIds.length === 0 && !safeLocalAsset) {
+      throw new BadRequestException(
+        "Uploaded photos must be referenced by their returned media ID. Please upload the photo again.",
+      );
+    }
+    const post = await this.prisma.$transaction(async (tx) => {
+      if (mediaUploadIds.length > 0) {
+        const ownedUploads = await tx.mediaAsset.findMany({
+          where: {
+            id: { in: mediaUploadIds },
+            ownerAccountId: session.accountId,
+            postId: null,
+            purpose: "COMMUNITY_POST_IMAGE",
+            status: "UPLOADED",
+            deletedAt: null,
+          },
+          select: { id: true },
+        });
+        if (ownedUploads.length !== mediaUploadIds.length) {
+          throw new BadRequestException(
+            "One or more uploaded photos are unavailable or do not belong to your account. Please upload them again.",
+          );
+        }
+      }
+      const savedPost = await tx.communityPost.create({
+        data: {
+          authorAccountId: session.accountId,
+          authorName,
+          authorUsername,
+          authorAvatar,
+          authorVerified: session.account.verificationStatus === "VERIFIED",
+          content: postContent,
+          categoryBadge: dto.categoryBadge?.trim() || categorySlug,
+          categorySlug,
+          visibility,
+          cropPreset: dto.cropPreset ?? "4:5",
+          hashtags,
+          locationTag: dto.locationTag?.trim() || null,
+          allowComments: dto.allowComments ?? true,
+          shareToBusinessProfile: dto.shareToBusinessProfile ?? false,
+          imageAsset:
+            mediaUploadIds.length > 0
+              ? `/api/v1/module2/media/object/${mediaUploadIds[0]}`
+              : safeLocalAsset,
+          feedSection: "community",
+        },
+      });
+      if (mediaUploadIds.length > 0) {
+        const attachment = await tx.mediaAsset.updateMany({
+          where: {
+            id: { in: mediaUploadIds },
+            ownerAccountId: session.accountId,
+            postId: null,
+            status: "UPLOADED",
+          },
+          data: {
+            postId: savedPost.id,
+            status: "ATTACHED",
+            visibility,
+          },
+        });
+        if (attachment.count !== mediaUploadIds.length) {
+          throw new BadRequestException(
+            "A selected photo was attached to another post. Please upload it again.",
+          );
+        }
+      }
+      await tx.auditEvent.create({
+        data: {
+          actorType: "MEMBER",
+          actorId: session.accountId,
+          action: "module2.community_post.created",
+          targetType: "community_post",
+          targetId: savedPost.id,
+          outcome: "success",
+          requestId: randomUUID(),
+          redactedMetadata: {
+            categorySlug,
+            visibility,
+            mediaCount: mediaUploadIds.length,
+            hashtagsCount: hashtags.length,
+          },
+        },
+      });
+      return savedPost;
     });
 
     return {
       id: post.id,
+      postId: post.id,
+      authorAccountId: session.accountId,
       authorName: post.authorName,
       authorUsername: post.authorUsername,
-      authorAvatar: post.authorAvatar,
+      authorAvatar: this.resolveMemberAvatar(post.authorAvatar),
       authorVerified: post.authorVerified,
-      timestamp: "Just now",
+      timestamp: this.formatRelativeTime(post.createdAt),
+      createdAt: post.createdAt.toISOString(),
       content: post.content,
+      body: post.content,
       imageAsset: post.imageAsset,
+      mediaAsset: post.imageAsset,
       categoryBadge: post.categoryBadge,
+      categorySlug: post.categorySlug,
+      visibility: post.visibility,
+      cropPreset: post.cropPreset,
+      hashtags: Array.isArray(post.hashtags) ? post.hashtags : hashtags,
+      locationTag: post.locationTag,
+      allowComments: post.allowComments,
+      shareToBusinessProfile: post.shareToBusinessProfile,
       feedSection: post.feedSection,
-      hasBreathingExerciseCard: post.hasBreathingExerciseCard,
       likesCount: post.likesCount,
       commentsCount: post.commentsCount,
+      savesCount: post.savesCount,
+      sharesCount: post.sharesCount,
       isLiked: false,
       isSaved: false,
+      isOwnPost: true,
+      canEdit: true,
+      canDelete: true,
     };
   }
 
@@ -1441,10 +1610,7 @@ export class Module2Service {
     };
   }
 
-  async updateAvatar(
-    authorization: string | undefined,
-    dto: UpdateAvatarDto,
-  ) {
+  async updateAvatar(authorization: string | undefined, dto: UpdateAvatarDto) {
     const session = await this.auth.authenticateAuthorization(authorization);
     const avatarAsset = dto.avatarAsset.trim();
     const updated = await this.prisma.memberProfile.update({
@@ -1508,18 +1674,27 @@ export class Module2Service {
       throw new BadRequestException("Images must be 10 MB or smaller.");
     }
     const allowedTypes = ["image/jpeg", "image/png", "image/webp"] as const;
-    if (!allowedTypes.includes(file.mimetype as (typeof allowedTypes)[number])) {
+    if (
+      !allowedTypes.includes(file.mimetype as (typeof allowedTypes)[number])
+    ) {
       throw new BadRequestException("Use a JPG, PNG, or WebP image.");
     }
     if (!this.hasExpectedImageSignature(file.mimetype, file.buffer)) {
-      throw new BadRequestException("The selected file content does not match its image type.");
+      throw new BadRequestException(
+        "The selected file content does not match its image type.",
+      );
     }
 
     const uploadId = randomUUID();
     const normalizedPurpose: "avatar" | "post" =
-      dto.purpose === "avatar" || dto.purpose === "PROFILE_PHOTO" ? "avatar" : "post";
+      dto.purpose === "avatar" ||
+      dto.purpose === "profile_photo" ||
+      dto.purpose === "PROFILE_PHOTO"
+        ? "avatar"
+        : "post";
     const categorySlug = (dto.categorySlug || "community").trim().toLowerCase();
-    const cropAspectRatio = dto.cropAspectRatio || (normalizedPurpose === "avatar" ? "1:1" : "4:5");
+    const cropAspectRatio =
+      dto.cropAspectRatio || (normalizedPurpose === "avatar" ? "1:1" : "4:5");
     const stored = await this.googleDrive.uploadImage({
       uploadId,
       accountId: session.accountId,
@@ -1530,11 +1705,9 @@ export class Module2Service {
       contentType: file.mimetype as (typeof allowedTypes)[number],
       buffer: file.buffer,
     });
-    const localBaseUrl = (
-      process.env.SAKHI_PUBLIC_API_BASE_URL?.trim() ||
-      `http://127.0.0.1:${process.env.PORT?.trim() || "3001"}/api/v1`
-    ).replace(/\/+$/, "");
-    const publicUrl = `${localBaseUrl}/module2/media/object/${uploadId}`;
+    // Store a same-origin API path. Absolute loopback URLs work on the host
+    // machine but point back to the phone itself when the app runs on Android.
+    const publicUrl = `/api/v1/module2/media/object/${uploadId}`;
     const uploadedAt = new Date().toISOString();
 
     await this.prisma.auditEvent.create({
@@ -1561,33 +1734,41 @@ export class Module2Service {
       },
     });
 
-    if (this.prisma.mediaAsset?.create) {
-      await this.prisma.mediaAsset.create({
-        data: {
-          id: uploadId,
-          ownerAccountId: session.accountId,
-          postId: dto.postId ?? null,
-          purpose: normalizedPurpose === "avatar" ? "PROFILE_PHOTO" : "COMMUNITY_POST_IMAGE",
-          storageProvider: "GOOGLE_DRIVE",
-          status: normalizedPurpose === "avatar" ? "ATTACHED" : "UPLOADED",
-          categorySlug: normalizedPurpose === "avatar" ? null : categorySlug,
-          driveFileId: stored.driveFileId,
-          driveFolderId: stored.driveFolderId,
-          driveFolderPath: stored.driveFolderPath,
-          originalFileName: file.originalname,
-          contentType: file.mimetype,
-          byteSize: stored.size,
-          cropAspectRatio,
-          visibility: "VERIFIED_MEMBERS",
-        },
-      }).catch(() => undefined);
-    }
+    await this.prisma.mediaAsset.create({
+      data: {
+        id: uploadId,
+        ownerAccountId: session.accountId,
+        postId: dto.postId ?? null,
+        purpose:
+          normalizedPurpose === "avatar"
+            ? "PROFILE_PHOTO"
+            : "COMMUNITY_POST_IMAGE",
+        storageProvider: "GOOGLE_DRIVE",
+        status: normalizedPurpose === "avatar" ? "ATTACHED" : "UPLOADED",
+        categorySlug: normalizedPurpose === "avatar" ? null : categorySlug,
+        driveFileId: stored.driveFileId,
+        driveFolderId: stored.driveFolderId,
+        driveFolderPath: stored.driveFolderPath,
+        originalFileName: file.originalname,
+        contentType: file.mimetype,
+        byteSize: stored.size,
+        cropAspectRatio,
+        visibility: "VERIFIED_MEMBERS",
+      },
+    });
 
     if (normalizedPurpose === "avatar") {
-      await this.prisma.memberProfile.update({
+      const updatedProfile = await this.prisma.memberProfile.update({
         where: { accountId: session.accountId },
         data: { avatarAsset: publicUrl, avatarMediaAssetId: uploadId },
+        select: { username: true },
       });
+      if (updatedProfile.username) {
+        await this.prisma.communityDirectoryProfile.updateMany({
+          where: { username: updatedProfile.username },
+          data: { avatarAsset: publicUrl },
+        });
+      }
       await this.prisma.communityPost.updateMany({
         where: { authorAccountId: session.accountId },
         data: { authorAvatar: publicUrl },
@@ -1613,15 +1794,32 @@ export class Module2Service {
     };
   }
 
-  private hasExpectedImageSignature(contentType: string, buffer: Buffer): boolean {
+  private hasExpectedImageSignature(
+    contentType: string,
+    buffer: Buffer,
+  ): boolean {
     if (contentType === "image/jpeg") {
-      return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+      return (
+        buffer.length >= 3 &&
+        buffer[0] === 0xff &&
+        buffer[1] === 0xd8 &&
+        buffer[2] === 0xff
+      );
     }
     if (contentType === "image/png") {
-      return buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+      return (
+        buffer.length >= 8 &&
+        buffer
+          .subarray(0, 8)
+          .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+      );
     }
     if (contentType === "image/webp") {
-      return buffer.length >= 12 && buffer.toString("ascii", 0, 4) === "RIFF" && buffer.toString("ascii", 8, 12) === "WEBP";
+      return (
+        buffer.length >= 12 &&
+        buffer.toString("ascii", 0, 4) === "RIFF" &&
+        buffer.toString("ascii", 8, 12) === "WEBP"
+      );
     }
     return false;
   }
@@ -1649,10 +1847,15 @@ export class Module2Service {
         actorId: event.actorId,
         fileName: typeof meta.fileName === "string" ? meta.fileName : "media",
         purpose: typeof meta.purpose === "string" ? meta.purpose : "post",
-        contentType: typeof meta.contentType === "string" ? meta.contentType : "image/jpeg",
-        provider: typeof meta.provider === "string" ? meta.provider : "google_drive",
+        contentType:
+          typeof meta.contentType === "string"
+            ? meta.contentType
+            : "image/jpeg",
+        provider:
+          typeof meta.provider === "string" ? meta.provider : "google_drive",
         objectKey: typeof meta.objectKey === "string" ? meta.objectKey : "",
-        driveFileId: typeof meta.driveFileId === "string" ? meta.driveFileId : null,
+        driveFileId:
+          typeof meta.driveFileId === "string" ? meta.driveFileId : null,
         sizeBytes: typeof meta.sizeBytes === "number" ? meta.sizeBytes : null,
         publicUrl: typeof meta.publicUrl === "string" ? meta.publicUrl : "",
         createdAt: event.createdAt.toISOString(),
@@ -1660,20 +1863,122 @@ export class Module2Service {
     });
   }
 
-  async resolveMediaObject(uploadId: string): Promise<{
+  async resolveMediaObject(
+    authorization: string | undefined,
+    uploadId: string,
+  ): Promise<{
     contentType: string;
     buffer: Buffer;
     redirectUrl?: string;
   }> {
-    const event = await this.prisma.auditEvent.findFirst({
-      where: {
-        targetId: uploadId,
-        action: "module2.media.uploaded",
-      },
-      orderBy: { createdAt: "desc" },
-    });
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const [event, asset] = await Promise.all([
+      this.prisma.auditEvent.findFirst({
+        where: {
+          targetId: uploadId,
+          action: "module2.media.uploaded",
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+      this.prisma.mediaAsset.findUnique({
+        where: { id: uploadId },
+      }),
+    ]);
     if (!event) {
       throw new NotFoundException("The media upload record was not found.");
+    }
+    if (!asset && event.actorId !== session.accountId) {
+      throw new ForbiddenException("Media access is restricted to its owner.");
+    }
+    if (
+      asset &&
+      (asset.deletedAt ||
+        ["DELETED", "REMOVED", "MODERATED"].includes(asset.status))
+    ) {
+      throw new NotFoundException("This media is no longer available.");
+    }
+
+    const isOwner = asset
+      ? asset.ownerAccountId === session.accountId
+      : event.actorId === session.accountId;
+    let attachedPost: {
+      id: string;
+      authorAccountId: string | null;
+      visibility: string;
+      status: string;
+      deletedAt: Date | null;
+    } | null = null;
+    if (asset?.postId) {
+      attachedPost = await this.prisma.communityPost.findUnique({
+        where: { id: asset.postId },
+        select: {
+          id: true,
+          authorAccountId: true,
+          visibility: true,
+          status: true,
+          deletedAt: true,
+        },
+      });
+      if (
+        !attachedPost ||
+        attachedPost.deletedAt ||
+        !["PUBLISHED", "EDITED"].includes(attachedPost.status)
+      ) {
+        throw new NotFoundException(
+          "The post containing this media is no longer available.",
+        );
+      }
+    }
+
+    if (!isOwner) {
+      if (
+        session.account.status !== "ACTIVE" ||
+        session.account.verificationStatus !== "VERIFIED"
+      ) {
+        throw new ForbiddenException(
+          "Verified active membership is required to view this media.",
+        );
+      }
+      const visibility =
+        attachedPost?.visibility ?? asset?.visibility ?? "VERIFIED_MEMBERS";
+      if (visibility === "PRIVATE_SELF") {
+        throw new ForbiddenException("This media is private to its owner.");
+      }
+      if (visibility === "FOLLOWERS_ONLY") {
+        if (!asset?.ownerAccountId) {
+          throw new ForbiddenException(
+            "This media is restricted to the owner's followers.",
+          );
+        }
+        const ownerProfile = await this.prisma.memberProfile.findUnique({
+          where: { accountId: asset.ownerAccountId },
+          select: { username: true },
+        });
+        const ownerDirectoryProfile = ownerProfile?.username
+          ? await this.prisma.communityDirectoryProfile.findUnique({
+              where: { username: ownerProfile.username },
+              select: { id: true },
+            })
+          : null;
+        const follow = ownerDirectoryProfile
+          ? await this.prisma.memberFollow.findUnique({
+              where: {
+                accountId_directoryProfileId: {
+                  accountId: session.accountId,
+                  directoryProfileId: ownerDirectoryProfile.id,
+                },
+              },
+              select: { isFollowing: true },
+            })
+          : null;
+        if (!follow?.isFollowing) {
+          throw new ForbiddenException(
+            "Following the post owner is required to view this media.",
+          );
+        }
+      } else if (visibility !== "VERIFIED_MEMBERS") {
+        throw new ForbiddenException("Media visibility does not allow access.");
+      }
     }
 
     const meta =
@@ -1682,17 +1987,25 @@ export class Module2Service {
       !Array.isArray(event.redactedMetadata)
         ? (event.redactedMetadata as Record<string, unknown>)
         : {};
-    if (typeof meta.driveFileId !== "string" || meta.provider !== "google_drive") {
+    const driveFileId =
+      asset?.driveFileId ??
+      (typeof meta.driveFileId === "string" ? meta.driveFileId : null);
+    if (
+      !driveFileId ||
+      (meta.provider !== "google_drive" &&
+        asset?.storageProvider !== "GOOGLE_DRIVE")
+    ) {
       throw new NotFoundException(
-        "This legacy media record has no actual Google Drive file. Upload the image again to replace it.",
+        "This media record has no retrievable Google Drive file. Upload the image again to replace it.",
       );
     }
 
-    const media = await this.googleDrive.downloadFile(meta.driveFileId);
+    const media = await this.googleDrive.downloadFile(driveFileId);
+    const recordedContentType = asset?.contentType ?? meta.contentType;
     const storedContentType =
-      typeof meta.contentType === "string" &&
-      ["image/jpeg", "image/png", "image/webp"].includes(meta.contentType)
-        ? meta.contentType
+      typeof recordedContentType === "string" &&
+      ["image/jpeg", "image/png", "image/webp"].includes(recordedContentType)
+        ? recordedContentType
         : media.contentType;
     return {
       contentType: storedContentType,
@@ -1744,7 +2057,8 @@ export class Module2Service {
       {
         slug: "following",
         name: "Following",
-        description: "Updates from verified Sakhi members and circles you follow.",
+        description:
+          "Updates from verified Sakhi members and circles you follow.",
         iconKey: "heart_handshake",
         accentColorHex: "#EC4899",
         isEnabled: true,
@@ -1753,7 +2067,8 @@ export class Module2Service {
       {
         slug: "community",
         name: "Community",
-        description: "Open discussions, peer encouragement, and shared experiences.",
+        description:
+          "Open discussions, peer encouragement, and shared experiences.",
         iconKey: "users",
         accentColorHex: "#A855F7",
         isEnabled: true,
@@ -1762,7 +2077,8 @@ export class Module2Service {
       {
         slug: "trending",
         name: "Trending",
-        description: "High-engagement conversations and timely topics across Sakhi.",
+        description:
+          "High-engagement conversations and timely topics across Sakhi.",
         iconKey: "flame",
         accentColorHex: "#F59E0B",
         isEnabled: true,
@@ -1771,7 +2087,8 @@ export class Module2Service {
       {
         slug: "business_updates",
         name: "Business Updates",
-        description: "Showcases, launches, and announcements from women-led businesses.",
+        description:
+          "Showcases, launches, and announcements from women-led businesses.",
         iconKey: "briefcase",
         accentColorHex: "#8B5CF6",
         isEnabled: true,
@@ -1780,7 +2097,8 @@ export class Module2Service {
       {
         slug: "safety_awareness",
         name: "Safety Awareness",
-        description: "Verified safety advisories, commute tips, and legal/self-defense awareness.",
+        description:
+          "Verified safety advisories, commute tips, and legal/self-defense awareness.",
         iconKey: "shield_check",
         accentColorHex: "#10B981",
         isEnabled: true,
@@ -1789,7 +2107,8 @@ export class Module2Service {
       {
         slug: "wellness_lifestyle",
         name: "Wellness and Lifestyle",
-        description: "Mindfulness, physical health, journaling, and holistic lifestyle guidance.",
+        description:
+          "Mindfulness, physical health, journaling, and holistic lifestyle guidance.",
         iconKey: "sparkles",
         accentColorHex: "#14B8A6",
         isEnabled: true,
@@ -1822,9 +2141,10 @@ export class Module2Service {
     const blockedHandles = new Set(
       (boot.blockedUsers ?? []).map((u) => u.blockedUsername.toLowerCase()),
     );
-    let items = [...boot.communityPosts, ...boot.exploreRecommendedPosts].filter(
-      (post) => !blockedHandles.has(post.authorUsername.toLowerCase()),
-    );
+    let items = [
+      ...boot.communityPosts,
+      ...boot.exploreRecommendedPosts,
+    ].filter((post) => !blockedHandles.has(post.authorUsername.toLowerCase()));
     const slug = (query.categorySlug || query.topic || "").trim().toLowerCase();
     if (slug && slug !== "all" && slug !== "community") {
       if (slug === "following") {
@@ -1833,15 +2153,23 @@ export class Module2Service {
             .filter((f) => f.isFollowing)
             .map((f) => f.username.toLowerCase()),
         );
-        items = items.filter((p) => followedHandles.has(p.authorUsername.toLowerCase()));
+        items = items.filter((p) =>
+          followedHandles.has(p.authorUsername.toLowerCase()),
+        );
       } else if (slug === "trending") {
         items = [...items].sort(
-          (a, b) => b.likesCount + b.commentsCount * 2 - (a.likesCount + a.commentsCount * 2),
+          (a, b) =>
+            b.likesCount +
+            b.commentsCount * 2 -
+            (a.likesCount + a.commentsCount * 2),
         );
       } else {
-        items = items.filter((p) =>
-          (p.categoryBadge || "").toLowerCase().includes(slug.replace(/_/g, " ")) ||
-          (p as Record<string, unknown>).categorySlug === slug,
+        items = items.filter(
+          (p) =>
+            (p.categoryBadge || "")
+              .toLowerCase()
+              .includes(slug.replace(/_/g, " ")) ||
+            (p as Record<string, unknown>).categorySlug === slug,
         );
       }
     }
@@ -1857,7 +2185,10 @@ export class Module2Service {
           p.authorUsername.toLowerCase().includes(q),
       );
     }
-    const limited = items.slice(0, Math.min(Math.max(query.limit ?? 30, 1), 100));
+    const limited = items.slice(
+      0,
+      Math.min(Math.max(query.limit ?? 30, 1), 100),
+    );
     return {
       items: limited,
       posts: limited,
@@ -1887,7 +2218,10 @@ export class Module2Service {
     if (!existing || existing.deletedAt) {
       throw new NotFoundException("Community post was not found.");
     }
-    if (existing.authorAccountId && existing.authorAccountId !== session.accountId) {
+    if (
+      existing.authorAccountId &&
+      existing.authorAccountId !== session.accountId
+    ) {
       throw new ForbiddenException({
         code: "post_edit_forbidden",
         message: "Only the post author can edit this post.",
@@ -1898,13 +2232,21 @@ export class Module2Service {
       where: { id: postId },
       data: {
         content: nextContent,
-        ...(dto.categorySlug ? { categorySlug: dto.categorySlug.trim().toLowerCase() } : {}),
-        ...(dto.categoryBadge ? { categoryBadge: dto.categoryBadge.trim() } : {}),
+        ...(dto.categorySlug
+          ? { categorySlug: dto.categorySlug.trim().toLowerCase() }
+          : {}),
+        ...(dto.categoryBadge
+          ? { categoryBadge: dto.categoryBadge.trim() }
+          : {}),
         ...(dto.visibility ? { visibility: dto.visibility.trim() } : {}),
         ...(dto.cropPreset ? { cropPreset: dto.cropPreset.trim() } : {}),
         ...(dto.hashtags ? { hashtags: dto.hashtags } : {}),
-        ...(dto.locationTag !== undefined ? { locationTag: dto.locationTag?.trim() || null } : {}),
-        ...(dto.allowComments !== undefined ? { allowComments: dto.allowComments } : {}),
+        ...(dto.locationTag !== undefined
+          ? { locationTag: dto.locationTag?.trim() || null }
+          : {}),
+        ...(dto.allowComments !== undefined
+          ? { allowComments: dto.allowComments }
+          : {}),
         status: "EDITED",
       },
     });
@@ -2089,7 +2431,8 @@ export class Module2Service {
       .catch(() => []);
     const reactionBreakdown: Record<string, number> = {};
     for (const r of allReactions) {
-      reactionBreakdown[r.reactionType] = (reactionBreakdown[r.reactionType] ?? 0) + 1;
+      reactionBreakdown[r.reactionType] =
+        (reactionBreakdown[r.reactionType] ?? 0) + 1;
     }
 
     return {
@@ -2184,7 +2527,8 @@ export class Module2Service {
     if (!isCommentOwner && !isPostOwner) {
       throw new ForbiddenException({
         code: "comment_delete_forbidden",
-        message: "Only the comment author or the post owner can delete this comment.",
+        message:
+          "Only the comment author or the post owner can delete this comment.",
       });
     }
     await this.prisma.communityPostComment.update({
@@ -2201,7 +2545,10 @@ export class Module2Service {
   }
 
   // Backward-compatible methods for test/module2.service.spec.ts & test/module2.account-deletion.spec.ts
-  async getMemberProfile(authorization: string | undefined, targetAccountId: string) {
+  async getMemberProfile(
+    authorization: string | undefined,
+    targetAccountId: string,
+  ) {
     const session = await this.auth.authenticateAuthorization(authorization);
     const anyPrisma = this.prisma as Record<string, any>;
     const account = await anyPrisma.memberAccount.findFirst({
@@ -2271,11 +2618,19 @@ export class Module2Service {
       where.AND = [
         {
           OR: [
-            { profile: { is: { displayName: { contains: q, mode: "insensitive" } } } },
+            {
+              profile: {
+                is: { displayName: { contains: q, mode: "insensitive" } },
+              },
+            },
             {
               AND: [
                 { privacySettings: { is: { locationSharing: "CITY_ONLY" } } },
-                { profile: { is: { locationCity: { contains: q, mode: "insensitive" } } } },
+                {
+                  profile: {
+                    is: { locationCity: { contains: q, mode: "insensitive" } },
+                  },
+                },
               ],
             },
           ],
@@ -2309,7 +2664,10 @@ export class Module2Service {
     return { items };
   }
 
-  async listFollowers(authorization: string | undefined, mode: "followers" | "following" = "followers") {
+  async listFollowers(
+    authorization: string | undefined,
+    mode: "followers" | "following" = "followers",
+  ) {
     const session = await this.auth.authenticateAuthorization(authorization);
     const anyPrisma = this.prisma as Record<string, any>;
     if (!anyPrisma.socialFollow?.findMany) {
@@ -2347,17 +2705,24 @@ export class Module2Service {
 
   async createGroup(
     authorization: string | undefined,
-    dto: { name: string; description?: string; visibility: "VERIFIED_MEMBERS" | "PRIVATE" },
+    dto: {
+      name: string;
+      description?: string;
+      visibility: "VERIFIED_MEMBERS" | "PRIVATE";
+    },
   ) {
     await this.auth.authenticateAuthorization(authorization);
     const trimmedName = dto.name.trim();
     if (trimmedName.length < 2) {
-      throw new BadRequestException("Group name must be at least 2 characters.");
+      throw new BadRequestException(
+        "Group name must be at least 2 characters.",
+      );
     }
     const group = await this.prisma.communityGroup.create({
       data: {
         name: trimmedName,
-        description: dto.description?.trim() || "Verified Sakhi community group.",
+        description:
+          dto.description?.trim() || "Verified Sakhi community group.",
         category: dto.visibility === "PRIVATE" ? "Private Circle" : "Community",
         membersCount: 1,
         newPostsToday: 0,
@@ -2381,7 +2746,9 @@ export class Module2Service {
     const title = dto.title.trim();
     const description = dto.description.trim();
     if (!title || !description) {
-      throw new BadRequestException("Event title and description cannot be empty.");
+      throw new BadRequestException(
+        "Event title and description cannot be empty.",
+      );
     }
     return {
       id: randomUUID(),
@@ -2519,7 +2886,12 @@ export class Module2Service {
       if (tx.memberPost?.updateMany) {
         await tx.memberPost.updateMany({
           where: { accountId: session.accountId },
-          data: { body: "[removed]", mediaRef: null, status: "REMOVED", deletedAt: now },
+          data: {
+            body: "[removed]",
+            mediaRef: null,
+            status: "REMOVED",
+            deletedAt: now,
+          },
         });
       }
       if (tx.memberPostComment?.updateMany) {
@@ -2533,10 +2905,14 @@ export class Module2Service {
         });
       }
       if (tx.memberPostLike?.deleteMany) {
-        await tx.memberPostLike.deleteMany({ where: { accountId: session.accountId } });
+        await tx.memberPostLike.deleteMany({
+          where: { accountId: session.accountId },
+        });
       }
       if (tx.memberPostBookmark?.deleteMany) {
-        await tx.memberPostBookmark.deleteMany({ where: { accountId: session.accountId } });
+        await tx.memberPostBookmark.deleteMany({
+          where: { accountId: session.accountId },
+        });
       }
       if (tx.postAudienceMember?.deleteMany) {
         await tx.postAudienceMember.deleteMany({
@@ -2569,7 +2945,9 @@ export class Module2Service {
         });
       }
       if (tx.eventRegistration?.deleteMany) {
-        await tx.eventRegistration.deleteMany({ where: { accountId: session.accountId } });
+        await tx.eventRegistration.deleteMany({
+          where: { accountId: session.accountId },
+        });
       }
       if (tx.communityEvent?.updateMany) {
         await tx.communityEvent.updateMany({
@@ -2584,19 +2962,29 @@ export class Module2Service {
         });
       }
       if (tx.groupMembership?.deleteMany) {
-        await tx.groupMembership.deleteMany({ where: { accountId: session.accountId } });
+        await tx.groupMembership.deleteMany({
+          where: { accountId: session.accountId },
+        });
       }
       if (tx.businessProfile?.deleteMany) {
-        await tx.businessProfile.deleteMany({ where: { accountId: session.accountId } });
+        await tx.businessProfile.deleteMany({
+          where: { accountId: session.accountId },
+        });
       }
       if (tx.memberPrivacySettings?.deleteMany) {
-        await tx.memberPrivacySettings.deleteMany({ where: { accountId: session.accountId } });
+        await tx.memberPrivacySettings.deleteMany({
+          where: { accountId: session.accountId },
+        });
       }
       if (tx.memberNotificationPreferences?.deleteMany) {
-        await tx.memberNotificationPreferences.deleteMany({ where: { accountId: session.accountId } });
+        await tx.memberNotificationPreferences.deleteMany({
+          where: { accountId: session.accountId },
+        });
       }
       if (tx.memberCommunicationPreference?.deleteMany) {
-        await tx.memberCommunicationPreference.deleteMany({ where: { accountId: session.accountId } });
+        await tx.memberCommunicationPreference.deleteMany({
+          where: { accountId: session.accountId },
+        });
       }
       if (tx.authSession?.updateMany) {
         await tx.authSession.updateMany({
@@ -2624,5 +3012,4 @@ export class Module2Service {
       };
     });
   }
-
 }

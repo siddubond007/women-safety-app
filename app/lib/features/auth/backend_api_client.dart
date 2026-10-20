@@ -40,6 +40,22 @@ class BackendApiClient {
   }
 
   static const _tokenStorageKey = 'sakhi.dev.auth.access_token';
+  static Future<Map<String, String>>? _imageRequestHeadersFuture;
+
+  /// Cached auth headers for Image.network requests to protected media routes.
+  /// Invalidated whenever this client stores or clears the session token.
+  static Future<Map<String, String>> imageRequestHeaders() {
+    _imageRequestHeadersFuture ??= _loadImageRequestHeaders();
+    return _imageRequestHeadersFuture!;
+  }
+
+  static Future<Map<String, String>> _loadImageRequestHeaders() async {
+    final token = await const FlutterSecureStorage().read(
+      key: _tokenStorageKey,
+    );
+    if (token == null || token.isEmpty) return const <String, String>{};
+    return <String, String>{HttpHeaders.authorizationHeader: 'Bearer $token'};
+  }
 
   final String baseUrl;
   final HttpClient _httpClient;
@@ -48,12 +64,19 @@ class BackendApiClient {
   Future<void>? _tokenLoad;
 
   Future<void> _loadStoredToken() async {
-    _accessToken = await _secureStorage.read(key: _tokenStorageKey);
+    _accessToken = await _secureStorage
+        .read(key: _tokenStorageKey)
+        .timeout(const Duration(seconds: 3));
   }
 
   Future<String?> readAccessToken() async {
-    _tokenLoad ??= _loadStoredToken();
-    await _tokenLoad;
+    final pendingLoad = _tokenLoad ??= _loadStoredToken();
+    try {
+      await pendingLoad;
+    } catch (_) {
+      if (identical(_tokenLoad, pendingLoad)) _tokenLoad = null;
+      rethrow;
+    }
     return _accessToken;
   }
 
@@ -61,11 +84,13 @@ class BackendApiClient {
     await _secureStorage.write(key: _tokenStorageKey, value: token);
     _accessToken = token;
     _tokenLoad = Future<void>.value();
+    _imageRequestHeadersFuture = null;
   }
 
   Future<void> clearAccessToken() async {
     _accessToken = null;
     _tokenLoad = Future<void>.value();
+    _imageRequestHeadersFuture = null;
     await _secureStorage.delete(key: _tokenStorageKey);
   }
 
@@ -117,7 +142,8 @@ class BackendApiClient {
         message: 'Choose an image file before uploading.',
       );
     }
-    final boundary = '----SakhiBoundary${DateTime.now().microsecondsSinceEpoch}';
+    final boundary =
+        '----SakhiBoundary${DateTime.now().microsecondsSinceEpoch}';
     var requestStage = 'opening upload connection';
     try {
       final request = await _httpClient
@@ -144,9 +170,13 @@ class BackendApiClient {
       requestStage = 'writing upload fields';
       for (final entry in fields.entries) {
         final fieldName = entry.key.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '');
-        final fieldValue = entry.value.replaceAll('\r', '').replaceAll('\n', '');
+        final fieldValue = entry.value
+            .replaceAll('\r', '')
+            .replaceAll('\n', '');
         request.write('--$boundary\r\n');
-        request.write('Content-Disposition: form-data; name="$fieldName"\r\n\r\n');
+        request.write(
+          'Content-Disposition: form-data; name="$fieldName"\r\n\r\n',
+        );
         request.write('$fieldValue\r\n');
       }
       final safeFileName = fileName
@@ -165,9 +195,10 @@ class BackendApiClient {
         const Duration(seconds: 45),
       );
       requestStage = 'reading upload response';
-      final raw = await utf8.decoder.bind(response).join().timeout(
-        const Duration(seconds: 20),
-      );
+      final raw = await utf8.decoder
+          .bind(response)
+          .join()
+          .timeout(const Duration(seconds: 20));
       final decoded = raw.isEmpty ? <String, dynamic>{} : jsonDecode(raw);
       final payload = decoded is Map<String, dynamic>
           ? decoded
@@ -177,8 +208,8 @@ class BackendApiClient {
         final message = rawMessage is List
             ? rawMessage.map((value) => value.toString()).join(' ')
             : rawMessage is String
-                ? rawMessage
-                : 'The image upload failed.';
+            ? rawMessage
+            : 'The image upload failed.';
         throw BackendApiException(
           statusCode: response.statusCode,
           code: payload['code'] is String
@@ -203,11 +234,14 @@ class BackendApiClient {
         message: 'Sakhi backend is unreachable. Start the backend and check the local connection.',
       );
     } on HttpException catch (error) {
-      debugPrint('Sakhi multipart upload transport failure: $path; stage=$requestStage; type=${error.runtimeType}');
+      debugPrint(
+        'Sakhi multipart upload transport failure: $path; stage=$requestStage; type=${error.runtimeType}',
+      );
       throw BackendApiException(
         statusCode: 0,
         code: 'http_error',
-        message: 'Image upload failed during $requestStage. Check the local backend.',
+        message:
+            'Image upload failed during $requestStage. Check the local backend.',
       );
     } on FormatException {
       throw const BackendApiException(
@@ -310,7 +344,8 @@ class BackendApiClient {
       throw BackendApiException(
         statusCode: 0,
         code: 'http_error',
-        message: 'Sakhi backend connection failed during $requestStage: '
+        message:
+            'Sakhi backend connection failed during $requestStage: '
             '$detailDescription.',
       );
     } on FormatException {

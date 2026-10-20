@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../../core/constants/app_assets.dart';
 import '../../../core/constants/mock_data.dart';
 import '../../../core/navigation/app_routes.dart';
@@ -12,6 +13,7 @@ import '../../../core/widgets/sakhi_buttons.dart';
 import '../../../core/widgets/sakhi_chip.dart';
 import '../../../core/widgets/sakhi_dialogs.dart';
 import '../../../core/widgets/sakhi_empty_state.dart';
+import '../../../core/widgets/sakhi_remote_media_image.dart';
 import '../../community/widgets/feed_post_card.dart';
 
 /// Screen 6 — Profile Overview
@@ -88,9 +90,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 AppAssets.profileHeaderBanner,
                                 fit: BoxFit.cover,
                                 filterQuality: FilterQuality.high,
-                                errorBuilder: (_, _, _) => Container(
-                                  color: AppColors.pastelPink,
-                                ),
+                                errorBuilder: (_, _, _) =>
+                                    Container(color: AppColors.pastelPink),
                               ),
                               const Positioned(
                                 left: 10,
@@ -159,9 +160,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 GestureDetector(
                                   onTap: () =>
                                       SakhiDialogs.showPrototypeSnackbar(
-                                    context,
-                                    'Account verified by Sakhi Super Admin.',
-                                  ),
+                                        context,
+                                        'Account verified by Sakhi Super Admin.',
+                                      ),
                                   child: const Icon(
                                     Icons.verified_rounded,
                                     color: AppColors.primaryPurple,
@@ -331,20 +332,145 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildTabContent(BuildContext context, SakhiPrototypeState state) {
     if (_selectedTabIndex == 0) {
-      return Column(
-        children: state.profilePosts
-            .map(
-              (post) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: FeedPostCard(
-                  post: post,
-                  showVerifiedCheck: true,
-                  onLikeTap: () => state.togglePostLike(post),
-                  onSaveTap: () => state.togglePostSaved(post),
+      if (!state.isBackendSynced) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 12),
+          child: Column(
+            children: [
+              if (state.isBackendSyncing)
+                const CircularProgressIndicator(color: AppColors.primaryPurple)
+              else
+                const Icon(
+                  Icons.cloud_off_outlined,
+                  size: 32,
+                  color: AppColors.primaryPurple,
                 ),
+              const SizedBox(height: 10),
+              Text(
+                state.isBackendSyncing
+                    ? 'Loading your posts…'
+                    : (state.lastSyncError ??
+                          'Sign in to view your saved profile posts.'),
+                textAlign: TextAlign.center,
+                style: AppTypography.bodyRegular,
               ),
-            )
-            .toList(),
+              if (!state.isBackendSyncing)
+                TextButton(
+                  onPressed: state.syncFromBackend,
+                  child: const Text('Retry'),
+                ),
+            ],
+          ),
+        );
+      }
+      final ownPosts = state.profilePosts
+          .where(
+            (post) =>
+                post.id.isNotEmpty &&
+                post.authorAccountId == state.currentUser.accountId,
+          )
+          .toList(growable: false);
+      if (ownPosts.isEmpty) {
+        return const SakhiEmptyState(
+          icon: Icons.grid_on_outlined,
+          title: 'No Posts Yet',
+          message: 'Your published photos and posts will appear here.',
+        );
+      }
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final columns = constraints.maxWidth >= 560 ? 4 : 3;
+          return GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: ownPosts.length,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              crossAxisSpacing: 7,
+              mainAxisSpacing: 7,
+              childAspectRatio: 1,
+            ),
+            itemBuilder: (context, index) {
+              final post = ownPosts[index];
+              final source = post.imageAsset?.trim() ?? '';
+              Widget thumbnail;
+              if (source.isEmpty) {
+                thumbnail = Container(
+                  color: AppColors.pastelLavender,
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    Icons.notes_rounded,
+                    color: AppColors.primaryPurple,
+                    size: 30,
+                  ),
+                );
+              } else if (source.startsWith('http://') ||
+                  source.startsWith('https://') ||
+                  source.startsWith('/api/v1/')) {
+                thumbnail = SakhiRemoteMediaImage(source: source);
+              } else {
+                thumbnail = Image.asset(
+                  source,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => Container(
+                    color: AppColors.pastelPink,
+                    alignment: Alignment.center,
+                    child: const Icon(Icons.broken_image_outlined),
+                  ),
+                );
+              }
+              return Semantics(
+                button: true,
+                label: 'Open post by ${post.authorName}',
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: () => showDialog<void>(
+                    context: context,
+                    builder: (dialogContext) => Dialog(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(8),
+                        child: FeedPostCard(
+                          post: post,
+                          showVerifiedCheck: true,
+                          onLikeTap: () => state.togglePostLike(post),
+                          onSaveTap: () => state.togglePostSaved(post),
+                        ),
+                      ),
+                    ),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        thumbnail,
+                        if (source.isNotEmpty)
+                          Positioned(
+                            right: 5,
+                            bottom: 5,
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.50),
+                                borderRadius: BorderRadius.circular(5),
+                              ),
+                              child: const Padding(
+                                padding: EdgeInsets.all(4),
+                                child: Icon(
+                                  Icons.photo_outlined,
+                                  color: Colors.white,
+                                  size: 15,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          );
+        },
       );
     } else if (_selectedTabIndex == 1) {
       final saved = [
@@ -494,8 +620,9 @@ class _ProfileTabButton extends StatelessWidget {
           decoration: BoxDecoration(
             border: Border(
               bottom: BorderSide(
-                color:
-                    isSelected ? AppColors.primaryPurple : Colors.transparent,
+                color: isSelected
+                    ? AppColors.primaryPurple
+                    : Colors.transparent,
                 width: 2.5,
               ),
             ),

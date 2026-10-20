@@ -45,8 +45,8 @@ export class Module2Controller {
   constructor(private readonly service: Module2Service) {}
 
   @Get("public-feed")
-  publicFeed() {
-    return this.service.publicFeed();
+  publicFeed(@Headers("authorization") authorization?: string) {
+    return this.service.publicFeed(authorization);
   }
 
   @Get("bootstrap")
@@ -178,10 +178,14 @@ export class Module2Controller {
 
   @Get("media/object/:uploadId")
   async getMediaObject(
+    @Headers("authorization") authorization: string | undefined,
     @Param("uploadId") uploadId: string,
     @Res() response: Response,
   ) {
-    const media = await this.service.resolveMediaObject(uploadId);
+    const media = await this.service.resolveMediaObject(
+      authorization,
+      uploadId,
+    );
     if (media.redirectUrl) {
       return response.redirect(302, media.redirectUrl);
     }
@@ -364,7 +368,8 @@ export class Module2Controller {
   ) {
     return this.service.reportUserOrPost(authorization, {
       ...dto,
-      targetHandle: dto.targetHandle ?? dto.reportedAccountId ?? dto.postId ?? "@community",
+      targetHandle:
+        dto.targetHandle ?? dto.reportedAccountId ?? dto.postId ?? "@community",
     });
   }
 
@@ -376,7 +381,8 @@ export class Module2Controller {
   ) {
     return this.service.reportUserOrPost(authorization, {
       ...dto,
-      targetHandle: dto.targetHandle ?? dto.reportedAccountId ?? dto.postId ?? "@community",
+      targetHandle:
+        dto.targetHandle ?? dto.reportedAccountId ?? dto.postId ?? "@community",
     });
   }
 
