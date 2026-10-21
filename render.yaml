@@ -35,6 +35,12 @@ services:
         generateValue: true
       - key: SAKHI_STAGING_TEST_ADMIN_REVIEWER_LABEL
         value: Sakhi Friend Testing Reviewer
+      - key: SAKHI_STAGING_FULL_ADMIN_ENABLED
+        value: "true"
+      - key: SAKHI_STAGING_FULL_ADMIN_TOKEN
+        generateValue: true
+      - key: SAKHI_STAGING_FULL_ADMIN_REVIEWER_LABEL
+        value: Sakhi Staging Super Admin
 
   - type: web
     name: sakhi-staging-admin

@@ -78,9 +78,10 @@ The shared `SAKHI_ADMIN_REVIEW_TOKEN` and configured `SAKHI_ADMIN_REVIEWER_LABEL
 
 ## Hosted staging test-access portal
 
-When deployed from the root Render Blueprint with `VITE_ADMIN_MODE=staging-test`, the static site provides a dedicated staging test-access page. It talks to the configured HTTPS staging API, not a localhost backend.
+When deployed from the root Render Blueprint with `VITE_ADMIN_MODE=staging-test`, the static site preserves the existing full admin shell, dashboard and navigation, adding **Staging Test Access** as a separate page. It talks to the configured HTTPS staging API, not a localhost backend.
 
-- Use the **separate** `SAKHI_STAGING_TEST_ADMIN_TOKEN` generated and stored in the Render API service's protected environment. Enter it once in the portal's password field after deployment. The API exchanges it for an eight-hour signed session token held in JavaScript memory only; a page refresh signs the reviewer out.
+- Use `SAKHI_STAGING_FULL_ADMIN_TOKEN` from the Render API service's protected Environment settings to sign in to the full admin workspace. It is a separate server-side secret and has access only to the hosted staging API/database. It is exchanged for an eight-hour signed session held in JavaScript memory only; a page refresh signs the reviewer out.
+- Use the **separate** `SAKHI_STAGING_TEST_ADMIN_TOKEN` for the least-privilege test-access-only view. That credential can grant/revoke staging app-feature access but cannot use member-management, eligibility-review, moderation or other full admin API routes. Both secrets must remain server-side in Render and must never be put in `VITE_*` variables or committed files.
 - Never put this token in `VITE_*` variables, source code, HTML, an APK, local/session storage, or a committed file. Browser configuration is public. Login and admin API requests are restricted to the configured exact HTTPS origin.
 - The portal only grants/revokes staging test access. Each action adds an audit event; the member's real `status`, `verificationStatus`, and phone-verification fields are unchanged.
 - The mobile API honors the latest test-access audit marker only when hosted staging test mode, the explicit feature flag, and the separate server-side token are configured. Revocation removes access on the next authenticated API request.

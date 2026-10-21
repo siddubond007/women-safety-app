@@ -13,6 +13,7 @@ import { PrismaService } from "../database/prisma.service.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import type { ManualEligibilityDecisionDto } from "./admin-review.dto.js";
 import type { DevelopmentMemberStateDto } from "./admin-member-state.dto.js";
+import { StagingTestAdminService } from "../staging-test-admin/staging-test-admin.service.js";
 
 export const DEFAULT_LOCAL_DEV_ADMIN_TOKEN = 'ADMIN2026TEST';
 
@@ -49,6 +50,9 @@ export class AdminReviewService {
   }
 
   private assertReviewer(provided?: string): string {
+    if (process.env.NODE_ENV === "production" && process.env.SAKHI_ENV === "staging") {
+      return StagingTestAdminService.assertFullAdminSessionToken(provided);
+    }
     const expected = this.configuredToken();
     if (!provided) throw new UnauthorizedException("A reviewer token is required.");
     const candidates = expected

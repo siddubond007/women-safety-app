@@ -23,6 +23,7 @@ import {
   Settings2,
   Shield,
   ShieldAlert,
+  ShieldCheck,
   Siren,
   Users,
   UserRoundCheck,
@@ -32,6 +33,7 @@ import {
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { BrandMark } from "../components/BrandMark";
 import { StatusPill } from "../components/StatusPill";
+import { adminAuthService, isStagingTestAdminMode } from "../services/auth/adminAuthService";
 
 interface AdminLayoutProps {
   onSignOut: () => void;
@@ -75,13 +77,30 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const hasFullStagingAdminAccess =
+    !isStagingTestAdminMode || adminAuthService.isFullStagingAdminSession();
+  const visibleNavigationItems = useMemo<NavigationItem[]>(() => {
+    if (!isStagingTestAdminMode) return navigationItems;
+    const testAccessItem: NavigationItem = {
+      label: "Staging Test Access",
+      path: "/test-access",
+      icon: ShieldCheck,
+      group: "Testing",
+    };
+    return hasFullStagingAdminAccess ? [...navigationItems, testAccessItem] : [testAccessItem];
+  }, [hasFullStagingAdminAccess]);
+  const visibleGroupNames = isStagingTestAdminMode
+    ? hasFullStagingAdminAccess
+      ? [...groupNames, "Testing"]
+      : ["Testing"]
+    : groupNames;
 
-  const pageTitle = navigationItems.find((item) => item.path === location.pathname)?.label ?? "Admin workspace";
+  const pageTitle = visibleNavigationItems.find((item) => item.path === location.pathname)?.label ?? "Admin workspace";
   const searchMatches = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return navigationItems.filter((item) => !item.planned);
-    return navigationItems.filter((item) => item.label.toLowerCase().includes(query));
-  }, [searchQuery]);
+    if (!query) return visibleNavigationItems.filter((item) => !item.planned);
+    return visibleNavigationItems.filter((item) => item.label.toLowerCase().includes(query));
+  }, [searchQuery, visibleNavigationItems]);
 
   function closeOverlays() {
     setMobileMenuOpen(false);
@@ -106,17 +125,17 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
         <div className="environment-card">
           <span className="environment-icon"><ShieldCheckIcon /></span>
           <span className="environment-copy">
-            <strong>Local dev/test workspace</strong>
-            <small>Eligibility review uses the configured local API</small>
+            <strong>{isStagingTestAdminMode ? (hasFullStagingAdminAccess ? "Staging admin workspace" : "Staging test access only") : "Local dev/test workspace"}</strong>
+            <small>{isStagingTestAdminMode ? (hasFullStagingAdminAccess ? "Connected to the deployed staging API" : "Test grants only; real eligibility remains unchanged") : "Eligibility review uses the configured local API"}</small>
           </span>
           <span className="environment-dot" aria-hidden="true" />
         </div>
 
         <nav className="sidebar-nav" aria-label="Admin navigation">
-          {groupNames.map((groupName) => (
+          {visibleGroupNames.map((groupName) => (
             <div className="nav-group" key={groupName}>
               <p className="nav-group-title">{groupName}</p>
-              {navigationItems.filter((item) => item.group === groupName).map((item) => {
+              {visibleNavigationItems.filter((item) => item.group === groupName).map((item) => {
                 const Icon = item.icon;
                 return (
                   <NavLink
@@ -152,7 +171,7 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
               <strong>Sakhi Operations</strong>
               <span>Private admin portal</span>
             </div>
-            <StatusPill tone="demo">DEV / TEST</StatusPill>
+            <StatusPill tone="demo">{isStagingTestAdminMode ? "STAGING / TEST" : "DEV / TEST"}</StatusPill>
           </div>
         </div>
       </aside>
@@ -213,9 +232,9 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
             </div>
 
             <div className="topbar-divider" />
-            <button className="admin-profile" type="button" onClick={onSignOut} title="End local reviewer session">
+            <button className="admin-profile" type="button" onClick={onSignOut} title={isStagingTestAdminMode ? "End staging reviewer session" : "End local reviewer session"}>
               <span className="admin-avatar">SA</span>
-              <span className="admin-profile-copy"><strong>Local reviewer</strong><small>Dev/test session</small></span>
+              <span className="admin-profile-copy"><strong>{isStagingTestAdminMode ? (hasFullStagingAdminAccess ? "Staging administrator" : "Staging test reviewer") : "Local reviewer"}</strong><small>{isStagingTestAdminMode ? "Hosted staging session" : "Dev/test session"}</small></span>
               <ChevronDown size={15} />
               <span className="profile-signout"><LogOut size={13} /> Sign out</span>
             </button>
@@ -225,13 +244,16 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
         <main className="page-content">
           <div className="demo-banner" role="status">
             <span className="demo-banner__icon"><AlertTriangle size={16} /></span>
-            <div><strong>LOCAL DEV / TEST ENVIRONMENT</strong><span>Live database records - Local development/test environment - State changes are persisted and audited</span></div>
-            <StatusPill tone="demo">STAGE 1</StatusPill>
+            <div>
+              <strong>{isStagingTestAdminMode ? "HOSTED STAGING TEST ENVIRONMENT" : "LOCAL DEV / TEST ENVIRONMENT"}</strong>
+              <span>{isStagingTestAdminMode ? "Connected to the hosted staging database. Test-access grants never change real eligibility; full-admin changes are restricted to this staging environment." : "Live database records - Local development/test environment - State changes are persisted and audited"}</span>
+            </div>
+            <StatusPill tone="demo">{isStagingTestAdminMode ? "STAGING" : "STAGE 1"}</StatusPill>
           </div>
           <Outlet />
           <footer className="page-footer">
             <span>SAKHI ADMIN CONTROL CENTER</span>
-            <span>Local development/test <span className="footer-dot">-</span> Connected backend data</span>
+            <span>{isStagingTestAdminMode ? <>Hosted staging <span className="footer-dot">-</span> Connected backend data</> : <>Local development/test <span className="footer-dot">-</span> Connected backend data</>}</span>
           </footer>
         </main>
       </div>

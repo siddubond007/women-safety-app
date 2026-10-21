@@ -1234,3 +1234,18 @@ svg { flex-shrink: 0; }
     padding: 14px;
   }
 }
+
+/* Keep the test-access controls inside the shared full admin workspace. */
+.staging-test-admin--embedded {
+  min-height: 0;
+  background: transparent;
+  color: inherit;
+}
+.staging-test-admin--embedded .staging-test-admin__content {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+.staging-test-admin--embedded .staging-test-admin__footer {
+  padding-bottom: 0;
+}

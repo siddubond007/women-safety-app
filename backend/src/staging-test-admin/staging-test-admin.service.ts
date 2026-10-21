@@ -15,27 +15,125 @@ const REVOKED_ACTION = "staging.test_access.revoked";
 const TEST_ACCESS_ACTIONS = [APPROVED_ACTION, REVOKED_ACTION];
 const STAGING_ADMIN_SESSION_TTL_SECONDS = 8 * 60 * 60;
 
+type StagingAdminScope = "test-access" | "full-admin";
+
+function assertStagingEnvironment(): void {
+  if (process.env.SAKHI_ENV !== "staging" || process.env.NODE_ENV !== "production") {
+    throw new ServiceUnavailableException("The staging admin is not enabled in this environment.");
+  }
+}
+
+function requireTestAdminSecret(): string {
+  assertStagingEnvironment();
+  if (process.env.SAKHI_STAGING_TEST_ADMIN_ENABLED !== "true") {
+    throw new ServiceUnavailableException("The staging test-access admin is not enabled.");
+  }
+  const secret = process.env.SAKHI_STAGING_TEST_ADMIN_TOKEN?.trim() ?? "";
+  if (secret.length < 32) {
+    throw new ServiceUnavailableException("Configure a random staging test-admin token of at least 32 characters.");
+  }
+  return secret;
+}
+
+function getFullAdminSecret(): string | null {
+  if (
+    process.env.SAKHI_ENV !== "staging" ||
+    process.env.NODE_ENV !== "production" ||
+    process.env.SAKHI_STAGING_FULL_ADMIN_ENABLED !== "true"
+  ) return null;
+  const secret = process.env.SAKHI_STAGING_FULL_ADMIN_TOKEN?.trim() ?? "";
+  return secret.length >= 32 ? secret : null;
+}
+
+function reviewerLabelForScope(scope: StagingAdminScope): string {
+  const key = scope === "full-admin"
+    ? "SAKHI_STAGING_FULL_ADMIN_REVIEWER_LABEL"
+    : "SAKHI_STAGING_TEST_ADMIN_REVIEWER_LABEL";
+  const configured = process.env[key]?.trim();
+  if (configured && configured.length <= 80) return configured;
+  return scope === "full-admin" ? "Sakhi Staging Super Admin" : "Sakhi Staging Test Reviewer";
+}
+
+function verifyStagingSession(
+  sessionToken?: string,
+  requiredScope?: StagingAdminScope,
+): { scope: StagingAdminScope; reviewerLabel: string } {
+  assertStagingEnvironment();
+  const parts = sessionToken?.split(".") ?? [];
+  const scope = parts[0];
+  if (
+    parts.length !== 4 ||
+    (scope !== "test-access" && scope !== "full-admin") ||
+    !(parts[1] ?? "").split("").every((character) => character >= "0" && character <= "9") ||
+    !/^[0-9a-f-]{36}$/i.test(parts[2] ?? "")
+  ) {
+    throw new UnauthorizedException("The staging admin session is invalid. Sign in again.");
+  }
+  if (requiredScope === "full-admin" && scope !== "full-admin") {
+    throw new UnauthorizedException("Full staging-admin access is required for this action.");
+  }
+  const expiresAt = Number(parts[1]);
+  const now = Math.floor(Date.now() / 1000);
+  if (
+    !Number.isSafeInteger(expiresAt) ||
+    expiresAt <= now ||
+    expiresAt > now + STAGING_ADMIN_SESSION_TTL_SECONDS + 60
+  ) {
+    throw new UnauthorizedException("The staging admin session has expired. Sign in again.");
+  }
+
+  const testSecret = process.env.SAKHI_STAGING_TEST_ADMIN_TOKEN?.trim() ?? "";
+  const fullSecret = getFullAdminSecret() ?? "";
+  const secret = scope === "test-access" ? testSecret : fullSecret;
+  if (
+    secret.length < 32 ||
+    (scope === "test-access" && process.env.SAKHI_STAGING_TEST_ADMIN_ENABLED !== "true") ||
+    (scope === "full-admin" && process.env.SAKHI_STAGING_FULL_ADMIN_ENABLED !== "true")
+  ) {
+    throw new UnauthorizedException("The staging admin session is invalid. Sign in again.");
+  }
+
+  const payload = `${parts[0]}.${parts[1]}.${parts[2]}`;
+  const expected = createHmac("sha256", secret)
+    .update("sakhi-staging-admin-session:" + payload)
+    .digest();
+  const supplied = Buffer.from(parts[3] ?? "", "base64url");
+  if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+    throw new UnauthorizedException("The staging admin session is invalid. Sign in again.");
+  }
+  return { scope, reviewerLabel: reviewerLabelForScope(scope) };
+}
+
 @Injectable()
 export class StagingTestAdminService {
   constructor(private readonly prisma: PrismaService) {}
 
   private assertEnabled(): string {
-    if (
-      process.env.SAKHI_ENV !== "staging" ||
-      process.env.NODE_ENV !== "production" ||
-      process.env.SAKHI_STAGING_TEST_ADMIN_ENABLED !== "true"
-    ) {
-      throw new ServiceUnavailableException(
-        "The staging test-access admin is not enabled in this environment.",
-      );
+    return requireTestAdminSecret();
+  }
+
+  private assertMasterCredential(provided?: string): {
+    scope: StagingAdminScope;
+    secret: string;
+    reviewerLabel: string;
+  } {
+    const testSecret = this.assertEnabled();
+    if (!provided?.trim()) {
+      throw new UnauthorizedException("A staging admin token is required.");
     }
-    const token = process.env.SAKHI_STAGING_TEST_ADMIN_TOKEN?.trim() ?? "";
-    if (token.length < 32) {
-      throw new ServiceUnavailableException(
-        "Staging test-admin access is not configured. Set a random server-side token of at least 32 characters.",
-      );
+    const providedDigest = createHash("sha256").update(provided.trim()).digest();
+    const matches = (secret: string) => {
+      const expectedDigest = createHash("sha256").update(secret).digest();
+      return timingSafeEqual(expectedDigest, providedDigest);
+    };
+    if (matches(testSecret)) {
+      return { scope: "test-access", secret: testSecret, reviewerLabel: reviewerLabelForScope("test-access") };
     }
-    return token;
+    const fullSecret = getFullAdminSecret();
+    if (fullSecret && matches(fullSecret)) {
+      return { scope: "full-admin", secret: fullSecret, reviewerLabel: reviewerLabelForScope("full-admin") };
+    }
+    throw new UnauthorizedException("The staging admin token is invalid.");
   }
 
   assertAdminOrigin(origin?: string): void {
@@ -51,90 +149,55 @@ export class StagingTestAdminService {
     }
   }
 
-  private reviewerLabel(): string {
-    const configured = process.env.SAKHI_STAGING_TEST_ADMIN_REVIEWER_LABEL?.trim();
-    return configured && configured.length <= 80
-      ? configured
-      : "Sakhi Staging Test Reviewer";
-  }
-
-  private assertReviewer(provided?: string): string {
-    const expected = this.assertEnabled();
-    if (!provided) {
-      throw new UnauthorizedException("A staging test-admin token is required.");
-    }
-    const expectedDigest = createHash("sha256").update(expected).digest();
-    const providedDigest = createHash("sha256").update(provided.trim()).digest();
-    if (!timingSafeEqual(expectedDigest, providedDigest)) {
-      throw new UnauthorizedException("The staging test-admin token is invalid.");
-    }
-    return this.reviewerLabel();
-  }
-
   session(token?: string) {
-    const reviewerLabel = this.assertReviewer(token);
+    const credential = this.assertMasterCredential(token);
+    const fullAdmin = credential.scope === "full-admin";
     return {
       authenticated: true as const,
-      reviewerLabel,
-      mode: "staging_test_access_only" as const,
-      message:
-        "This reviewer can grant app-feature access for staging tests only. It cannot certify phone ownership or real eligibility.",
+      reviewerLabel: credential.reviewerLabel,
+      mode: fullAdmin ? ("staging_full_admin" as const) : ("staging_test_access_only" as const),
+      message: fullAdmin
+        ? "Full staging-admin session. Administrative actions affect the hosted staging environment only; test-access grants remain separate from real eligibility decisions."
+        : "This reviewer can grant app-feature access for staging tests only. It cannot certify phone ownership or real eligibility.",
     };
   }
 
   createSessionToken(token: string) {
-    const reviewerLabel = this.assertReviewer(token);
+    const credential = this.assertMasterCredential(token);
     const expiresAt = Math.floor(Date.now() / 1000) + STAGING_ADMIN_SESSION_TTL_SECONDS;
     const nonce = randomUUID();
-    const payload = `${expiresAt}.${nonce}`;
-    const signature = createHmac("sha256", this.assertEnabled())
+    const payload = `${credential.scope}.${expiresAt}.${nonce}`;
+    const signature = createHmac("sha256", credential.secret)
       .update("sakhi-staging-admin-session:" + payload)
       .digest("base64url");
     return {
       value: `${payload}.${signature}`,
       expiresAt: new Date(expiresAt * 1000),
-      reviewerLabel,
+      reviewerLabel: credential.reviewerLabel,
+      mode: credential.scope === "full-admin"
+        ? ("staging_full_admin" as const)
+        : ("staging_test_access_only" as const),
     };
   }
 
-  private assertSessionToken(sessionToken?: string): string {
-    const secret = this.assertEnabled();
-    const parts = sessionToken?.split(".") ?? [];
-    if (
-      parts.length !== 3 ||
-      !(parts[0] ?? "").split("").every((character) => character >= "0" && character <= "9") ||
-      !/^[0-9a-f-]{36}$/i.test(parts[1] ?? "")
-    ) {
-      throw new UnauthorizedException("The staging admin session is invalid. Sign in again.");
-    }
-    const expiresAt = Number(parts[0]);
-    const now = Math.floor(Date.now() / 1000);
-    if (
-      !Number.isSafeInteger(expiresAt) ||
-      expiresAt <= now ||
-      expiresAt > now + STAGING_ADMIN_SESSION_TTL_SECONDS + 60
-    ) {
-      throw new UnauthorizedException("The staging admin session has expired. Sign in again.");
-    }
-    const payload = `${parts[0]}.${parts[1]}`;
-    const expected = createHmac("sha256", secret)
-      .update("sakhi-staging-admin-session:" + payload)
-      .digest();
-    const supplied = Buffer.from(parts[2] ?? "", "base64url");
-    if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
-      throw new UnauthorizedException("The staging admin session is invalid. Sign in again.");
-    }
-    return this.reviewerLabel();
+  private assertSessionToken(sessionToken?: string) {
+    return verifyStagingSession(sessionToken);
+  }
+
+  static assertFullAdminSessionToken(sessionToken?: string): string {
+    return verifyStagingSession(sessionToken, "full-admin").reviewerLabel;
   }
 
   sessionFromToken(sessionToken?: string) {
-    const reviewerLabel = this.assertSessionToken(sessionToken);
+    const credential = this.assertSessionToken(sessionToken);
+    const fullAdmin = credential.scope === "full-admin";
     return {
       authenticated: true as const,
-      reviewerLabel,
-      mode: "staging_test_access_only" as const,
-      message:
-        "This reviewer can grant app-feature access for staging tests only. It cannot certify phone ownership or real eligibility.",
+      reviewerLabel: credential.reviewerLabel,
+      mode: fullAdmin ? ("staging_full_admin" as const) : ("staging_test_access_only" as const),
+      message: fullAdmin
+        ? "Full staging-admin session. Administrative actions affect the hosted staging environment only; test-access grants remain separate from real eligibility decisions."
+        : "This reviewer can grant app-feature access for staging tests only. It cannot certify phone ownership or real eligibility.",
     };
   }
 
@@ -229,7 +292,7 @@ export class StagingTestAdminService {
     dto: StagingTestAccessDecisionDto,
     sessionToken?: string,
   ) {
-    const reviewerLabel = this.assertSessionToken(sessionToken);
+    const { reviewerLabel } = this.assertSessionToken(sessionToken);
     const reason = this.assertDecision(dto);
     const account = await this.prisma.memberAccount.findUnique({
       where: { id: accountId },
@@ -287,7 +350,7 @@ export class StagingTestAdminService {
     dto: StagingTestAccessDecisionDto,
     sessionToken?: string,
   ) {
-    const reviewerLabel = this.assertSessionToken(sessionToken);
+    const { reviewerLabel } = this.assertSessionToken(sessionToken);
     const reason = this.assertDecision(dto);
     const account = await this.prisma.memberAccount.findUnique({
       where: { id: accountId },

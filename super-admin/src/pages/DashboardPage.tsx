@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Activity, AlertCircle, CheckCircle2, Clock3, RefreshCw, ShieldCheck, Users } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { StatusPill } from "../components/StatusPill";
-import { adminAuthService } from "../services/auth/adminAuthService";
+import { adminAuthService, isStagingTestAdminMode } from "../services/auth/adminAuthService";
 import { adminApi, AdminApiError } from "../services/api/adminApi";
 
 type MemberSummaryResponse = {
@@ -102,8 +102,8 @@ export function DashboardPage() {
   return (
     <div className="dashboard-page">
       <section className="page-heading">
-        <div><div className="eyebrow"><span className="eyebrow-line" /> THE BIG PICTURE</div><h1>Overview dashboard</h1><p>Live account and eligibility information from the Sakhi development database.</p></div>
-        <div className="heading-meta"><StatusPill tone="green"><span className="status-pill__dot" /> LIVE DATABASE</StatusPill><button className="button button--primary" type="button" onClick={() => void triggerLiveSeed()} disabled={seeding || loading}>{seeding ? "Syncing…" : "Sync 8 Users & 11 Live Posts"}</button><button className="button button--secondary" type="button" onClick={requestRefresh} disabled={loading}><RefreshCw size={14} /> Refresh data</button></div>
+        <div><div className="eyebrow"><span className="eyebrow-line" /> THE BIG PICTURE</div><h1>Overview dashboard</h1><p>{isStagingTestAdminMode ? "Live account and eligibility information from the hosted Sakhi staging database." : "Live account and eligibility information from the Sakhi development database."}</p></div>
+        <div className="heading-meta">{isStagingTestAdminMode ? <StatusPill tone="green"><span className="status-pill__dot" /> STAGING DATABASE</StatusPill> : <StatusPill tone="green"><span className="status-pill__dot" /> LIVE DATABASE</StatusPill>}{!isStagingTestAdminMode && <button className="button button--primary" type="button" onClick={() => void triggerLiveSeed()} disabled={seeding || loading}>{seeding ? "Syncing data..." : "Sync 8 Users & 11 Live Posts"}</button>}<button className="button button--secondary" type="button" onClick={requestRefresh} disabled={loading}><RefreshCw size={14} /> Refresh data</button></div>
       </section>
 
       {seedNotice && <div className="member-toast" role="status" style={{ marginBottom: 16 }}><CheckCircle2 size={17} /><span>{seedNotice}</span></div>}

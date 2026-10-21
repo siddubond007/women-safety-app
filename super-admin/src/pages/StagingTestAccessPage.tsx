@@ -33,9 +33,10 @@ function formatDate(value: string | null | undefined): string {
 
 interface Props {
   onSignOut: () => void;
+  embedded?: boolean;
 }
 
-export function StagingTestAccessPage({ onSignOut }: Props) {
+export function StagingTestAccessPage({ onSignOut, embedded = false }: Props) {
   const [accounts, setAccounts] = useState<TestAccount[]>([]);
   const [selected, setSelected] = useState<TestAccount | null>(null);
   const [decision, setDecision] = useState<Decision | null>(null);
@@ -47,9 +48,9 @@ export function StagingTestAccessPage({ onSignOut }: Props) {
   const [notice, setNotice] = useState("");
 
   const load = useCallback(async () => {
-    setError("");
     try {
       const items = await adminApi<TestAccount[]>("/staging-test-admin/accounts");
+      setError("");
       setAccounts(items);
     } catch (cause) {
       if (cause instanceof AdminApiError && cause.statusCode === 401) {
@@ -63,8 +64,31 @@ export function StagingTestAccessPage({ onSignOut }: Props) {
   }, [onSignOut]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let active = true;
+
+    async function loadInitialAccounts() {
+      try {
+        const items = await adminApi<TestAccount[]>("/staging-test-admin/accounts");
+        if (!active) return;
+        setError("");
+        setAccounts(items);
+      } catch (cause) {
+        if (!active) return;
+        if (cause instanceof AdminApiError && cause.statusCode === 401) {
+          onSignOut();
+          return;
+        }
+        setError(cause instanceof Error ? cause.message : "Could not load staging accounts.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+
+    void loadInitialAccounts();
+    return () => {
+      active = false;
+    };
+  }, [onSignOut]);
 
   function beginDecision(account: TestAccount, next: Decision) {
     setSelected(account);
@@ -107,14 +131,16 @@ export function StagingTestAccessPage({ onSignOut }: Props) {
   }
 
   return (
-    <main className="staging-test-admin">
-      <header className="staging-test-admin__topbar">
-        <BrandMark />
-        <div className="staging-test-admin__top-actions">
-          <StatusPill tone="demo">STAGING / TEST ONLY</StatusPill>
-          <button type="button" className="button button--secondary" onClick={onSignOut}><LogOut size={15} /> Sign out</button>
-        </div>
-      </header>
+    <main className={embedded ? "staging-test-admin staging-test-admin--embedded" : "staging-test-admin"}>
+      {!embedded && (
+        <header className="staging-test-admin__topbar">
+          <BrandMark />
+          <div className="staging-test-admin__top-actions">
+            <StatusPill tone="demo">STAGING / TEST ONLY</StatusPill>
+            <button type="button" className="button button--secondary" onClick={onSignOut}><LogOut size={15} /> Sign out</button>
+          </div>
+        </header>
+      )}
 
       <section className="staging-test-admin__content">
         <div className="page-heading">

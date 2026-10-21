@@ -5,13 +5,14 @@ const API_BASE_URL = (
 ).replace(/\/+$/, "");
 
 let stagingSessionToken: string | null = null;
+let stagingSessionMode: "staging_full_admin" | "staging_test_access_only" | null = null;
 
 export const isStagingTestAdminMode = STAGING_TEST_ADMIN_MODE;
 
 export interface AdminSession {
   authenticated: true;
   reviewerLabel: string;
-  mode: "local_dev_test_only" | "staging_test_access_only";
+  mode: "local_dev_test_only" | "staging_test_access_only" | "staging_full_admin";
   message?: string;
   sessionToken?: string;
   sessionExpiresAt?: string;
@@ -63,11 +64,16 @@ async function requestSession(token?: string): Promise<AdminSession> {
     // master reviewer token is not retained in memory after the login call
     // and is never written to browser storage or injected into the static site.
     stagingSessionToken = data.sessionToken;
+    stagingSessionMode =
+      data.mode === "staging_full_admin" ? "staging_full_admin" : "staging_test_access_only";
   }
   return data as AdminSession;
 }
 
 export const adminAuthService = {
+  isFullStagingAdminSession(): boolean {
+    return STAGING_TEST_ADMIN_MODE && stagingSessionMode === "staging_full_admin";
+  },
   hasActiveSession(): boolean {
     return STAGING_TEST_ADMIN_MODE
       ? Boolean(stagingSessionToken)
@@ -98,11 +104,14 @@ export const adminAuthService = {
       });
       const data = (await response.json().catch(() => ({}))) as {
         message?: string | string[];
+        mode?: string;
       };
       if (!response.ok) {
         const message = Array.isArray(data.message) ? data.message.join(" ") : data.message;
         throw new Error(message || "The staging reviewer session is no longer valid.");
       }
+      stagingSessionMode =
+        data.mode === "staging_full_admin" ? "staging_full_admin" : "staging_test_access_only";
       return data as AdminSession;
     }
 
@@ -133,6 +142,7 @@ export const adminAuthService = {
   signOut(): void {
     if (STAGING_TEST_ADMIN_MODE) {
       stagingSessionToken = null;
+      stagingSessionMode = null;
     } else {
       sessionStorage.removeItem(LOCAL_TOKEN_KEY);
     }

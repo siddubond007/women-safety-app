@@ -10,6 +10,9 @@ const ENV_KEYS = [
   "SAKHI_STAGING_TEST_ADMIN_ENABLED",
   "SAKHI_STAGING_TEST_ADMIN_TOKEN",
   "SAKHI_STAGING_TEST_ADMIN_REVIEWER_LABEL",
+  "SAKHI_STAGING_FULL_ADMIN_ENABLED",
+  "SAKHI_STAGING_FULL_ADMIN_TOKEN",
+  "SAKHI_STAGING_FULL_ADMIN_REVIEWER_LABEL",
   "SAKHI_ADMIN_CORS_ORIGIN",
 ] as const;
 
@@ -50,6 +53,9 @@ describe("StagingTestAdminService", () => {
     process.env.SAKHI_STAGING_TEST_ADMIN_ENABLED = "true";
     process.env.SAKHI_STAGING_TEST_ADMIN_TOKEN = "test-only-secret-token-that-is-over-32-chars";
     process.env.SAKHI_STAGING_TEST_ADMIN_REVIEWER_LABEL = "Friend Testing Reviewer";
+    process.env.SAKHI_STAGING_FULL_ADMIN_ENABLED = "true";
+    process.env.SAKHI_STAGING_FULL_ADMIN_TOKEN = "full-staging-admin-secret-token-is-over-32-chars";
+    process.env.SAKHI_STAGING_FULL_ADMIN_REVIEWER_LABEL = "Staging Super Admin";
     process.env.SAKHI_ADMIN_CORS_ORIGIN = "https://sakhi-staging-admin.onrender.com";
   });
 
@@ -70,6 +76,25 @@ describe("StagingTestAdminService", () => {
       reviewerLabel: "Friend Testing Reviewer",
       mode: "staging_test_access_only",
     });
+  });
+
+  it("issues a separate full-admin session while rejecting test-only sessions for privileged routes", () => {
+    const { service } = makeService();
+    const fullToken = "full-staging-admin-secret-token-is-over-32-chars";
+    expect(service.session(fullToken)).toMatchObject({
+      authenticated: true,
+      reviewerLabel: "Staging Super Admin",
+      mode: "staging_full_admin",
+    });
+    const fullSession = service.createSessionToken(fullToken);
+    expect(service.sessionFromToken(fullSession.value)).toMatchObject({
+      authenticated: true,
+      reviewerLabel: "Staging Super Admin",
+      mode: "staging_full_admin",
+    });
+    expect(StagingTestAdminService.assertFullAdminSessionToken(fullSession.value)).toBe("Staging Super Admin");
+    const testSession = service.createSessionToken("test-only-secret-token-that-is-over-32-chars");
+    expect(() => StagingTestAdminService.assertFullAdminSessionToken(testSession.value)).toThrow(/full staging-admin access/i);
   });
 
   it("issues an expiring signed session token instead of using the reviewer secret as a session credential", () => {

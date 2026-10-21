@@ -16,7 +16,9 @@ function AppRoutes() {
   const [checkingSession, setCheckingSession] = useState(
     () => Boolean(adminAuthService.getToken()),
   );
-  const landingPath = isStagingTestAdminMode ? "/test-access" : "/dashboard";
+  const canAccessFullWorkspace =
+    !isStagingTestAdminMode || adminAuthService.isFullStagingAdminSession();
+  const landingPath = canAccessFullWorkspace ? "/dashboard" : "/test-access";
 
   useEffect(() => {
     const token = adminAuthService.getToken();
@@ -58,31 +60,28 @@ function AppRoutes() {
         }
       />
       <Route path="/" element={<Navigate to={landingPath} replace />} />
-      {isStagingTestAdminMode ? (
-        <Route
-          path="/test-access"
-          element={
-            isSignedIn ? <StagingTestAccessPage onSignOut={endSession} /> : <Navigate to="/login" replace />
-          }
-        />
-      ) : (
-        <Route
-          element={
-            isSignedIn ? <AdminLayout onSignOut={endSession} /> : <Navigate to="/login" replace />
-          }
-        >
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/members" element={<MemberManagementPage />} />
-          <Route path="/verification" element={<EligibilityReviewPage />} />
-          <Route path="/verifications" element={<EligibilityReviewPage />} />
-          <Route path="/community" element={<CommunityManagementPage />} />
-          <Route path="/moderation" element={<ModerationPage section="moderation" />} />
-          <Route path="/emergency" element={<ModerationPage section="emergency" />} />
-          <Route path="/audit-security" element={<ModerationPage section="audit" />} />
-          <Route path="/integrations" element={<ModerationPage section="integrations" />} />
-          <Route path="*" element={<PlannedPage />} />
-        </Route>
-      )}
+      <Route
+        element={
+          isSignedIn ? <AdminLayout onSignOut={endSession} /> : <Navigate to="/login" replace />
+        }
+      >
+        {isStagingTestAdminMode && (
+          <Route
+            path="/test-access"
+            element={<StagingTestAccessPage onSignOut={endSession} embedded />}
+          />
+        )}
+        <Route path="/dashboard" element={canAccessFullWorkspace ? <DashboardPage /> : <Navigate to="/test-access" replace />} />
+        <Route path="/members" element={canAccessFullWorkspace ? <MemberManagementPage /> : <Navigate to="/test-access" replace />} />
+        <Route path="/verification" element={canAccessFullWorkspace ? <EligibilityReviewPage /> : <Navigate to="/test-access" replace />} />
+        <Route path="/verifications" element={canAccessFullWorkspace ? <EligibilityReviewPage /> : <Navigate to="/test-access" replace />} />
+        <Route path="/community" element={canAccessFullWorkspace ? <CommunityManagementPage /> : <Navigate to="/test-access" replace />} />
+        <Route path="/moderation" element={canAccessFullWorkspace ? <ModerationPage section="moderation" /> : <Navigate to="/test-access" replace />} />
+        <Route path="/emergency" element={canAccessFullWorkspace ? <ModerationPage section="emergency" /> : <Navigate to="/test-access" replace />} />
+        <Route path="/audit-security" element={canAccessFullWorkspace ? <ModerationPage section="audit" /> : <Navigate to="/test-access" replace />} />
+        <Route path="/integrations" element={canAccessFullWorkspace ? <ModerationPage section="integrations" /> : <Navigate to="/test-access" replace />} />
+        <Route path="*" element={canAccessFullWorkspace ? <PlannedPage /> : <Navigate to="/test-access" replace />} />
+      </Route>
       <Route path="*" element={<Navigate to={landingPath} replace />} />
     </Routes>
   );
