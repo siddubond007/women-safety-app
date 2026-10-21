@@ -51,6 +51,14 @@ export class AuthenticationService {
       .filter(Boolean);
   }
 
+  private isStagingTestPhoneAllowed(phoneE164: string): boolean {
+    const allowlist = this.stagingTestPhoneAllowlist();
+    return (
+      allowlist.includes(phoneE164) ||
+      (allowlist.includes("+91*") && /^\+91[6-9]\d{9}$/.test(phoneE164))
+    );
+  }
+
   private isStagingTestModeEnabled(): boolean {
     const allowlist = this.stagingTestPhoneAllowlist();
     const code = String(process.env.SAKHI_STAGING_TEST_OTP_CODE ?? "");
@@ -93,11 +101,7 @@ export class AuthenticationService {
     phoneE164: string,
     mode: "development" | "staging_test",
   ): void {
-    const allowlist = this.stagingTestPhoneAllowlist();
-    const phoneAllowed =
-      allowlist.includes(phoneE164) ||
-      (allowlist.includes("+91*") && /^\+91[6-9]\d{9}$/.test(phoneE164));
-    if (mode === "staging_test" && !phoneAllowed) {
+    if (mode === "staging_test" && !this.isStagingTestPhoneAllowed(phoneE164)) {
       throw new UnauthorizedException(
         "This phone number is not enabled for Sakhi staging test access.",
       );
@@ -601,7 +605,7 @@ export class AuthenticationService {
       configuredAge === "13";
     const stagingTestMode =
       this.isStagingTestModeEnabled() &&
-      this.stagingTestPhoneAllowlist().includes(session.account.phoneE164);
+      this.isStagingTestPhoneAllowed(session.account.phoneE164);
     if (!localDevelopmentMode && !stagingTestMode) {
       throw new ServiceUnavailableException(
         "The registration test policy is not configured for this environment. No profile was saved.",
@@ -813,7 +817,7 @@ export class AuthenticationService {
         : null,
       testAccess:
         this.isStagingTestModeEnabled() &&
-        this.stagingTestPhoneAllowlist().includes(session.account.phoneE164),
+        this.isStagingTestPhoneAllowed(session.account.phoneE164),
       isDemo: true,
     };
   }

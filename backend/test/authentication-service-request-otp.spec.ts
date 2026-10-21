@@ -64,6 +64,9 @@ function createService(account: { id: string; status?: string } | null) {
     authSession: {
       findUnique: vi.fn(),
     },
+    memberProfile: {
+      findUnique: vi.fn(),
+    },
     $transaction: vi.fn(
       async (callback: (transaction: typeof tx) => Promise<unknown>) =>
         callback(tx),
@@ -266,5 +269,72 @@ describe("AuthenticationService.requestOtp account checks", () => {
         purpose: "registration",
       }),
     ).rejects.toThrow(/not enabled for Sakhi staging test access/);
+  });
+
+  it("allows wildcard-accepted staging phones to create profiles and restore test access", async () => {
+    process.env.SAKHI_ENV = "staging";
+    process.env.NODE_ENV = "production";
+    process.env.SAKHI_OTP_MODE = "staging_test";
+    process.env.HOST = "0.0.0.0";
+    process.env.SAKHI_PREVIEW_MINIMUM_AGE_YEARS = "";
+    process.env.SAKHI_STAGING_TEST_PHONE_ALLOWLIST = "+91*";
+    process.env.SAKHI_STAGING_TEST_OTP_CODE = "314159";
+    process.env.SAKHI_STAGING_TEST_MINIMUM_AGE_YEARS = "18";
+
+    const phoneE164 = "+919123456789";
+    const authorization = "Bearer " + "x".repeat(32);
+    const account = {
+      id: "staging-account",
+      status: "PENDING_VERIFICATION",
+      verificationStatus: "UNVERIFIED",
+      phoneE164,
+    };
+    const { service, tx, prisma } = createService({
+      id: "staging-account",
+      status: "PENDING_VERIFICATION",
+    });
+    prisma.authSession.findUnique.mockResolvedValue({
+      id: "staging-session",
+      accountId: "staging-account",
+      revokedAt: null,
+      expiresAt: new Date(Date.now() + 60_000),
+      account,
+    });
+    tx.policyDocumentVersion.findFirst.mockImplementation(
+      async (args: { where: { documentType: string } }) => ({
+        id: args.where.documentType === "TERMS" ? "terms-id" : "privacy-id",
+      }),
+    );
+    tx.memberProfile.create.mockResolvedValue({
+      accountId: "staging-account",
+      displayName: "Sadhana",
+      dateOfBirth: new Date("2001-10-11T00:00:00.000Z"),
+      email: null,
+    });
+
+    const result = await service.createProfile(authorization, {
+      displayName: "Sadhana",
+      dateOfBirth: "2001-10-11",
+      termsVersion: "draft",
+      privacyVersion: "draft",
+      acceptedAt: new Date().toISOString(),
+      optionalUpdatesAccepted: false,
+    });
+
+    expect(result).toMatchObject({
+      accountState: "existingAccount",
+      testAccess: true,
+    });
+    expect(tx.memberProfile.create).toHaveBeenCalledOnce();
+    expect(tx.memberConsent.create).toHaveBeenCalledOnce();
+
+    prisma.memberProfile.findUnique.mockResolvedValue({
+      displayName: "Sadhana",
+      dateOfBirth: new Date("2001-10-11T00:00:00.000Z"),
+      email: null,
+    });
+    const restored = await service.getCurrentAccount(authorization);
+    expect(restored.testAccess).toBe(true);
+    expect(restored.profile).toMatchObject({ displayName: "Sadhana" });
   });
 });
