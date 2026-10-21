@@ -764,7 +764,9 @@ export class Module2Service {
         })
       : 0;
 
-    const isViewerVerified = session.account.verificationStatus === "VERIFIED";
+    const isViewerVerified =
+      session.account.verificationStatus === "VERIFIED" ||
+      session.testAccessApproved === true;
     const followedDirectoryIds = new Set(
       userFollows
         .filter((follow) => follow.isFollowing)
@@ -1932,8 +1934,9 @@ export class Module2Service {
 
     if (!isOwner) {
       if (
-        session.account.status !== "ACTIVE" ||
-        session.account.verificationStatus !== "VERIFIED"
+        session.testAccessApproved !== true &&
+        (session.account.status !== "ACTIVE" ||
+          session.account.verificationStatus !== "VERIFIED")
       ) {
         throw new ForbiddenException(
           "Verified active membership is required to view this media.",

@@ -78,6 +78,30 @@ export class AuthenticationService {
     );
   }
 
+  private isStagingTestApprovalFeatureEnabled(): boolean {
+    return (
+      this.isStagingTestModeEnabled() &&
+      process.env.SAKHI_STAGING_TEST_ADMIN_ENABLED === "true" &&
+      (process.env.SAKHI_STAGING_TEST_ADMIN_TOKEN?.trim().length ?? 0) >= 32
+    );
+  }
+
+  async hasActiveStagingTestApproval(accountId: string): Promise<boolean> {
+    if (!this.isStagingTestApprovalFeatureEnabled()) return false;
+    const latest = await this.prisma.auditEvent.findFirst({
+      where: {
+        targetType: "member_account",
+        targetId: accountId,
+        action: {
+          in: ["staging.test_access.approved", "staging.test_access.revoked"],
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { action: true },
+    });
+    return latest?.action === "staging.test_access.approved";
+  }
+
   private assertOtpModeEnabled(): "development" | "staging_test" {
     const localEnvironment =
       process.env.SAKHI_ENV === "dev" || process.env.SAKHI_ENV === "test";
@@ -590,7 +614,10 @@ export class AuthenticationService {
         "Your session is expired or unavailable. Sign in again.",
       );
     }
-    return session;
+    const testAccessApproved = await this.hasActiveStagingTestApproval(
+      session.accountId,
+    );
+    return { ...session, testAccessApproved };
   }
 
   async createProfile(
@@ -818,6 +845,7 @@ export class AuthenticationService {
       testAccess:
         this.isStagingTestModeEnabled() &&
         this.isStagingTestPhoneAllowed(session.account.phoneE164),
+      testAccessApproved: session.testAccessApproved === true,
       isDemo: true,
     };
   }

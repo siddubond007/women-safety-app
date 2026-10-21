@@ -7,6 +7,7 @@ import { validateRuntimeEnvironment } from "./config/database-target.js";
 import { AuthModule } from "./auth/auth.module.js";
 import { EligibilityModule } from "./eligibility/eligibility.module.js";
 import { AdminReviewModule } from "./admin-review/admin-review.module.js";
+import { StagingTestAdminModule } from "./staging-test-admin/staging-test-admin.module.js";
 import { Module2Module } from "./module2/module2.module.js";
 import { PrismaModule } from "./database/prisma.module.js";
 import { HealthController } from "./health/health.controller.js";
@@ -28,7 +29,12 @@ import { HealthService } from "./health/health.service.js";
             "req.headers.cookie",
             'req.headers["x-api-key"]',
             'req.headers["x-auth-token"]',
+            'req.headers["x-sakhi-staging-test-admin-token"]',
+            'req.headers["x-sakhi-staging-admin-session"]',
+            'req.headers["x-sakhi-admin-token"]',
+            'req.headers["x-sakhi-admin-review-token"]',
             "req.body.password",
+            "req.body.token",
             "req.body.otp",
             "req.body.code",
             "req.body.phone",
@@ -67,6 +73,7 @@ import { HealthService } from "./health/health.service.js";
     AuthModule,
     EligibilityModule,
     AdminReviewModule,
+    StagingTestAdminModule,
     Module2Module,
   ],
   controllers: [HealthController],

@@ -74,3 +74,17 @@ The queue contains explicit `EligibilitySubmission` records, not every profile w
 This stage does not collect, upload, store or display selfie/identity evidence. Review decisions may be recorded only after a reviewer follows the separately approved evidence procedure configured for this deployment. Never infer eligibility from a face, name or profile fields alone. Selfie capture/upload, private evidence storage, retention/deletion enforcement and appeal/resubmission remain outside this stage and must be designed and approved before identity evidence is collected in Sakhi.
 
 The shared `SAKHI_ADMIN_REVIEW_TOKEN` and configured `SAKHI_ADMIN_REVIEWER_LABEL` identify a local reviewer session only; the label is not a unique or independently authenticated person. Production authentication, MFA, identity-bound reviewer accounts and production deployment remain out of scope. Source changes do not execute database migrations.
+
+
+## Hosted staging test-access portal
+
+When deployed from the root Render Blueprint with `VITE_ADMIN_MODE=staging-test`, the static site provides a dedicated staging test-access page. It talks to the configured HTTPS staging API, not a localhost backend.
+
+- Use the **separate** `SAKHI_STAGING_TEST_ADMIN_TOKEN` generated and stored in the Render API service's protected environment. Enter it once in the portal's password field after deployment. The API exchanges it for an eight-hour signed session token held in JavaScript memory only; a page refresh signs the reviewer out.
+- Never put this token in `VITE_*` variables, source code, HTML, an APK, local/session storage, or a committed file. Browser configuration is public. Login and admin API requests are restricted to the configured exact HTTPS origin.
+- The portal only grants/revokes staging test access. Each action adds an audit event; the member's real `status`, `verificationStatus`, and phone-verification fields are unchanged.
+- The mobile API honors the latest test-access audit marker only when hosted staging test mode, the explicit feature flag, and the separate server-side token are configured. Revocation removes access on the next authenticated API request.
+- Test access is not identity verification and does not establish phone ownership or eligibility. The app must continue to show the real eligibility status as unverified.
+- The hosted reviewer token is separate from the local-only `ADMIN2026TEST` token; the latter is rejected by the hosted staging reviewer endpoints.
+
+Deploy the root `render.yaml` Blueprint changes to create the static site `sakhi-staging-admin` and set the staging API CORS origin. After Blueprint sync, confirm both services are live, then open the static site's assigned HTTPS URL. Do not enable the local `/admin-review` routes in production.

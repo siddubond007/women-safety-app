@@ -1,4 +1,4 @@
-import { adminAuthService } from "../auth/adminAuthService";
+import { adminAuthService, isStagingTestAdminMode } from "../auth/adminAuthService";
 
 export const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3001/api/v1"
@@ -17,7 +17,9 @@ export async function adminApi<T>(
 ): Promise<T> {
   const token = adminAuthService.getToken();
   const headers: Record<string, string> = { Accept: "application/json" };
-  if (token) {
+  if (isStagingTestAdminMode && token) {
+    headers["X-Sakhi-Staging-Admin-Session"] = token;
+  } else if (!isStagingTestAdminMode && token) {
     headers["X-Sakhi-Admin-Token"] = token;
     headers["x-sakhi-admin-review-token"] = token;
   }
@@ -26,6 +28,7 @@ export async function adminApi<T>(
     method: options.method ?? "GET",
     headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    credentials: "omit",
     cache: "no-store",
   });
   const data = (await response.json().catch(() => ({}))) as { message?: string | string[] };

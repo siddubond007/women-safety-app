@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { adminAuthService } from "./services/auth/adminAuthService";
+import { adminAuthService, isStagingTestAdminMode } from "./services/auth/adminAuthService";
 import { AdminLayout } from "./layouts/AdminLayout";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
@@ -9,16 +9,20 @@ import { MemberManagementPage } from "./pages/MemberManagementPage";
 import { EligibilityReviewPage } from "./pages/EligibilityReviewPage";
 import { CommunityManagementPage } from "./pages/CommunityManagementPage";
 import { ModerationPage } from "./pages/ModerationPage";
+import { StagingTestAccessPage } from "./pages/StagingTestAccessPage";
 
 function AppRoutes() {
   const [isSignedIn, setIsSignedIn] = useState(() => adminAuthService.hasActiveSession());
-  const [checkingSession, setCheckingSession] = useState(() => Boolean(adminAuthService.getToken()));
+  const [checkingSession, setCheckingSession] = useState(
+    () => Boolean(adminAuthService.getToken()),
+  );
+  const landingPath = isStagingTestAdminMode ? "/test-access" : "/dashboard";
 
   useEffect(() => {
     const token = adminAuthService.getToken();
     if (!token) return;
     adminAuthService
-      .validateToken(token)
+      .validateExistingSession()
       .then(() => setIsSignedIn(true))
       .catch(() => {
         adminAuthService.signOut();
@@ -40,7 +44,7 @@ function AppRoutes() {
   if (checkingSession) {
     return (
       <main className="admin-session-check" role="status">
-        Checking local reviewer session...
+        Checking reviewer session...
       </main>
     );
   }
@@ -50,26 +54,36 @@ function AppRoutes() {
       <Route
         path="/login"
         element={
-          isSignedIn ? <Navigate to="/dashboard" replace /> : <LoginPage onAuthenticate={enterAdmin} />
+          isSignedIn ? <Navigate to={landingPath} replace /> : <LoginPage onAuthenticate={enterAdmin} />
         }
       />
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
-      <Route
-        element={
-          isSignedIn ? <AdminLayout onSignOut={endSession} /> : <Navigate to="/login" replace />
-        }
-      >
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/members" element={<MemberManagementPage />} />
-        <Route path="/verification" element={<EligibilityReviewPage />} />
-        <Route path="/verifications" element={<EligibilityReviewPage />} />
-        <Route path="/community" element={<CommunityManagementPage />} />
-        <Route path="/moderation" element={<ModerationPage section="moderation" />} />
-        <Route path="/emergency" element={<ModerationPage section="emergency" />} />
-        <Route path="/audit-security" element={<ModerationPage section="audit" />} />
-        <Route path="/integrations" element={<ModerationPage section="integrations" />} />
-        <Route path="*" element={<PlannedPage />} />
-      </Route>
+      <Route path="/" element={<Navigate to={landingPath} replace />} />
+      {isStagingTestAdminMode ? (
+        <Route
+          path="/test-access"
+          element={
+            isSignedIn ? <StagingTestAccessPage onSignOut={endSession} /> : <Navigate to="/login" replace />
+          }
+        />
+      ) : (
+        <Route
+          element={
+            isSignedIn ? <AdminLayout onSignOut={endSession} /> : <Navigate to="/login" replace />
+          }
+        >
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/members" element={<MemberManagementPage />} />
+          <Route path="/verification" element={<EligibilityReviewPage />} />
+          <Route path="/verifications" element={<EligibilityReviewPage />} />
+          <Route path="/community" element={<CommunityManagementPage />} />
+          <Route path="/moderation" element={<ModerationPage section="moderation" />} />
+          <Route path="/emergency" element={<ModerationPage section="emergency" />} />
+          <Route path="/audit-security" element={<ModerationPage section="audit" />} />
+          <Route path="/integrations" element={<ModerationPage section="integrations" />} />
+          <Route path="*" element={<PlannedPage />} />
+        </Route>
+      )}
+      <Route path="*" element={<Navigate to={landingPath} replace />} />
     </Routes>
   );
 }
