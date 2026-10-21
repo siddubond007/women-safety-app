@@ -1,7 +1,12 @@
 param(
   [ValidateSet('dev', 'test', 'staging')]
-  [string]$Environment = 'dev'
+  [string]$Environment = 'dev',
+  [switch]$GrantsOnly
 )
+
+if ($GrantsOnly -and $Environment -ne 'staging') {
+  throw '-GrantsOnly is permitted only with -Environment staging.'
+}
 
 $ErrorActionPreference = 'Stop'
 $backendRoot = Split-Path -Parent $PSScriptRoot
@@ -20,8 +25,10 @@ try {
         throw 'Enter the actual staging migration password (at least 32 characters), not a template placeholder.'
       }
       $encodedPassword = [System.Uri]::EscapeDataString($rawPassword)
+      $caCertificatePath = (Resolve-Path -LiteralPath (Join-Path $backendRoot 'prod-ca-2021.crt')).Path
+      $encodedCaCertificatePath = [System.Uri]::EscapeDataString($caCertificatePath)
       $env:SAKHI_ENV = 'staging'
-      $env:SAKHI_MIGRATOR_DATABASE_URL = "postgresql://$($poolerUser):$encodedPassword@$($poolerHost):5432/postgres?schema=public&sslmode=require"
+      $env:SAKHI_MIGRATOR_DATABASE_URL = "postgresql://$($poolerUser):$encodedPassword@$($poolerHost):5432/postgres?schema=public&sslmode=verify-full&sslcert=$encodedCaCertificatePath"
     } finally {
       [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
       $securePassword.Dispose()
@@ -39,16 +46,25 @@ try {
     . (Join-Path $PSScriptRoot 'Load-LocalDbEnvironment.ps1') -Environment $Environment -Purpose Migrator
   }
 
-  & npm.cmd run db:migrate:deploy
-  if ($LASTEXITCODE -ne 0) {
-    throw ('Migration deploy failed with code ' + $LASTEXITCODE + '. No reset or drop command is run by this wrapper.')
+  if (-not $GrantsOnly) {
+    & npm.cmd run db:migrate:deploy
+    if ($LASTEXITCODE -ne 0) {
+      throw ('Migration deploy failed with code ' + $LASTEXITCODE + '. No reset or drop command is run by this wrapper.')
+    }
+  } else {
+    Write-Host 'Grants-only mode: migration deploy is intentionally skipped.'
   }
 
   if ($Environment -eq 'staging') {
     # New migrations may create objects; reapply only the explicit runtime grants.
     & .\node_modules\.bin\prisma.cmd db execute --file .\prisma\staging\runtime-grants.sql
     if ($LASTEXITCODE -ne 0) {
-      throw 'Staging migrations completed but runtime grants failed. Do not deploy/restart the app until grants are repaired.'
+      throw 'Staging runtime grants failed. Do not start or restart the app until grants are repaired.'
+    }
+
+    & .\node_modules\.bin\prisma.cmd migrate status
+    if ($LASTEXITCODE -ne 0) {
+      throw 'Staging migration status verification failed after applying runtime grants.'
     }
   }
 } finally {

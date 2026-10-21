@@ -72,6 +72,16 @@ export function assertSakhiDatabaseTarget(
   const decodedPassword = decodeURIComponent(parsed.password);
   const commonCredentialsValid = !isPlaceholderPassword(decodedPassword);
   const schemaMatches = parsed.searchParams.get("schema") === "public";
+  const stagingTlsCertificateMatches =
+    purpose === "migrator"
+      ? (parsed.searchParams.get("sslcert") ?? "")
+          .replace(/\\/g, "/")
+          .endsWith("/prod-ca-2021.crt") ||
+        parsed.searchParams.get("sslcert") === "prod-ca-2021.crt"
+      : (parsed.searchParams.get("sslrootcert") ?? "")
+          .replace(/\\/g, "/")
+          .endsWith("/prod-ca-2021.crt") ||
+        parsed.searchParams.get("sslrootcert") === "prod-ca-2021.crt";
 
   if (environment === "staging") {
     // Staging is allowed to reach exactly the dedicated Supabase project
@@ -85,7 +95,8 @@ export function assertSakhiDatabaseTarget(
       !commonCredentialsValid ||
       decodedPassword.length < 32 ||
       !schemaMatches ||
-      parsed.searchParams.get("sslmode") !== "require"
+      parsed.searchParams.get("sslmode") !== "verify-full" ||
+      !stagingTlsCertificateMatches
     ) {
       throw new Error(
         "Staging database target rejected. Use only the configured Sakhi Supabase session pooler, staging role, postgres database, TLS, and public schema.",
@@ -154,21 +165,68 @@ export function validateRuntimeEnvironment(
   }
 
   const otpMode = String(config.SAKHI_OTP_MODE ?? "disabled");
-  if (![ "disabled", "development" ].includes(otpMode)) {
-    throw new Error('SAKHI_OTP_MODE must be "disabled" or "development".');
-  }
-  if (environment === "staging" && otpMode !== "disabled") {
+  if (!["disabled", "development", "staging_test"].includes(otpMode)) {
     throw new Error(
-      "Staging must keep OTP disabled until a real delivery provider is configured.",
+      'SAKHI_OTP_MODE must be "disabled", "development", or "staging_test".',
     );
   }
-  if (
-    otpMode === "development" &&
-    (nodeEnvironment === "production" || host !== "127.0.0.1")
-  ) {
-    throw new Error(
-      "Development OTP echo is permitted only on the local loopback listener.",
-    );
+
+  const stagingTestPhoneAllowlist = String(
+    config.SAKHI_STAGING_TEST_PHONE_ALLOWLIST ?? "",
+  )
+    .split(",")
+    .map((phone) => phone.trim())
+    .filter(Boolean);
+  const stagingTestOtpCode = String(config.SAKHI_STAGING_TEST_OTP_CODE ?? "");
+  const stagingTestMinimumAgeYears = String(
+    config.SAKHI_STAGING_TEST_MINIMUM_AGE_YEARS ?? "",
+  );
+
+  if (otpMode === "staging_test") {
+    if (
+      environment !== "staging" ||
+      nodeEnvironment !== "production" ||
+      host !== "0.0.0.0"
+    ) {
+      throw new Error(
+        "Staging test login is allowed only on the explicitly configured staging service.",
+      );
+    }
+    if (
+      stagingTestPhoneAllowlist.length === 0 ||
+      stagingTestPhoneAllowlist.some((phone) => !/^\+[1-9]\d{7,14}$/.test(phone)) ||
+      new Set(stagingTestPhoneAllowlist).size !== stagingTestPhoneAllowlist.length
+    ) {
+      throw new Error(
+        "Staging test login requires a non-empty, unique E.164 phone-number allowlist.",
+      );
+    }
+    if (!/^\d{6}$/.test(stagingTestOtpCode)) {
+      throw new Error(
+        "Staging test login requires a six-digit shared code in the protected environment settings.",
+      );
+    }
+    if (stagingTestMinimumAgeYears !== "18") {
+      throw new Error(
+        "Staging test login requires the temporary minimum age to be explicitly set to 18.",
+      );
+    }
+  } else {
+    if (environment === "staging" && otpMode !== "disabled") {
+      throw new Error(
+        "Staging must keep OTP disabled unless the explicit staging_test mode is configured.",
+      );
+    }
+    if (
+      otpMode === "development" &&
+      (nodeEnvironment === "production" ||
+        (environment !== "dev" && environment !== "test") ||
+        host !== "127.0.0.1")
+    ) {
+      throw new Error(
+        "Development OTP echo is permitted only on a local loopback listener in dev/test.",
+      );
+    }
   }
 
   const previewMinimumAgeYears = String(

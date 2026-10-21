@@ -76,9 +76,12 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
             builder: (_) => SakhiAuthStatusScreen(
               authService: widget.authService,
               accountState: result.accountState,
-              statusMessage: result.message != null &&
-                      result.message!
-                          .startsWith('Profile saved. The optional photo')
+              statusMessage: SakhiAuthPolicy.isStagingTestBuild
+                  ? result.message
+                  : result.message != null &&
+                        result.message!.startsWith(
+                          'Profile saved. The optional photo',
+                        )
                   ? result.message
                   : null,
             ),
@@ -102,8 +105,7 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
       if (!mounted) return;
       setState(() {
         _isSuccess = false;
-        _statusMessage =
-            'The account request could not be completed. No success was confirmed; please try again.';
+        _statusMessage = 'The account request could not be completed. No success was confirmed; please try again.';
       });
     } finally {
       if (mounted) setState(() => _isCreatingAccount = false);
@@ -171,13 +173,11 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
           const SizedBox(height: SakhiSpacing.md),
           if (_agePolicyMissing)
             const SakhiAuthStatusMessage(
-              message:
-                  'Production registration is blocked because the approved minimum age is not configured. The temporary age-13 rule is available only in debug preview builds.',
+              message: 'Production registration is blocked because the approved minimum age is not configured. The temporary age-13 rule is available only in debug preview builds.',
             )
           else if (SakhiAuthPolicy.usesProvisionalPreviewPolicy)
             const SakhiAuthStatusMessage(
-              message:
-                  'DEVELOPMENT PREVIEW — minimum age 13 is a temporary testing rule, not an approved production policy. Legal documents below are drafts.',
+              message: 'DEVELOPMENT PREVIEW — minimum age 13 is a temporary testing rule, not an approved production policy. Legal documents below are drafts.',
             ),
           if (_agePolicyMissing || SakhiAuthPolicy.usesProvisionalPreviewPolicy)
             const SizedBox(height: SakhiSpacing.sm),
@@ -231,13 +231,11 @@ class _SakhiConsentScreenState extends State<SakhiConsentScreen> {
           const SizedBox(height: SakhiSpacing.sm),
           if (_agePolicyMissing)
             const SakhiAuthStatusMessage(
-              message:
-                  'Account creation is disabled: the business/legal team has not supplied the minimum registration age yet. No age threshold has been assumed.',
+              message: 'Account creation is disabled: the business/legal team has not supplied the minimum registration age yet. No age threshold has been assumed.',
             )
           else if (!_ageEligible)
             const SakhiAuthStatusMessage(
-              message:
-                  'The selected date of birth does not meet the configured minimum registration age.',
+              message: 'The selected date of birth does not meet the configured minimum registration age.',
             ),
           if (_statusMessage != null) ...[
             const SizedBox(height: SakhiSpacing.sm),

@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: sakhi-staging-api
+    runtime: node
+    plan: free
+    region: singapore
+    rootDir: backend
+    buildCommand: SAKHI_ENV=dev npm ci --include=dev && SAKHI_ENV=dev npm run build
+    startCommand: npm start
+    healthCheckPath: /api/v1/health/ready
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SAKHI_ENV
+        value: staging
+      - key: HOST
+        value: 0.0.0.0
+      - key: LOG_LEVEL
+        value: info
+      - key: SAKHI_OTP_MODE
+        value: staging_test
+      - key: SAKHI_STAGING_TEST_MINIMUM_AGE_YEARS
+        value: "18"
+      - key: SAKHI_APP_DATABASE_URL
+        sync: false
+      - key: SAKHI_STAGING_TEST_PHONE_ALLOWLIST
+        sync: false
+      - key: SAKHI_STAGING_TEST_OTP_CODE
+        sync: false

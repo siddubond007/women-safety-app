@@ -1,7 +1,8 @@
 BEGIN;
 
--- CreateSchema
-CREATE SCHEMA IF NOT EXISTS "public";
+-- Supabase creates the public schema for this database. Do not CREATE SCHEMA here:
+-- that operation requires database-level CREATE privilege, which the staging
+-- migrator intentionally does not have. The role has USAGE and CREATE on public.
 
 -- CreateEnum
 CREATE TYPE "account_status" AS ENUM ('PENDING_VERIFICATION', 'ACTIVE', 'RESTRICTED', 'SUSPENDED', 'DELETED');

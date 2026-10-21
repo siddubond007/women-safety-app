@@ -3,8 +3,8 @@ import 'dart:io';
 import 'auth_service.dart';
 import 'backend_api_client.dart';
 
-/// Real database-backed development adapter. It deliberately uses a local
-/// test OTP provider, not SMS; the backend refuses production startup.
+/// Database-backed test adapter. SMS is never sent; staging test access is
+/// restricted by a backend allowlist and never verifies phone ownership.
 class BackendAuthService implements AuthService {
   BackendAuthService({BackendApiClient? apiClient})
     : apiClient = apiClient ?? BackendApiClient();
@@ -12,7 +12,10 @@ class BackendAuthService implements AuthService {
   final BackendApiClient apiClient;
 
   @override
-  bool get isDemo => false;
+  bool get isDemo => const bool.fromEnvironment(
+    'SAKHI_STAGING_TEST_MODE',
+    defaultValue: false,
+  );
 
   @override
   bool get isDevelopmentBackend => true;
@@ -71,6 +74,7 @@ class BackendAuthService implements AuthService {
       isDemo:
           data['isDemo'] == true || data['deliveryMode'] == 'development_echo',
       developmentCode: code is String ? code : null,
+      usesSharedTestCode: data['deliveryMode'] == 'staging_test_shared_code',
     );
   }
 
@@ -86,6 +90,9 @@ class BackendAuthService implements AuthService {
     final verificationStatus = data['verificationStatus'];
     switch (status) {
       case 'ACTIVE':
+        if (data['testAccess'] == true && data['profile'] != null) {
+          return AuthAccountState.existingAccount;
+        }
         return verificationStatus == 'VERIFIED'
             ? AuthAccountState.existingAccount
             : AuthAccountState.pendingVerification;
@@ -94,6 +101,9 @@ class BackendAuthService implements AuthService {
       case 'DELETED':
         return AuthAccountState.restricted;
       case 'PENDING_VERIFICATION':
+        if (data['testAccess'] == true && data['profile'] != null) {
+          return AuthAccountState.existingAccount;
+        }
         return data['profile'] == null
             ? AuthAccountState.newAccount
             : AuthAccountState.pendingVerification;
@@ -347,7 +357,11 @@ class BackendAuthService implements AuthService {
         final fileName = profile.photoFileName ?? 'profile-photo.jpg';
         final contentType = profile.photoContentType ?? 'image/jpeg';
         if (photoBytes.length <= 10 * 1024 * 1024 &&
-            const {'image/jpeg', 'image/png', 'image/webp'}.contains(contentType)) {
+            const {
+              'image/jpeg',
+              'image/png',
+              'image/webp',
+            }.contains(contentType)) {
           try {
             final upload = await apiClient.postMultipart(
               'module2/media/binary-upload',
@@ -364,7 +378,8 @@ class BackendAuthService implements AuthService {
                 authenticated: true,
                 body: {'avatarAsset': publicUrl},
               );
-              message = 'Profile saved and photo uploaded to private Google Drive.';
+              message =
+                  'Profile saved and photo uploaded to private Google Drive.';
             } else {
               message = 'Profile saved. The optional photo upload did not complete; you can try again from Edit Profile.';
             }

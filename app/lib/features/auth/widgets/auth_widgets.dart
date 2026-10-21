@@ -165,7 +165,7 @@ class SakhiDemoBanner extends StatelessWidget {
             SizedBox(width: SakhiSpacing.xs),
             Expanded(
               child: Text(
-                'DEMO PREVIEW — no SMS is sent, no number is truly verified, and no account or session is created.',
+                'TEST / DEMO MODE — no SMS or phone/eligibility verification. Test-only access.',
                 style: TextStyle(
                   color: SakhiColors.plum,
                   fontSize: 11.5,

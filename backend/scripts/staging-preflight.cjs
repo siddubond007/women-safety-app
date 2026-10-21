@@ -1,4 +1,8 @@
+const fs = require("node:fs");
+const path = require("node:path");
 const { Client } = require("pg");
+
+const SUPABASE_ROOT_CA = path.join(__dirname, "..", "prod-ca-2021.crt");
 
 const EXPECTED_HOST = "aws-0-ap-south-1.pooler.supabase.com";
 const PROJECT_REF = "wmlpokholjfadyohdlgo";
@@ -38,12 +42,24 @@ async function main() {
     password.includes("REPLACE_WITH") ||
     password.includes("[YOUR-PASSWORD]") ||
     url.searchParams.get("schema") !== "public" ||
-    url.searchParams.get("sslmode") !== "require"
+    url.searchParams.get("sslmode") !== "verify-full" ||
+    !((url.searchParams.get("sslcert") ?? "").replace(/\\/g, "/").endsWith("/prod-ca-2021.crt") ||
+      url.searchParams.get("sslcert") === "prod-ca-2021.crt")
   ) {
     throw new Error("Staging connection target rejected; details are redacted.");
   }
 
-  const client = new Client({ connectionString: rawUrl });
+  // Use the downloaded Supabase root CA explicitly for this read-only pg check.
+  // Prisma CLI receives sslcert in the URL; remove that parameter here because
+  // pg treats sslcert as a client certificate rather than a root CA.
+  const clientUrl = new URL(rawUrl);
+  clientUrl.searchParams.delete("sslmode");
+  clientUrl.searchParams.delete("sslcert");
+  const rootCa = fs.readFileSync(SUPABASE_ROOT_CA, "utf8");
+  const client = new Client({
+    connectionString: clientUrl.toString(),
+    ssl: { ca: rootCa, rejectUnauthorized: true },
+  });
   try {
     await client.connect();
     const { rows } = await client.query(
@@ -108,9 +124,14 @@ async function main() {
   }
 }
 
-main().catch(() => {
+main().catch((error) => {
+  const code = error && typeof error.code === "string" ? error.code : "STAGING_PREFLIGHT";
+  const safeMessage = String(error && error.message ? error.message : "No safe diagnostic available.")
+    .replace(/postgres(?:ql)?:\/\/\S+/gi, "[REDACTED CONNECTION]")
+    .replace(/password[=: ]+\S+/gi, "password=[REDACTED]")
+    .slice(0, 200);
   process.stderr.write(
-    "Staging preflight failed or refused to continue. Connection details were not printed.\n",
+    "Staging preflight failed (" + code + "): " + safeMessage + "\n",
   );
   process.exitCode = 1;
 });

@@ -44,19 +44,70 @@ type AccountState =
 export class AuthenticationService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private assertDevelopmentOtpEnabled(): void {
+  private stagingTestPhoneAllowlist(): string[] {
+    return String(process.env.SAKHI_STAGING_TEST_PHONE_ALLOWLIST ?? "")
+      .split(",")
+      .map((phone) => phone.trim())
+      .filter(Boolean);
+  }
+
+  private isStagingTestModeEnabled(): boolean {
+    const allowlist = this.stagingTestPhoneAllowlist();
+    const code = String(process.env.SAKHI_STAGING_TEST_OTP_CODE ?? "");
+    return (
+      process.env.SAKHI_ENV === "staging" &&
+      process.env.NODE_ENV === "production" &&
+      (process.env.HOST ?? "0.0.0.0") === "0.0.0.0" &&
+      process.env.SAKHI_OTP_MODE === "staging_test" &&
+      /^\d{6}$/.test(code) &&
+      process.env.SAKHI_STAGING_TEST_MINIMUM_AGE_YEARS === "18" &&
+      allowlist.length > 0 &&
+      allowlist.every((phone) => /^\+[1-9]\d{7,14}$/.test(phone)) &&
+      new Set(allowlist).size === allowlist.length
+    );
+  }
+
+  private assertOtpModeEnabled(): "development" | "staging_test" {
     const localEnvironment =
       process.env.SAKHI_ENV === "dev" || process.env.SAKHI_ENV === "test";
     if (
-      process.env.NODE_ENV === "production" ||
-      !localEnvironment ||
-      process.env.SAKHI_OTP_MODE !== "development" ||
-      (process.env.HOST ?? "127.0.0.1") !== "127.0.0.1"
+      process.env.NODE_ENV !== "production" &&
+      localEnvironment &&
+      process.env.SAKHI_OTP_MODE === "development" &&
+      (process.env.HOST ?? "127.0.0.1") === "127.0.0.1"
     ) {
-      throw new ServiceUnavailableException(
-        "OTP delivery is not configured. No SMS was sent.",
+      return "development";
+    }
+    if (this.isStagingTestModeEnabled()) {
+      return "staging_test";
+    }
+    throw new ServiceUnavailableException(
+      "OTP delivery is not configured. No SMS was sent.",
+    );
+  }
+
+  private assertStagingTestPhoneAllowed(
+    phoneE164: string,
+    mode: "development" | "staging_test",
+  ): void {
+    if (
+      mode === "staging_test" &&
+      !this.stagingTestPhoneAllowlist().includes(phoneE164)
+    ) {
+      throw new UnauthorizedException(
+        "This phone number is not enabled for Sakhi staging test access.",
       );
     }
+  }
+
+  private stagingTestCode(): string {
+    const code = String(process.env.SAKHI_STAGING_TEST_OTP_CODE ?? "");
+    if (!/^\d{6}$/.test(code)) {
+      throw new ServiceUnavailableException(
+        "Staging test login is not fully configured.",
+      );
+    }
+    return code;
   }
 
   private phoneE164(countryCode: string, phoneNumber: string): string {
@@ -98,16 +149,19 @@ export class AuthenticationService {
       phoneE164: string;
       purpose: "LOGIN" | "REGISTRATION";
       accountId: string | null;
+      mode: "development" | "staging_test";
     },
   ): Promise<{
     challengeId: string;
     expiresAt: string;
     resendAvailableAt: string;
-    developmentCode: string;
+    developmentCode?: string;
   }> {
     const now = new Date();
     const id = randomUUID();
-    const code = this.newOtp();
+    const code = args.mode === "staging_test"
+      ? this.stagingTestCode()
+      : this.newOtp();
     const expiresAt = new Date(now.getTime() + OTP_TTL_MS);
     const resendAvailableAt = new Date(now.getTime() + RESEND_COOLDOWN_MS);
 
@@ -135,24 +189,28 @@ export class AuthenticationService {
         requestId: id,
         redactedMetadata: {
           purpose: args.purpose.toLowerCase(),
-          deliveryMode: "development_echo",
+          deliveryMode: args.mode === "staging_test"
+            ? "staging_test_shared_code"
+            : "development_echo",
         },
       },
     });
 
-    // This code is deliberately echoed only by the explicit local dev/test
-    // provider. This service refuses to start in production mode.
+    // The shared staging test code is never returned to the client. It is
+    // configured as a protected host environment variable and only permitted
+    // for the explicit phone-number allowlist.
     return {
       challengeId: id,
       expiresAt: expiresAt.toISOString(),
       resendAvailableAt: resendAvailableAt.toISOString(),
-      developmentCode: code,
+      ...(args.mode === "development" ? { developmentCode: code } : {}),
     };
   }
 
   async requestOtp(dto: RequestOtpDto) {
-    this.assertDevelopmentOtpEnabled();
+    const mode = this.assertOtpModeEnabled();
     const phoneE164 = this.phoneE164(dto.countryCode, dto.phoneNumber);
+    this.assertStagingTestPhoneAllowed(phoneE164, mode);
     const now = new Date();
     const windowStart = new Date(now.getTime() - OTP_WINDOW_MS);
 
@@ -193,20 +251,24 @@ export class AuthenticationService {
         phoneE164,
         purpose: dto.purpose === "login" ? "LOGIN" : "REGISTRATION",
         accountId: account?.id ?? null,
+        mode,
       });
 
       return {
         ...result,
-        deliveryMode: "development_echo" as const,
+        deliveryMode: mode === "staging_test"
+          ? ("staging_test_shared_code" as const)
+          : ("development_echo" as const),
         isDemo: true,
-        message:
-          "Development code only. No SMS was sent and the phone number has not been verified by a carrier.",
+        message: mode === "staging_test"
+          ? "Staging test access only. No SMS was sent; this shared code does not verify phone ownership or eligibility."
+          : "Development code only. No SMS was sent and the phone number has not been verified by a carrier.",
       };
     });
   }
 
   async resendOtp(challengeId: string) {
-    this.assertDevelopmentOtpEnabled();
+    const mode = this.assertOtpModeEnabled();
     const now = new Date();
 
     return this.prisma.$transaction(async (tx) => {
@@ -218,6 +280,7 @@ export class AuthenticationService {
           "This code request is no longer available. Request a new code.",
         );
       }
+      this.assertStagingTestPhoneAllowed(previous.phoneE164, mode);
       if (previous.expiresAt <= now) {
         throw new BadRequestException(
           "This code request has expired. Request a new code.",
@@ -247,12 +310,17 @@ export class AuthenticationService {
         phoneE164: previous.phoneE164,
         purpose: previous.purpose,
         accountId: previous.accountId,
+        mode,
       });
       return {
         ...result,
-        deliveryMode: "development_echo" as const,
+        deliveryMode: mode === "staging_test"
+          ? ("staging_test_shared_code" as const)
+          : ("development_echo" as const),
         isDemo: true,
-        message: "New development code generated. No SMS was sent.",
+        message: mode === "staging_test"
+          ? "Staging test access only. No SMS was sent; this shared code does not verify phone ownership or eligibility."
+          : "New development code generated. No SMS was sent.",
       };
     });
   }
@@ -271,7 +339,7 @@ export class AuthenticationService {
   }
 
   async verifyOtp(dto: VerifyOtpDto) {
-    this.assertDevelopmentOtpEnabled();
+    const mode = this.assertOtpModeEnabled();
     const now = new Date();
 
     return this.prisma.$transaction(async (tx) => {
@@ -285,6 +353,7 @@ export class AuthenticationService {
             "This code could not be verified. Request a new code and try again.",
         };
       }
+      this.assertStagingTestPhoneAllowed(challenge.phoneE164, mode);
       if (challenge.consumedAt) {
         return {
           status: "expired" as const,
@@ -401,7 +470,8 @@ export class AuthenticationService {
         const created = await tx.memberAccount.create({
           data: {
             phoneE164: challenge.phoneE164,
-            phoneVerifiedAt: now,
+            // Shared staging test codes never prove phone ownership.
+            phoneVerifiedAt: mode === "staging_test" ? null : now,
             status: "PENDING_VERIFICATION",
             verificationStatus: "UNVERIFIED",
           },
@@ -428,10 +498,12 @@ export class AuthenticationService {
         };
       }
 
-      await tx.memberAccount.update({
-        where: { id: account.id },
-        data: { phoneVerifiedAt: now },
-      });
+      if (mode !== "staging_test") {
+        await tx.memberAccount.update({
+          where: { id: account.id },
+          data: { phoneVerifiedAt: now },
+        });
+      }
 
       const token = randomBytes(32).toString("base64url");
       const expiresAt = new Date(now.getTime() + SESSION_TTL_MS);
@@ -444,20 +516,30 @@ export class AuthenticationService {
       });
 
       const state: AccountState =
-        challenge.purpose === "REGISTRATION"
-          ? "newAccount"
-          : this.accountState(account.status, account.verificationStatus);
+        mode === "staging_test"
+          ? challenge.purpose === "REGISTRATION"
+            ? "newAccount"
+            : "existingAccount"
+          : challenge.purpose === "REGISTRATION"
+            ? "newAccount"
+            : this.accountState(account.status, account.verificationStatus);
 
       await tx.auditEvent.createMany({
         data: {
           actorType: "MEMBER",
           actorId: account.id,
-          action: "auth.otp.verified",
+          action: mode === "staging_test"
+            ? "auth.staging_test_code.accepted"
+            : "auth.otp.verified",
           targetType: "member_account",
           targetId: account.id,
           outcome: "success",
           requestId: challenge.id,
-          redactedMetadata: { purpose: challenge.purpose.toLowerCase() },
+          redactedMetadata: {
+            purpose: challenge.purpose.toLowerCase(),
+            authenticationMode: mode,
+            phoneOwnershipVerified: mode !== "staging_test",
+          },
         },
       });
 
@@ -468,8 +550,9 @@ export class AuthenticationService {
         tokenType: "Bearer" as const,
         expiresAt: expiresAt.toISOString(),
         isDemo: true,
-        message:
-          "Development authentication only. This session is local test access, not production identity verification.",
+        message: mode === "staging_test"
+          ? "Staging test access only. Phone ownership and eligibility remain unverified."
+          : "Development authentication only. This session is local test access, not production identity verification.",
       };
     });
   }
@@ -508,15 +591,19 @@ export class AuthenticationService {
   ) {
     const session = await this.authenticateAuthorization(authorization);
     const configuredAge = process.env.SAKHI_PREVIEW_MINIMUM_AGE_YEARS;
-    if (
-      process.env.NODE_ENV === "production" ||
-      (process.env.SAKHI_ENV !== "dev" && process.env.SAKHI_ENV !== "test") ||
-      configuredAge !== "13"
-    ) {
+    const localDevelopmentMode =
+      process.env.NODE_ENV !== "production" &&
+      (process.env.SAKHI_ENV === "dev" || process.env.SAKHI_ENV === "test") &&
+      configuredAge === "13";
+    const stagingTestMode =
+      this.isStagingTestModeEnabled() &&
+      this.stagingTestPhoneAllowlist().includes(session.account.phoneE164);
+    if (!localDevelopmentMode && !stagingTestMode) {
       throw new ServiceUnavailableException(
-        "The development registration-age policy is not configured. No profile was saved.",
+        "The registration test policy is not configured for this environment. No profile was saved.",
       );
     }
+    const minimumAge = stagingTestMode ? 18 : 13;
 
     const dob = new Date(dto.dateOfBirth + "T00:00:00.000Z");
     const acceptedAt = new Date(dto.acceptedAt);
@@ -536,7 +623,7 @@ export class AuthenticationService {
       age--;
     }
     if (
-      age < 13 ||
+      age < minimumAge ||
       dob >
         new Date(
           Date.UTC(
@@ -547,7 +634,9 @@ export class AuthenticationService {
         )
     ) {
       throw new BadRequestException(
-        "The profile does not meet the temporary development age rule.",
+        stagingTestMode
+          ? "Staging test profiles must meet the temporary minimum age of 18."
+          : "The profile does not meet the temporary development age rule.",
       );
     }
     if (Number.isNaN(acceptedAt.getTime())) {
@@ -653,7 +742,9 @@ export class AuthenticationService {
             termsVersionId: terms.id,
             privacyVersionId: privacy.id,
             acceptedAt: new Date(),
-            source: "flutter_dev_preview",
+            source: stagingTestMode
+              ? "flutter_staging_test"
+              : "flutter_dev_preview",
           },
         });
       }
@@ -684,9 +775,13 @@ export class AuthenticationService {
       });
 
       return {
-        accountState: "pendingVerification" as const,
-        message:
-          "Profile and draft-policy acknowledgement saved in the development database. No production account or eligibility decision was created.",
+        accountState: stagingTestMode
+          ? ("existingAccount" as const)
+          : ("pendingVerification" as const),
+        testAccess: stagingTestMode,
+        message: stagingTestMode
+          ? "Staging test profile saved. This test session enables app navigation only; phone ownership and eligibility remain unverified."
+          : "Profile and draft-policy acknowledgement saved in the development database. No production account or eligibility decision was created.",
         profile: {
           displayName: profile.displayName,
           dateOfBirth: profile.dateOfBirth.toISOString().slice(0, 10),
@@ -712,6 +807,9 @@ export class AuthenticationService {
             email: profile.email,
           }
         : null,
+      testAccess:
+        this.isStagingTestModeEnabled() &&
+        this.stagingTestPhoneAllowlist().includes(session.account.phoneE164),
       isDemo: true,
     };
   }

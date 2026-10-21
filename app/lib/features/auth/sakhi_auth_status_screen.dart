@@ -74,6 +74,9 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
   }
 
   String get _heading {
+    if (widget.statusMessage?.startsWith('Staging test') == true) {
+      return 'Staging test access enabled';
+    }
     if (widget.authService.isDemo &&
         _accountState == AuthAccountState.existingAccount) {
       return 'Welcome back';
@@ -87,6 +90,9 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
   }
 
   String get _description {
+    if (widget.statusMessage?.startsWith('Staging test') == true) {
+      return widget.statusMessage!;
+    }
     if (widget.authService.isDevelopmentBackend) {
       final restoredPrefix = widget.isRestoredSession
           ? 'Your saved development session was checked with the local backend. '

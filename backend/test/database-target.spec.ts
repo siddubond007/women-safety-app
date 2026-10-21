@@ -126,7 +126,7 @@ describe("Sakhi database-target guard", () => {
 
   it("accepts only the dedicated Supabase staging session-pooler target", () => {
     const stagingUrl =
-      "postgresql://sakhi_staging_app.wmlpokholjfadyohdlgo:fixture-staging-secret-long-enough-0123456789@aws-0-ap-south-1.pooler.supabase.com:5432/postgres?schema=public&sslmode=require";
+      "postgresql://sakhi_staging_app.wmlpokholjfadyohdlgo:fixture-staging-secret-long-enough-0123456789@aws-0-ap-south-1.pooler.supabase.com:5432/postgres?schema=public&sslmode=verify-full&sslrootcert=prod-ca-2021.crt";
 
     expect(
       assertSakhiDatabaseTarget(stagingUrl, "app", "staging"),
@@ -158,7 +158,7 @@ describe("Sakhi database-target guard", () => {
       SAKHI_ENV: "staging",
       NODE_ENV: "production",
       SAKHI_APP_DATABASE_URL:
-        "postgresql://sakhi_staging_app.wmlpokholjfadyohdlgo:fixture-staging-secret-long-enough-0123456789@aws-0-ap-south-1.pooler.supabase.com:5432/postgres?schema=public&sslmode=require",
+        "postgresql://sakhi_staging_app.wmlpokholjfadyohdlgo:fixture-staging-secret-long-enough-0123456789@aws-0-ap-south-1.pooler.supabase.com:5432/postgres?schema=public&sslmode=verify-full&sslrootcert=prod-ca-2021.crt",
       HOST: "0.0.0.0",
       PORT: "10000",
       LOG_LEVEL: "info",

@@ -29,6 +29,7 @@ class AuthOtpSession {
     required this.resendAvailableAt,
     required this.isDemo,
     this.developmentCode,
+    this.usesSharedTestCode = false,
   });
 
   final String id;
@@ -42,6 +43,10 @@ class AuthOtpSession {
   /// Present only when the local dev/test backend deliberately echoes its
   /// generated test code. Never present in a production provider response.
   final String? developmentCode;
+
+  /// True when staging uses a shared test code supplied out-of-band; the code
+  /// is never sent back in the API response.
+  final bool usesSharedTestCode;
 
   String get maskedPhoneNumber {
     final digits = phoneNumber.replaceAll(RegExp(r'\D'), '');

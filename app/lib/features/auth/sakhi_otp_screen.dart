@@ -357,6 +357,17 @@ class _SakhiOtpScreenState extends State<SakhiOtpScreen> {
                   ],
                 ),
               ),
+            ] else if (_session.usesSharedTestCode) ...[
+              const SizedBox(height: SakhiSpacing.xs),
+              const Text(
+                'STAGING TEST MODE: enter the shared six-digit test code provided by the test coordinator. No SMS was sent, and this does not verify phone ownership or eligibility.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: SakhiColors.mutedPlum,
+                  fontSize: 12,
+                  height: 1.4,
+                ),
+              ),
             ] else if (_session.isDemo) ...[
               const SizedBox(height: SakhiSpacing.xs),
               const Text(

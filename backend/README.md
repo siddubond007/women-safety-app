@@ -150,3 +150,28 @@ The `SAKHI_GOOGLE_DRIVE_*` settings are backend-process variables only; never ex
 - Metadata-only `media/presign` and JSON placeholder `media/upload` routes are disabled and reject calls rather than claiming an image was stored.
 - The local OAuth application remains in Testing. Google OAuth refresh tokens issued while an external app remains in Testing expire after seven days for non-basic scopes, so reconnect Drive when the status endpoint reports it is no longer connected.
 - This is a local development integration, not a production-ready media authorization/CDN layer. The opaque backend media URL is not currently protected by per-user authorization. Do not upload verification evidence or other sensitive media; add authorization, retention, deletion and production OAuth review before deployment.
+
+## Hosted friend testing without SMS
+
+The repository root contains a Render Blueprint (`render.yaml`) for a single staging API service connected to the existing Supabase staging project. It does not create a new database or run migrations. The baseline has already been applied to the dedicated project; do not rerun `bootstrap-staging.ps1`.
+
+For invited-friend testing only, the API supports `SAKHI_OTP_MODE=staging_test`. This is not production authentication:
+- Only E.164 phone numbers listed in `SAKHI_STAGING_TEST_PHONE_ALLOWLIST` can request or verify a test code.
+- `SAKHI_STAGING_TEST_OTP_CODE` is a six-digit shared code stored only in the backend host's protected environment. It is never returned by an API response and no SMS is sent.
+- `SAKHI_STAGING_TEST_MINIMUM_AGE_YEARS` must be `18`.
+- The code does not establish phone ownership. Test sessions are tagged as test access, and test login must not write `phone_verified_at` or change `verification_status` to VERIFIED. Do not use real/sensitive personal data in these test accounts.
+- The mode is accepted only with `SAKHI_ENV=staging`, `NODE_ENV=production`, `HOST=0.0.0.0`, a valid database target, the configured allowlist, and the six-digit code. It remains disabled everywhere else by default.
+- Share the code privately only with invited testers and rotate it after the test. Never put the code or tester phone list into Git, Dart compile-time defines, the APK, logs, or a `VITE_*` variable.
+
+### Render Blueprint setup
+
+At the repository root, select **New → Blueprint** in Render and connect the GitHub repository/branch containing `render.yaml`. Choose the free web-service plan. The Blueprint requests values for these secrets on initial creation:
+- `SAKHI_APP_DATABASE_URL`: use the `sakhi_staging_app.wmlpokholjfadyohdlgo` role on the Supabase session pooler (port 5432), database `postgres`, and append `?schema=public&sslmode=verify-full&sslrootcert=prod-ca-2021.crt`. URL-encode the role password. Do not use the `postgres` superuser or the migrator role.
+- `SAKHI_STAGING_TEST_PHONE_ALLOWLIST`: comma-separated, exact E.164 numbers including country code for invited testers only.
+- `SAKHI_STAGING_TEST_OTP_CODE`: choose a six-digit code and keep it private.
+
+The Blueprint builds from `backend/`, pins Node to `24.22.0`, and uses `/api/v1/health/ready` for its health check. Build-time Prisma generation runs with a local non-connecting configuration; it does not need the migration-role password. Render free web services can spin down after 15 minutes idle and may take about a minute to wake up. The API connects to Supabase, so database data persists independently of the Render instance.
+
+After the service deploys, use its assigned HTTPS URL ending in `/api/v1` as the Flutter build's `SAKHI_API_BASE_URL`. Build the test APK with `--dart-define=SAKHI_STAGING_TEST_MODE=true`; this sets the test-only banner and an 18+ client registration rule. The base URL is not secret; the shared test code and allowlist are backend-only secrets.
+
+This staging mode enables only app-navigation testing. It does not send messages, verify a real phone number, or perform real eligibility verification. Eligibility remains unverified; do not configure fake eligibility approval or treat this as production-ready authentication.

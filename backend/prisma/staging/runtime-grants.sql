@@ -52,6 +52,19 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
 TO sakhi_staging_app;
 
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO sakhi_staging_app;
-GRANT USAGE ON ALL TYPES IN SCHEMA public TO sakhi_staging_app;
-REVOKE CREATE ON SCHEMA public FROM sakhi_staging_app;
+GRANT USAGE ON TYPE
+  public.account_status,
+  public.verification_status,
+  public.eligibility_submission_status,
+  public.otp_purpose,
+  public.policy_document_type,
+  public.policy_document_status,
+  public.eligibility_verification_status,
+  public.eligibility_verification_session_status,
+  public.eligibility_support_request_category,
+  public.eligibility_support_request_status,
+  public.eligibility_provider_callback_outcome
+TO sakhi_staging_app;
+-- The bootstrap-roles.sql setup grants the runtime role USAGE only (not CREATE)
+-- on public. Leave schema ACL ownership changes to the Supabase project owner.
 REVOKE ALL ON TABLE public._prisma_migrations FROM sakhi_staging_app;

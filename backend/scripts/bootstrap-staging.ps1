@@ -1,3 +1,8 @@
+[CmdletBinding()]
+param(
+  [switch]$PreflightOnly
+)
+
 $ErrorActionPreference = 'Stop'
 $backendRoot = Split-Path -Parent $PSScriptRoot
 $projectRef = 'wmlpokholjfadyohdlgo'
@@ -14,8 +19,10 @@ try {
     throw 'Enter the actual staging migration password (at least 32 characters), not a template placeholder.'
   }
   $encodedPassword = [System.Uri]::EscapeDataString($rawPassword)
+  $caCertificatePath = (Resolve-Path -LiteralPath (Join-Path $backendRoot 'prod-ca-2021.crt')).Path
+  $encodedCaCertificatePath = [System.Uri]::EscapeDataString($caCertificatePath)
   $env:SAKHI_ENV = 'staging'
-  $env:SAKHI_MIGRATOR_DATABASE_URL = "postgresql://${poolerUser}:${encodedPassword}@${poolerHost}:5432/postgres?schema=public&sslmode=require"
+  $env:SAKHI_MIGRATOR_DATABASE_URL = "postgresql://${poolerUser}:${encodedPassword}@${poolerHost}:5432/postgres?schema=public&sslmode=verify-full&sslcert=${encodedCaCertificatePath}"
 } finally {
   [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
   $securePassword.Dispose()
@@ -30,6 +37,20 @@ try {
 
   & node .\scripts\staging-preflight.cjs
   if ($LASTEXITCODE -ne 0) { throw 'Staging preflight failed; no schema changes were attempted.' }
+
+  if ($PreflightOnly) {
+    $probeFile = Join-Path $env:TEMP ('sakhi-staging-prisma-probe-' + [guid]::NewGuid().ToString('N') + '.sql')
+    try {
+      Set-Content -LiteralPath $probeFile -Value 'SELECT current_database(), current_user, current_schema();' -Encoding ASCII
+      Write-Host 'Testing Prisma CLI TLS connectivity using a read-only SELECT...'
+      & .\node_modules\.bin\prisma.cmd db execute --file $probeFile
+      if ($LASTEXITCODE -ne 0) { throw 'Prisma TLS diagnostic failed; no schema changes were attempted.' }
+      Write-Host 'Prisma connection check passed. No database schema changes were attempted.' -ForegroundColor Green
+    } finally {
+      Remove-Item -LiteralPath $probeFile -Force -ErrorAction SilentlyContinue
+    }
+    return
+  }
 
   Write-Host 'Applying a single transaction containing the current Prisma schema baseline...'
   & .\node_modules\.bin\prisma.cmd db execute --file .\prisma\staging\baseline.sql
