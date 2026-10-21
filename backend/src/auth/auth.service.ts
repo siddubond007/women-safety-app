@@ -62,7 +62,10 @@ export class AuthenticationService {
       /^\d{6}$/.test(code) &&
       process.env.SAKHI_STAGING_TEST_MINIMUM_AGE_YEARS === "18" &&
       allowlist.length > 0 &&
-      allowlist.every((phone) => /^\+[1-9]\d{7,14}$/.test(phone)) &&
+      (!allowlist.includes("+91*") || allowlist.length === 1) &&
+      allowlist.every(
+        (phone) => phone === "+91*" || /^\+[1-9]\d{7,14}$/.test(phone),
+      ) &&
       new Set(allowlist).size === allowlist.length
     );
   }
@@ -90,10 +93,11 @@ export class AuthenticationService {
     phoneE164: string,
     mode: "development" | "staging_test",
   ): void {
-    if (
-      mode === "staging_test" &&
-      !this.stagingTestPhoneAllowlist().includes(phoneE164)
-    ) {
+    const allowlist = this.stagingTestPhoneAllowlist();
+    const phoneAllowed =
+      allowlist.includes(phoneE164) ||
+      (allowlist.includes("+91*") && /^\+91[6-9]\d{9}$/.test(phoneE164));
+    if (mode === "staging_test" && !phoneAllowed) {
       throw new UnauthorizedException(
         "This phone number is not enabled for Sakhi staging test access.",
       );

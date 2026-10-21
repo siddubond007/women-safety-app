@@ -192,13 +192,17 @@ export function validateRuntimeEnvironment(
         "Staging test login is allowed only on the explicitly configured staging service.",
       );
     }
+    const usesIndiaPhoneWildcard = stagingTestPhoneAllowlist.includes("+91*");
     if (
       stagingTestPhoneAllowlist.length === 0 ||
-      stagingTestPhoneAllowlist.some((phone) => !/^\+[1-9]\d{7,14}$/.test(phone)) ||
+      (usesIndiaPhoneWildcard && stagingTestPhoneAllowlist.length !== 1) ||
+      stagingTestPhoneAllowlist.some(
+        (phone) => phone !== "+91*" && !/^\+[1-9]\d{7,14}$/.test(phone),
+      ) ||
       new Set(stagingTestPhoneAllowlist).size !== stagingTestPhoneAllowlist.length
     ) {
       throw new Error(
-        "Staging test login requires a non-empty, unique E.164 phone-number allowlist.",
+        'Staging test login requires unique E.164 phone numbers, or the staging-only wildcard "+91*" by itself.',
       );
     }
     if (!/^\d{6}$/.test(stagingTestOtpCode)) {

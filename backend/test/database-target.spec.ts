@@ -188,4 +188,41 @@ describe("Sakhi database-target guard", () => {
       }),
     ).toThrow(/cannot be enabled in staging/);
   });
+
+  it("allows the India-wide phone wildcard only in isolated staging test mode", () => {
+    const testConfig = {
+      SAKHI_ENV: "staging",
+      NODE_ENV: "production",
+      SAKHI_APP_DATABASE_URL:
+        "postgresql://sakhi_staging_app.wmlpokholjfadyohdlgo:fixture-staging-secret-long-enough-0123456789@aws-0-ap-south-1.pooler.supabase.com:5432/postgres?schema=public&sslmode=verify-full&sslrootcert=prod-ca-2021.crt",
+      HOST: "0.0.0.0",
+      PORT: "10000",
+      LOG_LEVEL: "info",
+      SAKHI_OTP_MODE: "staging_test",
+      SAKHI_STAGING_TEST_PHONE_ALLOWLIST: "+91*",
+      SAKHI_STAGING_TEST_OTP_CODE: "314159",
+      SAKHI_STAGING_TEST_MINIMUM_AGE_YEARS: "18",
+      SAKHI_PREVIEW_MINIMUM_AGE_YEARS: "",
+    };
+
+    expect(validateRuntimeEnvironment(testConfig)).toMatchObject({
+      SAKHI_ENV: "staging",
+      NODE_ENV: "production",
+      SAKHI_OTP_MODE: "staging_test",
+    });
+
+    expect(() =>
+      validateRuntimeEnvironment({
+        ...testConfig,
+        SAKHI_STAGING_TEST_PHONE_ALLOWLIST: "+91*,+919876543210",
+      }),
+    ).toThrow(/wildcard.*by itself/);
+
+    expect(() =>
+      validateRuntimeEnvironment({
+        ...testConfig,
+        NODE_ENV: "development",
+      }),
+    ).toThrow(/must use NODE_ENV=production/);
+  });
 });

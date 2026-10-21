@@ -229,4 +229,42 @@ describe("AuthenticationService.requestOtp account checks", () => {
       }),
     );
   });
+
+  it("accepts an arbitrary valid Indian mobile number only in staging test mode and never echoes the shared code", async () => {
+    process.env.SAKHI_ENV = "staging";
+    process.env.NODE_ENV = "production";
+    process.env.SAKHI_OTP_MODE = "staging_test";
+    process.env.HOST = "0.0.0.0";
+    process.env.SAKHI_PREVIEW_MINIMUM_AGE_YEARS = "";
+    process.env.SAKHI_STAGING_TEST_PHONE_ALLOWLIST = "+91*";
+    process.env.SAKHI_STAGING_TEST_OTP_CODE = "314159";
+    process.env.SAKHI_STAGING_TEST_MINIMUM_AGE_YEARS = "18";
+
+    const { service, tx } = createService(null);
+    const result = await service.requestOtp({
+      countryCode: "+91",
+      phoneNumber: "9123456789",
+      purpose: "registration",
+    });
+
+    expect(result.deliveryMode).toBe("staging_test_shared_code");
+    expect(result).not.toHaveProperty("developmentCode");
+    expect(result.message).toMatch(/does not verify phone ownership or eligibility/);
+    expect(tx.otpChallenge.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          phoneE164: "+919123456789",
+          codeDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+        }),
+      }),
+    );
+
+    await expect(
+      service.requestOtp({
+        countryCode: "+91",
+        phoneNumber: "5123456789",
+        purpose: "registration",
+      }),
+    ).rejects.toThrow(/not enabled for Sakhi staging test access/);
+  });
 });

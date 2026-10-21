@@ -156,10 +156,10 @@ The `SAKHI_GOOGLE_DRIVE_*` settings are backend-process variables only; never ex
 The repository root contains a Render Blueprint (`render.yaml`) for a single staging API service connected to the existing Supabase staging project. It does not create a new database or run migrations. The baseline has already been applied to the dedicated project; do not rerun `bootstrap-staging.ps1`.
 
 For invited-friend testing only, the API supports `SAKHI_OTP_MODE=staging_test`. This is not production authentication:
-- Only E.164 phone numbers listed in `SAKHI_STAGING_TEST_PHONE_ALLOWLIST` can request or verify a test code.
+- Set `SAKHI_STAGING_TEST_PHONE_ALLOWLIST=+91*` to allow any valid 10-digit Indian mobile number (starting 6–9), or provide a comma-separated E.164 allowlist for invited testers.
 - `SAKHI_STAGING_TEST_OTP_CODE` is a six-digit shared code stored only in the backend host's protected environment. It is never returned by an API response and no SMS is sent.
 - `SAKHI_STAGING_TEST_MINIMUM_AGE_YEARS` must be `18`.
-- The code does not establish phone ownership. Test sessions are tagged as test access, and test login must not write `phone_verified_at` or change `verification_status` to VERIFIED. Do not use real/sensitive personal data in these test accounts.
+- `+91*` means any Indian mobile number can be used with the same shared code, so anyone who knows the code can impersonate a test account by entering its number. Use only this option for an isolated staging database with fictional profile data; otherwise use an exact phone allowlist. The code never establishes phone ownership, test login must not write `phone_verified_at` or change `verification_status` to VERIFIED, and no real/sensitive personal data should be stored.
 - The mode is accepted only with `SAKHI_ENV=staging`, `NODE_ENV=production`, `HOST=0.0.0.0`, a valid database target, the configured allowlist, and the six-digit code. It remains disabled everywhere else by default.
 - Share the code privately only with invited testers and rotate it after the test. Never put the code or tester phone list into Git, Dart compile-time defines, the APK, logs, or a `VITE_*` variable.
 
@@ -167,7 +167,7 @@ For invited-friend testing only, the API supports `SAKHI_OTP_MODE=staging_test`.
 
 At the repository root, select **New → Blueprint** in Render and connect the GitHub repository/branch containing `render.yaml`. Choose the free web-service plan. The Blueprint requests values for these secrets on initial creation:
 - `SAKHI_APP_DATABASE_URL`: use the `sakhi_staging_app.wmlpokholjfadyohdlgo` role on the Supabase session pooler (port 5432), database `postgres`, and append `?schema=public&sslmode=verify-full&sslrootcert=prod-ca-2021.crt`. URL-encode the role password. Do not use the `postgres` superuser or the migrator role.
-- `SAKHI_STAGING_TEST_PHONE_ALLOWLIST`: comma-separated, exact E.164 numbers including country code for invited testers only.
+- `SAKHI_STAGING_TEST_PHONE_ALLOWLIST`: set to `+91*` for any valid Indian mobile number, or enter comma-separated E.164 numbers for invited testers. The wildcard must be the only value.
 - `SAKHI_STAGING_TEST_OTP_CODE`: choose a six-digit code and keep it private.
 
 The Blueprint builds from `backend/`, pins Node to `24.22.0`, and uses `/api/v1/health/ready` for its health check. Build-time Prisma generation runs with a local non-connecting configuration; it does not need the migration-role password. Render free web services can spin down after 15 minutes idle and may take about a minute to wake up. The API connects to Supabase, so database data persists independently of the Render instance.
