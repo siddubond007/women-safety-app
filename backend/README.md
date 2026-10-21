@@ -1,12 +1,12 @@
 # Sakhi Backend — Stage 1 Foundation
 
-**Status:** Development/test backend. The local `sakhi_test` database has the tracked migrations through the manual-review submission schema applied as of 2026-10-17. The admin-review API is local dev/test only and is not production authentication or evidence review.
+**Status:** Development/test backend with a separately gated, shared-token staging-test path for invited friend testing. The staging API uses the dedicated Supabase staging project and never runs migrations during ordinary app startup. The staging admin portal is a test-only operator tool, not production authentication or an identity-evidence system.
 
 ## Scope
 
-This stage includes the NestJS + TypeScript foundation, PostgreSQL 17/Prisma 7 schema and health checks, plus a **development-only authentication API** and the Flutter debug adapter. Local test OTPs, profile/draft-consent persistence and short-lived revocable development sessions are implemented. This is not production authentication.
+This stage includes the NestJS + TypeScript foundation, PostgreSQL 17/Prisma 7 schema and health checks, a development authentication API, and a separately gated staging-test authentication path for invited friend testing. Local OTP echo remains loopback-only; hosted staging uses an explicit shared test code and never sends SMS. Neither mode is production authentication.
 
-It implements OTP request/resend/verify, development session validation/logout, profile and draft-policy acknowledgement persistence, opt-in product-update preference storage, fail-closed provider configuration, explicit consent-gated manual-review submissions, a local shared-token reviewer queue/history/decision API, account eligibility-status updates and decision audit records. The Flutter integration remains opt-in with a debug-only build define. It does **not** send SMS, prove phone possession through a carrier, provide real provider-based eligibility verification, collect/store identity evidence, or grant protected production access. Individual admin accounts, RBAC/MFA, production auth, SOS dispatch, location persistence, complaints, messaging, commerce, and wellness data are outside this stage.
+It implements OTP request/resend/verify, session validation/logout, profile and draft-policy acknowledgement persistence, opt-in product-update preference storage, fail-closed provider configuration, explicit consent-gated manual-review submissions, a local or explicitly gated staging-test shared-token reviewer queue/history/decision API, account eligibility-status updates and decision audit records. The Flutter integration is opt-in for local backend testing and uses a separate explicit staging-test build define for invited staging testers. It does **not** send SMS, prove phone possession through a carrier, provide real provider-based eligibility verification, collect/store identity evidence, or grant protected production access. Individual admin accounts, RBAC/MFA, production auth, SOS dispatch, location persistence, complaints, messaging, commerce, and wellness data are outside this stage.
 
 The follow-up migration adds hashed bearer-session records and a separate optional product-update preference. The seed still does not create **MemberConsent** rows because fixture data must never imply that a user accepted legal terms. The profile API only records the app's explicitly submitted draft acknowledgement in dev/test; it does not publish draft policies or mark them approved.
 
@@ -88,19 +88,19 @@ db-migrate.ps1 uses prisma migrate deploy; it does not call migrate reset, db pu
 | GET    | /api/v1/eligibility/configuration | Returns provider and policy as explicitly unavailable                                       |
 | GET    | /api/v1/eligibility/status        | Authenticated provider readiness and canonical manual-review/account status                 |
 | POST   | /api/v1/eligibility/start         | Creates an explicit consented submission only when the local manual-review policy is enabled |
-| GET    | /api/v1/admin-review/session      | Validates the local dev/test reviewer token                                                 |
+| GET    | /api/v1/admin-review/session      | Validates the local reviewer token or the explicitly gated staging-test reviewer token       |
 | GET    | /api/v1/admin-review/queue        | Lists explicit pending submissions with masked contact details                              |
 | GET    | /api/v1/admin-review/history      | Returns persisted decision audit history                                                   |
 | POST   | /api/v1/admin-review/submissions/{submissionId}/decision | Persists an approval/rejection and updates account status                 |
 | GET    | /api/docs                         | Development/test OpenAPI documentation                                                      |
 
-The development OTP mode is deliberately restricted to SAKHI_ENV=dev or test, non-production runtime and HOST=127.0.0.1. The development start wrapper sets that mode for the process and labels its temporary age-13 rule; the API refuses to echo codes when it is disabled. A real phone can reach the host loopback API via adb reverse tcp:3000 tcp:3000, without exposing the API on the LAN. Do not change HOST to 0.0.0.0 for OTP echo.
+The local development OTP echo mode is deliberately restricted to SAKHI_ENV=dev or test, non-production runtime and HOST=127.0.0.1. The development start wrapper sets that mode for the process and labels its temporary age-13 rule; the API refuses to echo codes when it is disabled. Hosted staging test mode is a separate path that requires explicit staging configuration, a protected shared OTP code and a dedicated staging database; it sends no SMS and does not prove phone ownership. A real phone can reach the host loopback API via adb reverse tcp:3000 tcp:3000, without exposing the API on the LAN. Do not change HOST to 0.0.0.0 for OTP echo.
 
 ## Safeguards
 
-- Stage 1 rejects production mode, remote database hosts, unexpected database names, mismatched app/migration roles, invalid connection strings, and a schema-generation placeholder password.
+- The backend rejects unconfigured production mode, unexpected database hosts/names, mismatched database roles, invalid connection strings, and schema-generation placeholder credentials. The only hosted exception is the separately validated staging environment with the dedicated Supabase staging target and explicitly configured friend-test settings.
 - The Prisma datasource configuration defaults only to a dummy local Sakhi target for commands such as prisma format and prisma generate; it cannot authenticate. Database-changing commands must be run through the environment wrapper.
-- The seed refuses production mode, requires an explicit SAKHI_ENV, verifies the exact migration role and target database, creates only a reserved fictitious phone number and an .invalid email, and is idempotent.
+- The local seed refuses production and staging, requires an explicit SAKHI_ENV, verifies the exact migration role and target database, creates only reserved fictitious local records, and is idempotent. The admin API's demo-member/demo-post seed endpoint is also blocked against the shared staging database.
 - Seeded policy records are draft-only. The seed does not create consent, OTPs, sessions, or audit records.
 - Request bodies are size-limited; a global whitelist/validation pipe rejects unknown properties. Structured logs redact common authentication/contact fields and never serialize request bodies or query strings. Error responses do not expose driver errors or connection details.
 - Development code echo is not SMS delivery and not carrier verification. It uses short expiry, per-challenge hashed codes, attempt limits and request throttling. It can run only on loopback in dev/test.
@@ -153,7 +153,7 @@ The `SAKHI_GOOGLE_DRIVE_*` settings are backend-process variables only; never ex
 
 ## Hosted friend testing without SMS
 
-The repository root contains a Render Blueprint (`render.yaml`) for a single staging API service connected to the existing Supabase staging project. It does not create a new database or run migrations. The baseline has already been applied to the dedicated project; do not rerun `bootstrap-staging.ps1`.
+The repository root contains a Render Blueprint (`render.yaml`) for the staging API service and its separate static Super Admin frontend, connected to the existing Supabase staging project. It does not create a new database or run migrations. The baseline has already been applied to the dedicated project; do not rerun `bootstrap-staging.ps1`.
 
 For invited-friend testing only, the API supports `SAKHI_OTP_MODE=staging_test`. This is not production authentication:
 - Set `SAKHI_STAGING_TEST_PHONE_ALLOWLIST=+91*` to allow any valid 10-digit Indian mobile number (starting 6–9), or provide a comma-separated E.164 allowlist for invited testers.
@@ -175,3 +175,21 @@ The Blueprint builds from `backend/`, pins Node to `24.22.0`, and uses `/api/v1/
 After the service deploys, use its assigned HTTPS URL ending in `/api/v1` as the Flutter build's `SAKHI_API_BASE_URL`. Build the test APK with `--dart-define=SAKHI_STAGING_TEST_MODE=true`; this sets the test-only banner and an 18+ client registration rule. The base URL is not secret; the shared test code and allowlist are backend-only secrets.
 
 This staging mode enables only app-navigation testing. It does not send messages, verify a real phone number, or perform real eligibility verification. Eligibility remains unverified; do not configure fake eligibility approval or treat this as production-ready authentication.
+
+## Staging Super Admin — restricted friend-test operator mode
+
+The root Render Blueprint now declares a staging API and a static admin frontend. The admin portal uses the configured `VITE_API_BASE_URL` at build time; it must point to the deployed API's `/api/v1` URL, not localhost.
+
+The public staging admin API is enabled only when all the following are true together: `SAKHI_ENV=staging`, `NODE_ENV=production`, `SAKHI_OTP_MODE=staging_test`, `SAKHI_STAGING_ADMIN_REVIEW_ENABLED=true`, and a random `SAKHI_ADMIN_REVIEW_TOKEN` with at least 32 characters. The startup path still validates the dedicated Supabase staging URL and the existing OTP-test configuration. Keep the reviewer token in Render's protected backend environment and enter it only in the operator login page; do not place it in the mobile app, `VITE_*` settings, Git, APKs, or messages to friend testers.
+
+In staging, Super Admin can read persisted member rows and the explicit eligibility submission queue. Direct account-state override, member-creation, and demo-seed operations remain blocked in the hosted environment. Review outcomes must go through the explicit manual eligibility-review endpoint and its consent/evidence-procedure gates. This is a shared-token test tool, not individual admin authentication/MFA; restrict the token to a trusted test operator, rotate it after the test, and never enable this gate in a production environment.
+
+The Render Blueprint uses the default frontend origin `https://sakhi-super-admin.onrender.com` in `SAKHI_ADMIN_CORS_ORIGIN` and `https://sakhi-staging-api.onrender.com/api/v1` for `VITE_API_BASE_URL`. After the blueprint creates the services, confirm their actual assigned hostnames. If Render assigns different names, update the exact HTTPS origin on the API and the API base URL on the static site, then redeploy. CORS accepts only exact HTTPS origins in staging.
+
+Before operating the staging admin:
+1. Configure `SAKHI_ADMIN_REVIEW_TOKEN` as a unique random secret (minimum 32 characters) in the backend service's protected Render environment. Do not reuse the shared six-digit OTP code as the admin token.
+2. Confirm the API health endpoint returns success, then check the admin site's `/api/v1/admin-review/session` connection via a token sign-in.
+3. Verify member counts and pending-review rows reflect only existing Supabase staging records. Do not use the demo seed endpoint; it is blocked in staging.
+4. Use only test accounts and approved manual-review procedure. The portal does not store or display identity evidence, and staging account management is read-only outside the formal eligibility workflow.
+
+No database migration, schema reset, or seed operation is part of this setup.

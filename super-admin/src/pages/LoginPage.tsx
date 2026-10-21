@@ -31,7 +31,7 @@ export function LoginPage({ onAuthenticate }: LoginPageProps) {
     <main className="login-page">
       <div className="login-orb login-orb--one" aria-hidden="true" />
       <div className="login-orb login-orb--two" aria-hidden="true" />
-      <header className="login-topbar"><BrandMark /><StatusPill tone="demo"><span className="status-pill__dot" /> DEV / TEST ONLY</StatusPill></header>
+      <header className="login-topbar"><BrandMark /><StatusPill tone="demo"><span className="status-pill__dot" /> TEST WORKSPACE</StatusPill></header>
       <div className="login-layout">
         <section className="login-story">
           <div className="login-eyebrow"><span className="login-eyebrow__star"><Sparkles size={14} /></span> THE SAKHI OPERATIONS SPACE</div>
@@ -45,21 +45,21 @@ export function LoginPage({ onAuthenticate }: LoginPageProps) {
         </section>
         <section className="login-card" aria-labelledby="login-title">
           <div className="login-card-mark"><ShieldCheck size={24} /></div>
-          <div className="login-card-kicker">LOCAL REVIEWER PORTAL</div>
+          <div className="login-card-kicker">STAGING / LOCAL REVIEWER PORTAL</div>
           <h2 id="login-title">Reviewer sign in</h2>
-          <p className="login-card-description">Enter the local development reviewer token printed by the backend startup script, then sign in to review persisted member submissions.</p>
+          <p className="login-card-description">Enter the reviewer token configured for this test workspace, then sign in to manage persisted member and eligibility records.</p>
           <form onSubmit={submit}>
             <label className="member-form-label" htmlFor="reviewer-token">Reviewer token <span>Required</span></label>
             <input id="reviewer-token" className="admin-review-token-input" type="text" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} minLength={8} required aria-describedby="reviewer-token-help" />
-            <p id="reviewer-token-help" className="admin-review-help">Find it in the backend terminal after <code>Super Admin Reviewer Token:</code>.</p>
+            <p id="reviewer-token-help" className="admin-review-help">Use the token configured by the Sakhi workspace owner. Do not put reviewer tokens in source control or share them with friend testers.</p>
             {error && <p className="admin-review-error" role="alert">{error}</p>}
             <button className="button button--primary login-submit" type="submit" disabled={isSubmitting || token.trim().length < 8}>{isSubmitting ? "Checking reviewer access..." : "Sign in to review"} <ArrowRight size={17} /></button>
           </form>
-          <div className="demo-notice"><span className="demo-notice-icon"><LockKeyhole size={17} /></span><div><strong>Development-only reviewer gate</strong><p>Once signed in, open Members &amp; accounts to verify any registered phone number and unlock their mobile Home screen.</p></div></div>
+          <div className="demo-notice"><span className="demo-notice-icon"><LockKeyhole size={17} /></span><div><strong>Restricted test reviewer gate</strong><p>Use this portal only for authorized development/staging test accounts. Eligibility decisions still require the approved review process.</p></div></div>
           <div className="login-card-footer">Sakhi Super Admin <span>-</span> Manual eligibility review</div>
         </section>
       </div>
-      <footer className="login-footer"><span>SAKHI - PRIVATE ADMINISTRATION UI</span><span><LockKeyhole size={13} /> Dev/test only</span></footer>
+      <footer className="login-footer"><span>SAKHI - PRIVATE ADMINISTRATION UI</span><span><LockKeyhole size={13} /> Authorized test deployment</span></footer>
     </main>
   );
 }

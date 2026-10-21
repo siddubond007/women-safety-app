@@ -12,6 +12,7 @@ import { ModerationPage } from "./pages/ModerationPage";
 
 function AppRoutes() {
   const [isSignedIn, setIsSignedIn] = useState(() => adminAuthService.hasActiveSession());
+  const [sessionMode, setSessionMode] = useState<"local_dev_test_only" | "staging_test_only">("local_dev_test_only");
   const [checkingSession, setCheckingSession] = useState(() => Boolean(adminAuthService.getToken()));
 
   useEffect(() => {
@@ -19,21 +20,27 @@ function AppRoutes() {
     if (!token) return;
     adminAuthService
       .validateToken(token)
-      .then(() => setIsSignedIn(true))
+      .then((session) => {
+        setSessionMode(session.mode);
+        setIsSignedIn(true);
+      })
       .catch(() => {
         adminAuthService.signOut();
+        setSessionMode("local_dev_test_only");
         setIsSignedIn(false);
       })
       .finally(() => setCheckingSession(false));
   }, []);
 
   async function enterAdmin(token: string) {
-    await adminAuthService.authenticate(token);
+    const session = await adminAuthService.authenticate(token);
+    setSessionMode(session.mode);
     setIsSignedIn(true);
   }
 
   function endSession() {
     adminAuthService.signOut();
+    setSessionMode("local_dev_test_only");
     setIsSignedIn(false);
   }
 
@@ -56,11 +63,11 @@ function AppRoutes() {
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route
         element={
-          isSignedIn ? <AdminLayout onSignOut={endSession} /> : <Navigate to="/login" replace />
+          isSignedIn ? <AdminLayout onSignOut={endSession} mode={sessionMode} /> : <Navigate to="/login" replace />
         }
       >
         <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/members" element={<MemberManagementPage />} />
+        <Route path="/members" element={<MemberManagementPage isStagingTest={sessionMode === "staging_test_only"} />} />
         <Route path="/verification" element={<EligibilityReviewPage />} />
         <Route path="/verifications" element={<EligibilityReviewPage />} />
         <Route path="/community" element={<CommunityManagementPage />} />

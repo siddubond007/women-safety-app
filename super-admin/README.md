@@ -1,76 +1,78 @@
 # Sakhi Super Admin
 
-Standalone React + TypeScript + Vite administration UI for the Sakhi mobile platform. The admin application is isolated in this directory and does not replace or embed the Flutter app.
+Standalone React + TypeScript + Vite administration frontend. This UI is intended for authorized local or staging-test operators and is not production identity/access management.
 
-## Current scope
+## Current behavior
 
-### Stage 1 — Admin foundation
-- Responsive admin shell, branded demo sign-in, grouped navigation and module search.
-- Browser-session-only demo session. This is not real authentication or authorization.
-- Dashboard KPI cards, activity chart, operational examples and integration placeholders.
-- Typed dashboard repository backed by fictional sample data.
-- Planned-module states, shared status components and theme styles.
+- The overview dashboard fetches member and eligibility counts, audit events, report records, community counts, and media audit entries from the configured backend API. Empty or failed responses are shown as empty/error states; the frontend does not substitute mock dashboard figures.
+- Members & accounts uses the backend member directory, search, filters, pagination, masked phone numbers, and a member-detail drawer.
+- Local development mode retains the development-only account-state troubleshooting actions.
+- Staging-test mode makes the member directory read-only and directs account eligibility outcomes through the explicit Eligibility & verification review workflow. It does not expose general account-state overrides or member-creation controls.
+- Eligibility review uses explicit persisted manual-review submissions and requires the separately approved procedure to be attested before a decision can be recorded. This page does not collect or display identity documents.
+- The existing review and operations endpoints supply dashboard/report data and moderation actions where implemented. Other menu entries that do not yet have complete end-to-end screens remain explicitly marked as planned instead of displaying invented operational data.
+- The previous fuller dashboard structure and visual system (metric cards, activity panel, priority queue, indicator grid, operations table and integration panel) is retained, now populated by backend responses where implemented.
 
-### Stage 2 — Members & Accounts
-- Mock-backed member directory containing fictional records only.
-- Search across display name, member reference and masked contact examples.
-- Account status, verification status and registration-period filters.
-- Registration/name/activity sorting and pagination.
-- Member profile drawer with masked email/phone, registration/last-activity dates and status.
-- Reason-required demo warning, temporary restriction, temporary suspension and reinstatement workflows.
-- In-session demo action history showing the simulated action, actor, timestamp and reason.
-- Loading, retry, empty-result, confirmation and success-notice states.
-- No permanent-ban or deletion action is provided by this prototype.
+## Security and data handling
 
-## Important status and data safety
+The reviewer token is a shared operator token, not an individual administrator identity and not a production authentication system. Configure a unique random \`SAKHI_ADMIN_REVIEW_TOKEN\` of at least 32 characters only in the backend host's protected environment. Never place it in source control, a \`VITE_*\` variable, the Flutter app, APKs or a message to friend testers.
 
-**This is a frontend-only prototype.** The backend is not implemented or connected. Dashboard and member records are fictional, all service integrations remain unconnected, and sample account actions update only an in-memory mock adapter. They do not alter production data, send notifications, or persist to a server. A full page refresh restores the original mock dataset.
+The staging reviewer mode requires all server-side staging test gates, including \`SAKHI_ENV=staging\`, \`NODE_ENV=production\`, \`SAKHI_OTP_MODE=staging_test\`, \`SAKHI_STAGING_ADMIN_REVIEW_ENABLED=true\`, and the long random token. The staging frontend can read persisted member rows and eligibility submissions; general account-state overrides, member creation and demo-data seeding are blocked in staging. Final eligibility decisions must use the dedicated review endpoint, not a shortcut from the member directory.
 
-All contact examples are masked and use the reserved `example.invalid` email domain. Do not add real member data, credentials, complaint evidence, identity documents, health data or live locations to the mock dataset.
+Never use this shared-token workflow as production authentication. Individual admin accounts, RBAC/MFA, evidence handling, approval and retention policies, privacy/security review and real provider integrations require separate implementation and approval.
 
-Do not deploy this demo sign-in as an access-control mechanism. Production authentication/MFA, backend-enforced authorization on every request and record, durable audit logs, approved account policies, and security/privacy review remain future work.
+## Configure the API URL
 
-## Requirements
+The frontend reads \`VITE_API_BASE_URL\` at build time.
 
-Use a supported Node.js release for the installed Vite version and npm.
+For local development, the default is:
+
+\`\`\`text
+http://127.0.0.1:3001/api/v1
+\`\`\`
+
+For hosted staging, set it to the deployed Render API URL ending in \`/api/v1\`, for example:
+
+\`\`\`text
+https://sakhi-staging-api.onrender.com/api/v1
+\`\`\`
+
+Vite embeds this value in the compiled JavaScript. Changing an environment variable after a static-site build is not enough; rebuild/redeploy the static site. This variable is public URL configuration, not a secret.
 
 ## Run locally
 
 From the repository root:
 
-```powershell
+\`\`\`powershell
 cd super-admin
-npm install
+npm ci
 npm run dev
-```
+\`\`\`
 
-Open the loopback URL printed by Vite (normally http://127.0.0.1:5173) and choose **Enter demo environment**. No real credential is required or collected.
+Open the loopback URL printed by Vite (normally \`http://127.0.0.1:5173\`). The backend must be running and \`SAKHI_ADMIN_CORS_ORIGIN\` must include the exact local origin.
 
 ## Checks
 
-```powershell
+\`\`\`powershell
 npm run typecheck
 npm run lint
 npm run build
-```
+\`\`\`
 
-Stage 2 was also exercised in a local Chromium smoke test for search, filtering/reset, pagination, masked details, restriction confirmation, reason/duration validation flow, simulated restriction and reinstatement, action history, mobile layout, browser errors and horizontal overflow. This temporary smoke-test script was not committed as a project test suite.
+## Render staging deployment
 
-## Architecture and next steps
+The root \`render.yaml\` declares both:
+- \`sakhi-staging-api\`: NestJS backend connected to the existing dedicated Supabase staging project.
+- \`sakhi-super-admin\`: static Vite frontend with SPA route rewrite and a build-time API base URL.
 
-- Dashboard and member records are loaded through typed repository interfaces. Mock adapters are the only configured implementations.
-- Keep the central data-source selector on mock mode until approved backend routes and response contracts exist.
-- Map member/verification operations to actual backend models and authorization rules before replacing the adapter.
-- Values from `VITE_*` environment variables are public browser configuration, not secret storage.
-- Eligibility criteria, minimum age, lawful identity-verification method/provider, manual fallback and related retention policies need explicit product/legal approval.
-- Keep the Stage 2 changes isolated to this directory; `app/` and `backend/` are preserved.
+Before syncing the Blueprint, supply the required protected database URL, invited-tester phone allowlist and six-digit shared OTP code. For the admin service, also configure a separate random \`SAKHI_ADMIN_REVIEW_TOKEN\` in the backend environment. Never reuse the OTP code as the admin token.
 
-## Manual eligibility review - local dev/test stage
+After Render assigns both service URLs, verify that:
+- \`SAKHI_ADMIN_CORS_ORIGIN\` on the API is the exact HTTPS origin of the static admin site.
+- \`VITE_API_BASE_URL\` on the static site is the exact HTTPS API URL ending in \`/api/v1\`.
+- the backend health endpoint responds successfully and the portal can validate the reviewer token.
 
-The `Eligibility & verification` page uses the NestJS API. The dashboard and member-management pages remain mock-backed. Reviewer access uses a shared token only for the local dev/test prototype; it is not individual administrator authentication and must never be deployed to production.
+If Render gives either service a different hostname, update the exact values above in its environment and redeploy. No database migrations or seed operations are required for a UI update. The admin demo seed endpoint is intentionally blocked against the shared staging database.
 
-The queue contains explicit `EligibilitySubmission` records, not every profile with Terms/Privacy consent. Manual submission is disabled unless the local backend receives all of these approved settings: `SAKHI_MANUAL_REVIEW_POLICY_APPROVED=true`, `SAKHI_MANUAL_REVIEW_EVIDENCE_PROCEDURE_APPROVED=true`, `SAKHI_MANUAL_REVIEW_CONSENT_VERSION`, `SAKHI_MANUAL_REVIEW_CONSENT_TEXT`, `SAKHI_MANUAL_REVIEW_DESCRIPTION`, `SAKHI_MANUAL_REVIEW_DATA_HANDLING_DESCRIPTION` and `SAKHI_MANUAL_REVIEW_RETENTION_DESCRIPTION`. These settings are configuration gates, not a substitute for product, privacy or legal approval.
+## Explicit limitations
 
-This stage does not collect, upload, store or display selfie/identity evidence. Review decisions may be recorded only after a reviewer follows the separately approved evidence procedure configured for this deployment. Never infer eligibility from a face, name or profile fields alone. Selfie capture/upload, private evidence storage, retention/deletion enforcement and appeal/resubmission remain outside this stage and must be designed and approved before identity evidence is collected in Sakhi.
-
-The shared `SAKHI_ADMIN_REVIEW_TOKEN` and configured `SAKHI_ADMIN_REVIEWER_LABEL` identify a local reviewer session only; the label is not a unique or independently authenticated person. Production authentication, MFA, identity-bound reviewer accounts and production deployment remain out of scope. Source changes do not execute database migrations.
+Staging test OTPs do not send SMS or verify ownership of a phone number. The default staging age is a temporary 18+ test restriction, not an approved product/legal policy. Eligibility remains a manual test workflow; this frontend does not collect identity evidence or constitute a production eligibility system.

@@ -20,17 +20,39 @@ export const DEFAULT_LOCAL_DEV_ADMIN_TOKEN = 'ADMIN2026TEST';
 export class AdminReviewService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private stagingAdminReviewEnabled(): boolean {
+    const token = process.env.SAKHI_ADMIN_REVIEW_TOKEN?.trim() ?? "";
+    return (
+      process.env.SAKHI_ENV === "staging" &&
+      process.env.NODE_ENV === "production" &&
+      process.env.SAKHI_STAGING_ADMIN_REVIEW_ENABLED === "true" &&
+      process.env.SAKHI_OTP_MODE === "staging_test" &&
+      token.length >= 32
+    );
+  }
+
   private configuredToken(): string {
-    if (process.env.NODE_ENV === "production") {
-      throw new ForbiddenException("The local admin-review token is not available in production.");
-    }
     const environment = process.env.SAKHI_ENV ?? "dev";
+
+    if (process.env.NODE_ENV === "production") {
+      if (!this.stagingAdminReviewEnabled()) {
+        throw new ForbiddenException(
+          "The shared reviewer-token portal is disabled unless the staging test environment and its explicit admin-review gate are configured.",
+        );
+      }
+      return process.env.SAKHI_ADMIN_REVIEW_TOKEN!.trim();
+    }
+
     if (environment !== "dev" && environment !== "test") {
-      throw new ServiceUnavailableException("Admin review is restricted to the local dev/test backend.");
+      throw new ServiceUnavailableException(
+        "Admin review is restricted to local dev/test or explicitly enabled staging-test mode.",
+      );
     }
     const host = process.env.HOST ?? "127.0.0.1";
     if (host !== "127.0.0.1") {
-      throw new ForbiddenException("The shared-token admin review gate is available only when the backend binds to 127.0.0.1.");
+      throw new ForbiddenException(
+        "The shared-token admin review gate is available only when the local backend binds to 127.0.0.1.",
+      );
     }
     const token =
       process.env.SAKHI_ADMIN_REVIEW_TOKEN?.trim() ||
@@ -38,7 +60,9 @@ export class AdminReviewService {
         ? DEFAULT_LOCAL_DEV_ADMIN_TOKEN
         : "");
     if (!token || token.length < 8) {
-      throw new ServiceUnavailableException("Admin review is disabled. Configure a random SAKHI_ADMIN_REVIEW_TOKEN of at least 32 characters in the local backend process.");
+      throw new ServiceUnavailableException(
+        "Admin review is disabled. Configure a random SAKHI_ADMIN_REVIEW_TOKEN of at least 32 characters.",
+      );
     }
     return token;
   }
@@ -70,7 +94,9 @@ export class AdminReviewService {
     return {
       authenticated: true as const,
       reviewerLabel: this.assertReviewer(token),
-      mode: "local_dev_test_only" as const,
+      mode: this.stagingAdminReviewEnabled()
+        ? "staging_test_only" as const
+        : "local_dev_test_only" as const,
     };
   }
 
@@ -151,6 +177,11 @@ export class AdminReviewService {
     });
   }
 
+  private assertMemberDirectoryAccess(): void {
+    if (this.stagingAdminReviewEnabled()) return;
+    this.assertDevelopmentMemberOverrides();
+  }
+
   private assertDevelopmentMemberOverrides(): void {
     if (
       process.env.NODE_ENV === "production" ||
@@ -158,7 +189,7 @@ export class AdminReviewService {
       (process.env.HOST ?? "127.0.0.1") !== "127.0.0.1"
     ) {
       throw new ForbiddenException(
-        "Member-state overrides are available only on the local development/test backend.",
+        "Member-state overrides are available only on the local development/test backend. Use the eligibility review workflow in staging.",
       );
     }
   }
@@ -186,7 +217,7 @@ export class AdminReviewService {
     verificationStatusRaw?: string,
   ) {
     this.assertReviewer(token);
-    this.assertDevelopmentMemberOverrides();
+    this.assertMemberDirectoryAccess();
     const pageValue = Number.parseInt(pageRaw ?? "1", 10);
     const sizeValue = Number.parseInt(pageSizeRaw ?? "50", 10);
     const page = Number.isInteger(pageValue) && pageValue > 0 ? pageValue : 1;
@@ -488,6 +519,14 @@ export class AdminReviewService {
   }
 
   async seedLiveData(token?: string) {
+    if (
+      process.env.NODE_ENV === "production" ||
+      process.env.SAKHI_ENV === "staging"
+    ) {
+      throw new ForbiddenException(
+        "Demo-member and demo-post seeding is disabled for the shared staging/production database.",
+      );
+    }
     this.assertReviewer(token);
     this.assertDevelopmentMemberOverrides();
 

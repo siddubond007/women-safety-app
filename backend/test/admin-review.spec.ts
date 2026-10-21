@@ -8,6 +8,8 @@ const originalLabel = process.env.SAKHI_ADMIN_REVIEWER_LABEL;
 const originalEnvironment = process.env.SAKHI_ENV;
 const originalNodeEnvironment = process.env.NODE_ENV;
 const originalHost = process.env.HOST;
+const originalStagingAdminReviewEnabled = process.env.SAKHI_STAGING_ADMIN_REVIEW_ENABLED;
+const originalOtpMode = process.env.SAKHI_OTP_MODE;
 const reviewerToken = "a".repeat(64);
 
 function configureLocalReviewer() {
@@ -15,6 +17,16 @@ function configureLocalReviewer() {
   process.env.NODE_ENV = "test";
   process.env.SAKHI_ADMIN_REVIEW_TOKEN = reviewerToken;
   process.env.SAKHI_ADMIN_REVIEWER_LABEL = "QA Reviewer";
+}
+
+function configureStagingReviewer() {
+  process.env.SAKHI_ENV = "staging";
+  process.env.NODE_ENV = "production";
+  process.env.HOST = "0.0.0.0";
+  process.env.SAKHI_STAGING_ADMIN_REVIEW_ENABLED = "true";
+  process.env.SAKHI_OTP_MODE = "staging_test";
+  process.env.SAKHI_ADMIN_REVIEW_TOKEN = reviewerToken;
+  process.env.SAKHI_ADMIN_REVIEWER_LABEL = "Staging QA Reviewer";
 }
 
 describe("AdminReviewService reviewer-token boundary", () => {
@@ -29,6 +41,10 @@ describe("AdminReviewService reviewer-token boundary", () => {
     else process.env.NODE_ENV = originalNodeEnvironment;
     if (originalHost === undefined) delete process.env.HOST;
     else process.env.HOST = originalHost;
+    if (originalStagingAdminReviewEnabled === undefined) delete process.env.SAKHI_STAGING_ADMIN_REVIEW_ENABLED;
+    else process.env.SAKHI_STAGING_ADMIN_REVIEW_ENABLED = originalStagingAdminReviewEnabled;
+    if (originalOtpMode === undefined) delete process.env.SAKHI_OTP_MODE;
+    else process.env.SAKHI_OTP_MODE = originalOtpMode;
     vi.restoreAllMocks();
   });
 
@@ -55,6 +71,69 @@ describe("AdminReviewService reviewer-token boundary", () => {
       reviewerLabel: "QA Reviewer",
       mode: "local_dev_test_only",
     });
+  });
+
+  it("allows the shared reviewer portal in staging only with every explicit test gate enabled", () => {
+    configureStagingReviewer();
+    const service = new AdminReviewService({} as PrismaService);
+    expect(service.session(reviewerToken)).toEqual({
+      authenticated: true,
+      reviewerLabel: "Staging QA Reviewer",
+      mode: "staging_test_only",
+    });
+  });
+
+  it("fails closed when the explicit staging admin gate is not enabled", () => {
+    configureStagingReviewer();
+    process.env.SAKHI_STAGING_ADMIN_REVIEW_ENABLED = "false";
+    const service = new AdminReviewService({} as PrismaService);
+    expect(() => service.session(reviewerToken)).toThrow(ForbiddenException);
+  });
+
+  it("allows the staging reviewer to read the real member directory", async () => {
+    configureStagingReviewer();
+    const prisma = {
+      memberAccount: {
+        findMany: vi.fn().mockResolvedValue([]),
+        count: vi.fn().mockResolvedValue(0),
+      },
+      eligibilitySubmission: {
+        count: vi.fn().mockResolvedValue(0),
+      },
+    } as unknown as PrismaService;
+    const service = new AdminReviewService(prisma);
+
+    await expect(service.members(reviewerToken, "1", "1")).resolves.toMatchObject({
+      total: 0,
+      page: 1,
+      pageSize: 1,
+      items: [],
+      summary: {
+        totalAccounts: 0,
+        activeAccounts: 0,
+        pendingAccounts: 0,
+        verifiedAccounts: 0,
+        rejectedAccounts: 0,
+        pendingManualReviews: 0,
+      },
+    });
+  });
+
+  it("blocks direct member-state overrides and demo-data seeding in staging", async () => {
+    configureStagingReviewer();
+    const service = new AdminReviewService({} as PrismaService);
+
+    await expect(service.updateMemberState(
+      "8b1cae61-1111-4111-8111-111111111111",
+      {
+        accountStatus: "ACTIVE",
+        verificationStatus: "VERIFIED",
+        reason: "Local test override must be blocked in staging.",
+      } as never,
+      reviewerToken,
+    )).rejects.toBeInstanceOf(ForbiddenException);
+
+    await expect(service.seedLiveData(reviewerToken)).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it("queries the explicit pending-submission table rather than all consented profiles", async () => {

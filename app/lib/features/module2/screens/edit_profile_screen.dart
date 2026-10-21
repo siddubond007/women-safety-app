@@ -56,7 +56,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     if (user.displayName.isEmpty || user.displayName == _lastLoadedName) return;
     _lastLoadedName = user.displayName;
     _nameController.text = user.displayName;
-    _emailController.text = user.email ?? '';
+    _emailController.text = user.email;
     _bioController.text = user.bio;
     _locationController.text = user.location;
     _interests

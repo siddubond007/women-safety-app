@@ -35,6 +35,7 @@ import { StatusPill } from "../components/StatusPill";
 
 interface AdminLayoutProps {
   onSignOut: () => void;
+  mode: "local_dev_test_only" | "staging_test_only";
 }
 
 interface NavigationItem {
@@ -69,7 +70,8 @@ const navigationItems: NavigationItem[] = [
 
 const groupNames = ["Workspace", "People & trust", "Platform operations", "Insights & security"];
 
-export function AdminLayout({ onSignOut }: AdminLayoutProps) {
+export function AdminLayout({ onSignOut, mode }: AdminLayoutProps) {
+  const isStagingTest = mode === "staging_test_only";
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -106,8 +108,8 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
         <div className="environment-card">
           <span className="environment-icon"><ShieldCheckIcon /></span>
           <span className="environment-copy">
-            <strong>Local dev/test workspace</strong>
-            <small>Eligibility review uses the configured local API</small>
+            <strong>{isStagingTest ? "Staging test workspace" : "Local dev/test workspace"}</strong>
+            <small>{isStagingTest ? "Shared staging API and database" : "Local development API and database"}</small>
           </span>
           <span className="environment-dot" aria-hidden="true" />
         </div>
@@ -152,7 +154,7 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
               <strong>Sakhi Operations</strong>
               <span>Private admin portal</span>
             </div>
-            <StatusPill tone="demo">DEV / TEST</StatusPill>
+            <StatusPill tone="demo">{isStagingTest ? "STAGING TEST" : "DEV / TEST"}</StatusPill>
           </div>
         </div>
       </aside>
@@ -206,8 +208,8 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
               </button>
               {notificationsOpen && (
                 <div className="notification-popover">
-                  <div className="popover-heading"><strong>Live Admin Feed</strong><span>Connected to PostgreSQL</span></div>
-                  <div className="popover-foot">Pending member verifications, live community posts, cloud media uploads, and SOS alerts are synced in real time.</div>
+                  <div className="popover-heading"><strong>Notifications</strong><span>Feed not connected</span></div>
+                  <div className="popover-foot">No notification provider is configured for this test workspace. No synthetic alerts or unread counts are shown.</div>
                 </div>
               )}
             </div>
@@ -215,7 +217,7 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
             <div className="topbar-divider" />
             <button className="admin-profile" type="button" onClick={onSignOut} title="End local reviewer session">
               <span className="admin-avatar">SA</span>
-              <span className="admin-profile-copy"><strong>Local reviewer</strong><small>Dev/test session</small></span>
+              <span className="admin-profile-copy"><strong>{isStagingTest ? "Staging reviewer" : "Local reviewer"}</strong><small>{isStagingTest ? "Staging test session" : "Dev/test session"}</small></span>
               <ChevronDown size={15} />
               <span className="profile-signout"><LogOut size={13} /> Sign out</span>
             </button>
@@ -225,13 +227,16 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
         <main className="page-content">
           <div className="demo-banner" role="status">
             <span className="demo-banner__icon"><AlertTriangle size={16} /></span>
-            <div><strong>LOCAL DEV / TEST ENVIRONMENT</strong><span>Live database records - Local development/test environment - State changes are persisted and audited</span></div>
-            <StatusPill tone="demo">STAGE 1</StatusPill>
+            <div>
+              <strong>{isStagingTest ? "STAGING TEST ENVIRONMENT" : "LOCAL DEV / TEST ENVIRONMENT"}</strong>
+              <span>{isStagingTest ? "Shared staging records - Changes are persisted and audited; use test accounts only." : "Development/test records - Changes are persisted and audited; use test accounts only."}</span>
+            </div>
+            <StatusPill tone="demo">{isStagingTest ? "STAGING" : "DEV / TEST"}</StatusPill>
           </div>
           <Outlet />
           <footer className="page-footer">
             <span>SAKHI ADMIN CONTROL CENTER</span>
-            <span>Local development/test <span className="footer-dot">-</span> Connected backend data</span>
+            <span>{isStagingTest ? "Staging test data" : "Local development/test"} <span className="footer-dot">-</span> Backend API response verified</span>
           </footer>
         </main>
       </div>

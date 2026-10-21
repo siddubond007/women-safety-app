@@ -53,7 +53,13 @@ async function bootstrap(): Promise<void> {
   app.enableCors({
     origin: adminCorsOrigins,
     methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Sakhi-Admin-Token", "x-sakhi-admin-review-token"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Sakhi-Admin-Token",
+      "x-sakhi-admin-review-token",
+      "X-Sakhi-Staging-Admin-Session",
+    ],
     credentials: false,
     maxAge: 600,
   });

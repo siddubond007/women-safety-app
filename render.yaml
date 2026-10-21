@@ -27,3 +27,25 @@ services:
         sync: false
       - key: SAKHI_STAGING_TEST_OTP_CODE
         sync: false
+      - key: SAKHI_STAGING_ADMIN_REVIEW_ENABLED
+        value: "true"
+      - key: SAKHI_ADMIN_REVIEW_TOKEN
+        sync: false
+      - key: SAKHI_ADMIN_REVIEWER_LABEL
+        value: "Sakhi Staging Test Reviewer"
+      - key: SAKHI_ADMIN_CORS_ORIGIN
+        value: "https://sakhi-super-admin.onrender.com"
+
+  - type: web
+    name: sakhi-super-admin
+    runtime: static
+    rootDir: super-admin
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: "https://sakhi-staging-api.onrender.com/api/v1"
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

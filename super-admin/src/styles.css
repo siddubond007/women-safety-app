@@ -1118,3 +1118,27 @@ svg { flex-shrink: 0; }
   font-size: 11px;
   line-height: 1.5;
 }
+
+/* Restored richer dashboard layout, with metrics sourced exclusively from live API data. */
+.audit-chart-grid { stroke: #eee7ee; stroke-width: 1; stroke-dasharray: 3 4; }
+.audit-chart-labels { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; padding: 2px 14px 0; color: #9a8b9d; font-size: 10px; text-align: center; }
+.audit-chart-labels span { display: grid; gap: 4px; }
+.audit-chart-labels strong { color: #5c4863; font-size: 11px; }
+.audit-activity-list { display: grid; gap: 0; padding-top: 8px; border-top: 1px solid #f1eaf1; }
+.audit-activity-row { display: flex; min-width: 0; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid #f5f0f5; }
+.audit-activity-row:last-child { border-bottom: 0; }
+.audit-activity-icon { flex: 0 0 29px; height: 29px; display: grid; place-items: center; border-radius: 9px; background: #f3edf7; color: #806391; }
+.audit-activity-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 4px; }
+.audit-activity-copy strong { overflow: hidden; color: #5d4a65; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.audit-activity-copy small { overflow: hidden; color: #9b8da0; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.audit-activity-row time { flex: 0 0 auto; color: #9b8da0; font-size: 10px; }
+.dashboard-empty-state { display: flex; min-height: 170px; align-items: center; justify-content: center; flex-direction: column; gap: 9px; color: #9b8da0; text-align: center; padding: 22px; }
+.dashboard-empty-state > svg { color: #a386b0; }
+.dashboard-empty-state strong { color: #65526b; font-size: 13px; }
+.dashboard-empty-state span { max-width: 310px; font-size: 12px; line-height: 1.55; }
+.dashboard-empty-state--compact { min-height: 120px; }
+@media (max-width: 680px) {
+  .audit-activity-row { align-items: flex-start; }
+  .audit-activity-row time { white-space: nowrap; }
+  .audit-chart-labels { padding-right: 3px; padding-left: 3px; font-size: 9px; }
+}

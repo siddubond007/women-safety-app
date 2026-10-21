@@ -22,7 +22,14 @@ import '../widgets/feed_post_card.dart';
 /// Instagram-style post composer with interactive cropping (1:1, 4:5, 16:9),
 /// live preview, hashtags, visibility controls, and private Google Drive upload.
 class CommunityScreen extends StatefulWidget {
-  const CommunityScreen({super.key});
+  final String? initialComposerMode;
+  final int createIntent;
+
+  const CommunityScreen({
+    super.key,
+    this.initialComposerMode,
+    this.createIntent = 0,
+  });
 
   @override
   State<CommunityScreen> createState() => _CommunityScreenState();
@@ -32,6 +39,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
   String _selectedCategorySlug = 'community';
   bool _showSearch = false;
   bool _showComposer = false;
+  String _composerMode = 'media';
+  int _composerStep = 0;
   bool _isUploadingCloudMedia = false;
   bool _isRefreshing = false;
   String _composerCategorySlug = 'community';
@@ -60,6 +69,31 @@ class _CommunityScreenState extends State<CommunityScreen> {
     'safety_awareness': 'Safety Awareness',
     'wellness_lifestyle': 'Wellness and Lifestyle',
   };
+
+  @override
+  void initState() {
+    super.initState();
+    final mode = widget.initialComposerMode;
+    if (mode != null) _prepareComposer(mode);
+  }
+
+  @override
+  void didUpdateWidget(covariant CommunityScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.createIntent != oldWidget.createIntent &&
+        widget.initialComposerMode != null) {
+      setState(() => _prepareComposer(widget.initialComposerMode!));
+    }
+  }
+
+  void _prepareComposer(String mode) {
+    _composerMode = mode;
+    _composerStep = mode == 'media' ? 0 : 1;
+    _composerCategorySlug = mode == 'resource'
+        ? 'wellness_lifestyle'
+        : 'community';
+    _showComposer = true;
+  }
 
   @override
   void dispose() {
@@ -180,7 +214,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
     final state = SakhiPrototypeState.instance;
     SakhiDialogs.showPrototypeSnackbar(
       context,
-      state.lastSyncError ?? 'Synced live posts from PostgreSQL.',
+      state.lastSyncError ?? 'Social Wall refreshed.',
     );
   }
 
@@ -393,7 +427,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                       ),
                       const Spacer(),
                       IconButton(
-                        tooltip: 'Refresh Live PostgreSQL Feed',
+                        tooltip: 'Refresh Social Wall',
                         icon: _isRefreshing
                             ? const SizedBox(
                                 width: 18,
@@ -515,360 +549,460 @@ class _CommunityScreenState extends State<CommunityScreen> {
                         ),
                         if (_showComposer) ...[
                           const SizedBox(height: 12),
-                          // Aspect Ratio & Photo Selection Bar
-                          Row(
-                            children: [
-                              const Text(
-                                'Crop Preset:',
-                                style: AppTypography.bodyMedium,
-                              ),
-                              const SizedBox(width: 8),
-                              for (final preset in const ['1:1', '4:5', '16:9'])
-                                Padding(
-                                  padding: const EdgeInsets.only(right: 6),
-                                  child: ChoiceChip(
-                                    label: Text(
-                                      preset,
-                                      style: TextStyle(
-                                        fontSize: 11.5,
-                                        fontWeight: FontWeight.w700,
-                                        color: _selectedCropPreset == preset
-                                            ? Colors.white
-                                            : AppColors.primaryPurple,
+                          Text(switch (_composerMode) {
+                            'text' => 'Write a Text Post',
+                            'question' => 'Create a Community Question',
+                            'resource' => 'Share a Useful Resource',
+                            _ => 'Post a Photo or Video',
+                          }, style: AppTypography.sectionTitle),
+                          const SizedBox(height: 10),
+                          if (_composerMode == 'media') ...[
+                            // Aspect ratio choices appear only after media is selected.
+                            if (_selectedImageCroppedBytes != null ||
+                                _attachedEditorialAsset != null) ...[
+                              Row(
+                                children: [
+                                  const Text(
+                                    'Crop Preset:',
+                                    style: AppTypography.bodyMedium,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  for (final preset in const [
+                                    '1:1',
+                                    '4:5',
+                                    '16:9',
+                                  ])
+                                    Padding(
+                                      padding: const EdgeInsets.only(right: 6),
+                                      child: ChoiceChip(
+                                        label: Text(
+                                          preset,
+                                          style: TextStyle(
+                                            fontSize: 11.5,
+                                            fontWeight: FontWeight.w700,
+                                            color: _selectedCropPreset == preset
+                                                ? Colors.white
+                                                : AppColors.primaryPurple,
+                                          ),
+                                        ),
+                                        selected: _selectedCropPreset == preset,
+                                        selectedColor: AppColors.primaryPurple,
+                                        backgroundColor:
+                                            AppColors.pastelLavender,
+                                        onSelected: (_) =>
+                                            _changeCropPreset(preset),
                                       ),
                                     ),
-                                    selected: _selectedCropPreset == preset,
-                                    selectedColor: AppColors.primaryPurple,
-                                    backgroundColor: AppColors.pastelLavender,
-                                    onSelected: (_) =>
-                                        _changeCropPreset(preset),
-                                  ),
-                                ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
                             ],
-                          ),
-                          const SizedBox(height: 8),
-                          if (_selectedImageCroppedBytes != null) ...[
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(14),
-                              child: AspectRatio(
-                                aspectRatio: _aspectRatioForPreset(
-                                  _selectedCropPreset,
-                                ),
-                                child: Image.memory(
-                                  _selectedImageCroppedBytes!,
-                                  fit: BoxFit.cover,
-                                  filterQuality: FilterQuality.high,
+                            if (_selectedImageCroppedBytes != null) ...[
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(14),
+                                child: AspectRatio(
+                                  aspectRatio: _aspectRatioForPreset(
+                                    _selectedCropPreset,
+                                  ),
+                                  child: Image.memory(
+                                    _selectedImageCroppedBytes!,
+                                    fit: BoxFit.cover,
+                                    filterQuality: FilterQuality.high,
+                                  ),
                                 ),
                               ),
-                            ),
-                            Row(
-                              children: [
-                                const SizedBox(width: 58, child: Text('Zoom')),
-                                Expanded(
-                                  child: Slider(
-                                    value: _cropZoom,
-                                    min: 1.0,
-                                    max: 3.0,
-                                    divisions: 20,
-                                    label: '${_cropZoom.toStringAsFixed(1)}×',
-                                    activeColor: AppColors.primaryPurple,
-                                    onChanged: (value) =>
-                                        setState(() => _cropZoom = value),
-                                    onChangeEnd: (_) => _applyCropSettings(),
+                              Row(
+                                children: [
+                                  const SizedBox(
+                                    width: 58,
+                                    child: Text('Zoom'),
                                   ),
+                                  Expanded(
+                                    child: Slider(
+                                      value: _cropZoom,
+                                      min: 1.0,
+                                      max: 3.0,
+                                      divisions: 20,
+                                      label: '${_cropZoom.toStringAsFixed(1)}×',
+                                      activeColor: AppColors.primaryPurple,
+                                      onChanged: (value) =>
+                                          setState(() => _cropZoom = value),
+                                      onChangeEnd: (_) => _applyCropSettings(),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Row(
+                                children: [
+                                  const SizedBox(
+                                    width: 58,
+                                    child: Text('Left / right'),
+                                  ),
+                                  Expanded(
+                                    child: Slider(
+                                      value: _cropOffsetX,
+                                      min: -1.0,
+                                      max: 1.0,
+                                      divisions: 20,
+                                      activeColor: AppColors.primaryPurple,
+                                      onChanged: (value) =>
+                                          setState(() => _cropOffsetX = value),
+                                      onChangeEnd: (_) => _applyCropSettings(),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Row(
+                                children: [
+                                  const SizedBox(
+                                    width: 58,
+                                    child: Text('Up / down'),
+                                  ),
+                                  Expanded(
+                                    child: Slider(
+                                      value: _cropOffsetY,
+                                      min: -1.0,
+                                      max: 1.0,
+                                      divisions: 20,
+                                      activeColor: AppColors.primaryPurple,
+                                      onChanged: (value) =>
+                                          setState(() => _cropOffsetY = value),
+                                      onChangeEnd: (_) => _applyCropSettings(),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton.icon(
+                                  onPressed: () => setState(() {
+                                    _selectedImageOriginalBytes = null;
+                                    _selectedImageCroppedBytes = null;
+                                    _selectedImageName = null;
+                                    _cropZoom = 1.0;
+                                    _cropOffsetX = 0.0;
+                                    _cropOffsetY = 0.0;
+                                  }),
+                                  icon: const Icon(
+                                    Icons.delete_outline,
+                                    size: 16,
+                                    color: AppColors.sosRed,
+                                  ),
+                                  label: const Text(
+                                    'Remove selected photo',
+                                    style: TextStyle(color: AppColors.sosRed),
+                                  ),
+                                ),
+                              ),
+                            ] else if (_attachedEditorialAsset != null) ...[
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(14),
+                                child: AspectRatio(
+                                  aspectRatio: _aspectRatioForPreset(
+                                    _selectedCropPreset,
+                                  ),
+                                  child: Image.asset(
+                                    _attachedEditorialAsset!,
+                                    fit: BoxFit.cover,
+                                  ),
+                                ),
+                              ),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton(
+                                  onPressed: () => setState(
+                                    () => _attachedEditorialAsset = null,
+                                  ),
+                                  child: const Text('Clear illustration'),
+                                ),
+                              ),
+                            ],
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                OutlinedButton.icon(
+                                  icon: const Icon(
+                                    Icons.photo_library_outlined,
+                                    size: 17,
+                                  ),
+                                  label: const Text('Gallery Photo'),
+                                  onPressed: _isUploadingCloudMedia
+                                      ? null
+                                      : () => _pickAndCropGalleryImage(
+                                          ImageSource.gallery,
+                                        ),
+                                ),
+                                OutlinedButton.icon(
+                                  icon: const Icon(
+                                    Icons.photo_camera_outlined,
+                                    size: 17,
+                                  ),
+                                  label: const Text('Camera'),
+                                  onPressed: _isUploadingCloudMedia
+                                      ? null
+                                      : () => _pickAndCropGalleryImage(
+                                          ImageSource.camera,
+                                        ),
+                                ),
+                                OutlinedButton.icon(
+                                  icon: const Icon(
+                                    Icons.auto_awesome_outlined,
+                                    size: 17,
+                                  ),
+                                  label: const Text('Create with Template'),
+                                  onPressed: () => setState(() {
+                                    _attachedEditorialAsset =
+                                        AppAssets.communityCircleGathering;
+                                    _selectedImageOriginalBytes = null;
+                                    _selectedImageCroppedBytes = null;
+                                  }),
                                 ),
                               ],
                             ),
-                            Row(
-                              children: [
-                                const SizedBox(
-                                  width: 58,
-                                  child: Text('Left / right'),
-                                ),
-                                Expanded(
-                                  child: Slider(
-                                    value: _cropOffsetX,
-                                    min: -1.0,
-                                    max: 1.0,
-                                    divisions: 20,
-                                    activeColor: AppColors.primaryPurple,
-                                    onChanged: (value) =>
-                                        setState(() => _cropOffsetX = value),
-                                    onChangeEnd: (_) => _applyCropSettings(),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            Row(
-                              children: [
-                                const SizedBox(
-                                  width: 58,
-                                  child: Text('Up / down'),
-                                ),
-                                Expanded(
-                                  child: Slider(
-                                    value: _cropOffsetY,
-                                    min: -1.0,
-                                    max: 1.0,
-                                    divisions: 20,
-                                    activeColor: AppColors.primaryPurple,
-                                    onChanged: (value) =>
-                                        setState(() => _cropOffsetY = value),
-                                    onChangeEnd: (_) => _applyCropSettings(),
-                                  ),
-                                ),
-                              ],
-                            ),
+                          ],
+                          if (_composerMode == 'media' &&
+                              _composerStep == 0) ...[
+                            const SizedBox(height: 12),
                             Align(
                               alignment: Alignment.centerRight,
-                              child: TextButton.icon(
-                                onPressed: () => setState(() {
-                                  _selectedImageOriginalBytes = null;
-                                  _selectedImageCroppedBytes = null;
-                                  _selectedImageName = null;
-                                  _cropZoom = 1.0;
-                                  _cropOffsetX = 0.0;
-                                  _cropOffsetY = 0.0;
-                                }),
-                                icon: const Icon(
-                                  Icons.delete_outline,
-                                  size: 16,
-                                  color: AppColors.sosRed,
-                                ),
-                                label: const Text(
-                                  'Remove selected photo',
-                                  style: TextStyle(color: AppColors.sosRed),
-                                ),
-                              ),
-                            ),
-                          ] else if (_attachedEditorialAsset != null) ...[
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(14),
-                              child: AspectRatio(
-                                aspectRatio: _aspectRatioForPreset(
-                                  _selectedCropPreset,
-                                ),
-                                child: Image.asset(
-                                  _attachedEditorialAsset!,
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
-                            ),
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: TextButton(
-                                onPressed: () => setState(
-                                  () => _attachedEditorialAsset = null,
-                                ),
-                                child: const Text('Clear illustration'),
+                              child: FilledButton.icon(
+                                onPressed:
+                                    (_selectedImageCroppedBytes != null ||
+                                        _attachedEditorialAsset != null)
+                                    ? () => setState(() => _composerStep = 1)
+                                    : null,
+                                icon: const Icon(Icons.arrow_forward_rounded),
+                                label: const Text('Next'),
                               ),
                             ),
                           ],
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              OutlinedButton.icon(
-                                icon: const Icon(
-                                  Icons.photo_library_outlined,
-                                  size: 17,
-                                ),
-                                label: const Text('Gallery Photo'),
-                                onPressed: _isUploadingCloudMedia
-                                    ? null
-                                    : () => _pickAndCropGalleryImage(
-                                        ImageSource.gallery,
-                                      ),
-                              ),
-                              OutlinedButton.icon(
-                                icon: const Icon(
-                                  Icons.photo_camera_outlined,
-                                  size: 17,
-                                ),
-                                label: const Text('Camera'),
-                                onPressed: _isUploadingCloudMedia
-                                    ? null
-                                    : () => _pickAndCropGalleryImage(
-                                        ImageSource.camera,
-                                      ),
-                              ),
-                              OutlinedButton.icon(
-                                icon: const Icon(
-                                  Icons.auto_awesome_outlined,
-                                  size: 17,
-                                ),
-                                label: const Text('Editorial Artwork'),
-                                onPressed: () => setState(() {
-                                  _attachedEditorialAsset =
-                                      AppAssets.communityCircleGathering;
-                                  _selectedImageOriginalBytes = null;
-                                  _selectedImageCroppedBytes = null;
-                                }),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          TextField(
-                            controller: _postController,
-                            maxLines: 3,
-                            decoration: const InputDecoration(
-                              hintText: 'Write your caption and #hashtags (saved to PostgreSQL)...',
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 6,
-                            runSpacing: 6,
-                            children: state.trendingHashtags.map((tag) {
-                              final selected = _selectedHashtags.contains(tag);
-                              return SakhiChip(
-                                label: tag,
-                                isSelected: selected,
-                                onTap: () => setState(() {
-                                  if (selected) {
-                                    _selectedHashtags.remove(tag);
-                                  } else {
-                                    _selectedHashtags.add(tag);
+                          if (_composerMode != 'media' ||
+                              _composerStep == 1) ...[
+                            if (_composerMode == 'text' ||
+                                _composerMode == 'question') ...[
+                              SegmentedButton<String>(
+                                segments: const [
+                                  ButtonSegment<String>(
+                                    value: 'text',
+                                    icon: Icon(Icons.edit_note_rounded),
+                                    label: Text('Text Post'),
+                                  ),
+                                  ButtonSegment<String>(
+                                    value: 'question',
+                                    icon: Icon(Icons.forum_outlined),
+                                    label: Text('Community Question'),
+                                  ),
+                                ],
+                                selected: {_composerMode},
+                                onSelectionChanged: (selection) {
+                                  if (selection.isNotEmpty) {
+                                    setState(
+                                      () => _composerMode = selection.first,
+                                    );
                                   }
-                                }),
-                              );
-                            }).toList(),
-                          ),
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: DropdownButtonFormField<String>(
-                                  value: _composerCategorySlug,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Category',
-                                    isDense: true,
-                                  ),
-                                  items: const [
-                                    DropdownMenuItem(
-                                      value: 'community',
-                                      child: Text('Community'),
-                                    ),
-                                    DropdownMenuItem(
-                                      value: 'business_updates',
-                                      child: Text('Business Updates'),
-                                    ),
-                                    DropdownMenuItem(
-                                      value: 'safety_awareness',
-                                      child: Text('Safety Awareness'),
-                                    ),
-                                    DropdownMenuItem(
-                                      value: 'wellness_lifestyle',
-                                      child: Text('Wellness & Lifestyle'),
-                                    ),
-                                  ],
-                                  onChanged: (v) {
-                                    if (v != null) {
-                                      setState(() => _composerCategorySlug = v);
-                                    }
-                                  },
-                                ),
+                                },
                               ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: DropdownButtonFormField<String>(
-                                  value: _selectedVisibility,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Visibility',
-                                    isDense: true,
-                                  ),
-                                  items: const [
-                                    DropdownMenuItem(
-                                      value: 'VERIFIED_MEMBERS',
-                                      child: Text('Verified Members'),
-                                    ),
-                                    DropdownMenuItem(
-                                      value: 'FOLLOWERS_ONLY',
-                                      child: Text('Followers Only'),
-                                    ),
-                                    DropdownMenuItem(
-                                      value: 'PRIVATE_SELF',
-                                      child: Text('Only Me'),
-                                    ),
-                                  ],
-                                  onChanged: (v) {
-                                    if (v != null) {
-                                      setState(() => _selectedVisibility = v);
+                              const SizedBox(height: 12),
+                            ],
+                            TextField(
+                              controller: _postController,
+                              maxLines: _composerMode == 'question' ? 5 : 3,
+                              maxLength: 500,
+                              decoration: InputDecoration(
+                                hintText: switch (_composerMode) {
+                                  'question' =>
+                                    'Ask the community a question...',
+                                  'resource' =>
+                                    'Share a useful resource with the community...',
+                                  'media' =>
+                                    'Write a caption and add #hashtags...',
+                                  _ =>
+                                    'Share your thoughts with the community...',
+                                },
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: state.trendingHashtags.map((tag) {
+                                final selected = _selectedHashtags.contains(
+                                  tag,
+                                );
+                                return SakhiChip(
+                                  label: tag,
+                                  isSelected: selected,
+                                  onTap: () => setState(() {
+                                    if (selected) {
+                                      _selectedHashtags.remove(tag);
+                                    } else {
+                                      _selectedHashtags.add(tag);
                                     }
-                                  },
+                                  }),
+                                );
+                              }).toList(),
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: DropdownButtonFormField<String>(
+                                    value: _composerCategorySlug,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Category',
+                                      isDense: true,
+                                    ),
+                                    items: const [
+                                      DropdownMenuItem(
+                                        value: 'community',
+                                        child: Text('Community'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 'business_updates',
+                                        child: Text('Business Updates'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 'safety_awareness',
+                                        child: Text('Safety Awareness'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 'wellness_lifestyle',
+                                        child: Text('Wellness & Lifestyle'),
+                                      ),
+                                    ],
+                                    onChanged: (v) {
+                                      if (v != null) {
+                                        setState(
+                                          () => _composerCategorySlug = v,
+                                        );
+                                      }
+                                    },
+                                  ),
                                 ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: DropdownButtonFormField<String>(
+                                    value: _selectedVisibility,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Visibility',
+                                      isDense: true,
+                                    ),
+                                    items: const [
+                                      DropdownMenuItem(
+                                        value: 'VERIFIED_MEMBERS',
+                                        child: Text('Verified Members'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 'FOLLOWERS_ONLY',
+                                        child: Text('Followers Only'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 'PRIVATE_SELF',
+                                        child: Text('Only Me'),
+                                      ),
+                                    ],
+                                    onChanged: (v) {
+                                      if (v != null) {
+                                        setState(() => _selectedVisibility = v);
+                                      }
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: _locationController,
+                              decoration: const InputDecoration(
+                                labelText: 'Location tag (optional)',
+                                hintText: 'e.g., Jubilee Hills, Hyderabad',
+                                prefixIcon: Icon(
+                                  Icons.location_on_outlined,
+                                  size: 18,
+                                ),
+                                isDense: true,
+                              ),
+                            ),
+                            Material(
+                              color: Colors.transparent,
+                              child: SwitchListTile.adaptive(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                value: _allowComments,
+                                activeColor: AppColors.primaryPurple,
+                                title: const Text(
+                                  'Allow member comments',
+                                  style: AppTypography.bodyMedium,
+                                ),
+                                onChanged: (v) =>
+                                    setState(() => _allowComments = v),
+                              ),
+                            ),
+                            Material(
+                              color: Colors.transparent,
+                              child: SwitchListTile.adaptive(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                value: _shareToBusinessProfile,
+                                activeColor: AppColors.primaryPurple,
+                                title: const Text(
+                                  'Feature on my Women-Owned Business profile',
+                                  style: AppTypography.bodyMedium,
+                                ),
+                                onChanged: (v) =>
+                                    setState(() => _shareToBusinessProfile = v),
+                              ),
+                            ),
+                            if (_isUploadingCloudMedia) ...[
+                              const SizedBox(height: 8),
+                              const LinearProgressIndicator(
+                                color: AppColors.primaryPurple,
                               ),
                             ],
-                          ),
-                          const SizedBox(height: 8),
-                          TextField(
-                            controller: _locationController,
-                            decoration: const InputDecoration(
-                              labelText: 'Location tag (optional)',
-                              hintText: 'e.g., Jubilee Hills, Hyderabad',
-                              prefixIcon: Icon(
-                                Icons.location_on_outlined,
-                                size: 18,
-                              ),
-                              isDense: true,
-                            ),
-                          ),
-                          SwitchListTile.adaptive(
-                            dense: true,
-                            contentPadding: EdgeInsets.zero,
-                            value: _allowComments,
-                            activeColor: AppColors.primaryPurple,
-                            title: const Text(
-                              'Allow member comments',
-                              style: AppTypography.bodyMedium,
-                            ),
-                            onChanged: (v) =>
-                                setState(() => _allowComments = v),
-                          ),
-                          SwitchListTile.adaptive(
-                            dense: true,
-                            contentPadding: EdgeInsets.zero,
-                            value: _shareToBusinessProfile,
-                            activeColor: AppColors.primaryPurple,
-                            title: const Text(
-                              'Feature on my Women-Owned Business profile',
-                              style: AppTypography.bodyMedium,
-                            ),
-                            onChanged: (v) =>
-                                setState(() => _shareToBusinessProfile = v),
-                          ),
-                          if (_isUploadingCloudMedia) ...[
-                            const SizedBox(height: 8),
-                            const LinearProgressIndicator(
-                              color: AppColors.primaryPurple,
+                            const SizedBox(height: 10),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                TextButton(
+                                  onPressed: _isUploadingCloudMedia
+                                      ? null
+                                      : () => setState(() {
+                                          if (_composerMode == 'media' &&
+                                              _composerStep == 1) {
+                                            _composerStep = 0;
+                                          } else {
+                                            _showComposer = false;
+                                          }
+                                        }),
+                                  child: Text(
+                                    _composerMode == 'media' &&
+                                            _composerStep == 1
+                                        ? 'Back to media'
+                                        : 'Cancel',
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                SakhiPillButton(
+                                  label: _isUploadingCloudMedia
+                                      ? 'Publishing...'
+                                      : switch (_composerMode) {
+                                          'text' => 'Share Post',
+                                          'question' => 'Share Question',
+                                          'resource' => 'Share Resource',
+                                          _ => 'Publish to Social Wall',
+                                        },
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 18,
+                                    vertical: 9,
+                                  ),
+                                  onPressed: _isUploadingCloudMedia
+                                      ? null
+                                      : _publishPost,
+                                ),
+                              ],
                             ),
                           ],
-                          const SizedBox(height: 10),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              TextButton(
-                                onPressed: _isUploadingCloudMedia
-                                    ? null
-                                    : () =>
-                                          setState(() => _showComposer = false),
-                                child: const Text('Cancel'),
-                              ),
-                              const SizedBox(width: 8),
-                              SakhiPillButton(
-                                label: _isUploadingCloudMedia
-                                    ? 'Publishing...'
-                                    : 'Publish to Social Wall',
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 18,
-                                  vertical: 9,
-                                ),
-                                onPressed: _isUploadingCloudMedia
-                                    ? null
-                                    : _publishPost,
-                              ),
-                            ],
-                          ),
                         ],
                       ],
                     ),
@@ -975,7 +1109,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                             SakhiDialogs.showPrototypeSnackbar(
                               context,
                               post.isSaved
-                                  ? 'Saved post to PostgreSQL'
+                                  ? 'Saved post'
                                   : 'Removed from Saved Posts',
                             );
                           },

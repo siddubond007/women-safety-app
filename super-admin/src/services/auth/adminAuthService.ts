@@ -6,7 +6,7 @@ const API_BASE_URL = (
 export interface AdminSession {
   authenticated: true;
   reviewerLabel: string;
-  mode: "local_dev_test_only";
+  mode: "local_dev_test_only" | "staging_test_only";
 }
 
 async function requestSession(token: string): Promise<AdminSession> {

@@ -15,7 +15,7 @@ AuthService authServiceForCurrentBuild() {
     return const UnconfiguredAuthService();
   }
   if (stagingTestBuild) return BackendAuthService();
-  if (const bool.fromEnvironment('SAKHI_BACKEND_ENABLED', defaultValue: true)) {
+  if (const bool.fromEnvironment('SAKHI_BACKEND_ENABLED', defaultValue: false)) {
     return BackendAuthService();
   }
   return const DemoAuthService();
