@@ -227,11 +227,28 @@ class BackendApiClient {
         code: 'timeout',
         message: 'The image upload timed out. Check the backend connection and try again.',
       );
-    } on SocketException {
-      throw const BackendApiException(
+    } on SocketException catch (error) {
+      final parsedBase = Uri.tryParse(baseUrl);
+      final targetHost = parsedBase?.host.isNotEmpty == true
+          ? parsedBase!.host
+          : 'configured server';
+      final osError = error.osError;
+      final osDetail = osError?.message.trim().isNotEmpty == true
+          ? osError!.message.trim()
+          : error.message.trim();
+      debugPrint(
+        'Sakhi upload socket failure: host=$targetHost path=$path '
+        'stage=$requestStage osErrorCode=${osError?.errorCode} '
+        'detail=$osDetail',
+      );
+      throw BackendApiException(
         statusCode: 0,
         code: 'network_unavailable',
-        message: 'Sakhi backend is unreachable. Start the backend and check the local connection.',
+        message:
+            'Could not connect to Sakhi server ($targetHost) during '
+            '$requestStage. Network detail: '
+            '${osDetail.isEmpty ? 'no OS detail' : osDetail}. '
+            'Check this app\'s network access and retry.',
       );
     } on HttpException catch (error) {
       debugPrint(
@@ -322,11 +339,28 @@ class BackendApiClient {
         code: 'timeout',
         message: 'Sakhi backend timed out. Check the local connection and try again.',
       );
-    } on SocketException {
-      throw const BackendApiException(
+    } on SocketException catch (error) {
+      final parsedBase = Uri.tryParse(baseUrl);
+      final targetHost = parsedBase?.host.isNotEmpty == true
+          ? parsedBase!.host
+          : 'configured server';
+      final osError = error.osError;
+      final osDetail = osError?.message.trim().isNotEmpty == true
+          ? osError!.message.trim()
+          : error.message.trim();
+      debugPrint(
+        'Sakhi API socket failure: method=$method path=$path '
+        'host=$targetHost stage=$requestStage '
+        'osErrorCode=${osError?.errorCode} detail=$osDetail',
+      );
+      throw BackendApiException(
         statusCode: 0,
         code: 'network_unavailable',
-        message: 'Sakhi backend is unreachable. Start the local backend and check the USB connection.',
+        message:
+            'Could not connect to Sakhi server ($targetHost) during '
+            '$requestStage. Network detail: '
+            '${osDetail.isEmpty ? 'no OS detail' : osDetail}. '
+            'Check this app\'s network access and retry.',
       );
     } on HttpException catch (error) {
       final detail = error.message.trim();

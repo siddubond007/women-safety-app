@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import 'auth_policy.dart';
 import 'auth_service.dart';
 import 'backend_api_client.dart';
@@ -127,7 +129,8 @@ class BackendAuthService implements AuthService {
     final verificationStatus = data['verificationStatus'];
     switch (status) {
       case 'ACTIVE':
-        if ((data['testAccess'] == true || data['testAccessApproved'] == true) &&
+        if ((data['testAccess'] == true ||
+                data['testAccessApproved'] == true) &&
             data['profile'] != null) {
           return AuthAccountState.existingAccount;
         }
@@ -139,7 +142,8 @@ class BackendAuthService implements AuthService {
       case 'DELETED':
         return AuthAccountState.restricted;
       case 'PENDING_VERIFICATION':
-        if ((data['testAccess'] == true || data['testAccessApproved'] == true) &&
+        if ((data['testAccess'] == true ||
+                data['testAccessApproved'] == true) &&
             data['profile'] != null) {
           return AuthAccountState.existingAccount;
         }
@@ -232,9 +236,23 @@ class BackendAuthService implements AuthService {
       throw _mapError(error);
     } on AuthServiceException {
       rethrow;
-    } on SocketException {
-      throw const AuthServiceException(
-        'Sakhi backend is unreachable. Start the local backend and check the USB connection.',
+    } on SocketException catch (error) {
+      final parsedBase = Uri.tryParse(apiClient.baseUrl);
+      final targetHost = parsedBase?.host.isNotEmpty == true
+          ? parsedBase!.host
+          : 'configured server';
+      final osError = error.osError;
+      final detail = osError?.message.trim().isNotEmpty == true
+          ? osError!.message.trim()
+          : error.message.trim();
+      debugPrint(
+        'Sakhi OTP socket failure: host=$targetHost '
+        'osErrorCode=${osError?.errorCode} detail=$detail',
+      );
+      throw AuthServiceException(
+        'Sakhi could not reach server ($targetHost). Network detail: '
+        '${detail.isEmpty ? 'no OS detail' : detail}. '
+        'Check this app\'s network access and retry.',
         code: 'network_unavailable',
       );
     } catch (_) {
@@ -418,16 +436,13 @@ class BackendAuthService implements AuthService {
               message =
                   'Profile saved and photo uploaded to private Google Drive.';
             } else {
-              message =
-                  'Profile saved. The optional photo upload did not complete; you can try again from Edit Profile.';
+              message = 'Profile saved. The optional photo upload did not complete; you can try again from Edit Profile.';
             }
           } catch (_) {
-            message =
-                'Profile saved. The optional photo upload did not complete; you can try again from Edit Profile.';
+            message = 'Profile saved. The optional photo upload did not complete; you can try again from Edit Profile.';
           }
         } else {
-          message =
-              'Profile saved. The optional photo was not uploaded because it is too large or uses an unsupported image format.';
+          message = 'Profile saved. The optional photo was not uploaded because it is too large or uses an unsupported image format.';
         }
       }
 
