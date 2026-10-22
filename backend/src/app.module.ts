@@ -11,6 +11,7 @@ import { StagingTestAdminModule } from "./staging-test-admin/staging-test-admin.
 import { Module2Module } from "./module2/module2.module.js";
 import { PrismaModule } from "./database/prisma.module.js";
 import { HealthController } from "./health/health.controller.js";
+import { HealthService } from "./health/health.service.js";
 
 @Module({
   imports: [
@@ -71,5 +72,6 @@ import { HealthController } from "./health/health.controller.js";
     Module2Module,
   ],
   controllers: [HealthController],
+  providers: [HealthService],
 })
 export class AppModule {}
