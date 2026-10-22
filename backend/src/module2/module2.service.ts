@@ -662,6 +662,13 @@ export class Module2Service {
           deletedAt: null,
           status: { in: ["PUBLISHED", "EDITED"] },
         },
+        include: {
+          mediaAssets: {
+            where: { deletedAt: null, status: "ATTACHED" },
+            select: { contentType: true },
+            take: 1,
+          },
+        },
         orderBy: { createdAt: "desc" },
         take: 50,
       }),
@@ -670,6 +677,13 @@ export class Module2Service {
           authorAccountId: session.accountId,
           deletedAt: null,
           status: { in: ["PUBLISHED", "EDITED"] },
+        },
+        include: {
+          mediaAssets: {
+            where: { deletedAt: null, status: "ATTACHED" },
+            select: { contentType: true },
+            take: 1,
+          },
         },
         orderBy: { createdAt: "desc" },
         take: 100,
@@ -764,7 +778,9 @@ export class Module2Service {
         })
       : 0;
 
-    const isViewerVerified = session.account.verificationStatus === "VERIFIED";
+    const isViewerVerified =
+      session.account.verificationStatus === "VERIFIED" ||
+      session.testAccessApproved === true;
     const followedDirectoryIds = new Set(
       userFollows
         .filter((follow) => follow.isFollowing)
@@ -803,6 +819,7 @@ export class Module2Service {
       body: post.content,
       imageAsset: post.imageAsset,
       mediaAsset: post.imageAsset,
+      mediaContentType: post.mediaAssets[0]?.contentType ?? null,
       categoryBadge: post.categoryBadge,
       categorySlug: post.categorySlug,
       visibility: post.visibility,
@@ -917,6 +934,210 @@ export class Module2Service {
     };
   }
 
+  async checkUsernameAvailability(
+    authorization: string | undefined,
+    requestedUsername: string,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const raw = (requestedUsername ?? "")
+      .trim()
+      .replace(/^@/, "")
+      .toLowerCase();
+    if (!/^[a-z0-9_]{3,24}$/.test(raw)) {
+      return {
+        available: false,
+        username: raw ? `@${raw}` : "",
+        reason: "Use 3–24 lowercase letters, numbers, or underscores.",
+      };
+    }
+    const username = `@${raw}`;
+    const existing = await this.prisma.memberProfile.findFirst({
+      where: {
+        username,
+        accountId: { not: session.accountId },
+      },
+      select: { accountId: true },
+    });
+    return { available: !existing, username };
+  }
+
+  async searchMembers(
+    authorization: string | undefined,
+    rawQuery: string | undefined,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const query = (rawQuery ?? "").trim().replace(/^#/, "").slice(0, 80);
+    if (!query) return { source: "postgresql_live" as const, members: [] };
+
+    const viewerProfile = await this.prisma.memberProfile.findUnique({
+      where: { accountId: session.accountId },
+      select: { username: true },
+    });
+    const viewerHandle = (viewerProfile?.username ?? "").trim().toLowerCase();
+    const normalizeHandle = (value: string) =>
+      value.trim().replace(/^@/, "").toLowerCase();
+
+    const viewerHandleVariants = [
+      ...new Set(
+        [
+          viewerHandle,
+          normalizeHandle(viewerHandle),
+          viewerHandle ? `@${normalizeHandle(viewerHandle)}` : "",
+        ].filter(Boolean),
+      ),
+    ];
+    const [outgoingBlocks, incomingBlocks] = await Promise.all([
+      this.prisma.memberModerationBlock.findMany({
+        where: { accountId: session.accountId },
+        select: { blockedUsername: true },
+      }),
+      viewerHandleVariants.length > 0
+        ? this.prisma.memberModerationBlock.findMany({
+            where: { blockedUsername: { in: viewerHandleVariants } },
+            select: { accountId: true },
+          })
+        : Promise.resolve([]),
+    ]);
+    const blockedHandles = new Set(
+      outgoingBlocks.map((item) => normalizeHandle(item.blockedUsername)),
+    );
+    const accountsWhoBlockedViewer = new Set(
+      incomingBlocks.map((item) => item.accountId),
+    );
+
+    // JsonB array containment handles exact interest names. The parameterized
+    // query adds substring matches such as "wellness" -> "Mental Wellness";
+    // candidate rows are still filtered by account verification and privacy below.
+    const rawPrisma = this.prisma as unknown as {
+      $queryRaw?: <T>(
+        query: TemplateStringsArray,
+        ...values: unknown[]
+      ) => Promise<T>;
+    };
+    const interestRows =
+      typeof rawPrisma.$queryRaw === "function"
+        ? await rawPrisma.$queryRaw<Array<{ accountId: string }>>`
+          SELECT mp.account_id AS "accountId"
+          FROM member_profiles AS mp
+          WHERE mp.account_id <> ${session.accountId}::uuid
+            AND EXISTS (
+              SELECT 1
+              FROM jsonb_array_elements_text(mp.interests) AS interest(value)
+              WHERE lower(interest.value) LIKE ${`%${query.toLowerCase()}%`}
+            )
+          LIMIT 100
+        `
+        : [];
+    const interestAccountIds = interestRows.map((row) => row.accountId);
+    const searchBranches: Record<string, unknown>[] = [
+      { displayName: { contains: query, mode: "insensitive" } },
+      { username: { contains: query, mode: "insensitive" } },
+      { bio: { contains: query, mode: "insensitive" } },
+      { interests: { array_contains: [query] } },
+      ...(interestAccountIds.length > 0
+        ? [{ accountId: { in: interestAccountIds } }]
+        : []),
+    ];
+
+    const candidates = await this.prisma.memberProfile.findMany({
+      where: {
+        accountId: {
+          not: session.accountId,
+          ...(accountsWhoBlockedViewer.size > 0
+            ? { notIn: [...accountsWhoBlockedViewer] }
+            : {}),
+        },
+        account: {
+          is: {
+            status: "ACTIVE",
+            verificationStatus: "VERIFIED",
+          },
+        },
+        OR: searchBranches,
+      },
+      include: {
+        account: {
+          select: {
+            status: true,
+            verificationStatus: true,
+            privacyPreference: {
+              select: { searchResults: true },
+            },
+          },
+        },
+      },
+      orderBy: { displayName: "asc" },
+      take: 100,
+    });
+
+    const visibleCandidates = candidates.filter((profile) => {
+      const searchPreference =
+        profile.account.privacyPreference?.searchResults ?? "Yes";
+      if (searchPreference.trim().toLowerCase() === "no") return false;
+      const handle = profile.username ?? "";
+      return !handle || !blockedHandles.has(normalizeHandle(handle));
+    });
+
+    const usernames = visibleCandidates
+      .map((profile) => profile.username)
+      .filter((username): username is string => Boolean(username));
+    const directoryProfiles = usernames.length
+      ? await this.prisma.communityDirectoryProfile.findMany({
+          where: { username: { in: usernames } },
+          select: { id: true, username: true },
+        })
+      : [];
+    const directoryByUsername = new Map(
+      directoryProfiles.map((profile) => [profile.username, profile]),
+    );
+    const directoryIds = directoryProfiles.map((profile) => profile.id);
+    const follows = directoryIds.length
+      ? await this.prisma.memberFollow.findMany({
+          where: {
+            accountId: session.accountId,
+            directoryProfileId: { in: directoryIds },
+            isFollowing: true,
+          },
+          select: { directoryProfileId: true },
+        })
+      : [];
+    const followedDirectoryIds = new Set(
+      follows.map((follow) => follow.directoryProfileId),
+    );
+
+    return {
+      source: "postgresql_live" as const,
+      query,
+      members: visibleCandidates.slice(0, 30).map((profile) => {
+        const directoryProfile = profile.username
+          ? directoryByUsername.get(profile.username)
+          : undefined;
+        const handle = profile.username ?? "";
+        return {
+          id: directoryProfile?.id ?? profile.accountId,
+          accountId: profile.accountId,
+          name: profile.displayName,
+          username: handle,
+          bio: profile.bio,
+          avatarAsset: this.resolveMemberAvatar(
+            profile.avatarAsset,
+            profile.avatarMediaAssetId,
+          ),
+          verificationStatus: profile.account.verificationStatus,
+          isVerified: true,
+          isFollowing: directoryProfile
+            ? followedDirectoryIds.has(directoryProfile.id)
+            : false,
+          canFollow: Boolean(directoryProfile),
+          interests: this.parseInterests(profile.interests),
+          businessProfileUrl: profile.businessProfileUrl,
+          businessProfileName: profile.businessProfileName,
+          businessCategory: profile.businessCategory,
+        };
+      }),
+    };
+  }
+
   async updateProfile(
     authorization: string | undefined,
     dto: Partial<UpdateModule2ProfileDto> & {
@@ -925,6 +1146,27 @@ export class Module2Service {
     },
   ) {
     const session = await this.auth.authenticateAuthorization(authorization);
+    const requestedHandle = dto.username?.trim();
+    const normalizedUsername = requestedHandle
+      ? `@${requestedHandle.replace(/^@/, "").toLowerCase()}`
+      : undefined;
+    if (normalizedUsername) {
+      if (!/^@[a-z0-9_]{3,24}$/.test(normalizedUsername)) {
+        throw new BadRequestException(
+          "Username must contain 3–24 lowercase letters, numbers, or underscores.",
+        );
+      }
+      const taken = await this.prisma.memberProfile.findFirst({
+        where: {
+          username: normalizedUsername,
+          accountId: { not: session.accountId },
+        },
+        select: { accountId: true },
+      });
+      if (taken) {
+        throw new BadRequestException("Username already taken.");
+      }
+    }
     if (
       dto.profilePhotoRef &&
       dto.profilePhotoRef.startsWith("profile/") &&
@@ -960,7 +1202,7 @@ export class Module2Service {
       create: {
         accountId: session.accountId,
         displayName,
-        username: this.deriveUsername(displayName, null),
+        username: normalizedUsername ?? this.deriveUsername(displayName, null),
         bio,
         location,
         interests,
@@ -972,6 +1214,9 @@ export class Module2Service {
       },
       update: {
         displayName,
+        ...(normalizedUsername !== undefined
+          ? { username: normalizedUsername }
+          : {}),
         bio,
         location,
         interests,
@@ -989,6 +1234,54 @@ export class Module2Service {
           : {}),
       },
     });
+
+    const effectiveHandle = this.deriveUsername(
+      updated.displayName,
+      updated.username,
+    );
+    const resolvedAvatar = this.resolveMemberAvatar(
+      updated.avatarAsset,
+      updated.avatarMediaAssetId,
+    );
+    try {
+      const existingDirectory = existing?.username
+        ? await this.prisma.communityDirectoryProfile.findUnique({
+            where: { username: existing.username },
+          })
+        : null;
+      if (existingDirectory && existingDirectory.username !== effectiveHandle) {
+        // Preserve the stable directory ID so existing follow relations survive
+        // a member's username edit.
+        await this.prisma.communityDirectoryProfile.update({
+          where: { id: existingDirectory.id },
+          data: {
+            username: effectiveHandle,
+            name: updated.displayName,
+            avatarAsset: resolvedAvatar,
+            bio: updated.bio ?? "",
+          },
+        });
+      } else {
+        await this.prisma.communityDirectoryProfile.upsert({
+          where: { username: effectiveHandle },
+          update: {
+            name: updated.displayName,
+            avatarAsset: resolvedAvatar,
+            bio: updated.bio ?? "",
+          },
+          create: {
+            username: effectiveHandle,
+            name: updated.displayName,
+            avatarAsset: resolvedAvatar,
+            bio: updated.bio ?? "",
+            defaultFollowing: false,
+          },
+        });
+      }
+    } catch {
+      // Directory synchronization is best-effort; profile saving must remain
+      // available even if an older directory row cannot be reconciled.
+    }
 
     await this.prisma.auditEvent.create({
       data: {
@@ -1079,7 +1372,7 @@ export class Module2Service {
             id: { in: mediaUploadIds },
             ownerAccountId: session.accountId,
             postId: null,
-            purpose: "COMMUNITY_POST_IMAGE",
+            purpose: { in: ["COMMUNITY_POST_IMAGE", "COMMUNITY_POST_VIDEO"] },
             status: "UPLOADED",
             deletedAt: null,
           },
@@ -1154,6 +1447,24 @@ export class Module2Service {
       return savedPost;
     });
 
+    const mediaAssetDelegate = (
+      this.prisma as unknown as {
+        mediaAsset?: {
+          findUnique?: (
+            args: unknown,
+          ) => Promise<{ contentType: string } | null>;
+        };
+      }
+    ).mediaAsset;
+    const firstAttachedMedia =
+      mediaUploadIds.length > 0 &&
+      typeof mediaAssetDelegate?.findUnique === "function"
+        ? await mediaAssetDelegate.findUnique({
+            where: { id: mediaUploadIds[0] },
+            select: { contentType: true },
+          })
+        : null;
+
     return {
       id: post.id,
       postId: post.id,
@@ -1168,6 +1479,7 @@ export class Module2Service {
       body: post.content,
       imageAsset: post.imageAsset,
       mediaAsset: post.imageAsset,
+      mediaContentType: firstAttachedMedia?.contentType ?? null,
       categoryBadge: post.categoryBadge,
       categorySlug: post.categorySlug,
       visibility: post.visibility,
@@ -1668,30 +1980,58 @@ export class Module2Service {
   ) {
     const session = await this.auth.authenticateAuthorization(authorization);
     if (!Buffer.isBuffer(file.buffer) || file.buffer.length === 0) {
-      throw new BadRequestException("The selected image file is empty.");
+      throw new BadRequestException("The selected media file is empty.");
     }
-    if (file.size > 10 * 1024 * 1024 || file.buffer.length > 10 * 1024 * 1024) {
-      throw new BadRequestException("Images must be 10 MB or smaller.");
-    }
-    const allowedTypes = ["image/jpeg", "image/png", "image/webp"] as const;
-    if (
-      !allowedTypes.includes(file.mimetype as (typeof allowedTypes)[number])
-    ) {
-      throw new BadRequestException("Use a JPG, PNG, or WebP image.");
-    }
-    if (!this.hasExpectedImageSignature(file.mimetype, file.buffer)) {
+
+    const isVideo = file.mimetype === "video/mp4";
+    const maxBytes = isVideo ? 50 * 1024 * 1024 : 10 * 1024 * 1024;
+    if (file.size > maxBytes || file.buffer.length > maxBytes) {
       throw new BadRequestException(
-        "The selected file content does not match its image type.",
+        isVideo
+          ? "Video must be 60 seconds or shorter and 50 MB or smaller."
+          : "Images must be 10 MB or smaller.",
       );
     }
 
-    const uploadId = randomUUID();
+    const allowedTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "video/mp4",
+    ] as const;
+    if (
+      !allowedTypes.includes(file.mimetype as (typeof allowedTypes)[number])
+    ) {
+      throw new BadRequestException(
+        "Use a JPG, PNG, WebP image, or MP4 video.",
+      );
+    }
+    if (!this.hasExpectedImageSignature(file.mimetype, file.buffer)) {
+      throw new BadRequestException(
+        "The selected file content does not match its declared media type.",
+      );
+    }
+    if (isVideo) {
+      const duration = this.readMp4DurationSeconds(file.buffer);
+      if (duration !== null && duration > 60) {
+        throw new BadRequestException(
+          "Video must be 60 seconds or shorter and 50 MB or smaller.",
+        );
+      }
+    }
+
     const normalizedPurpose: "avatar" | "post" =
       dto.purpose === "avatar" ||
       dto.purpose === "profile_photo" ||
       dto.purpose === "PROFILE_PHOTO"
         ? "avatar"
         : "post";
+    if (normalizedPurpose === "avatar" && isVideo) {
+      throw new BadRequestException(
+        "Profile photos must be JPG, PNG, or WebP images.",
+      );
+    }
+    const uploadId = randomUUID();
     const categorySlug = (dto.categorySlug || "community").trim().toLowerCase();
     const cropAspectRatio =
       dto.cropAspectRatio || (normalizedPurpose === "avatar" ? "1:1" : "4:5");
@@ -1742,7 +2082,9 @@ export class Module2Service {
         purpose:
           normalizedPurpose === "avatar"
             ? "PROFILE_PHOTO"
-            : "COMMUNITY_POST_IMAGE",
+            : isVideo
+              ? "COMMUNITY_POST_VIDEO"
+              : "COMMUNITY_POST_IMAGE",
         storageProvider: "GOOGLE_DRIVE",
         status: normalizedPurpose === "avatar" ? "ATTACHED" : "UPLOADED",
         categorySlug: normalizedPurpose === "avatar" ? null : categorySlug,
@@ -1798,6 +2140,9 @@ export class Module2Service {
     contentType: string,
     buffer: Buffer,
   ): boolean {
+    if (contentType === "video/mp4") {
+      return buffer.length >= 12 && buffer.toString("ascii", 4, 8) === "ftyp";
+    }
     if (contentType === "image/jpeg") {
       return (
         buffer.length >= 3 &&
@@ -1822,6 +2167,30 @@ export class Module2Service {
       );
     }
     return false;
+  }
+
+  private readMp4DurationSeconds(buffer: Buffer): number | null {
+    const read32 = (offset: number) =>
+      offset >= 0 && offset + 4 <= buffer.length
+        ? buffer.readUInt32BE(offset)
+        : null;
+    const read64 = (offset: number) =>
+      offset >= 0 && offset + 8 <= buffer.length
+        ? Number(buffer.readBigUInt64BE(offset))
+        : null;
+
+    // mvhd is the MP4 movie-header atom. Version 0 stores a 32-bit
+    // duration; version 1 stores a 64-bit duration.
+    for (let i = 4; i + 24 <= buffer.length; i++) {
+      if (buffer.toString("ascii", i, i + 4) !== "mvhd") continue;
+      const version = buffer[i + 4];
+      const timescale = read32(i + (version === 1 ? 24 : 16));
+      const duration = version === 1 ? read64(i + 28) : read32(i + 20);
+      if (timescale && duration !== null && timescale > 0) {
+        return duration / timescale;
+      }
+    }
+    return null;
   }
 
   async listMediaObjects(authorization: string | undefined) {
@@ -1932,8 +2301,9 @@ export class Module2Service {
 
     if (!isOwner) {
       if (
-        session.account.status !== "ACTIVE" ||
-        session.account.verificationStatus !== "VERIFIED"
+        session.testAccessApproved !== true &&
+        (session.account.status !== "ACTIVE" ||
+          session.account.verificationStatus !== "VERIFIED")
       ) {
         throw new ForbiddenException(
           "Verified active membership is required to view this media.",
@@ -2004,7 +2374,9 @@ export class Module2Service {
     const recordedContentType = asset?.contentType ?? meta.contentType;
     const storedContentType =
       typeof recordedContentType === "string" &&
-      ["image/jpeg", "image/png", "image/webp"].includes(recordedContentType)
+      ["image/jpeg", "image/png", "image/webp", "video/mp4"].includes(
+        recordedContentType,
+      )
         ? recordedContentType
         : media.contentType;
     return {
@@ -2642,26 +3014,16 @@ export class Module2Service {
   }
 
   async listGroups(authorization: string | undefined) {
-    const session = await this.auth.authenticateAuthorization(authorization);
-    const anyPrisma = this.prisma as Record<string, any>;
-    const items = await anyPrisma.communityGroup.findMany({
-      where: {
-        status: "ACTIVE",
-        OR: [
-          { visibility: "VERIFIED_MEMBERS" },
-          { createdByAccountId: session.accountId },
-          {
-            members: {
-              some: {
-                accountId: session.accountId,
-                status: { in: ["ACTIVE", "PENDING"] },
-              },
-            },
-          },
-        ],
-      },
+    // CommunityGroup currently only persists name, description, category,
+    // member count, today's post count, and createdAt. It has no visibility,
+    // status, owner, or membership relation in the installed Prisma schema.
+    // Query only existing fields and do not imply that listed groups are joined.
+    await this.auth.authenticateAuthorization(authorization);
+    const items = await this.prisma.communityGroup.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 100,
     });
-    return { items };
+    return { source: "postgresql_live" as const, items };
   }
 
   async listFollowers(
@@ -2669,38 +3031,223 @@ export class Module2Service {
     mode: "followers" | "following" = "followers",
   ) {
     const session = await this.auth.authenticateAuthorization(authorization);
-    const anyPrisma = this.prisma as Record<string, any>;
-    if (!anyPrisma.socialFollow?.findMany) {
-      const boot = await this.bootstrap(authorization);
-      return { items: boot.followers };
-    }
-    const items = await anyPrisma.socialFollow.findMany({
-      where: {
-        ...(mode === "followers"
-          ? { followingAccountId: session.accountId }
-          : { followerAccountId: session.accountId }),
-        follower: {
-          is: {
-            status: "ACTIVE",
-            verificationStatus: "VERIFIED",
-            OR: [
-              { privacySettings: { is: null } },
-              {
-                privacySettings: {
-                  is: { profileVisibility: "VERIFIED_MEMBERS" },
+    const viewerProfile = await this.prisma.memberProfile.findUnique({
+      where: { accountId: session.accountId },
+      select: { accountId: true, displayName: true, username: true },
+    });
+    const viewerUsername = this.deriveUsername(
+      viewerProfile?.displayName ?? "Sakhi Member",
+      viewerProfile?.username,
+    );
+    const normalizeHandle = (value: string) =>
+      value.trim().replace(/^@/, "").toLowerCase();
+    const viewerHandle = normalizeHandle(viewerUsername);
+
+    const [ownedDirectory, outgoingBlocks, incomingBlocks, outgoingFollows] =
+      await Promise.all([
+        this.prisma.communityDirectoryProfile.findUnique({
+          where: { username: viewerUsername },
+        }),
+        this.prisma.memberModerationBlock.findMany({
+          where: { accountId: session.accountId },
+          select: { blockedUsername: true },
+        }),
+        this.prisma.memberModerationBlock.findMany({
+          where: {
+            blockedUsername: {
+              in: [viewerUsername, viewerHandle, `@${viewerHandle}`],
+            },
+          },
+          select: { accountId: true },
+        }),
+        this.prisma.memberFollow.findMany({
+          where: { accountId: session.accountId, isFollowing: true },
+          select: { directoryProfileId: true },
+        }),
+      ]);
+
+    const blockedHandles = new Set(
+      outgoingBlocks.map((item) => normalizeHandle(item.blockedUsername)),
+    );
+    const accountsWhoBlockedViewer = new Set(
+      incomingBlocks.map((item) => item.accountId),
+    );
+    const followingDirectoryIds = new Set(
+      outgoingFollows.map((item) => item.directoryProfileId),
+    );
+
+    let rawProfiles: Array<{
+      accountId: string;
+      displayName: string;
+      username: string | null;
+      bio: string;
+      avatarAsset: string;
+      avatarMediaAssetId: string | null;
+      interests: unknown;
+      businessProfileUrl: string | null;
+      businessProfileName: string | null;
+      businessCategory: string | null;
+      account: {
+        status: string;
+        verificationStatus: string;
+        privacyPreference: {
+          viewProfile: string;
+          searchResults: string;
+        } | null;
+      };
+      directoryProfileId?: string | null;
+    }> = [];
+
+    if (mode === "following") {
+      const followedRows = await this.prisma.memberFollow.findMany({
+        where: { accountId: session.accountId, isFollowing: true },
+        include: { directoryProfile: true },
+      });
+      const candidates = followedRows
+        .map((item) => item.directoryProfile)
+        .filter((item) => item && item.username)
+        .filter((item) => !blockedHandles.has(normalizeHandle(item.username)));
+      const usernames = [...new Set(candidates.map((item) => item.username))];
+      if (usernames.length > 0) {
+        rawProfiles = await this.prisma.memberProfile.findMany({
+          where: {
+            username: { in: usernames },
+            account: {
+              is: {
+                status: "ACTIVE",
+                verificationStatus: "VERIFIED",
+              },
+            },
+          },
+          include: {
+            account: {
+              select: {
+                status: true,
+                verificationStatus: true,
+                privacyPreference: {
+                  select: { viewProfile: true, searchResults: true },
                 },
               },
-              {
-                privacySettings: {
-                  is: { profileVisibility: "FOLLOWERS_ONLY" },
-                },
-              },
-            ],
+            },
+          },
+        });
+        const directoryByHandle = new Map(
+          candidates.map((item) => [item.username, item.id]),
+        );
+        rawProfiles = rawProfiles.map((profile) => ({
+          ...profile,
+          directoryProfileId:
+            directoryByHandle.get(profile.username ?? "") ?? null,
+        }));
+      }
+    } else if (ownedDirectory) {
+      const followerRows = await this.prisma.memberFollow.findMany({
+        where: {
+          directoryProfileId: ownedDirectory.id,
+          isFollowing: true,
+        },
+        include: {
+          account: {
+            include: { profile: true, privacyPreference: true },
           },
         },
-      },
-    });
-    return { items };
+      });
+      rawProfiles = followerRows
+        .map((item) => {
+          const account = item.account;
+          const profile = account.profile;
+          if (!profile) return null;
+          const privacyPreference = account.privacyPreference;
+          return {
+            ...profile,
+            account: {
+              status: account.status,
+              verificationStatus: account.verificationStatus,
+              privacyPreference: privacyPreference
+                ? {
+                    viewProfile: privacyPreference.viewProfile,
+                    searchResults: privacyPreference.searchResults,
+                  }
+                : null,
+            },
+          };
+        })
+        .filter(
+          (profile): profile is NonNullable<typeof profile> => profile !== null,
+        )
+        .filter((profile) => !accountsWhoBlockedViewer.has(profile.accountId));
+      const candidateHandles = rawProfiles
+        .map((profile) => profile.username)
+        .filter((username): username is string => Boolean(username));
+      const directoryRows = candidateHandles.length
+        ? await this.prisma.communityDirectoryProfile.findMany({
+            where: { username: { in: candidateHandles } },
+            select: { id: true, username: true },
+          })
+        : [];
+      const directoryByHandle = new Map(
+        directoryRows.map((item) => [item.username, item.id]),
+      );
+      rawProfiles = rawProfiles.map((profile) => ({
+        ...profile,
+        directoryProfileId:
+          directoryByHandle.get(profile.username ?? "") ?? null,
+      }));
+    }
+
+    const items = rawProfiles
+      .filter((profile) => profile.account.status === "ACTIVE")
+      .filter((profile) => profile.account.verificationStatus === "VERIFIED")
+      .filter(
+        (profile) =>
+          !blockedHandles.has(normalizeHandle(profile.username ?? "")),
+      )
+      .filter((profile) => {
+        const visibility = (
+          profile.account.privacyPreference?.viewProfile ??
+          "Verified members only"
+        ).toLowerCase();
+        if (
+          visibility.includes("circle") ||
+          visibility.includes("only me") ||
+          visibility.includes("no one") ||
+          visibility.includes("hidden")
+        ) {
+          return false;
+        }
+        if (visibility.includes("followers")) {
+          return followingDirectoryIds.has(profile.directoryProfileId ?? "");
+        }
+        return true;
+      })
+      .map((profile) => {
+        const username =
+          profile.username ?? this.deriveUsername(profile.displayName, null);
+        return {
+          id: profile.directoryProfileId ?? profile.accountId,
+          accountId: profile.accountId,
+          name: profile.displayName,
+          username,
+          avatarAsset: this.resolveMemberAvatar(
+            profile.avatarAsset,
+            profile.avatarMediaAssetId,
+          ),
+          bio: profile.bio,
+          isVerified: true,
+          verificationStatus: profile.account.verificationStatus,
+          isFollowing: Boolean(
+            profile.directoryProfileId &&
+            followingDirectoryIds.has(profile.directoryProfileId),
+          ),
+          canFollow: Boolean(profile.directoryProfileId),
+          interests: this.parseInterests(profile.interests),
+          businessProfileUrl: profile.businessProfileUrl,
+          businessProfileName: profile.businessProfileName,
+          businessCategory: profile.businessCategory,
+        };
+      });
+
+    return { source: "postgresql_live" as const, mode, items };
   }
 
   async createGroup(

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../../core/constants/mock_data.dart';
 import '../../../core/theme/app_colors.dart';
@@ -10,14 +12,16 @@ import '../../../core/widgets/sakhi_buttons.dart';
 import '../../../core/widgets/sakhi_card.dart';
 import '../../../core/widgets/sakhi_dialogs.dart';
 import '../../../core/widgets/sakhi_remote_media_image.dart';
+import '../../../core/widgets/sakhi_remote_media_video.dart';
+import '../../explore/screens/explore_discovery_screens.dart';
 import 'breathing_exercise_banner.dart';
 
 /// Module 3 Social Wall Post Card supporting 8 reaction types, comment CRUD with
 /// ownership enforcement, post edit/delete for owners, and confidential report/block.
 class FeedPostCard extends StatelessWidget {
   final FeedPostModel post;
-  final VoidCallback onLikeTap;
-  final VoidCallback onSaveTap;
+  final Future<bool> Function() onLikeTap;
+  final Future<bool> Function() onSaveTap;
   final bool showVerifiedCheck;
 
   const FeedPostCard({
@@ -90,6 +94,7 @@ class FeedPostCard extends StatelessWidget {
                         imageAsset: post.authorAvatar,
                         fallbackLabel: post.authorName,
                         size: 44,
+                        onAvatarTap: () => _openAuthorProfile(context),
                       ),
                       const SizedBox(width: 11),
                       Expanded(
@@ -99,10 +104,16 @@ class FeedPostCard extends StatelessWidget {
                             Row(
                               children: [
                                 Flexible(
-                                  child: Text(
-                                    post.authorName,
-                                    style: AppTypography.cardTitle,
-                                    overflow: TextOverflow.ellipsis,
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(4),
+                                    onTap: () => _openAuthorProfile(context),
+                                    child: Text(
+                                      post.authorName,
+                                      style: AppTypography.cardTitle.copyWith(
+                                        color: AppColors.textPrimary,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
                                   ),
                                 ),
                                 if (showVerifiedCheck ||
@@ -153,6 +164,32 @@ class FeedPostCard extends StatelessWidget {
                             ),
                           ),
                         ),
+                      if (!post.isOwnPost) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 9,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFEAF2),
+                            borderRadius: BorderRadius.circular(
+                              AppSpacing.radiusPill,
+                            ),
+                            border: Border.all(
+                              color: const Color(0xFFE5BDD1),
+                            ),
+                          ),
+                          child: Text(
+                            '+ Follow',
+                            style: AppTypography.subtitle.copyWith(
+                              color: AppColors.primaryPurple,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
                       IconButton(
                         icon: const Icon(
                           Icons.more_horiz_rounded,
@@ -171,42 +208,63 @@ class FeedPostCard extends StatelessWidget {
                     Wrap(
                       spacing: 6,
                       runSpacing: 4,
-                      children: post.hashtags
-                          .map(
-                            (tag) => Text(
-                              tag.startsWith('#') ? tag : '#$tag',
-                              style: AppTypography.subtitle.copyWith(
-                                color: AppColors.primaryPurple,
-                                fontWeight: FontWeight.w700,
-                              ),
+                      children: post.hashtags.map((tag) {
+                        final normalized = tag.startsWith('#') ? tag : '#$tag';
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(6),
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) =>
+                                  SearchResultsScreen(initialQuery: normalized),
                             ),
-                          )
-                          .toList(),
+                          ),
+                          child: Text(
+                            normalized,
+                            style: AppTypography.subtitle.copyWith(
+                              color: AppColors.primaryPurple,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        );
+                      }).toList(),
                     ),
                   ],
 
                   if (post.imageAsset != null &&
                       post.imageAsset!.trim().isNotEmpty) ...[
                     const SizedBox(height: 12),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-                      child: AspectRatio(
-                        aspectRatio: _aspectRatioForPreset(post.cropPreset),
-                        child: _isRemoteUrl(post.imageAsset!)
-                            ? SakhiRemoteMediaImage(
-                                source: post.imageAsset!,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, _, _) =>
-                                    _buildImageFallback(),
-                              )
-                            : Image.asset(
-                                post.imageAsset!,
-                                fit: BoxFit.cover,
-                                filterQuality: FilterQuality.high,
-                                isAntiAlias: true,
-                                errorBuilder: (_, _, _) =>
-                                    _buildImageFallback(),
-                              ),
+                    GestureDetector(
+                      onTap: () => _showMediaViewer(context),
+                      onDoubleTap: () => _handleLikeTap(context),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(
+                          AppSpacing.radiusMd,
+                        ),
+                        child: AspectRatio(
+                          aspectRatio: post.mediaContentType == 'video/mp4'
+                              ? 16 / 9
+                              : _aspectRatioForPreset(post.cropPreset),
+                          child: post.mediaContentType == 'video/mp4'
+                              ? SakhiRemoteMediaVideo(
+                                  source: post.imageAsset!,
+                                  fit: BoxFit.cover,
+                                )
+                              : _isRemoteUrl(post.imageAsset!)
+                              ? SakhiRemoteMediaImage(
+                                  source: post.imageAsset!,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, _, _) =>
+                                      _buildImageFallback(),
+                                )
+                              : Image.asset(
+                                  post.imageAsset!,
+                                  fit: BoxFit.cover,
+                                  filterQuality: FilterQuality.high,
+                                  isAntiAlias: true,
+                                  errorBuilder: (_, _, _) =>
+                                      _buildImageFallback(),
+                                ),
+                        ),
                       ),
                     ),
                   ],
@@ -246,7 +304,7 @@ class FeedPostCard extends StatelessWidget {
                   Row(
                     children: [
                       InkWell(
-                        onTap: onLikeTap,
+                        onTap: () => _handleLikeTap(context),
                         onLongPress: () => _showReactionPickerSheet(context),
                         borderRadius: BorderRadius.circular(8),
                         child: Padding(
@@ -329,8 +387,21 @@ class FeedPostCard extends StatelessWidget {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 14),
+                      const SizedBox(width: 8),
                       IconButton(
+                        tooltip: 'Share post',
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(
+                          Icons.share_outlined,
+                          color: AppColors.primaryPurple,
+                          size: 20,
+                        ),
+                        onPressed: () => _sharePost(context),
+                      ),
+                      IconButton(
+                        tooltip: post.isSaved
+                            ? 'Remove saved post'
+                            : 'Save post',
                         visualDensity: VisualDensity.compact,
                         icon: Icon(
                           post.isSaved
@@ -339,7 +410,7 @@ class FeedPostCard extends StatelessWidget {
                           color: AppColors.primaryPurple,
                           size: 21,
                         ),
-                        onPressed: onSaveTap,
+                        onPressed: () => _handleSaveTap(context),
                       ),
                       const Spacer(),
                       IconButton(
@@ -357,6 +428,207 @@ class FeedPostCard extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openAuthorProfile(BuildContext context) async {
+    final username = post.authorUsername.trim();
+    if (username.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('This post does not include a public member handle.'),
+        ),
+      );
+      return;
+    }
+    final members = await SakhiPrototypeState.instance.searchVisibleMembers(
+      username,
+    );
+    if (!context.mounted) return;
+    if (members == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Member profile could not be loaded. Check your connection and retry.',
+          ),
+        ),
+      );
+      return;
+    }
+    final normalized = username.replaceFirst(RegExp(r'^@'), '').toLowerCase();
+    FollowerUserModel? member;
+    for (final candidate in members) {
+      if (candidate.username.replaceFirst(RegExp(r'^@'), '').toLowerCase() ==
+          normalized) {
+        member = candidate;
+        break;
+      }
+    }
+    if (member == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'This member is private or does not appear in verified search results.',
+          ),
+        ),
+      );
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SearchResultMemberProfileScreen(member: member!),
+      ),
+    );
+  }
+
+  Future<void> _handleLikeTap(BuildContext context) async {
+    final succeeded = await onLikeTap();
+    if (!context.mounted || succeeded) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Your reaction was not saved. Check your connection and retry.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleSaveTap(BuildContext context) async {
+    final succeeded = await onSaveTap();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          succeeded
+              ? (post.isSaved
+                    ? 'Added to Saved Posts.'
+                    : 'Removed from Saved Posts.')
+              : 'Saved posts could not be updated. No change was kept.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _sharePost(BuildContext context) async {
+    final hashtags = post.hashtags
+        .map((tag) => tag.startsWith('#') ? tag : '#$tag')
+        .join(' ');
+    final text = [
+      post.content.trim(),
+      if (hashtags.isNotEmpty) hashtags,
+      '— ${post.authorName} (${post.authorUsername}) on Sakhi',
+    ].where((part) => part.isNotEmpty).join('\n\n');
+    try {
+      await SharePlus.instance.share(
+        ShareParams(text: text, subject: 'Sakhi community post'),
+      );
+    } catch (_) {
+      await Clipboard.setData(ClipboardData(text: text));
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Post text copied. A share sheet was not available.'),
+          ),
+        );
+      }
+    }
+  }
+
+  void _showMediaViewer(BuildContext context) {
+    final source = post.imageAsset?.trim() ?? '';
+    if (source.isEmpty) return;
+    final size = MediaQuery.sizeOf(context);
+    final isVideo = post.mediaContentType == 'video/mp4';
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.black,
+        insetPadding: EdgeInsets.zero,
+        child: SizedBox(
+          width: size.width,
+          height: size.height * 0.94,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: Center(
+                  child: InteractiveViewer(
+                    minScale: 1,
+                    maxScale: 4,
+                    child: SizedBox(
+                      width: size.width,
+                      height: size.height * 0.78,
+                      child: isVideo
+                          ? SakhiRemoteMediaVideo(
+                              source: source,
+                              fit: BoxFit.contain,
+                            )
+                          : _isRemoteUrl(source)
+                          ? SakhiRemoteMediaImage(
+                              source: source,
+                              width: size.width,
+                              height: size.height * 0.78,
+                              fit: BoxFit.contain,
+                              errorBuilder: (_, _, _) => const Center(
+                                child: Text(
+                                  'Media could not be loaded.',
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                              ),
+                            )
+                          : Image.asset(
+                              source,
+                              fit: BoxFit.contain,
+                              errorBuilder: (_, _, _) => const Center(
+                                child: Text(
+                                  'Media could not be loaded.',
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                              ),
+                            ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 10,
+                right: 10,
+                child: SafeArea(
+                  child: IconButton(
+                    tooltip: 'Close media viewer',
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.black54,
+                      foregroundColor: Colors.white,
+                    ),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ),
+              ),
+              if (!isVideo)
+                Positioned(
+                  bottom: 18,
+                  left: 16,
+                  right: 16,
+                  child: SafeArea(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(dialogContext).pop();
+                        _handleLikeTap(context);
+                      },
+                      icon: const Icon(Icons.favorite_border_rounded),
+                      label: const Text('Like this post'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Colors.white70),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -457,6 +729,7 @@ class FeedPostCard extends StatelessWidget {
     final state = SakhiPrototypeState.instance;
     state.loadComments(post.id);
     final controller = TextEditingController();
+    var isSubmittingComment = false;
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -534,13 +807,32 @@ class FeedPostCard extends StatelessWidget {
                                 color: AppColors.sosRed,
                               ),
                               onPressed: () async {
-                                await state.removeComment(post.id, comment.id);
+                                final removed = await state.removeComment(
+                                  post.id,
+                                  comment.id,
+                                );
+                                if (!ctx.mounted) return;
                                 setModalState(() {});
+                                ScaffoldMessenger.of(ctx).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      removed ? 'Comment removed.' : 'Could not remove this comment. No change was made.',
+                                    ),
+                                  ),
+                                );
                               },
                             ),
                         ],
                       );
                     },
+                  ),
+                ),
+              if (!post.allowComments)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 14),
+                  child: Text(
+                    'Comments are turned off for this post.',
+                    style: AppTypography.subtitle,
                   ),
                 ),
               if (post.allowComments) ...[
@@ -556,18 +848,29 @@ class FeedPostCard extends StatelessWidget {
                   alignment: Alignment.centerRight,
                   child: SakhiPillButton(
                     label: 'Post Comment',
-                    onPressed: () {
-                      final text = controller.text.trim();
-                      if (text.isNotEmpty) {
-                        state.addPostComment(post, text);
-                        controller.clear();
-                        setModalState(() {});
-                        SakhiDialogs.showPrototypeSnackbar(
-                          context,
-                          'Comment added!',
-                        );
-                      }
-                    },
+                    onPressed: isSubmittingComment
+                        ? null
+                        : () async {
+                            final text = controller.text.trim();
+                            if (text.isEmpty) return;
+                            setModalState(() => isSubmittingComment = true);
+                            final submitted = await state.addPostComment(
+                              post,
+                              text,
+                            );
+                            if (!ctx.mounted) return;
+                            setModalState(() {
+                              isSubmittingComment = false;
+                              if (submitted) controller.clear();
+                            });
+                            ScaffoldMessenger.of(ctx).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  submitted ? 'Comment added!' : 'Comment could not be posted. Your text is still here; retry when connected.',
+                                ),
+                              ),
+                            );
+                          },
                   ),
                 ),
               ],
@@ -598,11 +901,21 @@ class FeedPostCard extends StatelessWidget {
           SakhiPillButton(
             label: 'Save Changes',
             onPressed: () async {
-              await SakhiPrototypeState.instance.updatePost(
+              final updated = await SakhiPrototypeState.instance.updatePost(
                 post,
                 content: controller.text,
               );
               if (!ctx.mounted) return;
+              if (!updated) {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Post could not be updated. No change was made.',
+                    ),
+                  ),
+                );
+                return;
+              }
               Navigator.pop(ctx);
               SakhiDialogs.showPrototypeSnackbar(
                 context,
@@ -673,14 +986,26 @@ class FeedPostCard extends StatelessWidget {
             SakhiPillButton(
               label: 'Submit Report',
               backgroundColor: AppColors.sosRed,
-              onPressed: () {
-                SakhiPrototypeState.instance.reportUserOrPost(
-                  targetHandle: post.authorUsername,
-                  postId: post.id,
-                  category: selected.toLowerCase().replaceAll(' ', '_'),
-                  reason: selected,
-                  details: detailsCtrl.text,
-                );
+              onPressed: () async {
+                final submitted = await SakhiPrototypeState.instance
+                    .reportUserOrPost(
+                      targetHandle: post.authorUsername,
+                      postId: post.id,
+                      category: selected.toLowerCase().replaceAll(' ', '_'),
+                      reason: selected,
+                      details: detailsCtrl.text,
+                    );
+                if (!ctx.mounted) return;
+                if (!submitted) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'The report was not submitted. Check your connection and retry.',
+                      ),
+                    ),
+                  );
+                  return;
+                }
                 Navigator.pop(ctx);
                 SakhiDialogs.showPrototypeSnackbar(
                   context,
@@ -732,12 +1057,41 @@ class FeedPostCard extends StatelessWidget {
                     'Delete Post',
                     style: TextStyle(color: AppColors.sosRed),
                   ),
-                  onTap: () {
+                  onTap: () async {
                     Navigator.pop(ctx);
-                    SakhiPrototypeState.instance.deletePost(post.id);
-                    SakhiDialogs.showPrototypeSnackbar(
-                      context,
-                      'Your post was deleted.',
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (dialogContext) => AlertDialog(
+                        title: const Text('Delete this post?'),
+                        content: const Text(
+                          'This removes the post from the Social Wall. This action cannot be undone.',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () =>
+                                Navigator.pop(dialogContext, false),
+                            child: const Text('Cancel'),
+                          ),
+                          FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.sosRed,
+                            ),
+                            onPressed: () => Navigator.pop(dialogContext, true),
+                            child: const Text('Delete Post'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirmed != true || !context.mounted) return;
+                    final deleted = await SakhiPrototypeState.instance
+                        .deletePost(post.id);
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          deleted ? 'Your post was deleted.' : 'The post could not be deleted. No change was made.',
+                        ),
+                      ),
                     );
                   },
                 ),
@@ -760,12 +1114,26 @@ class FeedPostCard extends StatelessWidget {
                   Icons.share_outlined,
                   color: AppColors.primaryPurple,
                 ),
-                title: const Text('Share within Sakhi'),
+                title: const Text('Share Post'),
+                subtitle: const Text(
+                  'Open the device share sheet or copy the post text.',
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _sharePost(context);
+                },
+              ),
+              ListTile(
+                leading: const Icon(
+                  Icons.visibility_off_outlined,
+                  color: AppColors.primaryPurple,
+                ),
+                title: const Text('Hide or Mute Post'),
                 onTap: () {
                   Navigator.pop(ctx);
                   SakhiDialogs.showPrototypeSnackbar(
                     context,
-                    'Shared ${post.authorName}\'s post with your circle.',
+                    'Post hidden from your Social Wall view.',
                   );
                 },
               ),
@@ -790,16 +1158,45 @@ class FeedPostCard extends StatelessWidget {
                     'Block ${post.authorName}',
                     style: const TextStyle(color: AppColors.sosRed),
                   ),
-                  onTap: () {
+                  onTap: () async {
                     Navigator.pop(ctx);
-                    SakhiPrototypeState.instance.toggleBlockedUser(
-                      username: post.authorUsername,
-                      displayName: post.authorName,
-                      accountId: post.authorAccountId,
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (dialogContext) => AlertDialog(
+                        title: Text('Block ${post.authorUsername}?'),
+                        content: const Text(
+                          'Blocked members are removed from your Social Wall view. You can manage blocked members in Settings.',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () =>
+                                Navigator.pop(dialogContext, false),
+                            child: const Text('Cancel'),
+                          ),
+                          FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.sosRed,
+                            ),
+                            onPressed: () => Navigator.pop(dialogContext, true),
+                            child: const Text('Block Member'),
+                          ),
+                        ],
+                      ),
                     );
-                    SakhiDialogs.showPrototypeSnackbar(
-                      context,
-                      '${post.authorName} has been blocked.',
+                    if (confirmed != true || !context.mounted) return;
+                    final blocked = await SakhiPrototypeState.instance
+                        .toggleBlockedUser(
+                          username: post.authorUsername,
+                          displayName: post.authorName,
+                          accountId: post.authorAccountId,
+                        );
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          blocked ? '${post.authorName} was blocked.' : 'Member could not be blocked. No change was made.',
+                        ),
+                      ),
                     );
                   },
                 ),

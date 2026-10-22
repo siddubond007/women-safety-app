@@ -1,4 +1,13 @@
-import { IsBoolean, IsIn, IsString, MaxLength, MinLength } from "class-validator";
+import {
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+  MinLength,
+} from "class-validator";
 
 export class ManualEligibilityDecisionDto {
   @IsIn(["approve", "reject"])
@@ -11,4 +20,16 @@ export class ManualEligibilityDecisionDto {
 
   @IsBoolean()
   reviewedEvidence!: boolean;
+}
+
+export class UpdateRegistrationPolicyDto {
+  @IsInt()
+  @Min(13)
+  @Max(100)
+  minimumAgeYears!: number;
+
+  @IsString()
+  @MinLength(10)
+  @MaxLength(500)
+  reason!: string;
 }

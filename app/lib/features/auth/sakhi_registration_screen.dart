@@ -14,10 +14,11 @@ class SakhiRegistrationScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SakhiAuthScaffold(
-      botanicalAsset: AppAssets.authBotanicalConsent,
+      botanicalAsset: AppAssets.authBotanicalLogin,
       authIsDemo: authService.isDemo,
       authIsDevelopmentBackend: authService.isDevelopmentBackend,
-      botanicalHeight: 80,
+      botanicalHeight: 168,
+      showHeroPortrait: true,
       child: SakhiMobileEntryForm(
         authService: authService,
         purpose: AuthPurpose.registration,

@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'auth_policy.dart';
 import 'auth_service.dart';
 import 'backend_api_client.dart';
 
@@ -38,6 +39,42 @@ class BackendAuthService implements AuthService {
       );
     }
     return date;
+  }
+
+  @override
+  Future<RegistrationAgePolicy> fetchRegistrationPolicy() async {
+    try {
+      final data = await apiClient.get('auth/registration-policy');
+      final rawAge = data['minimumAgeYears'];
+      final parsedAge = rawAge is int
+          ? rawAge
+          : rawAge is num
+          ? rawAge.toInt()
+          : int.tryParse(rawAge?.toString() ?? '');
+      final configured = data['configured'] == true && parsedAge != null;
+      return RegistrationAgePolicy(
+        configured: configured,
+        minimumAgeYears: parsedAge,
+        source: data['source']?.toString() ?? 'database_admin_policy',
+        updatedAt: data['updatedAt']?.toString(),
+        updatedBy: data['updatedBy']?.toString(),
+      );
+    } on BackendApiException catch (error) {
+      if (error.statusCode == 404) {
+        final fallbackAge = SakhiAuthPolicy.minimumRegistrationAgeYears;
+        return RegistrationAgePolicy(
+          configured: fallbackAge != null,
+          minimumAgeYears: fallbackAge,
+          source: 'environment_fallback',
+        );
+      }
+      throw _mapError(error);
+    } catch (_) {
+      throw const AuthServiceException(
+        'Could not load the active registration age policy from the Sakhi server. Check your connection and tap Retry.',
+        code: 'policy_unavailable',
+      );
+    }
   }
 
   AuthOtpSession _sessionFromResponse(
@@ -90,7 +127,8 @@ class BackendAuthService implements AuthService {
     final verificationStatus = data['verificationStatus'];
     switch (status) {
       case 'ACTIVE':
-        if (data['testAccess'] == true && data['profile'] != null) {
+        if ((data['testAccess'] == true || data['testAccessApproved'] == true) &&
+            data['profile'] != null) {
           return AuthAccountState.existingAccount;
         }
         return verificationStatus == 'VERIFIED'
@@ -101,7 +139,8 @@ class BackendAuthService implements AuthService {
       case 'DELETED':
         return AuthAccountState.restricted;
       case 'PENDING_VERIFICATION':
-        if (data['testAccess'] == true && data['profile'] != null) {
+        if ((data['testAccess'] == true || data['testAccessApproved'] == true) &&
+            data['profile'] != null) {
           return AuthAccountState.existingAccount;
         }
         return data['profile'] == null
@@ -145,7 +184,6 @@ class BackendAuthService implements AuthService {
     try {
       await apiClient.post('auth/logout', authenticated: true);
     } on BackendApiException catch (error) {
-      // An already-invalid server session is effectively signed out.
       if (error.statusCode != 401) failure = _mapError(error);
     } on AuthServiceException catch (error) {
       failure = error;
@@ -156,7 +194,6 @@ class BackendAuthService implements AuthService {
       );
     }
 
-    // Clear the credential on this device even if server revocation failed.
     try {
       await apiClient.clearAccessToken();
     } catch (_) {
@@ -176,7 +213,6 @@ class BackendAuthService implements AuthService {
     required AuthPurpose purpose,
   }) async {
     try {
-      // Starting another authentication flow must not reuse an older account token.
       await apiClient.clearAccessToken();
       final data = await apiClient.post(
         'auth/otp/request',
@@ -321,7 +357,6 @@ class BackendAuthService implements AuthService {
   }
 
   @override
-  @override
   Future<AccountCreationResult> createAccount({
     required MemberProfileDraft profile,
     required MemberConsentRecord consent,
@@ -338,6 +373,7 @@ class BackendAuthService implements AuthService {
           'displayName': profile.displayName.trim(),
           'dateOfBirth': dateString,
           'email': profile.email,
+          'interests': profile.interests,
           if (profile.photoBytes == null &&
               profile.photoPath != null &&
               profile.photoPath!.trim().isNotEmpty)
@@ -346,6 +382,7 @@ class BackendAuthService implements AuthService {
           'privacyVersion': consent.privacyVersion,
           'acceptedAt': acceptedAt.toIso8601String(),
           'optionalUpdatesAccepted': consent.optionalUpdatesAccepted,
+          'eligibilityConfirmed': profile.eligibilityConfirmed,
         },
       );
 
@@ -372,7 +409,7 @@ class BackendAuthService implements AuthService {
               contentType: contentType,
             );
             final publicUrl = upload['publicUrl']?.toString();
-            if (publicUrl != null && publicUrl.startsWith('http')) {
+            if (publicUrl != null && publicUrl.isNotEmpty) {
               await apiClient.put(
                 'module2/profile/avatar',
                 authenticated: true,
@@ -381,15 +418,16 @@ class BackendAuthService implements AuthService {
               message =
                   'Profile saved and photo uploaded to private Google Drive.';
             } else {
-              message = 'Profile saved. The optional photo upload did not complete; you can try again from Edit Profile.';
+              message =
+                  'Profile saved. The optional photo upload did not complete; you can try again from Edit Profile.';
             }
           } catch (_) {
-            // Photo is optional: do not report account creation as failed if the
-            // Drive upload is unavailable. The member can retry from Edit Profile.
-            message = 'Profile saved. The optional photo upload did not complete; you can try again from Edit Profile.';
+            message =
+                'Profile saved. The optional photo upload did not complete; you can try again from Edit Profile.';
           }
         } else {
-          message = 'Profile saved. The optional photo was not uploaded because it is too large or uses an unsupported image format.';
+          message =
+              'Profile saved. The optional photo was not uploaded because it is too large or uses an unsupported image format.';
         }
       }
 

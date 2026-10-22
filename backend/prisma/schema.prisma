@@ -535,3 +535,14 @@ model ModerationDecision {
   @@index([targetType, createdAt], map: "moderation_decisions_target_created_idx")
   @@map("moderation_decisions")
 }
+
+model PlatformRegistrationPolicy {
+  policyKey       String   @id @default("default") @map("policy_key") @db.VarChar(40)
+  minimumAgeYears Int      @default(18) @map("minimum_age_years")
+  updatedBy       String?  @map("updated_by") @db.VarChar(120)
+  changeReason    String?  @map("change_reason") @db.VarChar(500)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_registration_policies")
+}

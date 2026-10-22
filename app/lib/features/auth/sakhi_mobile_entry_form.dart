@@ -32,16 +32,23 @@ class _SakhiMobileEntryFormState extends State<SakhiMobileEntryForm> {
   String? _statusMessage;
 
   static const _countryCodes = <String, String>{
-    '+91': 'India',
-    '+1': 'US / Canada',
-    '+44': 'United Kingdom',
-    '+61': 'Australia',
+    '+91': '🇮🇳 +91',
+    '+1': '🇺🇸 +1',
+    '+44': '🇬🇧 +44',
+    '+61': '🇦🇺 +61',
   };
 
   @override
   void dispose() {
     _phoneController.dispose();
     super.dispose();
+  }
+
+  void _showGoogleSignInNotice() {
+    setState(
+      () => _statusMessage =
+          'Google sign-in is not configured for this Sakhi staging build. No Google authentication was attempted; use Send OTP to continue.',
+    );
   }
 
   Future<void> _continue() async {
@@ -74,7 +81,8 @@ class _SakhiMobileEntryFormState extends State<SakhiMobileEntryForm> {
     } catch (_) {
       if (!mounted) return;
       setState(
-        () => _statusMessage = 'We could not continue. Please check your connection and try again.',
+        () => _statusMessage =
+            'We could not continue. Please check your connection and try again.',
       );
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
@@ -93,48 +101,44 @@ class _SakhiMobileEntryFormState extends State<SakhiMobileEntryForm> {
             Text(
               registering ? 'Create your Sakhi account' : 'Welcome back',
               textAlign: TextAlign.center,
-              style: SakhiTypography.onboardingTitle.copyWith(fontSize: 25),
+              style: const TextStyle(
+                color: Color(0xFF4A1B58),
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
             ),
-            const SizedBox(height: SakhiSpacing.xs),
-            Text(
-              registering
-                  ? "Start with your mobile number. We'll verify it with a one-time code."
-                  : 'Sign in to continue your journey with Sakhi.',
-              textAlign: TextAlign.center,
-              style: SakhiTypography.body,
-            ),
-            const SizedBox(height: SakhiSpacing.lg),
-            const Text('MOBILE NUMBER', style: SakhiTypography.categoryLabel),
-            const SizedBox(height: SakhiSpacing.xs),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  height: 58,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: SakhiSpacing.xs,
-                  ),
-                  decoration: BoxDecoration(
-                    color: SakhiColors.blush.withValues(alpha: 0.52),
-                    borderRadius: BorderRadius.circular(SakhiRadii.control),
-                    border: Border.all(color: SakhiColors.progressInactive),
-                  ),
-                  child: DropdownButtonHideUnderline(
+            const SizedBox(height: 10),
+            Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFFFAF6FC),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFE3D2EC)),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  DropdownButtonHideUnderline(
                     child: DropdownButton<String>(
                       key: const Key('auth-country-code-dropdown'),
                       value: _countryCode,
+                      isDense: true,
                       borderRadius: BorderRadius.circular(14),
-                      iconEnabledColor: SakhiColors.purple,
+                      icon: const Icon(
+                        Icons.keyboard_arrow_down_rounded,
+                        size: 16,
+                        color: Color(0xFF6B4F78),
+                      ),
                       style: const TextStyle(
-                        color: SakhiColors.plum,
-                        fontSize: 14,
+                        color: Color(0xFF34183D),
+                        fontSize: 14.5,
                         fontWeight: FontWeight.w700,
                       ),
                       items: _countryCodes.entries
                           .map(
                             (entry) => DropdownMenuItem<String>(
                               value: entry.key,
-                              child: Text(entry.key),
+                              child: Text(entry.value),
                             ),
                           )
                           .toList(),
@@ -150,62 +154,151 @@ class _SakhiMobileEntryFormState extends State<SakhiMobileEntryForm> {
                             },
                     ),
                   ),
-                ),
-                const SizedBox(width: SakhiSpacing.xs),
-                Expanded(
-                  child: SakhiAuthTextField(
-                    fieldKey: const Key('auth-mobile-number-field'),
-                    controller: _phoneController,
-                    label: 'Mobile number',
-                    hint: _countryCode == '+91'
-                        ? '10-digit number'
-                        : 'Phone number',
-                    keyboardType: TextInputType.phone,
-                    textInputAction: TextInputAction.done,
-                    autofillHints: const [AutofillHints.telephoneNumber],
-                    maxLength: 15,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    validator: (value) =>
-                        validatePhoneNumber(value, _countryCode),
-                    onFieldSubmitted: (_) => _continue(),
+                  Container(
+                    height: 24,
+                    width: 1,
+                    margin: const EdgeInsets.symmetric(horizontal: 10),
+                    color: const Color(0xFFDCC7E8),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: SakhiSpacing.xs),
-            const Text(
-              'Your number is used for account verification in line with our Privacy Policy.',
-              style: TextStyle(
-                color: SakhiColors.mutedPlum,
-                fontSize: 12,
-                height: 1.4,
+                  Expanded(
+                    child: TextFormField(
+                      key: const Key('auth-mobile-number-field'),
+                      controller: _phoneController,
+                      keyboardType: TextInputType.phone,
+                      textInputAction: TextInputAction.done,
+                      autofillHints: const [AutofillHints.telephoneNumber],
+                      maxLength: 15,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      validator: (value) =>
+                          validatePhoneNumber(value, _countryCode),
+                      onFieldSubmitted: (_) => _continue(),
+                      style: const TextStyle(
+                        color: Color(0xFF34183D),
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      decoration: const InputDecoration(
+                        hintText: 'Enter mobile number',
+                        hintStyle: TextStyle(
+                          color: Color(0xFF9A82A6),
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w400,
+                        ),
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        errorBorder: InputBorder.none,
+                        focusedErrorBorder: InputBorder.none,
+                        counterText: '',
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(vertical: 14),
+                      ),
+                    ),
+                  ),
+                  const Icon(
+                    Icons.phone_outlined,
+                    color: Color(0xFF8C6B98),
+                    size: 20,
+                  ),
+                ],
               ),
             ),
             if (_statusMessage != null) ...[
-              const SizedBox(height: SakhiSpacing.md),
+              const SizedBox(height: 12),
               SakhiAuthStatusMessage(message: _statusMessage!),
             ],
-            const SizedBox(height: SakhiSpacing.lg),
+            const SizedBox(height: 14),
             SakhiAuthSubmitButton(
               key: const Key('auth-send-otp-button'),
-              label: registering ? 'Continue' : 'Continue with mobile number',
-              icon: Icons.sms_outlined,
+              label: 'Send OTP',
               isLoading: _isSubmitting,
               onPressed: _isSubmitting ? null : _continue,
             ),
-            const SizedBox(height: SakhiSpacing.sm),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const Expanded(
+                  child: Divider(color: Color(0xFFE6D6EF), height: 1),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: Text(
+                    'or',
+                    style: SakhiTypography.body.copyWith(
+                      color: const Color(0xFF8C6B98),
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                const Expanded(
+                  child: Divider(color: Color(0xFFE6D6EF), height: 1),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 48,
+              child: OutlinedButton.icon(
+                key: const Key('auth-google-sign-in-button'),
+                onPressed: _isSubmitting ? null : _showGoogleSignInNotice,
+                icon: Container(
+                  width: 22,
+                  height: 22,
+                  alignment: Alignment.center,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Color(0xFFF6F1FA),
+                  ),
+                  child: const Text(
+                    'G',
+                    style: TextStyle(
+                      color: Color(0xFF4285F4),
+                      fontWeight: FontWeight.w900,
+                      fontSize: 15,
+                    ),
+                  ),
+                ),
+                label: const Text('Continue with Google'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF34183D),
+                  backgroundColor: Colors.white,
+                  side: const BorderSide(color: Color(0xFFE3D2EC)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(26),
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
             Center(
               child: TextButton(
                 key: const Key('auth-switch-method-button'),
                 onPressed: _isSubmitting ? null : widget.onSwitchMethod,
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  minimumSize: const Size(0, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
                 child: Text(
                   registering
                       ? 'Already have an account? Sign in'
-                      : 'New to Sakhi? Create account',
+                      : 'New to Sakhi? Create an Account',
+                  style: const TextStyle(
+                    color: Color(0xFF5D196A),
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ),
-            const SizedBox(height: SakhiSpacing.xxs),
+            const SizedBox(height: 6),
             const SakhiPolicyLinks(compact: true),
           ],
         ),

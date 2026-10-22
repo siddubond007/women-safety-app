@@ -1142,3 +1142,196 @@ svg { flex-shrink: 0; }
   .audit-activity-row time { white-space: nowrap; }
   .audit-chart-labels { padding-right: 3px; padding-left: 3px; font-size: 9px; }
 }
+
+/* Hosted staging test-access console. */
+.staging-test-admin {
+  min-height: 100vh;
+  background: #faf7f9;
+  color: #352538;
+}
+.staging-test-admin__topbar {
+  min-height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px clamp(18px, 5vw, 72px);
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid #eadde6;
+}
+.staging-test-admin__top-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.staging-test-admin__content {
+  width: min(1480px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: 34px 0 24px;
+}
+.staging-test-admin__warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+  margin: 22px 0;
+  padding: 17px 19px;
+  border: 1px solid #e5c88b;
+  border-radius: 13px;
+  background: #fff8e9;
+  color: #714c18;
+}
+.staging-test-admin__warning > svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+.staging-test-admin__warning strong {
+  display: block;
+  font-size: 14px;
+}
+.staging-test-admin__warning p {
+  margin: 6px 0 0;
+  color: #80623a;
+  line-height: 1.6;
+  font-size: 13px;
+}
+.staging-test-admin__notice,
+.staging-test-admin__error {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 12px 15px;
+  margin: 16px 0;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.staging-test-admin__notice {
+  background: #eff9f3;
+  color: #216849;
+  border: 1px solid #b8e5cd;
+}
+.staging-test-admin__error {
+  background: #fff1f1;
+  color: #9e2939;
+  border: 1px solid #edc3c7;
+}
+.staging-test-admin__panel {
+  margin-top: 20px;
+  min-width: 0;
+}
+.staging-test-admin__footer {
+  padding: 22px 0 8px;
+  color: #938291;
+  font-size: 11px;
+  letter-spacing: .08em;
+}
+.staging-test-admin__modal {
+  max-width: 620px;
+  max-height: min(90vh, 900px);
+  overflow-y: auto;
+}
+.staging-test-admin__modal-warning {
+  margin: 15px 0;
+  padding: 13px 14px;
+  border-radius: 10px;
+  border: 1px solid #e5c88b;
+  background: #fff8e9;
+  color: #714c18;
+  font-size: 13px;
+  line-height: 1.55;
+}
+@media (max-width: 700px) {
+  .staging-test-admin__topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .staging-test-admin__top-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .staging-test-admin__content {
+    width: min(100% - 24px, 1480px);
+    padding-top: 22px;
+  }
+  .staging-test-admin__warning {
+    padding: 14px;
+  }
+}
+
+/* Keep the test-access controls inside the shared full admin workspace. */
+.staging-test-admin--embedded {
+  min-height: 0;
+  background: transparent;
+  color: inherit;
+}
+.staging-test-admin--embedded .staging-test-admin__content {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+.staging-test-admin--embedded .staging-test-admin__footer {
+  padding-bottom: 0;
+}
+
+
+/* Registration Minimum-Age Policy Panel */
+.registration-policy-panel {
+  margin-bottom: 20px;
+}
+.registration-policy-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(320px, 1.4fr);
+  gap: 20px;
+  align-items: start;
+  margin-top: 14px;
+}
+.registration-policy-summary {
+  padding: 16px;
+  border-radius: 14px;
+  background: #faf5fb;
+  border: 1px solid #eadde6;
+}
+.registration-policy-badge-preview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid #eadde6;
+}
+.registration-policy-badge-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #6d5575;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.registration-policy-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: #e6f6ec;
+  color: #1f7a4c;
+  font-size: 12px;
+  font-weight: 700;
+}
+.registration-policy-presets {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.registration-policy-presets > span {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6d5575;
+  margin-right: 4px;
+}
+@media (max-width: 900px) {
+  .registration-policy-grid {
+    grid-template-columns: 1fr;
+  }
+}

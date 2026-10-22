@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { StatusPill } from "../components/StatusPill";
+import { RegistrationPolicyPanel } from "../components/RegistrationPolicyPanel";
 import { adminAuthService } from "../services/auth/adminAuthService";
 import { adminApi, AdminApiError } from "../services/api/adminApi";
 
@@ -417,6 +418,8 @@ export function DashboardPage() {
               <div className="table-note"><AlertCircle size={14} /><span>Cloud media upload reachability is not proven by configuration alone; confirm it with an actual upload during staging smoke tests.</span></div>
             </section>
           </div>
+
+          <RegistrationPolicyPanel />
 
           <div className="dashboard-footnote"><ShieldCheck size={15} /><span>Staging/dev-test workspace. These controls do not represent a production authorization system or a final eligibility policy.</span><Link to="/members">Manage member records <ArrowRight size={13} /></Link></div>
         </>

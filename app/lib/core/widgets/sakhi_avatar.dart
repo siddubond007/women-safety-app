@@ -17,6 +17,7 @@ class SakhiAvatar extends StatelessWidget {
   final double size;
   final bool showEditCameraBadge;
   final VoidCallback? onCameraTap;
+  final VoidCallback? onAvatarTap;
   final double borderWidth;
 
   const SakhiAvatar({
@@ -27,6 +28,7 @@ class SakhiAvatar extends StatelessWidget {
     this.size = 44,
     this.showEditCameraBadge = false,
     this.onCameraTap,
+    this.onAvatarTap,
     this.borderWidth = 2.0,
   });
 
@@ -100,22 +102,25 @@ class SakhiAvatar extends StatelessWidget {
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: AppColors.pastelLavender,
-            border: Border.all(color: Colors.white, width: borderWidth),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.primaryPurple.withValues(alpha: 0.12),
-                blurRadius: 10,
-                offset: const Offset(0, 3),
-              ),
-            ],
+        GestureDetector(
+          onTap: onAvatarTap,
+          child: Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppColors.pastelLavender,
+              border: Border.all(color: Colors.white, width: borderWidth),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primaryPurple.withValues(alpha: 0.12),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: ClipOval(child: avatarContent),
           ),
-          child: ClipOval(child: avatarContent),
         ),
         if (showEditCameraBadge)
           Positioned(

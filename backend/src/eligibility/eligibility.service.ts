@@ -130,6 +130,7 @@ export class EligibilityService {
     return {
       status: "providerUnavailable" as const,
       eligibilityStatus,
+      testAccessApproved: session.testAccessApproved === true,
       manualReviewStatus: latestSubmission?.status ?? null,
       manualReviewSubmissionId: latestSubmission?.id ?? null,
       manualReviewSubmittedAt: latestSubmission?.submittedAt.toISOString() ?? null,
@@ -140,7 +141,9 @@ export class EligibilityService {
         session.account.verificationStatus !== "VERIFIED" &&
         latestSubmission?.status !== "PENDING_MANUAL_REVIEW",
       message:
-        eligibilityStatus === "VERIFIED"
+        session.testAccessApproved === true
+          ? "Staging test approval is active. App features are unlocked for testing only; phone ownership and eligibility remain unverified."
+          : eligibilityStatus === "VERIFIED"
           ? "An authorized manual reviewer approved this account."
           : eligibilityStatus === "REJECTED"
             ? "The last manual eligibility request was rejected. Follow the separately approved resubmission process."

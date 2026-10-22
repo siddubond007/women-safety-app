@@ -29,6 +29,24 @@ const OTP_MAX_REQUESTS_PER_WINDOW = 5;
 const OTP_ATTEMPT_LIMIT = 5;
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 
+export const REGISTRATION_POLICY_MIN_ALLOWED_AGE = 13;
+export const REGISTRATION_POLICY_MAX_ALLOWED_AGE = 100;
+export const REGISTRATION_POLICY_AUDIT_ACTION =
+  "admin.registration_policy.minimum_age_updated";
+
+export interface RegistrationAgePolicySnapshot {
+  configured: boolean;
+  minimumAgeYears: number | null;
+  source:
+    | "database_admin_policy"
+    | "environment_staging_default"
+    | "environment_dev_default"
+    | "unconfigured";
+  updatedAt: string | null;
+  updatedBy: string | null;
+  changeReason: string | null;
+}
+
 type Transaction = Prisma.TransactionClient;
 
 class TooManyRequestsException extends HttpException {
@@ -38,7 +56,27 @@ class TooManyRequestsException extends HttpException {
 }
 
 type AccountState =
-  "newAccount" | "existingAccount" | "pendingVerification" | "restricted";
+  | "newAccount"
+  | "existingAccount"
+  | "pendingVerification"
+  | "restricted";
+
+function parseValidAge(value: unknown): number | null {
+  const num =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && /^\d+$/.test(value.trim())
+        ? Number.parseInt(value.trim(), 10)
+        : NaN;
+  if (
+    Number.isInteger(num) &&
+    num >= REGISTRATION_POLICY_MIN_ALLOWED_AGE &&
+    num <= REGISTRATION_POLICY_MAX_ALLOWED_AGE
+  ) {
+    return num;
+  }
+  return null;
+}
 
 @Injectable()
 export class AuthenticationService {
@@ -51,16 +89,27 @@ export class AuthenticationService {
       .filter(Boolean);
   }
 
+  private isStagingTestPhoneAllowed(phoneE164: string): boolean {
+    const allowlist = this.stagingTestPhoneAllowlist();
+    return (
+      allowlist.includes(phoneE164) ||
+      (allowlist.includes("+91*") && /^\+91[6-9]\d{9}$/.test(phoneE164))
+    );
+  }
+
   private isStagingTestModeEnabled(): boolean {
     const allowlist = this.stagingTestPhoneAllowlist();
     const code = String(process.env.SAKHI_STAGING_TEST_OTP_CODE ?? "");
+    const configuredStagingAge = parseValidAge(
+      process.env.SAKHI_STAGING_TEST_MINIMUM_AGE_YEARS,
+    );
     return (
       process.env.SAKHI_ENV === "staging" &&
       process.env.NODE_ENV === "production" &&
       (process.env.HOST ?? "0.0.0.0") === "0.0.0.0" &&
       process.env.SAKHI_OTP_MODE === "staging_test" &&
       /^\d{6}$/.test(code) &&
-      process.env.SAKHI_STAGING_TEST_MINIMUM_AGE_YEARS === "18" &&
+      configuredStagingAge !== null &&
       allowlist.length > 0 &&
       (!allowlist.includes("+91*") || allowlist.length === 1) &&
       allowlist.every(
@@ -68,6 +117,244 @@ export class AuthenticationService {
       ) &&
       new Set(allowlist).size === allowlist.length
     );
+  }
+
+  private isStagingTestApprovalFeatureEnabled(): boolean {
+    return (
+      this.isStagingTestModeEnabled() &&
+      process.env.SAKHI_STAGING_TEST_ADMIN_ENABLED === "true" &&
+      (process.env.SAKHI_STAGING_TEST_ADMIN_TOKEN?.trim().length ?? 0) >= 32
+    );
+  }
+
+  async hasActiveStagingTestApproval(accountId: string): Promise<boolean> {
+    if (!this.isStagingTestApprovalFeatureEnabled()) return false;
+    const anyPrisma = this.prisma as unknown as {
+      auditEvent?: {
+        findFirst?: (
+          args: Record<string, unknown>,
+        ) => Promise<{ action: string } | null>;
+      };
+    };
+    if (typeof anyPrisma.auditEvent?.findFirst !== "function") return false;
+    const latest = await anyPrisma.auditEvent.findFirst({
+      where: {
+        targetType: "member_account",
+        targetId: accountId,
+        action: {
+          in: ["staging.test_access.approved", "staging.test_access.revoked"],
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { action: true },
+    });
+    return latest?.action === "staging.test_access.approved";
+  }
+
+  async getRegistrationPolicy(): Promise<RegistrationAgePolicySnapshot> {
+    const anyPrisma = this.prisma as unknown as {
+      platformRegistrationPolicy?: {
+        findUnique?: (args: Record<string, unknown>) => Promise<{
+          minimumAgeYears: number;
+          updatedBy?: string | null;
+          changeReason?: string | null;
+          updatedAt?: Date | string | null;
+        } | null>;
+      };
+      $queryRaw?: <T>(
+        strings: TemplateStringsArray,
+        ...values: unknown[]
+      ) => Promise<T>;
+      auditEvent?: {
+        findFirst?: (args: Record<string, unknown>) => Promise<{
+          createdAt: Date | string;
+          redactedMetadata?: unknown;
+        } | null>;
+      };
+    };
+
+    let tableCandidate: {
+      minimumAgeYears: number;
+      updatedBy: string | null;
+      changeReason: string | null;
+      updatedAt: string | null;
+      timestampMs: number;
+    } | null = null;
+
+    if (typeof anyPrisma.platformRegistrationPolicy?.findUnique === "function") {
+      try {
+        const row = await anyPrisma.platformRegistrationPolicy.findUnique({
+          where: { policyKey: "default" },
+        });
+        const parsedAge = parseValidAge(row?.minimumAgeYears);
+        if (row && parsedAge !== null) {
+          const iso =
+            row.updatedAt instanceof Date
+              ? row.updatedAt.toISOString()
+              : typeof row.updatedAt === "string"
+                ? row.updatedAt
+                : null;
+          tableCandidate = {
+            minimumAgeYears: parsedAge,
+            updatedBy: row.updatedBy ?? null,
+            changeReason: row.changeReason ?? null,
+            updatedAt: iso,
+            timestampMs: iso ? new Date(iso).getTime() : 0,
+          };
+        }
+      } catch {
+        // Ignore when optional delegate is not initialized in unit tests
+      }
+    } else if (typeof anyPrisma.$queryRaw === "function") {
+      try {
+        const rows = await anyPrisma.$queryRaw<
+          Array<{
+            minimumAgeYears: number;
+            updatedBy: string | null;
+            changeReason: string | null;
+            updatedAt: Date | string | null;
+          }>
+        >`
+          SELECT
+            minimum_age_years AS "minimumAgeYears",
+            updated_by AS "updatedBy",
+            change_reason AS "changeReason",
+            updated_at AS "updatedAt"
+          FROM platform_registration_policies
+          WHERE policy_key = 'default'
+          LIMIT 1
+        `;
+        const row = rows?.[0];
+        const parsedAge = parseValidAge(row?.minimumAgeYears);
+        if (row && parsedAge !== null) {
+          const iso =
+            row.updatedAt instanceof Date
+              ? row.updatedAt.toISOString()
+              : typeof row.updatedAt === "string"
+                ? row.updatedAt
+                : null;
+          tableCandidate = {
+            minimumAgeYears: parsedAge,
+            updatedBy: row.updatedBy ?? null,
+            changeReason: row.changeReason ?? null,
+            updatedAt: iso,
+            timestampMs: iso ? new Date(iso).getTime() : 0,
+          };
+        }
+      } catch {
+        // Ignore if table migration has not been applied yet
+      }
+    }
+
+    let auditCandidate: {
+      minimumAgeYears: number;
+      updatedBy: string | null;
+      changeReason: string | null;
+      updatedAt: string | null;
+      timestampMs: number;
+    } | null = null;
+
+    if (typeof anyPrisma.auditEvent?.findFirst === "function") {
+      try {
+        const latestEvent = await anyPrisma.auditEvent.findFirst({
+          where: {
+            targetType: "registration_policy",
+            targetId: "minimum_age_years",
+            action: REGISTRATION_POLICY_AUDIT_ACTION,
+          },
+          orderBy: { createdAt: "desc" },
+          select: { createdAt: true, redactedMetadata: true },
+        });
+        if (latestEvent) {
+          const meta =
+            latestEvent.redactedMetadata &&
+            typeof latestEvent.redactedMetadata === "object" &&
+            !Array.isArray(latestEvent.redactedMetadata)
+              ? (latestEvent.redactedMetadata as Record<string, unknown>)
+              : {};
+          const parsedAge = parseValidAge(meta.minimumAgeYears);
+          if (parsedAge !== null) {
+            const iso =
+              latestEvent.createdAt instanceof Date
+                ? latestEvent.createdAt.toISOString()
+                : typeof latestEvent.createdAt === "string"
+                  ? latestEvent.createdAt
+                  : null;
+            auditCandidate = {
+              minimumAgeYears: parsedAge,
+              updatedBy:
+                typeof meta.reviewerLabel === "string"
+                  ? meta.reviewerLabel
+                  : null,
+              changeReason:
+                typeof meta.reason === "string" ? meta.reason : null,
+              updatedAt: iso,
+              timestampMs: iso ? new Date(iso).getTime() : 0,
+            };
+          }
+        }
+      } catch {
+        // Ignore if auditEvent mock does not match registration_policy query
+      }
+    }
+
+    const chosenDb =
+      tableCandidate && auditCandidate
+        ? auditCandidate.timestampMs >= tableCandidate.timestampMs
+          ? auditCandidate
+          : tableCandidate
+        : auditCandidate ?? tableCandidate;
+
+    if (chosenDb) {
+      return {
+        configured: true,
+        minimumAgeYears: chosenDb.minimumAgeYears,
+        source: "database_admin_policy",
+        updatedAt: chosenDb.updatedAt,
+        updatedBy: chosenDb.updatedBy,
+        changeReason: chosenDb.changeReason,
+      };
+    }
+
+    if (this.isStagingTestModeEnabled()) {
+      const stagingAge =
+        parseValidAge(process.env.SAKHI_STAGING_TEST_MINIMUM_AGE_YEARS) ?? 18;
+      return {
+        configured: true,
+        minimumAgeYears: stagingAge,
+        source: "environment_staging_default",
+        updatedAt: null,
+        updatedBy: "staging-environment",
+        changeReason: null,
+      };
+    }
+
+    const previewAge = parseValidAge(
+      process.env.SAKHI_PREVIEW_MINIMUM_AGE_YEARS,
+    );
+    const localDevelopmentMode =
+      process.env.NODE_ENV !== "production" &&
+      (process.env.SAKHI_ENV === "dev" || process.env.SAKHI_ENV === "test") &&
+      previewAge !== null;
+    if (localDevelopmentMode && previewAge !== null) {
+      return {
+        configured: true,
+        minimumAgeYears: previewAge,
+        source: "environment_dev_default",
+        updatedAt: null,
+        updatedBy: "dev-environment",
+        changeReason: null,
+      };
+    }
+
+    return {
+      configured: false,
+      minimumAgeYears: null,
+      source: "unconfigured",
+      updatedAt: null,
+      updatedBy: null,
+      changeReason: null,
+    };
   }
 
   private assertOtpModeEnabled(): "development" | "staging_test" {
@@ -93,11 +380,7 @@ export class AuthenticationService {
     phoneE164: string,
     mode: "development" | "staging_test",
   ): void {
-    const allowlist = this.stagingTestPhoneAllowlist();
-    const phoneAllowed =
-      allowlist.includes(phoneE164) ||
-      (allowlist.includes("+91*") && /^\+91[6-9]\d{9}$/.test(phoneE164));
-    if (mode === "staging_test" && !phoneAllowed) {
+    if (mode === "staging_test" && !this.isStagingTestPhoneAllowed(phoneE164)) {
       throw new UnauthorizedException(
         "This phone number is not enabled for Sakhi staging test access.",
       );
@@ -163,9 +446,8 @@ export class AuthenticationService {
   }> {
     const now = new Date();
     const id = randomUUID();
-    const code = args.mode === "staging_test"
-      ? this.stagingTestCode()
-      : this.newOtp();
+    const code =
+      args.mode === "staging_test" ? this.stagingTestCode() : this.newOtp();
     const expiresAt = new Date(now.getTime() + OTP_TTL_MS);
     const resendAvailableAt = new Date(now.getTime() + RESEND_COOLDOWN_MS);
 
@@ -193,16 +475,14 @@ export class AuthenticationService {
         requestId: id,
         redactedMetadata: {
           purpose: args.purpose.toLowerCase(),
-          deliveryMode: args.mode === "staging_test"
-            ? "staging_test_shared_code"
-            : "development_echo",
+          deliveryMode:
+            args.mode === "staging_test"
+              ? "staging_test_shared_code"
+              : "development_echo",
         },
       },
     });
 
-    // The shared staging test code is never returned to the client. It is
-    // configured as a protected host environment variable and only permitted
-    // for the explicit phone-number allowlist.
     return {
       challengeId: id,
       expiresAt: expiresAt.toISOString(),
@@ -236,9 +516,6 @@ export class AuthenticationService {
         account && (!("profile" in account) || account.profile !== null),
       );
 
-      // A login request must not issue a challenge for a number without a
-      // completed account+profile. New or incomplete numbers must use the
-      // explicit registration flow instead.
       if (dto.purpose === "registration" && isRegistered) {
         throw new ConflictException(
           "A Sakhi account already exists for this number. Choose Sign in instead.",
@@ -260,13 +537,15 @@ export class AuthenticationService {
 
       return {
         ...result,
-        deliveryMode: mode === "staging_test"
-          ? ("staging_test_shared_code" as const)
-          : ("development_echo" as const),
+        deliveryMode:
+          mode === "staging_test"
+            ? ("staging_test_shared_code" as const)
+            : ("development_echo" as const),
         isDemo: true,
-        message: mode === "staging_test"
-          ? "Staging test access only. No SMS was sent; this shared code does not verify phone ownership or eligibility."
-          : "Development code only. No SMS was sent and the phone number has not been verified by a carrier.",
+        message:
+          mode === "staging_test"
+            ? "Staging test access only. No SMS was sent; this shared code does not verify phone ownership or eligibility."
+            : "Development code only. No SMS was sent and the phone number has not been verified by a carrier.",
       };
     });
   }
@@ -318,13 +597,15 @@ export class AuthenticationService {
       });
       return {
         ...result,
-        deliveryMode: mode === "staging_test"
-          ? ("staging_test_shared_code" as const)
-          : ("development_echo" as const),
+        deliveryMode:
+          mode === "staging_test"
+            ? ("staging_test_shared_code" as const)
+            : ("development_echo" as const),
         isDemo: true,
-        message: mode === "staging_test"
-          ? "Staging test access only. No SMS was sent; this shared code does not verify phone ownership or eligibility."
-          : "New development code generated. No SMS was sent.",
+        message:
+          mode === "staging_test"
+            ? "Staging test access only. No SMS was sent; this shared code does not verify phone ownership or eligibility."
+            : "New development code generated. No SMS was sent.",
       };
     });
   }
@@ -333,7 +614,11 @@ export class AuthenticationService {
     status: string,
     verificationStatus: string,
   ): AccountState {
-    if (status === "RESTRICTED" || status === "SUSPENDED" || status === "DELETED") {
+    if (
+      status === "RESTRICTED" ||
+      status === "SUSPENDED" ||
+      status === "DELETED"
+    ) {
       return "restricted";
     }
     if (status === "ACTIVE" && verificationStatus === "VERIFIED") {
@@ -386,8 +671,6 @@ export class AuthenticationService {
         };
       }
 
-      // The conditional update prevents simultaneous requests from bypassing
-      // the per-challenge attempt limit.
       const attempt = await tx.otpChallenge.updateMany({
         where: {
           id: challenge.id,
@@ -474,7 +757,6 @@ export class AuthenticationService {
         const created = await tx.memberAccount.create({
           data: {
             phoneE164: challenge.phoneE164,
-            // Shared staging test codes never prove phone ownership.
             phoneVerifiedAt: mode === "staging_test" ? null : now,
             status: "PENDING_VERIFICATION",
             verificationStatus: "UNVERIFIED",
@@ -532,9 +814,10 @@ export class AuthenticationService {
         data: {
           actorType: "MEMBER",
           actorId: account.id,
-          action: mode === "staging_test"
-            ? "auth.staging_test_code.accepted"
-            : "auth.otp.verified",
+          action:
+            mode === "staging_test"
+              ? "auth.staging_test_code.accepted"
+              : "auth.otp.verified",
           targetType: "member_account",
           targetId: account.id,
           outcome: "success",
@@ -554,9 +837,10 @@ export class AuthenticationService {
         tokenType: "Bearer" as const,
         expiresAt: expiresAt.toISOString(),
         isDemo: true,
-        message: mode === "staging_test"
-          ? "Staging test access only. Phone ownership and eligibility remain unverified."
-          : "Development authentication only. This session is local test access, not production identity verification.",
+        message:
+          mode === "staging_test"
+            ? "Staging test access only. Phone ownership and eligibility remain unverified."
+            : "Development authentication only. This session is local test access, not production identity verification.",
       };
     });
   }
@@ -586,7 +870,10 @@ export class AuthenticationService {
         "Your session is expired or unavailable. Sign in again.",
       );
     }
-    return session;
+    const testAccessApproved = await this.hasActiveStagingTestApproval(
+      session.accountId,
+    );
+    return { ...session, testAccessApproved };
   }
 
   async createProfile(
@@ -594,20 +881,34 @@ export class AuthenticationService {
     dto: CreateProfileDto,
   ) {
     const session = await this.authenticateAuthorization(authorization);
-    const configuredAge = process.env.SAKHI_PREVIEW_MINIMUM_AGE_YEARS;
+    if (dto.eligibilityConfirmed === false) {
+      throw new BadRequestException(
+        "Confirm that you meet Sakhi community eligibility rules before creating an account.",
+      );
+    }
+
+    const policy = await this.getRegistrationPolicy();
+    const configuredAge = parseValidAge(
+      process.env.SAKHI_PREVIEW_MINIMUM_AGE_YEARS,
+    );
     const localDevelopmentMode =
       process.env.NODE_ENV !== "production" &&
       (process.env.SAKHI_ENV === "dev" || process.env.SAKHI_ENV === "test") &&
-      configuredAge === "13";
+      (configuredAge !== null || policy.source === "database_admin_policy");
     const stagingTestMode =
       this.isStagingTestModeEnabled() &&
-      this.stagingTestPhoneAllowlist().includes(session.account.phoneE164);
-    if (!localDevelopmentMode && !stagingTestMode) {
+      this.isStagingTestPhoneAllowed(session.account.phoneE164);
+
+    if (
+      (!localDevelopmentMode && !stagingTestMode) ||
+      !policy.configured ||
+      policy.minimumAgeYears === null
+    ) {
       throw new ServiceUnavailableException(
         "The registration test policy is not configured for this environment. No profile was saved.",
       );
     }
-    const minimumAge = stagingTestMode ? 18 : 13;
+    const minimumAge = policy.minimumAgeYears;
 
     const dob = new Date(dto.dateOfBirth + "T00:00:00.000Z");
     const acceptedAt = new Date(dto.acceptedAt);
@@ -638,9 +939,11 @@ export class AuthenticationService {
         )
     ) {
       throw new BadRequestException(
-        stagingTestMode
-          ? "Staging test profiles must meet the temporary minimum age of 18."
-          : "The profile does not meet the temporary development age rule.",
+        policy.source === "database_admin_policy"
+          ? `Profiles must meet the configured minimum registration age of ${minimumAge}.`
+          : stagingTestMode
+            ? `Staging test profiles must meet the temporary minimum age of ${minimumAge}.`
+            : "The profile does not meet the temporary development age rule.",
       );
     }
     if (Number.isNaN(acceptedAt.getTime())) {
@@ -677,9 +980,17 @@ export class AuthenticationService {
       }
 
       const cleanDisplayName = dto.displayName.trim();
-      const baseSlug = cleanDisplayName.toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 18) || "member";
-      const candidateUsername = `@${baseSlug}_${session.accountId.slice(0, 4).toLowerCase()}`;
-      const chosenAvatar = dto.avatarAsset?.trim() || "assets/images/profile/avatar_ananya.webp";
+      const baseSlug =
+        cleanDisplayName
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "")
+          .slice(0, 14) || "member";
+      const candidateUsername = `@${baseSlug}_${session.accountId.slice(0, 8).toLowerCase()}`;
+      const chosenAvatar =
+        dto.avatarAsset?.trim() || "assets/images/profile/avatar_ananya.webp";
+      const interests = dto.interests
+        ?.map((item) => item.trim())
+        .filter(Boolean);
 
       const profile = await tx.memberProfile.create({
         data: {
@@ -687,34 +998,41 @@ export class AuthenticationService {
           displayName: cleanDisplayName,
           dateOfBirth: dob,
           email: dto.email?.trim().toLowerCase() || null,
-          ...(process.env.SAKHI_ENV === "dev"
-            ? {
-                username: candidateUsername,
-                avatarAsset: chosenAvatar,
-              }
-            : {}),
+          ...(interests !== undefined ? { interests } : {}),
+          username: candidateUsername,
+          avatarAsset: chosenAvatar,
         },
       });
 
-      if (process.env.SAKHI_ENV === "dev" && "communityDirectoryProfile" in tx && "eligibilitySubmission" in tx) {
+      if ("communityDirectoryProfile" in tx) {
         try {
           await tx.communityDirectoryProfile.upsert({
             where: { username: candidateUsername },
             update: {
               name: cleanDisplayName,
               avatarAsset: chosenAvatar,
-              bio: "New Sakhi community member 💜",
+              bio: profile.bio ?? "",
             },
             create: {
               name: cleanDisplayName,
               username: candidateUsername,
               avatarAsset: chosenAvatar,
-              bio: "New Sakhi community member 💜",
+              bio: profile.bio ?? "",
               defaultFollowing: false,
             },
           });
+        } catch {
+          // The profile remains saved; directory sync can be repaired through Edit Profile.
+        }
+      }
+
+      if (process.env.SAKHI_ENV === "dev" && "eligibilitySubmission" in tx) {
+        try {
           const existingSub = await tx.eligibilitySubmission.findFirst({
-            where: { accountId: session.accountId, status: "PENDING_MANUAL_REVIEW" },
+            where: {
+              accountId: session.accountId,
+              status: "PENDING_MANUAL_REVIEW",
+            },
             select: { id: true },
           });
           if (!existingSub) {
@@ -722,7 +1040,9 @@ export class AuthenticationService {
               data: {
                 accountId: session.accountId,
                 status: "PENDING_MANUAL_REVIEW",
-                consentVersion: process.env.SAKHI_MANUAL_REVIEW_CONSENT_VERSION?.trim() || "dev-manual-review-v1",
+                consentVersion:
+                  process.env.SAKHI_MANUAL_REVIEW_CONSENT_VERSION?.trim() ||
+                  "dev-manual-review-v1",
                 consentAcceptedAt: new Date(),
               },
             });
@@ -774,6 +1094,8 @@ export class AuthenticationService {
           redactedMetadata: {
             consentDocumentState: "DRAFT",
             optionalUpdatesAccepted: dto.optionalUpdatesAccepted,
+            minimumAgeEnforced: minimumAge,
+            minimumAgePolicySource: policy.source,
           },
         },
       });
@@ -813,7 +1135,8 @@ export class AuthenticationService {
         : null,
       testAccess:
         this.isStagingTestModeEnabled() &&
-        this.stagingTestPhoneAllowlist().includes(session.account.phoneE164),
+        this.isStagingTestPhoneAllowed(session.account.phoneE164),
+      testAccessApproved: session.testAccessApproved === true,
       isDemo: true,
     };
   }

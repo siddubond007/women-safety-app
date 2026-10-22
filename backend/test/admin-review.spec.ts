@@ -197,4 +197,38 @@ describe("AdminReviewService reviewer-token boundary", () => {
     process.env.SAKHI_ADMIN_REVIEW_TOKEN = "a".repeat(64);
     const service = new AdminReviewService({} as PrismaService);
     expect(() => service.session("a".repeat(64))).toThrow(ForbiddenException);
-  });});
+  });
+  it("persists and returns the admin-configured minimum registration age policy", async () => {
+    configureLocalReviewer();
+    const upsertMock = vi.fn().mockResolvedValue({});
+    const auditCreateMock = vi.fn().mockResolvedValue({ id: "audit-1" });
+    const prisma = {
+      platformRegistrationPolicy: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        upsert: upsertMock,
+      },
+      auditEvent: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: auditCreateMock,
+      },
+    } as unknown as PrismaService;
+    const service = new AdminReviewService(prisma);
+
+    const updated = await service.updateRegistrationPolicy(
+      {
+        minimumAgeYears: 21,
+        reason: "Raising minimum registration age to 21 for new cohort testing.",
+      },
+      reviewerToken,
+    );
+
+    expect(updated).toMatchObject({
+      configured: true,
+      minimumAgeYears: 21,
+      source: "database_admin_policy",
+      updatedBy: "QA Reviewer",
+    });
+    expect(upsertMock).toHaveBeenCalledOnce();
+    expect(auditCreateMock).toHaveBeenCalledOnce();
+  });
+});

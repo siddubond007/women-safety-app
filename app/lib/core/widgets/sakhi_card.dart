@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 
@@ -28,7 +29,9 @@ class SakhiCard extends StatelessWidget {
     final cardContent = Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: gradient == null ? (backgroundColor ?? AppColors.cardSurface) : null,
+        color: gradient == null
+            ? (backgroundColor ?? AppColors.cardSurface)
+            : null,
         gradient: gradient,
         borderRadius: BorderRadius.circular(borderRadius),
         border: Border.all(
@@ -37,7 +40,7 @@ class SakhiCard extends StatelessWidget {
         ),
         boxShadow: AppSpacing.cardShadow,
       ),
-      child: child,
+      child: Material(color: Colors.transparent, child: child),
     );
 
     if (onTap == null) return cardContent;

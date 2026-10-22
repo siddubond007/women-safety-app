@@ -77,6 +77,32 @@ export class Module2Controller {
     });
   }
 
+  @Get("username-availability")
+  checkUsernameAvailability(
+    @Headers("authorization") authorization: string | undefined,
+    @Query("username") username: string,
+  ) {
+    return this.service.checkUsernameAvailability(authorization, username);
+  }
+
+  @Get("members/search")
+  searchVisibleMembers(
+    @Headers("authorization") authorization: string | undefined,
+    @Query("q") query?: string,
+  ) {
+    return this.service.searchMembers(authorization, query);
+  }
+
+  @Get("members/followers")
+  listFollowers(@Headers("authorization") authorization: string | undefined) {
+    return this.service.listFollowers(authorization, "followers");
+  }
+
+  @Get("members/following")
+  listFollowing(@Headers("authorization") authorization: string | undefined) {
+    return this.service.listFollowers(authorization, "following");
+  }
+
   @Put("profile")
   updateProfile(
     @Headers("authorization") authorization: string | undefined,
@@ -123,7 +149,7 @@ export class Module2Controller {
   @HttpCode(201)
   @UseInterceptors(
     FileInterceptor("file", {
-      limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+      limits: { fileSize: 50 * 1024 * 1024, files: 1 },
     }),
   )
   uploadMediaFile(
@@ -149,7 +175,7 @@ export class Module2Controller {
   @HttpCode(201)
   @UseInterceptors(
     FileInterceptor("file", {
-      limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+      limits: { fileSize: 50 * 1024 * 1024, files: 1 },
     }),
   )
   uploadMediaFileAlias(

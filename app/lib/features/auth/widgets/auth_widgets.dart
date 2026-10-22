@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../core/assets/app_assets.dart';
 import '../../../core/theme/sakhi_design_system.dart';
 import '../../../shared/widgets/sakhi_brand_logo.dart';
+import '../../../shared/widgets/sakhi_crisp_art.dart';
 
 class SakhiAuthScaffold extends StatelessWidget {
   const SakhiAuthScaffold({
@@ -11,7 +13,13 @@ class SakhiAuthScaffold extends StatelessWidget {
     required this.botanicalAsset,
     required this.authIsDemo,
     this.authIsDevelopmentBackend = false,
-    this.botanicalHeight = 82,
+    this.botanicalHeight = 186,
+    this.showHeroPortrait = false,
+    this.showBrandLogo = true,
+    this.showModeBanners = true,
+    this.showFooter = false,
+    this.wrapChildInCard = true,
+    this.bottomAccessory,
   });
 
   final Widget child;
@@ -19,88 +27,150 @@ class SakhiAuthScaffold extends StatelessWidget {
   final bool authIsDemo;
   final bool authIsDevelopmentBackend;
   final double botanicalHeight;
+  final bool showHeroPortrait;
+  final bool showBrandLogo;
+  final bool showModeBanners;
+  final bool showFooter;
+  final bool wrapChildInCard;
+  final Widget? bottomAccessory;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: SakhiColors.blush,
+      backgroundColor: const Color(0xFFFAF3FC),
       resizeToAvoidBottomInset: true,
       body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final compact = constraints.maxHeight < 700;
-            return SingleChildScrollView(
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              padding: EdgeInsets.fromLTRB(
-                SakhiSpacing.md,
-                compact ? SakhiSpacing.xs : SakhiSpacing.md,
-                SakhiSpacing.md,
-                SakhiSpacing.xl,
-              ),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 460),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Center(
-                        child: SakhiBrandLogo(
-                          width: compact ? 104 : 118,
-                          height: compact ? 78 : 90,
-                        ),
-                      ),
-                      if (!compact) ...[
-                        const SizedBox(height: SakhiSpacing.xxs),
-                        SakhiBotanicalAccent(
-                          asset: botanicalAsset,
-                          height: botanicalHeight,
-                          alignment: Alignment.centerRight,
-                        ),
-                      ] else
-                        const SizedBox(height: SakhiSpacing.xs),
-                      if (authIsDemo) ...[
-                        const SakhiDemoBanner(),
-                        const SizedBox(height: SakhiSpacing.sm),
-                      ] else if (authIsDevelopmentBackend) ...[
-                        const SakhiDevelopmentBackendBanner(),
-                        const SizedBox(height: SakhiSpacing.sm),
-                      ],
-                      Container(
-                        padding: EdgeInsets.all(
-                          compact ? SakhiSpacing.md : SakhiSpacing.lg,
-                        ),
-                        decoration: BoxDecoration(
-                          color: SakhiColors.ivory.withValues(alpha: 0.96),
-                          borderRadius: BorderRadius.circular(24),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.95),
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: SakhiColors.plum.withValues(alpha: 0.055),
-                              blurRadius: 22,
-                              offset: const Offset(0, 8),
-                            ),
+        child: Column(
+          children: [
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final compact = constraints.maxHeight < 680;
+                  return SingleChildScrollView(
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    padding: EdgeInsets.fromLTRB(
+                      18,
+                      compact ? 8 : 14,
+                      18,
+                      compact ? 14 : 24,
+                    ),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 440),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (showBrandLogo) ...[
+                              Center(
+                                child: SakhiBrandLogo(
+                                  width: compact ? 96 : 112,
+                                  height: compact ? 64 : 76,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              const Text(
+                                'A safe space for every woman',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: Color(0xFF6B4F78),
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                            if (!compact) ...[
+                              const SizedBox(height: 12),
+                              if (showHeroPortrait)
+                                Container(
+                                  height: botanicalHeight,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF3E4F8),
+                                    borderRadius: BorderRadius.circular(24),
+                                    border: Border.all(
+                                      color: const Color(0xFFEAD4F3),
+                                    ),
+                                  ),
+                                  clipBehavior: Clip.antiAlias,
+                                  child: Image.asset(
+                                    AppAssets.loginHeroWomanFloral,
+                                    fit: BoxFit.cover,
+                                    alignment: Alignment.topCenter,
+                                    filterQuality: FilterQuality.high,
+                                    errorBuilder: (_, _, _) => const Center(
+                                      child: SakhiCrispHeroArt(
+                                        variant: 'greeting',
+                                        width: 194,
+                                        height: 164,
+                                      ),
+                                    ),
+                                  ),
+                                )
+                              else
+                                SakhiBotanicalAccent(
+                                  asset: botanicalAsset,
+                                  height: botanicalHeight,
+                                  alignment: Alignment.centerRight,
+                                ),
+                            ] else
+                              const SizedBox(height: 8),
+                            if (showModeBanners &&
+                                authIsDemo &&
+                                !authIsDevelopmentBackend) ...[
+                              const SizedBox(height: 8),
+                              const SakhiDemoBanner(),
+                            ],
+                            if (wrapChildInCard) ...[
+                              const SizedBox(height: 12),
+                              Container(
+                                padding: EdgeInsets.fromLTRB(
+                                  18,
+                                  compact ? 14 : 18,
+                                  18,
+                                  compact ? 14 : 18,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(24),
+                                  border: Border.all(
+                                    color: const Color(0xFFEEE0F5),
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(
+                                        0xFF4A195C,
+                                      ).withValues(alpha: 0.07),
+                                      blurRadius: 24,
+                                      offset: const Offset(0, 8),
+                                    ),
+                                  ],
+                                ),
+                                child: child,
+                              ),
+                            ] else
+                              child,
+                            if (showFooter) ...[
+                              const SizedBox(height: 12),
+                              const Text(
+                                'Your safety, wellbeing and community matter.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: SakhiColors.mutedPlum,
+                                  fontSize: 12,
+                                  height: 1.4,
+                                ),
+                              ),
+                            ],
                           ],
                         ),
-                        child: child,
                       ),
-                      const SizedBox(height: SakhiSpacing.md),
-                      const Text(
-                        'Your safety, wellbeing and community matter.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: SakhiColors.mutedPlum,
-                          fontSize: 12,
-                          height: 1.4,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                    ),
+                  );
+                },
               ),
-            );
-          },
+            ),
+            if (bottomAccessory != null) bottomAccessory!,
+          ],
         ),
       ),
     );
@@ -149,27 +219,23 @@ class SakhiDemoBanner extends StatelessWidget {
       liveRegion: true,
       child: Container(
         key: const Key('auth-demo-banner'),
-        padding: const EdgeInsets.symmetric(
-          horizontal: SakhiSpacing.sm,
-          vertical: SakhiSpacing.xs,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
           color: SakhiColors.lavender,
-          borderRadius: BorderRadius.circular(13),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(color: SakhiColors.progressInactive),
         ),
         child: const Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.science_outlined, color: SakhiColors.purple, size: 18),
-            SizedBox(width: SakhiSpacing.xs),
+            Icon(Icons.science_outlined, color: SakhiColors.purple, size: 15),
+            SizedBox(width: 6),
             Expanded(
               child: Text(
-                'TEST / DEMO MODE — no SMS or phone/eligibility verification. Test-only access.',
+                'TEST / DEMO MODE — no SMS or phone/eligibility verification.',
                 style: TextStyle(
                   color: SakhiColors.plum,
-                  fontSize: 11.5,
-                  height: 1.35,
+                  fontSize: 11,
+                  height: 1.25,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -186,42 +252,8 @@ class SakhiDevelopmentBackendBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Semantics(
-      liveRegion: true,
-      child: Container(
-        key: const Key('auth-development-backend-banner'),
-        padding: const EdgeInsets.symmetric(
-          horizontal: SakhiSpacing.sm,
-          vertical: SakhiSpacing.xs,
-        ),
-        decoration: BoxDecoration(
-          color: SakhiColors.lavender,
-          borderRadius: BorderRadius.circular(13),
-          border: Border.all(color: SakhiColors.progressInactive),
-        ),
-        child: const Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              Icons.developer_mode_outlined,
-              color: SakhiColors.purple,
-              size: 18,
-            ),
-            SizedBox(width: SakhiSpacing.xs),
-            Expanded(
-              child: Text(
-                'DEVELOPMENT BACKEND — profile and consent can be saved to the local test database. OTP codes are test codes only; no SMS or carrier verification occurs. Not for production.',
-                style: TextStyle(
-                  color: SakhiColors.plum,
-                  fontSize: 11.5,
-                  height: 1.35,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+    return const SizedBox.shrink(
+      key: Key('auth-development-backend-banner'),
     );
   }
 }
@@ -241,6 +273,7 @@ class SakhiAuthTextField extends StatelessWidget {
     this.maxLength,
     this.inputFormatters,
     this.onFieldSubmitted,
+    this.suffixIcon,
   });
 
   final Key fieldKey;
@@ -255,14 +288,13 @@ class SakhiAuthTextField extends StatelessWidget {
   final int? maxLength;
   final List<TextInputFormatter>? inputFormatters;
   final ValueChanged<String>? onFieldSubmitted;
+  final Widget? suffixIcon;
 
   @override
   Widget build(BuildContext context) {
     final outline = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(SakhiRadii.control),
-      borderSide: BorderSide(
-        color: SakhiColors.progressInactive.withValues(alpha: 0.95),
-      ),
+      borderRadius: BorderRadius.circular(14),
+      borderSide: const BorderSide(color: Color(0xFFE3D2EC)),
     );
 
     return TextFormField(
@@ -276,20 +308,31 @@ class SakhiAuthTextField extends StatelessWidget {
       maxLength: maxLength,
       inputFormatters: inputFormatters,
       onFieldSubmitted: onFieldSubmitted,
+      style: const TextStyle(
+        color: Color(0xFF34183D),
+        fontSize: 14.5,
+        fontWeight: FontWeight.w500,
+      ),
       decoration: InputDecoration(
-        labelText: label,
+        labelText: label.isEmpty ? null : label,
         hintText: hint,
+        hintStyle: const TextStyle(
+          color: Color(0xFF9B82A6),
+          fontSize: 14,
+          fontWeight: FontWeight.w400,
+        ),
+        suffixIcon: suffixIcon,
         counterText: '',
         filled: true,
-        fillColor: SakhiColors.blush.withValues(alpha: 0.52),
+        fillColor: Colors.white,
         contentPadding: const EdgeInsets.symmetric(
-          horizontal: SakhiSpacing.md,
-          vertical: 16,
+          horizontal: 16,
+          vertical: 15,
         ),
         border: outline,
         enabledBorder: outline,
         focusedBorder: outline.copyWith(
-          borderSide: const BorderSide(color: SakhiColors.purple, width: 1.5),
+          borderSide: const BorderSide(color: Color(0xFF5D196A), width: 1.6),
         ),
         errorBorder: outline.copyWith(
           borderSide: BorderSide(color: Theme.of(context).colorScheme.error),
@@ -297,7 +340,7 @@ class SakhiAuthTextField extends StatelessWidget {
         focusedErrorBorder: outline.copyWith(
           borderSide: BorderSide(
             color: Theme.of(context).colorScheme.error,
-            width: 1.5,
+            width: 1.6,
           ),
         ),
       ),
@@ -311,13 +354,13 @@ class SakhiAuthSubmitButton extends StatelessWidget {
     required this.label,
     required this.onPressed,
     this.isLoading = false,
-    this.icon = Icons.arrow_forward_rounded,
+    this.icon,
   });
 
   final String label;
   final VoidCallback? onPressed;
   final bool isLoading;
-  final IconData icon;
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
@@ -326,19 +369,22 @@ class SakhiAuthSubmitButton extends StatelessWidget {
       child: FilledButton(
         onPressed: isLoading ? null : onPressed,
         style: FilledButton.styleFrom(
-          backgroundColor: SakhiColors.purple,
+          backgroundColor: const Color(0xFF5D196A),
           foregroundColor: Colors.white,
-          disabledBackgroundColor: SakhiColors.purple.withValues(alpha: 0.48),
+          disabledBackgroundColor: const Color(
+            0xFF5D196A,
+          ).withValues(alpha: 0.46),
           disabledForegroundColor: Colors.white.withValues(alpha: 0.9),
-          minimumSize: const Size.fromHeight(54),
-          padding: const EdgeInsets.symmetric(
-            horizontal: SakhiSpacing.md,
-            vertical: SakhiSpacing.md,
-          ),
+          minimumSize: const Size.fromHeight(52),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(SakhiRadii.control),
+            borderRadius: BorderRadius.circular(28),
           ),
-          textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+          textStyle: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.2,
+          ),
         ),
         child: isLoading
             ? const SizedBox(
@@ -360,8 +406,10 @@ class SakhiAuthSubmitButton extends StatelessWidget {
                       maxLines: 2,
                     ),
                   ),
-                  const SizedBox(width: SakhiSpacing.xs),
-                  Icon(icon, size: 19),
+                  if (icon != null) ...[
+                    const SizedBox(width: 8),
+                    Icon(icon, size: 18),
+                  ],
                 ],
               ),
       ),
@@ -395,14 +443,14 @@ class SakhiAuthStatusMessage extends StatelessWidget {
         padding: const EdgeInsets.all(SakhiSpacing.sm),
         decoration: BoxDecoration(
           color: background,
-          borderRadius: BorderRadius.circular(SakhiRadii.control),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(color: foreground.withValues(alpha: 0.16)),
         ),
         child: Text(
           message,
           style: TextStyle(
             color: foreground,
-            fontSize: 13,
+            fontSize: 12.5,
             height: 1.4,
             fontWeight: FontWeight.w600,
           ),
@@ -419,37 +467,75 @@ class SakhiPolicyLinks extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      alignment: WrapAlignment.center,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      spacing: compact ? 2 : SakhiSpacing.xs,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        TextButton(
-          key: const Key('auth-terms-link'),
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => const SakhiPolicyDocumentScreen(
-                title: 'Terms and Conditions',
+        const Text(
+          "By continuing, you agree to Sakhi's Terms & Privacy Policy",
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Color(0xFF7B6287),
+            fontSize: 11.5,
+            height: 1.35,
+          ),
+        ),
+        Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 4,
+          children: [
+            TextButton(
+              key: const Key('auth-terms-link'),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                minimumSize: const Size(0, 26),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const SakhiPolicyDocumentScreen(
+                    title: 'Terms and Conditions',
+                  ),
+                ),
+              ),
+              child: const Text(
+                'Terms and Conditions',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  decoration: TextDecoration.underline,
+                  color: Color(0xFF5D196A),
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
-          ),
-          child: const Text('Terms and Conditions'),
-        ),
-        Text(
-          '•',
-          style: TextStyle(
-            color: SakhiColors.mutedPlum.withValues(alpha: 0.85),
-          ),
-        ),
-        TextButton(
-          key: const Key('auth-privacy-link'),
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) =>
-                  const SakhiPolicyDocumentScreen(title: 'Privacy Policy'),
+            const Text(
+              '&',
+              style: TextStyle(color: Color(0xFF7B6287), fontSize: 11.5),
             ),
-          ),
-          child: const Text('Privacy Policy'),
+            TextButton(
+              key: const Key('auth-privacy-link'),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                minimumSize: const Size(0, 26),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) =>
+                      const SakhiPolicyDocumentScreen(title: 'Privacy Policy'),
+                ),
+              ),
+              child: const Text(
+                'Privacy Policy',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  decoration: TextDecoration.underline,
+                  color: Color(0xFF5D196A),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );

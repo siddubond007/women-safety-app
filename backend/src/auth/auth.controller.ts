@@ -1,7 +1,6 @@
 import { Body, Controller, Get, Headers, HttpCode, Post } from "@nestjs/common";
 import {
   ApiBearerAuth,
-  ApiCreatedResponse,
   ApiOkResponse,
   ApiTags,
 } from "@nestjs/swagger";
@@ -17,6 +16,14 @@ import {
 @Controller("auth")
 export class AuthController {
   constructor(private readonly auth: AuthenticationService) {}
+
+  @Get("registration-policy")
+  @ApiOkResponse({
+    description: "Returns the active minimum registration age policy.",
+  })
+  registrationPolicy() {
+    return this.auth.getRegistrationPolicy();
+  }
 
   @Post("otp/request")
   @HttpCode(200)

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../../core/constants/mock_data.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -96,8 +97,18 @@ class NotificationPreferencesScreen extends StatelessWidget {
                               activeTrackColor: AppColors.primaryPurple,
                               inactiveThumbColor: Colors.white,
                               inactiveTrackColor: const Color(0xFFD9CEE3),
-                              onChanged: (val) =>
-                                  state.toggleNotificationPref(pref.id, val),
+                              onChanged: (val) async {
+                                final saved = await state
+                                    .toggleNotificationPref(pref.id, val);
+                                if (!context.mounted || saved) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Notification preference could not be saved. The previous value was restored.',
+                                    ),
+                                  ),
+                                );
+                              },
                             ),
                           ],
                         ),

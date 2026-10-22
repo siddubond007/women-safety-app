@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../features/account_security/screens/account_security_screen.dart';
 import '../../features/community/screens/community_screen.dart';
 import '../../features/explore/screens/explore_screen.dart';
@@ -37,22 +38,22 @@ class AppRoutes {
   static const String moreOptions = '/more-options'; // Screen 12
 
   static Map<String, WidgetBuilder> get routes => {
-        root: (_) => const AppNavigationShell(),
-        home: (_) => const Scaffold(body: HomeScreen()),
-        explore: (_) => const Scaffold(body: ExploreScreen()),
-        community: (_) => const Scaffold(body: CommunityScreen()),
-        wellness: (_) => const WellnessScreen(showBackButton: true),
-        safety: (_) => const SafetyScreen(showBackButton: true),
-        profile: (_) => const Scaffold(body: ProfileScreen()),
-        memberProfile: (_) => const Scaffold(body: ProfileScreen()),
-        editProfile: (_) => const EditProfileScreen(),
-        privacySettings: (_) => const PrivacySettingsScreen(),
-        notificationPreferences: (_) => const NotificationPreferencesScreen(),
-        followers: (_) => const FollowersFollowingScreen(),
-        following: (_) => const FollowersFollowingScreen(),
-        groups: (_) => const Scaffold(body: ExploreScreen()),
-        myGroups: (_) => const Scaffold(body: ExploreScreen()),
-        accountSecurity: (_) => const AccountSecurityScreen(),
-        moreOptions: (_) => const MoreOptionsMenuScreen(),
-      };
+    root: (_) => const AppNavigationShell(),
+    home: (_) => const Scaffold(body: HomeScreen()),
+    explore: (_) => const Scaffold(body: ExploreScreen()),
+    community: (_) => const Scaffold(body: CommunityScreen()),
+    wellness: (_) => const WellnessScreen(showBackButton: true),
+    safety: (_) => const SafetyScreen(showBackButton: true),
+    profile: (_) => const Scaffold(body: ProfileScreen()),
+    memberProfile: (_) => const Scaffold(body: ProfileScreen()),
+    editProfile: (_) => const EditProfileScreen(),
+    privacySettings: (_) => const PrivacySettingsScreen(),
+    notificationPreferences: (_) => const NotificationPreferencesScreen(),
+    followers: (_) => const FollowersFollowingScreen(),
+    following: (_) => const FollowersFollowingScreen(initialFollowing: true),
+    groups: (_) => const Scaffold(body: ExploreScreen()),
+    myGroups: (_) => const Scaffold(body: ExploreScreen()),
+    accountSecurity: (_) => const AccountSecurityScreen(),
+    moreOptions: (_) => const MoreOptionsMenuScreen(),
+  };
 }

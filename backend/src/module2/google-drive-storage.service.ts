@@ -162,7 +162,7 @@ export class GoogleDriveStorageService {
     categorySlug?: string | null;
     postId?: string | null;
     fileName: string;
-    contentType: "image/jpeg" | "image/png" | "image/webp";
+    contentType: "image/jpeg" | "image/png" | "image/webp" | "video/mp4";
     buffer: Buffer;
   }): Promise<{
     driveFileId: string;
@@ -172,7 +172,7 @@ export class GoogleDriveStorageService {
     size: number;
   }> {
     if (input.buffer.length === 0) {
-      throw new ServiceUnavailableException("The selected image is empty.");
+      throw new ServiceUnavailableException("The selected media file is empty.");
     }
     const accessToken = await this.getAccessToken();
     const hierarchy = this.buildMediaHierarchySegments({
@@ -218,7 +218,7 @@ export class GoogleDriveStorageService {
     const file = (await response.json().catch(() => ({}))) as GoogleDriveFile;
     if (!response.ok || !file.id) {
       throw new ServiceUnavailableException(
-        "Google Drive could not store the image. Check the Drive API and authorized account, then retry.",
+        "Google Drive could not store the media. Check the Drive API and authorized account, then retry.",
       );
     }
     return {

@@ -70,7 +70,7 @@ const formatDate = (value: string | null) => value ? new Intl.DateTimeFormat("en
 const formatDateTime = (value: string) => new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("") || "SK";
 
-export function MemberManagementPage({ isStagingTest }: { isStagingTest: boolean }) {
+export function MemberManagementPage({ isStagingTest = false }: { isStagingTest?: boolean }) {
   const navigate = useNavigate();
   const [data, setData] = useState<MemberDirectory | null>(null);
   const [loading, setLoading] = useState(true);

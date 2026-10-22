@@ -13,7 +13,11 @@ import '../../../core/widgets/sakhi_avatar.dart';
 import '../../../core/widgets/sakhi_buttons.dart';
 import '../../../core/widgets/sakhi_chip.dart';
 import '../../../core/widgets/sakhi_dialogs.dart';
+import '../../../core/widgets/sakhi_empty_state.dart';
 import '../../../core/widgets/sakhi_search_field.dart';
+import '../../../core/widgets/sakhi_create_hub_sheet.dart';
+import '../../explore/screens/explore_discovery_screens.dart';
+import 'sakhi_post_creation_flow.dart';
 import '../widgets/feed_post_card.dart';
 
 /// Screen 3 — Module 3 Social Media Wall & Community Feed
@@ -90,9 +94,76 @@ class _CommunityScreenState extends State<CommunityScreen> {
     _composerMode = mode;
     _composerStep = mode == 'media' ? 0 : 1;
     _composerCategorySlug = mode == 'resource'
-        ? 'wellness_lifestyle'
-        : 'community';
+        ? 'safety_awareness'
+        : _selectedCategorySlug == 'following'
+        ? 'community'
+        : _selectedCategorySlug;
     _showComposer = true;
+  }
+
+  Future<void> _openCreateHub() async {
+    final action = await showSakhiCreateHub(context);
+    if (!mounted || action == null) return;
+    await openSakhiCreateAction(
+      context,
+      action,
+      initialCategory: _selectedCategorySlug == 'following'
+          ? 'community'
+          : _selectedCategorySlug,
+      onPublished: _refreshLiveFeed,
+    );
+  }
+
+  Future<void> _openMediaComposer() async {
+    await openSakhiCreateAction(
+      context,
+      SakhiCreateAction.photoVideo,
+      initialCategory: _selectedCategorySlug == 'following'
+          ? 'community'
+          : _selectedCategorySlug,
+      onPublished: _refreshLiveFeed,
+    );
+  }
+
+  void _openSearchResults() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            SearchResultsScreen(initialQuery: _searchController.text.trim()),
+      ),
+    );
+  }
+
+  void _showModuleNotice(String title, String message) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.cardSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(22),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: AppTypography.sectionTitle),
+              const SizedBox(height: 8),
+              Text(message, style: AppTypography.bodyRegular),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(sheetContext),
+                  child: const Text('Close'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -407,61 +478,79 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   const SizedBox(height: 8),
                   Row(
                     children: [
-                      GestureDetector(
-                        onTap: () => _showFeedFilterSheet(context),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              'Social Wall',
-                              style: AppTypography.appBarTitle,
-                            ),
-                            SizedBox(width: 4),
-                            Icon(
-                              Icons.keyboard_arrow_down_rounded,
-                              color: AppColors.textPrimary,
-                              size: 22,
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Spacer(),
-                      IconButton(
-                        tooltip: 'Refresh Social Wall',
-                        icon: _isRefreshing
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: AppColors.primaryPurple,
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => _showFeedFilterSheet(context),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Social Wall • ${_categoryLabels[_selectedCategorySlug] ?? 'Community'}'
+                                      .replaceAll(
+                                        'Wellness and Lifestyle',
+                                        'Wellness & Lifestyle',
+                                      ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTypography.appBarTitle.copyWith(
+                                    fontSize: 19,
+                                  ),
                                 ),
-                              )
-                            : const Icon(
-                                Icons.sync_rounded,
-                                color: AppColors.primaryPurple,
+                              ),
+                              const SizedBox(width: 2),
+                              const Icon(
+                                Icons.keyboard_arrow_down_rounded,
+                                color: AppColors.textPrimary,
                                 size: 22,
                               ),
-                        onPressed: _isRefreshing ? null : _refreshLiveFeed,
+                            ],
+                          ),
+                        ),
                       ),
+                      const SizedBox(width: 4),
                       IconButton(
                         tooltip: 'Search Social Wall',
-                        icon: Icon(
-                          _showSearch
-                              ? Icons.close_rounded
-                              : Icons.search_rounded,
+                        icon: const Icon(
+                          Icons.search_rounded,
                           color: AppColors.primaryPurple,
                           size: 24,
                         ),
-                        onPressed: () {
-                          setState(() {
-                            _showSearch = !_showSearch;
-                            if (!_showSearch) _searchController.clear();
-                          });
-                        },
+                        onPressed: _openSearchResults,
+                      ),
+                      IconButton(
+                        tooltip: 'Notifications',
+                        icon: const Icon(
+                          Icons.notifications_none_rounded,
+                          color: AppColors.primaryPurple,
+                          size: 22,
+                        ),
+                        onPressed: () => _showModuleNotice(
+                          'Notifications',
+                          'Notification preferences are available in Profile → Settings. A member notification inbox is not exposed by the current backend yet.',
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Messages',
+                        icon: const Icon(
+                          Icons.chat_bubble_outline_rounded,
+                          color: AppColors.primaryPurple,
+                          size: 22,
+                        ),
+                        onPressed: () => _showModuleNotice(
+                          'Sakhi Messages',
+                          'Messaging is a future module. No message was sent and no inbox is simulated here.',
+                        ),
                       ),
                     ],
                   ),
+                  if (_isRefreshing)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 2),
+                      child: LinearProgressIndicator(
+                        color: AppColors.primaryPurple,
+                        minHeight: 2,
+                      ),
+                    ),
 
                   // SRS 5.3 Six Feed Categories Strip
                   const SizedBox(height: 8),
@@ -511,9 +600,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                             const SizedBox(width: 10),
                             Expanded(
                               child: GestureDetector(
-                                onTap: () => setState(
-                                  () => _showComposer = !_showComposer,
-                                ),
+                                onTap: _openCreateHub,
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 14,
@@ -524,7 +611,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                     borderRadius: BorderRadius.circular(20),
                                   ),
                                   child: Text(
-                                    'Create a post or crop & share a photo, ${state.currentUser.displayName}...',
+                                    'Share an update, photo, or question...',
                                     style: AppTypography.subtitle.copyWith(
                                       fontSize: 12.5,
                                     ),
@@ -534,16 +621,12 @@ class _CommunityScreenState extends State<CommunityScreen> {
                             ),
                             const SizedBox(width: 8),
                             IconButton(
-                              tooltip: 'Open Post Composer',
-                              icon: Icon(
-                                _showComposer
-                                    ? Icons.expand_less_rounded
-                                    : Icons.add_photo_alternate_outlined,
+                              tooltip: 'Post a Photo or Video',
+                              icon: const Icon(
+                                Icons.add_photo_alternate_outlined,
                                 color: AppColors.primaryPurple,
                               ),
-                              onPressed: () => setState(
-                                () => _showComposer = !_showComposer,
-                              ),
+                              onPressed: _openMediaComposer,
                             ),
                           ],
                         ),
@@ -568,6 +651,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                   ),
                                   const SizedBox(width: 8),
                                   for (final preset in const [
+                                    'Original',
                                     '1:1',
                                     '4:5',
                                     '16:9',
@@ -813,8 +897,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                 hintText: switch (_composerMode) {
                                   'question' =>
                                     'Ask the community a question...',
-                                  'resource' =>
-                                    'Share a useful resource with the community...',
+                                  'resource' => 'Share a useful resource with the community...',
                                   'media' =>
                                     'Write a caption and add #hashtags...',
                                   _ =>
@@ -1063,39 +1146,19 @@ class _CommunityScreenState extends State<CommunityScreen> {
                       ),
                     )
                   else if (posts.isEmpty)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(24),
-                      decoration: BoxDecoration(
-                        color: AppColors.cardSurface,
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: AppColors.borderSubtle),
-                      ),
-                      child: Column(
-                        children: [
-                          const Icon(
-                            Icons.auto_awesome_outlined,
-                            color: AppColors.primaryPurple,
-                            size: 36,
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'No posts in this category yet',
-                            style: AppTypography.sectionTitle,
-                          ),
-                          const SizedBox(height: 4),
-                          const Text(
-                            'Share the first story or photo in this category!',
-                            style: AppTypography.subtitle,
-                          ),
-                          const SizedBox(height: 12),
-                          SakhiPillButton(
-                            label: 'Create Post',
-                            onPressed: () =>
-                                setState(() => _showComposer = true),
-                          ),
-                        ],
-                      ),
+                    SakhiEmptyState(
+                      illustrationAsset:
+                          AppAssets.emptySafetyShieldIllustration,
+                      icon: Icons.shield_outlined,
+                      title: _selectedCategorySlug == 'safety_awareness'
+                          ? 'No Posts in Safety Awareness Yet'
+                          : 'No posts in this category yet',
+                      message:
+                          'Be the first to share trusted tips, emergency resources, or community alerts with women near you.',
+                      actionLabel: _selectedCategorySlug == 'safety_awareness'
+                          ? '+ Create Post in Safety Awareness'
+                          : 'Create Post',
+                      onAction: _openCreateHub,
                     )
                   else
                     ...posts.map(
@@ -1104,15 +1167,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                         child: FeedPostCard(
                           post: post,
                           onLikeTap: () => state.togglePostLike(post),
-                          onSaveTap: () {
-                            state.togglePostSaved(post);
-                            SakhiDialogs.showPrototypeSnackbar(
-                              context,
-                              post.isSaved
-                                  ? 'Saved post'
-                                  : 'Removed from Saved Posts',
-                            );
-                          },
+                          onSaveTap: () => state.togglePostSaved(post),
                         ),
                       ),
                     ),
@@ -1129,41 +1184,136 @@ class _CommunityScreenState extends State<CommunityScreen> {
     final categories = SakhiPrototypeState.instance.feedCategories;
     showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: AppColors.cardSurface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (ctx) => SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 14),
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 18),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD3BFE0),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+              const SizedBox(height: 16),
               const Text(
                 'Select Social Wall Category',
                 style: AppTypography.sectionTitle,
               ),
-              const SizedBox(height: 8),
-              ...categories.map(
-                (cat) => ListTile(
-                  title: Text(cat.name),
-                  subtitle: Text(
-                    cat.description,
-                    style: AppTypography.subtitle,
-                  ),
-                  trailing: _selectedCategorySlug == cat.slug
-                      ? const Icon(
-                          Icons.check_circle_rounded,
-                          color: AppColors.primaryPurple,
-                        )
-                      : null,
-                  onTap: () {
-                    setState(() => _selectedCategorySlug = cat.slug);
-                    SakhiPrototypeState.instance.loadFeed(
-                      categorySlug: cat.slug,
+              const SizedBox(height: 6),
+              const Text(
+                'Choose what you would like to see in your feed.',
+                style: AppTypography.subtitle,
+              ),
+              const SizedBox(height: 12),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: categories.map((cat) {
+                    final selected = _selectedCategorySlug == cat.slug;
+                    final (icon, accent) = switch (cat.slug) {
+                      'following' => (
+                        Icons.people_alt_outlined,
+                        const Color(0xFFC84B73),
+                      ),
+                      'trending' => (
+                        Icons.trending_up_rounded,
+                        const Color(0xFFD46B3E),
+                      ),
+                      'business_updates' => (
+                        Icons.storefront_outlined,
+                        const Color(0xFF7B4B94),
+                      ),
+                      'safety_awareness' => (
+                        Icons.shield_outlined,
+                        const Color(0xFF2E7D67),
+                      ),
+                      'wellness_lifestyle' => (
+                        Icons.spa_outlined,
+                        const Color(0xFF4A7C9B),
+                      ),
+                      _ => (
+                        Icons.auto_awesome_outlined,
+                        AppColors.primaryPurple,
+                      ),
+                    };
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Material(
+                        color: selected
+                            ? const Color(0xFFF0E2F8)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(16),
+                        child: ListTile(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 3,
+                          ),
+                          leading: Container(
+                            width: 42,
+                            height: 42,
+                            decoration: BoxDecoration(
+                              color: accent.withValues(alpha: .12),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Icon(icon, color: accent, size: 22),
+                          ),
+                          title: Text(
+                            cat.name == 'Wellness and Lifestyle'
+                                ? 'Wellness & Lifestyle'
+                                : cat.name,
+                            style: AppTypography.bodyMedium.copyWith(
+                              color: AppColors.textPrimary,
+                              fontWeight: selected
+                                  ? FontWeight.w800
+                                  : FontWeight.w600,
+                            ),
+                          ),
+                          subtitle: Text(
+                            cat.description,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.subtitle,
+                          ),
+                          trailing: selected
+                              ? const Icon(
+                                  Icons.check_circle_rounded,
+                                  color: AppColors.primaryPurple,
+                                )
+                              : const Icon(
+                                  Icons.chevron_right_rounded,
+                                  color: AppColors.textMuted,
+                                ),
+                          onTap: () {
+                            setState(() => _selectedCategorySlug = cat.slug);
+                            SakhiPrototypeState.instance.loadFeed(
+                              categorySlug: cat.slug,
+                            );
+                            Navigator.pop(ctx);
+                          },
+                        ),
+                      ),
                     );
-                    Navigator.pop(ctx);
-                  },
+                  }).toList(),
+                ),
+              ),
+              const SizedBox(height: 4),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Close'),
                 ),
               ),
             ],

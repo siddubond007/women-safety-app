@@ -1,3 +1,5 @@
+import 'auth_policy.dart';
+
 enum AuthPurpose { login, registration }
 
 enum AuthAccountState {
@@ -17,6 +19,22 @@ class AuthServiceException implements Exception {
 
   @override
   String toString() => 'AuthServiceException($code): $message';
+}
+
+class RegistrationAgePolicy {
+  const RegistrationAgePolicy({
+    required this.configured,
+    required this.minimumAgeYears,
+    this.source = 'default',
+    this.updatedAt,
+    this.updatedBy,
+  });
+
+  final bool configured;
+  final int? minimumAgeYears;
+  final String source;
+  final String? updatedAt;
+  final String? updatedBy;
 }
 
 class AuthOtpSession {
@@ -57,6 +75,14 @@ class AuthOtpSession {
     final concealed = List<String>.filled(hiddenLength, '•').join();
     return '$countryCode $concealed$visible';
   }
+
+  String get formattedPhoneNumber {
+    final digits = phoneNumber.replaceAll(RegExp(r'\D'), '');
+    if (digits.length == 10) {
+      return '$countryCode ${digits.substring(0, 5)} ${digits.substring(5)}';
+    }
+    return '$countryCode $digits';
+  }
 }
 
 class OtpVerificationResult {
@@ -89,6 +115,8 @@ class MemberProfileDraft {
     this.photoBytes,
     this.photoFileName,
     this.photoContentType,
+    this.interests = const <String>[],
+    this.eligibilityConfirmed = true,
   });
 
   final String countryCode;
@@ -100,6 +128,8 @@ class MemberProfileDraft {
   final List<int>? photoBytes;
   final String? photoFileName;
   final String? photoContentType;
+  final List<String> interests;
+  final bool eligibilityConfirmed;
 }
 
 class MemberConsentRecord {
@@ -129,6 +159,9 @@ abstract interface class AuthService {
 
   /// Revokes the current session where supported and clears local credentials.
   Future<void> logout();
+
+  /// Fetches the active minimum registration age policy from the backend.
+  Future<RegistrationAgePolicy> fetchRegistrationPolicy();
 
   Future<AuthOtpSession> requestOtp({
     required String countryCode,
@@ -166,6 +199,18 @@ class DemoAuthService implements AuthService {
 
   @override
   Future<void> logout() async {}
+
+  @override
+  Future<RegistrationAgePolicy> fetchRegistrationPolicy() async {
+    final minAge = SakhiAuthPolicy.minimumRegistrationAgeYears;
+    return RegistrationAgePolicy(
+      configured: minAge != null,
+      minimumAgeYears: minAge,
+      source: SakhiAuthPolicy.usesProvisionalPreviewPolicy
+          ? 'environment_dev_default'
+          : 'environment_staging_default',
+    );
+  }
 
   AuthOtpSession _newSession({
     required String countryCode,
@@ -257,6 +302,15 @@ class UnconfiguredAuthService implements AuthService {
 
   @override
   Future<void> logout() async {}
+
+  @override
+  Future<RegistrationAgePolicy> fetchRegistrationPolicy() async {
+    return const RegistrationAgePolicy(
+      configured: false,
+      minimumAgeYears: null,
+      source: 'unconfigured',
+    );
+  }
 
   @override
   Future<AuthOtpSession> requestOtp({

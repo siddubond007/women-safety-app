@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, Clock3, RefreshCw, ShieldCheck, XCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { StatusPill } from "../components/StatusPill";
+import { RegistrationPolicyPanel } from "../components/RegistrationPolicyPanel";
 import { adminAuthService } from "../services/auth/adminAuthService";
 import { adminApi, AdminApiError } from "../services/api/adminApi";
 
@@ -161,6 +162,8 @@ export function EligibilityReviewPage() {
         <article className="member-summary-card member-summary-card--amber"><span className="member-summary-icon"><Clock3 size={18} /></span><span className="member-summary-copy"><small>Awaiting manual decision</small><strong>{queue.length}</strong></span></article>
         <article className="member-summary-card member-summary-card--green"><span className="member-summary-icon"><ShieldCheck size={18} /></span><span className="member-summary-copy"><small>Decision records loaded</small><strong>{history.length}</strong></span></article>
       </section>
+
+      <RegistrationPolicyPanel />
 
       <section className="panel eligibility-review-panel">
         <div className="member-directory-heading"><div><span className="panel-kicker">REVIEW QUEUE</span><h2>Pending submissions</h2><p>Only cases with an explicit manual-review submission and consent are shown.</p></div><StatusPill tone="demo">TEST MODE</StatusPill></div>

@@ -16,6 +16,7 @@ import { AuthenticationService } from "../src/auth/auth.service.js";
 describe("development authentication API contract", () => {
   let app: INestApplication | undefined;
   const auth = {
+    getRegistrationPolicy: vi.fn(),
     requestOtp: vi.fn(),
     resendOtp: vi.fn(),
     verifyOtp: vi.fn(),
@@ -38,7 +39,12 @@ describe("development authentication API contract", () => {
       [AuthenticationService],
       AuthController,
     );
-    // esbuild test transpilation does not emit the method metadata tsc emits.
+    Reflect.defineMetadata(
+      "design:paramtypes",
+      [],
+      AuthController.prototype,
+      "registrationPolicy",
+    );
     Reflect.defineMetadata(
       "design:paramtypes",
       [RequestOtpDto],
@@ -86,6 +92,32 @@ describe("development authentication API contract", () => {
     app = testApp;
     return testApp;
   }
+
+  it("returns the active minimum registration age policy", async () => {
+    auth.getRegistrationPolicy.mockResolvedValue({
+      configured: true,
+      minimumAgeYears: 18,
+      source: "database_admin_policy",
+      updatedAt: "2026-10-22T06:00:00.000Z",
+      updatedBy: "Sakhi Staging Super Admin",
+      changeReason: "Standard 18+ community registration policy",
+    });
+    const app = await createApp();
+
+    const response = await request(app.getHttpServer())
+      .get("/api/v1/auth/registration-policy")
+      .expect(200);
+
+    expect(response.body).toEqual({
+      configured: true,
+      minimumAgeYears: 18,
+      source: "database_admin_policy",
+      updatedAt: "2026-10-22T06:00:00.000Z",
+      updatedBy: "Sakhi Staging Super Admin",
+      changeReason: "Standard 18+ community registration policy",
+    });
+    expect(auth.getRegistrationPolicy).toHaveBeenCalledOnce();
+  });
 
   it("accepts a valid development OTP request and returns the typed contract", async () => {
     auth.requestOtp.mockResolvedValue({

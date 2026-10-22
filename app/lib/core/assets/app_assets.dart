@@ -8,6 +8,8 @@ abstract final class AppAssets {
   static const String onboardingCommunity =
       'assets/images/onboarding/03_onboarding_community_art.webp';
 
+  static const String loginHeroWomanFloral =
+      'assets/images/illustrations/login_hero_woman_floral.webp';
   static const String authBotanicalLogin =
       'assets/images/illustrations/botanical_login_tall.png';
   static const String authBotanicalProfile =
@@ -64,14 +66,18 @@ abstract final class AppAssets {
   static const String sakhiShieldLogo = 'assets/brand/sakhi_shield_logo.webp';
   static const String sakhiShieldLogoSvg = 'assets/brand/sakhi_shield_logo.svg';
 
-  // Screen 1: Home
+  // Screen 04: Home Dashboard
   static const String greetingHeroIllustration =
       'assets/images/home/greeting_hero_illustration.webp';
+  static const String dailyRitualBreathingThumb =
+      'assets/images/wellness/daily_ritual_breathing_thumb.webp';
 
-  // Screen 2: Explore
+  // Screen 14: Explore & Category Hubs
   static const String beachSunset = 'assets/images/explore/beach_sunset.webp';
+  static const String educationCareerHubBanner =
+      'assets/images/explore/education_career_hub_banner.webp';
 
-  // Screen 3: Community & Module 3 Social Wall editorial illustrations
+  // Screen 10, 11, 13: Community & Module 3 Social Wall editorial illustrations
   static const String eveningWalkSunset =
       'assets/images/community/evening_walk_sunset.webp';
   static const String breathingExerciseIllustration =
@@ -84,6 +90,16 @@ abstract final class AppAssets {
       'assets/images/community/safety_night_commute_guide.webp';
   static const String wellnessMorningJournal =
       'assets/images/community/wellness_morning_journal.webp';
+  static const String emptySafetyShieldIllustration =
+      'assets/images/community/empty_safety_shield_illustration.webp';
+
+  // Screen 06: Module 2 Profile Tabs Empty States
+  static const String emptyPostsIllustration =
+      'assets/images/profile/empty_posts_illustration.webp';
+  static const String emptySavedIllustration =
+      'assets/images/profile/empty_saved_illustration.webp';
+  static const String emptyGroupsIllustration =
+      'assets/images/profile/empty_groups_illustration.webp';
 
   // Screen 4: Wellness
   static const String wellnessHeroIllustration =

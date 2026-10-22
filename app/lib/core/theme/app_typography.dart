@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import 'app_colors.dart';
 
 /// Clean, rounded, readable typography hierarchy for Sakhi.
@@ -53,6 +54,13 @@ class AppTypography {
     fontWeight: FontWeight.w400,
     color: AppColors.textMuted,
     height: 1.3,
+  );
+
+  static const TextStyle caption = TextStyle(
+    fontSize: 11,
+    fontWeight: FontWeight.w400,
+    color: AppColors.textMuted,
+    height: 1.25,
   );
 
   static const TextStyle chipLabel = TextStyle(

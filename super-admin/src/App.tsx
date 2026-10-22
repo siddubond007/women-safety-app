@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { adminAuthService } from "./services/auth/adminAuthService";
+import { adminAuthService, isStagingTestAdminMode } from "./services/auth/adminAuthService";
 import { AdminLayout } from "./layouts/AdminLayout";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
@@ -9,45 +9,45 @@ import { MemberManagementPage } from "./pages/MemberManagementPage";
 import { EligibilityReviewPage } from "./pages/EligibilityReviewPage";
 import { CommunityManagementPage } from "./pages/CommunityManagementPage";
 import { ModerationPage } from "./pages/ModerationPage";
+import { StagingTestAccessPage } from "./pages/StagingTestAccessPage";
+import { RegistrationPolicyPage } from "./pages/RegistrationPolicyPage";
 
 function AppRoutes() {
   const [isSignedIn, setIsSignedIn] = useState(() => adminAuthService.hasActiveSession());
-  const [sessionMode, setSessionMode] = useState<"local_dev_test_only" | "staging_test_only">("local_dev_test_only");
-  const [checkingSession, setCheckingSession] = useState(() => Boolean(adminAuthService.getToken()));
+  const [checkingSession, setCheckingSession] = useState(
+    () => Boolean(adminAuthService.getToken()),
+  );
+  const canAccessFullWorkspace =
+    !isStagingTestAdminMode || adminAuthService.isFullStagingAdminSession();
+  const landingPath = canAccessFullWorkspace ? "/dashboard" : "/test-access";
 
   useEffect(() => {
     const token = adminAuthService.getToken();
     if (!token) return;
     adminAuthService
-      .validateToken(token)
-      .then((session) => {
-        setSessionMode(session.mode);
-        setIsSignedIn(true);
-      })
+      .validateExistingSession()
+      .then(() => setIsSignedIn(true))
       .catch(() => {
         adminAuthService.signOut();
-        setSessionMode("local_dev_test_only");
         setIsSignedIn(false);
       })
       .finally(() => setCheckingSession(false));
   }, []);
 
   async function enterAdmin(token: string) {
-    const session = await adminAuthService.authenticate(token);
-    setSessionMode(session.mode);
+    await adminAuthService.authenticate(token);
     setIsSignedIn(true);
   }
 
   function endSession() {
     adminAuthService.signOut();
-    setSessionMode("local_dev_test_only");
     setIsSignedIn(false);
   }
 
   if (checkingSession) {
     return (
       <main className="admin-session-check" role="status">
-        Checking local reviewer session...
+        Checking reviewer session...
       </main>
     );
   }
@@ -57,26 +57,36 @@ function AppRoutes() {
       <Route
         path="/login"
         element={
-          isSignedIn ? <Navigate to="/dashboard" replace /> : <LoginPage onAuthenticate={enterAdmin} />
+          isSignedIn ? <Navigate to={landingPath} replace /> : <LoginPage onAuthenticate={enterAdmin} />
         }
       />
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/" element={<Navigate to={landingPath} replace />} />
       <Route
         element={
-          isSignedIn ? <AdminLayout onSignOut={endSession} mode={sessionMode} /> : <Navigate to="/login" replace />
+          isSignedIn ? <AdminLayout onSignOut={endSession} /> : <Navigate to="/login" replace />
         }
       >
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/members" element={<MemberManagementPage isStagingTest={sessionMode === "staging_test_only"} />} />
-        <Route path="/verification" element={<EligibilityReviewPage />} />
-        <Route path="/verifications" element={<EligibilityReviewPage />} />
-        <Route path="/community" element={<CommunityManagementPage />} />
-        <Route path="/moderation" element={<ModerationPage section="moderation" />} />
-        <Route path="/emergency" element={<ModerationPage section="emergency" />} />
-        <Route path="/audit-security" element={<ModerationPage section="audit" />} />
-        <Route path="/integrations" element={<ModerationPage section="integrations" />} />
-        <Route path="*" element={<PlannedPage />} />
+        {isStagingTestAdminMode && (
+          <Route
+            path="/test-access"
+            element={<StagingTestAccessPage onSignOut={endSession} embedded />}
+          />
+        )}
+        <Route path="/dashboard" element={canAccessFullWorkspace ? <DashboardPage /> : <Navigate to="/test-access" replace />} />
+        <Route path="/action-center" element={canAccessFullWorkspace ? <DashboardPage /> : <Navigate to="/test-access" replace />} />
+        <Route path="/members" element={canAccessFullWorkspace ? <MemberManagementPage isStagingTest={isStagingTestAdminMode} /> : <Navigate to="/test-access" replace />} />
+        <Route path="/verification" element={canAccessFullWorkspace ? <EligibilityReviewPage /> : <Navigate to="/test-access" replace />} />
+        <Route path="/verifications" element={canAccessFullWorkspace ? <EligibilityReviewPage /> : <Navigate to="/test-access" replace />} />
+        <Route path="/community" element={canAccessFullWorkspace ? <CommunityManagementPage /> : <Navigate to="/test-access" replace />} />
+        <Route path="/wellness" element={canAccessFullWorkspace ? <CommunityManagementPage /> : <Navigate to="/test-access" replace />} />
+        <Route path="/moderation" element={canAccessFullWorkspace ? <ModerationPage section="moderation" /> : <Navigate to="/test-access" replace />} />
+        <Route path="/emergency" element={canAccessFullWorkspace ? <ModerationPage section="emergency" /> : <Navigate to="/test-access" replace />} />
+        <Route path="/audit-security" element={canAccessFullWorkspace ? <ModerationPage section="audit" /> : <Navigate to="/test-access" replace />} />
+        <Route path="/integrations" element={canAccessFullWorkspace ? <ModerationPage section="integrations" /> : <Navigate to="/test-access" replace />} />
+        <Route path="/settings" element={canAccessFullWorkspace ? <RegistrationPolicyPage /> : <Navigate to="/test-access" replace />} />
+        <Route path="*" element={canAccessFullWorkspace ? <PlannedPage /> : <Navigate to="/test-access" replace />} />
       </Route>
+      <Route path="*" element={<Navigate to={landingPath} replace />} />
     </Routes>
   );
 }

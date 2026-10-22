@@ -108,12 +108,12 @@ class PostCommentItem {
     final authorName = json['authorName']?.toString() ?? 'Sakhi Member';
     final rawAvatar = json['authorAvatar']?.toString() ?? '';
     return PostCommentItem(
-      id: json['id']?.toString() ?? '',
+      id: (json['id'] ?? json['commentId'] ?? '').toString(),
       authorAccountId: authorId,
       authorName: authorName,
       authorUsername: json['authorUsername']?.toString() ?? '@member',
       authorAvatar: rawAvatar,
-      body: (json['body'] ?? json['text'] ?? '').toString(),
+      body: (json['body'] ?? json['content'] ?? json['text'] ?? '').toString(),
       createdAt: json['createdAt']?.toString() ?? 'Just now',
       isOwnComment: json['isOwnComment'] == true,
       canEdit: json['canEdit'] == true || json['isOwnComment'] == true,
@@ -174,6 +174,7 @@ class FeedPostModel {
   final String timestamp;
   String content;
   String? imageAsset;
+  String? mediaContentType;
   String? categoryBadge;
   String categorySlug;
   String visibility;
@@ -206,6 +207,7 @@ class FeedPostModel {
     required this.timestamp,
     required this.content,
     this.imageAsset,
+    this.mediaContentType,
     this.categoryBadge,
     this.categorySlug = 'community',
     this.visibility = 'VERIFIED_MEMBERS',
@@ -281,6 +283,7 @@ class FeedPostModel {
       imageAsset:
           (json['imageAsset'] ?? json['mediaAsset'] ?? json['mediaUrl'])
               as String?,
+      mediaContentType: json['mediaContentType']?.toString(),
       categoryBadge: (json['categoryBadge'] ?? json['categorySlug']) as String?,
       categorySlug: (json['categorySlug'] ?? 'community').toString(),
       visibility: (json['visibility'] ?? 'VERIFIED_MEMBERS').toString(),
@@ -316,6 +319,12 @@ class FollowerUserModel {
   final String location;
   final String? bio;
   final String avatarAsset;
+  final bool isVerified;
+  final bool canFollow;
+  final List<String> interests;
+  final String? businessProfileUrl;
+  final String? businessProfileName;
+  final String? businessCategory;
   bool isFollowing;
 
   FollowerUserModel({
@@ -326,6 +335,12 @@ class FollowerUserModel {
     this.bio,
     required this.avatarAsset,
     required this.isFollowing,
+    this.isVerified = false,
+    this.canFollow = true,
+    this.interests = const <String>[],
+    this.businessProfileUrl,
+    this.businessProfileName,
+    this.businessCategory,
   });
 
   String get accountId => id;
@@ -335,6 +350,7 @@ class FollowerUserModel {
     final name = json['name']?.toString() ?? '';
     final rawAvatar = (json['avatarUrl'] ?? json['avatarAsset'] ?? '')
         .toString();
+    final rawInterests = json['interests'];
     return FollowerUserModel(
       id: id,
       name: name,
@@ -343,6 +359,18 @@ class FollowerUserModel {
       bio: json['bio'] as String?,
       avatarAsset: rawAvatar,
       isFollowing: json['isFollowing'] == true,
+      isVerified:
+          json['isVerified'] == true ||
+          json['verificationStatus'] == 'VERIFIED',
+      canFollow: json['canFollow'] != false,
+      interests: rawInterests is List
+          ? rawInterests
+                .map((value) => value.toString())
+                .toList(growable: false)
+          : const <String>[],
+      businessProfileUrl: json['businessProfileUrl']?.toString(),
+      businessProfileName: json['businessProfileName']?.toString(),
+      businessCategory: json['businessCategory']?.toString(),
     );
   }
 }
@@ -556,34 +584,37 @@ class SakhiPrototypeState extends ChangeNotifier {
     PrivacySettingItem(
       id: 'view_profile',
       title: 'Who can view my profile',
-      selectedValue: 'Verified members only',
+      selectedValue: 'All Verified Members',
       options: [
-        'Everyone on Sakhi',
-        'Verified members only',
-        'Followers only',
-        'Only me',
+        'All Verified Members',
+        'Followers Only',
+        'Circle Members Only',
       ],
       icon: Icons.person_outline_rounded,
     ),
     PrivacySettingItem(
       id: 'message_me',
       title: 'Who can message me',
-      selectedValue: 'Verified members only',
-      options: ['Verified members only', 'People I follow', 'No one'],
+      selectedValue: 'Followers Only',
+      options: ['All Verified Members', 'Followers Only', 'No One'],
       icon: Icons.mark_email_unread_outlined,
     ),
     PrivacySettingItem(
       id: 'see_posts',
       title: 'Who can see my posts',
-      selectedValue: 'Verified members only',
-      options: ['Verified members only', 'My followers', 'Only my groups'],
+      selectedValue: 'All Verified Members',
+      options: [
+        'All Verified Members',
+        'Followers Only',
+        'Circle Members Only',
+      ],
       icon: Icons.contact_page_outlined,
     ),
     PrivacySettingItem(
       id: 'show_location',
       title: 'Show my location',
-      selectedValue: 'General location only',
-      options: ['General location only', 'City only', 'Hidden'],
+      selectedValue: 'Verified Members',
+      options: ['Verified Members', 'Followers Only', 'Hide Location'],
       icon: Icons.location_on_outlined,
     ),
     PrivacySettingItem(
@@ -707,6 +738,67 @@ class SakhiPrototypeState extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// Reads a filtered feed without mutating the shared Social Wall list.
+  /// Returns null when no authenticated API response is available, allowing
+  /// callers to distinguish an unavailable request from a real empty result.
+  Future<List<FeedPostModel>?> fetchPosts({
+    String? search,
+    String? categorySlug,
+    bool? savedOnly,
+    int limit = 30,
+  }) async {
+    try {
+      final token = await _client.readAccessToken();
+      if (token == null || token.isEmpty) return null;
+      final params = <String, String>{'limit': '$limit'};
+      if (categorySlug != null &&
+          categorySlug.isNotEmpty &&
+          categorySlug != 'all') {
+        params['categorySlug'] = categorySlug;
+      }
+      if (search != null && search.trim().isNotEmpty) {
+        params['search'] = search.trim();
+      }
+      if (savedOnly == true) params['savedOnly'] = 'true';
+      final queryString = Uri(queryParameters: params).query;
+      final response = await _client.get(
+        'module2/posts?$queryString',
+        authenticated: true,
+      );
+      final rows = response['posts'] ?? response['items'];
+      if (rows is! List) return <FeedPostModel>[];
+      return rows
+          .whereType<Map<String, dynamic>>()
+          .map(FeedPostModel.fromJson)
+          .toList(growable: false);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Queries the privacy-filtered, verified-member endpoint. Null means the
+  /// server is unavailable; an empty list is a genuine empty result.
+  Future<List<FollowerUserModel>?> searchVisibleMembers(String rawQuery) async {
+    final query = rawQuery.trim();
+    if (query.isEmpty) return const <FollowerUserModel>[];
+    try {
+      final token = await _client.readAccessToken();
+      if (token == null || token.isEmpty) return null;
+      final response = await _client.get(
+        'module2/members/search?q=${Uri.encodeQueryComponent(query)}',
+        authenticated: true,
+      );
+      final rows = response['members'];
+      if (rows is! List) return <FollowerUserModel>[];
+      return rows
+          .whereType<Map<String, dynamic>>()
+          .map(FollowerUserModel.fromJson)
+          .toList(growable: false);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> loadDiscover({
     String? query,
     String? search,
@@ -809,6 +901,8 @@ class SakhiPrototypeState extends ChangeNotifier {
         currentUser.twoFactorEnabled = userMap['twoFactorEnabled'] == true;
         currentUser.activeSessionsCount =
             (userMap['activeSessionsCount'] as num?)?.toInt() ?? 1;
+        currentUser.businessProfileUrl = userMap['businessProfileUrl']
+            ?.toString();
       }
 
       final rawInterests = data['interests'] ?? userMap['interests'];
@@ -926,6 +1020,57 @@ class SakhiPrototypeState extends ChangeNotifier {
           );
       }
 
+      final rawPrivacy = data['privacySettings'];
+      if (rawPrivacy is Map<String, dynamic>) {
+        for (final setting in privacySettings) {
+          final rawValue = rawPrivacy[setting.id];
+          if (rawValue == null) continue;
+          final value = rawValue.toString().trim();
+          final normalized = value.toLowerCase().replaceAll('_', ' ');
+          setting.selectedValue = switch (setting.id) {
+            'view_profile' || 'see_posts' =>
+              normalized.contains('follower')
+                  ? 'Followers Only'
+                  : normalized.contains('circle')
+                  ? 'Circle Members Only'
+                  : 'All Verified Members',
+            'message_me' =>
+              normalized.contains('no one') ||
+                      normalized == 'none' ||
+                      normalized == 'no'
+                  ? 'No One'
+                  : normalized.contains('follower')
+                  ? 'Followers Only'
+                  : 'All Verified Members',
+            'show_location' =>
+              normalized.contains('hide') ||
+                      normalized == 'hidden' ||
+                      normalized == 'no location' ||
+                      normalized == 'no'
+                  ? 'Hide Location'
+                  : normalized.contains('follower')
+                  ? 'Followers Only'
+                  : 'Verified Members',
+            'search_results' =>
+              normalized == 'no' || normalized == 'false' ? 'No' : 'Yes',
+            'business_enquiries' =>
+              normalized.contains('verified business')
+                  ? 'Verified businesses only'
+                  : normalized == 'no' || normalized == 'false'
+                  ? 'No'
+                  : 'Yes',
+            _ => value,
+          };
+        }
+      }
+      final rawNotificationPreferences = data['notificationPreferences'];
+      if (rawNotificationPreferences is Map<String, dynamic>) {
+        for (final preference in notificationPreferences) {
+          final value = rawNotificationPreferences[preference.id];
+          if (value is bool) preference.isEnabled = value;
+        }
+      }
+
       _isBackendSynced = true;
       lastSyncError = null;
       lastSyncSource = 'PostgreSQL Live DB';
@@ -951,6 +1096,21 @@ class SakhiPrototypeState extends ChangeNotifier {
     }
   }
 
+  Future<bool?> checkUsernameAvailability(String username) async {
+    try {
+      final token = await _client.readAccessToken();
+      if (token == null || token.isEmpty) return null;
+      final query = Uri(queryParameters: {'username': username}).query;
+      final response = await _client.get(
+        'module2/username-availability?$query',
+        authenticated: true,
+      );
+      return response['available'] as bool?;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<bool> updateProfile({
     required String displayName,
     String? username,
@@ -961,42 +1121,116 @@ class SakhiPrototypeState extends ChangeNotifier {
     String? businessProfileUrl,
     String? avatarAsset,
   }) async {
-    currentUser.displayName = displayName;
-    if (username != null && username.trim().isNotEmpty) {
-      currentUser.username = username.trim();
+    final normalizedName = displayName.trim();
+    final normalizedUsername = username?.trim();
+    if (normalizedName.isEmpty) return false;
+
+    final oldName = currentUser.displayName;
+    final oldUsername = currentUser.username;
+    final oldBio = currentUser.bio;
+    final oldLocation = currentUser.location;
+    final oldInterests = List<String>.from(currentUser.interests);
+    final oldEmail = currentUser.email;
+    final oldBusinessProfileUrl = currentUser.businessProfileUrl;
+    final oldAvatarAsset = currentUser.avatarAsset;
+
+    final token = await _client.readAccessToken();
+    final hasSession = token != null && token.isNotEmpty;
+    if (_isBackendSynced && !hasSession) return false;
+
+    currentUser.displayName = normalizedName;
+    if (normalizedUsername != null && normalizedUsername.isNotEmpty) {
+      currentUser.username = normalizedUsername.startsWith('@')
+          ? normalizedUsername
+          : '@$normalizedUsername';
     }
-    currentUser.bio = bio;
-    currentUser.location = location;
+    currentUser.bio = bio.trim();
+    currentUser.location = location.trim();
     if (interests != null) {
-      currentUser.interests = List<String>.from(interests);
+      currentUser.interests = List<String>.unmodifiable(
+        interests.map((item) => item.trim()).where((item) => item.isNotEmpty),
+      );
     }
-    if (email != null) currentUser.email = email;
+    if (email != null) currentUser.email = email.trim();
     if (businessProfileUrl != null) {
-      currentUser.businessProfileUrl = businessProfileUrl;
+      currentUser.businessProfileUrl = businessProfileUrl.trim().isEmpty
+          ? null
+          : businessProfileUrl.trim();
     }
     if (avatarAsset != null && avatarAsset.trim().isNotEmpty) {
       currentUser.avatarAsset = avatarAsset.trim();
     }
     notifyListeners();
 
-    unawaited(
-      _sendAuthenticatedRequest((client) async {
-        await client.put(
-          'module2/profile',
-          authenticated: true,
-          body: {
-            'displayName': displayName,
-            'bio': bio,
-            'city': location,
-            if (email != null && email.trim().isNotEmpty) 'email': email.trim(),
-            if (avatarAsset != null &&
-                avatarAsset.trim().startsWith('assets/images/profile/'))
-              'avatarAsset': avatarAsset.trim(),
-          },
-        );
-      }),
-    );
-    return true;
+    if (!hasSession) {
+      return true;
+    }
+
+    try {
+      final response = await _client.put(
+        'module2/profile',
+        authenticated: true,
+        body: {
+          'displayName': normalizedName,
+          if (normalizedUsername != null && normalizedUsername.isNotEmpty)
+            'username': normalizedUsername.startsWith('@')
+                ? normalizedUsername
+                : '@$normalizedUsername',
+          'bio': bio.trim(),
+          'location': location.trim(),
+          if (interests != null) 'interests': currentUser.interests,
+          if (email != null) 'email': email.trim(),
+          if (businessProfileUrl != null)
+            'businessProfileUrl': businessProfileUrl.trim(),
+          if (avatarAsset != null &&
+              avatarAsset.trim().startsWith('assets/images/profile/'))
+            'avatarAsset': avatarAsset.trim(),
+        },
+      );
+      if (response['displayName'] is String) {
+        currentUser.displayName = response['displayName'] as String;
+      }
+      if (response['username'] is String) {
+        currentUser.username = response['username'] as String;
+      }
+      if (response['bio'] is String)
+        currentUser.bio = response['bio'] as String;
+      if (response['location'] is String) {
+        currentUser.location = response['location'] as String;
+      }
+      if (response['email'] is String || response.containsKey('email')) {
+        currentUser.email = response['email']?.toString() ?? '';
+      }
+      final rawInterests = response['interests'];
+      if (rawInterests is List) {
+        currentUser.interests = rawInterests
+            .map((item) => item.toString())
+            .toList(growable: false);
+      }
+      if (response['businessProfileUrl'] is String ||
+          response.containsKey('businessProfileUrl')) {
+        currentUser.businessProfileUrl = response['businessProfileUrl']
+            ?.toString();
+      }
+      if (response['avatarAsset'] is String &&
+          (response['avatarAsset'] as String).isNotEmpty) {
+        currentUser.avatarAsset = response['avatarAsset'] as String;
+      }
+      notifyListeners();
+      return true;
+    } catch (_) {
+      currentUser
+        ..displayName = oldName
+        ..username = oldUsername
+        ..bio = oldBio
+        ..location = oldLocation
+        ..interests = oldInterests
+        ..email = oldEmail
+        ..businessProfileUrl = oldBusinessProfileUrl
+        ..avatarAsset = oldAvatarAsset;
+      notifyListeners();
+      return false;
+    }
   }
 
   /// Uploads a binary media file (`profile_photo` or `community_post`) to the
@@ -1200,30 +1434,36 @@ class SakhiPrototypeState extends ChangeNotifier {
     String? locationTag,
     bool? allowComments,
   }) async {
-    post.content = content.trim();
+    final nextContent = content.trim();
+    if (nextContent.isEmpty || nextContent.length > 2000) return false;
+
+    final isServerPost = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(post.id);
+    if (isServerPost) {
+      try {
+        await _client.patch(
+          'module2/posts/${post.id}',
+          authenticated: true,
+          body: {
+            'body': nextContent,
+            if (categorySlug != null) 'categorySlug': categorySlug,
+            if (visibility != null) 'visibility': visibility,
+            if (locationTag != null) 'locationTag': locationTag,
+            if (allowComments != null) 'allowComments': allowComments,
+          },
+        );
+      } catch (_) {
+        return false;
+      }
+    } else if (_isBackendSynced) {
+      return false;
+    }
+
+    post.content = nextContent;
     if (categorySlug != null) post.categorySlug = categorySlug;
     if (visibility != null) post.visibility = visibility;
     if (locationTag != null) post.locationTag = locationTag;
     if (allowComments != null) post.allowComments = allowComments;
     notifyListeners();
-
-    unawaited(
-      _sendAuthenticatedRequest((client) async {
-        if (RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(post.id)) {
-          await client.patch(
-            'module2/posts/${post.id}',
-            authenticated: true,
-            body: {
-              'body': post.content,
-              if (categorySlug != null) 'categorySlug': categorySlug,
-              if (visibility != null) 'visibility': visibility,
-              if (locationTag != null) 'locationTag': locationTag,
-              if (allowComments != null) 'allowComments': allowComments,
-            },
-          );
-        }
-      }),
-    );
     return true;
   }
 
@@ -1231,119 +1471,284 @@ class SakhiPrototypeState extends ChangeNotifier {
     final postId = postOrId is FeedPostModel
         ? postOrId.id
         : postOrId.toString();
-    communityPosts.removeWhere((p) => p.id == postId);
-    profilePosts.removeWhere((p) => p.id == postId);
-    currentUser.postsCount = (currentUser.postsCount - 1).clamp(0, 9999);
-    notifyListeners();
+    final isServerPost = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(postId);
+    if (isServerPost) {
+      try {
+        await _client.delete('module2/posts/$postId', authenticated: true);
+      } catch (_) {
+        return false;
+      }
+    } else if (_isBackendSynced) {
+      return false;
+    }
 
-    unawaited(
-      _sendAuthenticatedRequest((client) async {
-        if (RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(postId)) {
-          await client.delete('module2/posts/$postId', authenticated: true);
-        }
-      }),
+    final matches = <FeedPostModel>[
+      ...communityPosts.where((item) => item.id == postId),
+      ...profilePosts.where((item) => item.id == postId),
+    ];
+    final wasOwn = matches.any(
+      (item) =>
+          item.isOwnPost ||
+          (item.authorAccountId.isNotEmpty &&
+              item.authorAccountId == currentUser.accountId),
     );
+    communityPosts.removeWhere((item) => item.id == postId);
+    exploreRecommendedPosts.removeWhere((item) => item.id == postId);
+    profilePosts.removeWhere((item) => item.id == postId);
+    if (wasOwn) {
+      currentUser.postsCount = (currentUser.postsCount - 1).clamp(0, 9999);
+    }
+    notifyListeners();
     return true;
   }
 
   Future<bool> reactToPost(FeedPostModel post, String reactionType) async {
-    final isRemoving = post.viewerReaction == reactionType;
-    if (post.viewerReaction != null) {
-      final oldKey = post.viewerReaction!;
-      final oldVal = (post.reactionBreakdown[oldKey] ?? 1) - 1;
+    final isServerPost = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(post.id);
+    if (!isServerPost && _isBackendSynced) return false;
+
+    final previousReaction = post.viewerReaction;
+    final previousLiked = post.isLiked;
+    final previousCount = post.likesCount;
+    final previousBreakdown = Map<String, int>.from(post.reactionBreakdown);
+    final isRemoving = previousReaction == reactionType;
+
+    if (previousReaction != null) {
+      final oldVal = (post.reactionBreakdown[previousReaction] ?? 1) - 1;
       if (oldVal <= 0) {
-        post.reactionBreakdown.remove(oldKey);
+        post.reactionBreakdown.remove(previousReaction);
       } else {
-        post.reactionBreakdown[oldKey] = oldVal;
+        post.reactionBreakdown[previousReaction] = oldVal;
       }
     }
     if (!isRemoving) {
       post.reactionBreakdown[reactionType] =
           (post.reactionBreakdown[reactionType] ?? 0) + 1;
     }
-    final delta = isRemoving ? -1 : (post.viewerReaction == null ? 1 : 0);
+    final delta = isRemoving ? -1 : (previousReaction == null ? 1 : 0);
     post.likesCount = (post.likesCount + delta).clamp(0, 999999);
     post.viewerReaction = isRemoving ? null : reactionType;
     post.isLiked = !isRemoving;
     notifyListeners();
 
-    unawaited(
-      _sendAuthenticatedRequest((client) async {
-        if (RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(post.id)) {
-          await client.post(
-            'module2/posts/${post.id}/react',
-            authenticated: true,
-            body: {'reactionType': reactionType},
-          );
-        }
-      }),
-    );
-    return true;
-  }
-
-  void toggleFollow(String followerId) {
-    final idx = followers.indexWhere(
-      (f) => f.id == followerId || f.username == followerId,
-    );
-    if (idx != -1) {
-      followers[idx].isFollowing = !followers[idx].isFollowing;
-      currentUser.followingCount += followers[idx].isFollowing ? 1 : -1;
-      notifyListeners();
-
-      unawaited(
-        _sendAuthenticatedRequest((client) async {
-          if (RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(followers[idx].id)) {
-            await client.post(
-              'module2/members/${followers[idx].id}/follow',
-              authenticated: true,
-            );
-          }
-        }),
+    if (!isServerPost) return true;
+    try {
+      final response = await _client.post(
+        'module2/posts/${post.id}/react',
+        authenticated: true,
+        body: {'reactionType': reactionType},
       );
+      post.viewerReaction = response['viewerReaction'] as String?;
+      post.isLiked = response['isLiked'] == true;
+      post.likesCount =
+          (response['likesCount'] as num?)?.toInt() ?? post.likesCount;
+      post.reactionBreakdown
+        ..clear()
+        ..addAll(
+          (response['reactionBreakdown'] is Map)
+              ? (response['reactionBreakdown'] as Map).map(
+                  (key, value) => MapEntry(
+                    key.toString(),
+                    value is num ? value.toInt() : 0,
+                  ),
+                )
+              : previousBreakdown,
+        );
+      notifyListeners();
+      return true;
+    } catch (_) {
+      post.viewerReaction = previousReaction;
+      post.isLiked = previousLiked;
+      post.likesCount = previousCount;
+      post.reactionBreakdown
+        ..clear()
+        ..addAll(previousBreakdown);
+      notifyListeners();
+      return false;
     }
   }
 
-  void togglePostLike(dynamic postOrId) {
-    final post = postOrId is FeedPostModel
-        ? postOrId
-        : communityPosts.firstWhere(
-            (p) => p.id == postOrId.toString(),
-            orElse: () => communityPosts.first,
-          );
-    reactToPost(post, 'LIKE');
+  /// Loads actual followed/follower member records. Null indicates a
+  /// connection/API failure; an empty list is a confirmed empty result.
+  Future<List<FollowerUserModel>?> fetchMemberConnections({
+    required bool following,
+  }) async {
+    // Avoid invoking platform secure storage from disconnected/demo screens.
+    // A live authenticated app has already completed bootstrap before lists
+    // are loaded; otherwise render the honest unavailable state and let the
+    // user retry once a backend session is established.
+    if (!_isBackendSynced) return null;
+    final token = await _client.readAccessToken();
+    if (token == null || token.isEmpty) return null;
+    try {
+      final response = await _client.get(
+        following ? 'module2/members/following' : 'module2/members/followers',
+        authenticated: true,
+      );
+      final rawItems = response['items'];
+      if (rawItems is! List) return <FollowerUserModel>[];
+      return rawItems
+          .whereType<Map<String, dynamic>>()
+          .map(FollowerUserModel.fromJson)
+          .toList(growable: false);
+    } catch (_) {
+      return null;
+    }
   }
 
-  void togglePostSaved(dynamic postOrId) {
+  Future<bool> toggleFollowSearchMember(FollowerUserModel member) async {
+    if (!member.canFollow || member.id.isEmpty) return false;
+    final isServerMember = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(member.id);
+    if (_isBackendSynced && !isServerMember) return false;
+
+    final previousFollowing = member.isFollowing;
+    final previousCount = currentUser.followingCount;
+    member.isFollowing = !previousFollowing;
+    currentUser.followingCount = (previousCount + (member.isFollowing ? 1 : -1))
+        .clamp(0, 999999);
+    notifyListeners();
+
+    if (!isServerMember) return true;
+    try {
+      final response = await _client.post(
+        'module2/members/${member.id}/follow',
+        authenticated: true,
+      );
+      final confirmed = response['isFollowing'];
+      if (confirmed is! bool) {
+        member.isFollowing = previousFollowing;
+        currentUser.followingCount = previousCount;
+        notifyListeners();
+        return false;
+      }
+      member.isFollowing = confirmed;
+      currentUser.followingCount = (previousCount + (confirmed ? 1 : -1)).clamp(
+        0,
+        999999,
+      );
+      final index = followers.indexWhere(
+        (item) => item.id == member.id || item.username == member.username,
+      );
+      if (index >= 0) followers[index].isFollowing = confirmed;
+      notifyListeners();
+      return true;
+    } catch (_) {
+      member.isFollowing = previousFollowing;
+      currentUser.followingCount = previousCount;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> toggleFollow(String followerId) async {
+    final idx = followers.indexWhere(
+      (f) => f.id == followerId || f.username == followerId,
+    );
+    if (idx == -1) return false;
+
+    final member = followers[idx];
+    final previousFollowing = member.isFollowing;
+    final previousCount = currentUser.followingCount;
+    final isServerMember = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(member.id);
+    if (!isServerMember && _isBackendSynced) return false;
+
+    member.isFollowing = !previousFollowing;
+    currentUser.followingCount = (previousCount + (member.isFollowing ? 1 : -1))
+        .clamp(0, 999999);
+    notifyListeners();
+
+    if (!isServerMember) return true;
+    try {
+      final response = await _client.post(
+        'module2/members/${member.id}/follow',
+        authenticated: true,
+      );
+      final confirmed = response['isFollowing'];
+      if (confirmed is bool) {
+        member.isFollowing = confirmed;
+        currentUser.followingCount = (previousCount + (confirmed ? 1 : -1))
+            .clamp(0, 999999);
+      }
+      notifyListeners();
+      return true;
+    } catch (_) {
+      member.isFollowing = previousFollowing;
+      currentUser.followingCount = previousCount;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> togglePostLike(dynamic postOrId) async {
     final post = postOrId is FeedPostModel
         ? postOrId
-        : communityPosts.firstWhere(
-            (p) => p.id == postOrId.toString(),
-            orElse: () => communityPosts.first,
-          );
-    post.isSaved = !post.isSaved;
-    post.savesCount = (post.savesCount + (post.isSaved ? 1 : -1)).clamp(
+        : _findPost(postOrId.toString());
+    if (post == null) return false;
+    return reactToPost(post, 'LIKE');
+  }
+
+  Future<bool> togglePostSaved(dynamic postOrId) async {
+    final post = postOrId is FeedPostModel
+        ? postOrId
+        : _findPost(postOrId.toString());
+    if (post == null) return false;
+
+    final isServerPost = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(post.id);
+    if (!isServerPost && _isBackendSynced) return false;
+    final previousSaved = post.isSaved;
+    final previousCount = post.savesCount;
+
+    post.isSaved = !previousSaved;
+    post.savesCount = (previousCount + (post.isSaved ? 1 : -1)).clamp(
       0,
       999999,
     );
     notifyListeners();
 
-    unawaited(
-      _sendAuthenticatedRequest((client) async {
-        if (RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(post.id)) {
-          await client.post(
-            'module2/posts/${post.id}/save',
-            authenticated: true,
-          );
-        }
-      }),
-    );
+    if (!isServerPost) return true;
+    try {
+      final response = await _client.post(
+        'module2/posts/${post.id}/save',
+        authenticated: true,
+      );
+      if (response['isSaved'] is bool) {
+        post.isSaved = response['isSaved'] as bool;
+        post.savesCount =
+            (response['savesCount'] as num?)?.toInt() ??
+            (previousCount + (post.isSaved ? 1 : -1)).clamp(0, 999999);
+        notifyListeners();
+      }
+      return true;
+    } catch (_) {
+      post.isSaved = previousSaved;
+      post.savesCount = previousCount;
+      notifyListeners();
+      return false;
+    }
   }
 
-  void addPostComment(FeedPostModel post, String commentText) {
+  FeedPostModel? _findPost(String postId) {
+    for (final collection in [
+      communityPosts,
+      exploreRecommendedPosts,
+      profilePosts,
+    ]) {
+      for (final post in collection) {
+        if (post.id == postId) return post;
+      }
+    }
+    return null;
+  }
+
+  Future<bool> addPostComment(FeedPostModel post, String commentText) async {
     final trimmed = commentText.trim();
-    if (trimmed.isEmpty || !post.allowComments) return;
+    if (trimmed.isEmpty || trimmed.length > 500 || !post.allowComments) {
+      return false;
+    }
+    final isServerPost = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(post.id);
+    if (!isServerPost && _isBackendSynced) return false;
+
     final item = PostCommentItem(
-      id: 'c_${DateTime.now().millisecondsSinceEpoch}',
+      id: 'pending_${DateTime.now().microsecondsSinceEpoch}',
       authorAccountId: currentUser.accountId,
       authorName: currentUser.displayName,
       authorUsername: currentUser.username,
@@ -1355,35 +1760,47 @@ class SakhiPrototypeState extends ChangeNotifier {
       canDelete: true,
     );
     post.comments.add(item);
-    post.commentsCount = post.comments.length;
+    post.commentsCount++;
     notifyListeners();
 
-    unawaited(
-      _sendAuthenticatedRequest((client) async {
-        if (RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(post.id)) {
-          final res = await client.post(
-            'module2/posts/${post.id}/comments',
-            authenticated: true,
-            body: {'body': trimmed},
-          );
-          final serverComment = res['comment'];
-          if (serverComment is Map<String, dynamic>) {
-            final idx = post.comments.indexWhere((c) => c.id == item.id);
-            if (idx != -1) {
-              post.comments[idx] = PostCommentItem.fromJson(serverComment);
-              notifyListeners();
-            }
-          }
+    if (!isServerPost) return true;
+    try {
+      final response = await _client.post(
+        'module2/posts/${post.id}/comments',
+        authenticated: true,
+        body: {'body': trimmed},
+      );
+      final raw = response['comment'] ?? response;
+      if (raw is Map) {
+        final serverJson = Map<String, dynamic>.from(raw);
+        serverJson['id'] ??= serverJson['commentId'];
+        serverJson['body'] ??= serverJson['content'] ?? trimmed;
+        serverJson['authorAccountId'] ??= currentUser.accountId;
+        serverJson['authorName'] ??= currentUser.displayName;
+        serverJson['authorUsername'] ??= currentUser.username;
+        serverJson['authorAvatar'] ??= currentUser.avatarAsset;
+        final serverComment = PostCommentItem.fromJson(serverJson);
+        final idx = post.comments.indexWhere(
+          (comment) => comment.id == item.id,
+        );
+        if (idx != -1 && serverComment.id.isNotEmpty) {
+          post.comments[idx] = serverComment;
         }
-      }),
-    );
+      }
+      notifyListeners();
+      return true;
+    } catch (_) {
+      post.comments.removeWhere((comment) => comment.id == item.id);
+      post.commentsCount = (post.commentsCount - 1).clamp(0, 999999);
+      notifyListeners();
+      return false;
+    }
   }
 
   Future<bool> addComment(String postId, String text) async {
-    final idx = communityPosts.indexWhere((p) => p.id == postId);
-    if (idx == -1) return false;
-    addPostComment(communityPosts[idx], text);
-    return true;
+    final post = _findPost(postId);
+    if (post == null) return false;
+    return addPostComment(post, text);
   }
 
   Future<bool> editComment(
@@ -1392,90 +1809,142 @@ class SakhiPrototypeState extends ChangeNotifier {
     String newBody,
   ) async {
     final trimmed = newBody.trim();
-    if (trimmed.isEmpty) return false;
-    final idx = communityPosts.indexWhere((p) => p.id == postId);
-    if (idx == -1) return false;
-    final post = communityPosts[idx];
-    final cIdx = post.comments.indexWhere((c) => c.id == commentId);
+    if (trimmed.isEmpty || trimmed.length > 500) return false;
+    final post = _findPost(postId);
+    if (post == null) return false;
+    final cIdx = post.comments.indexWhere((comment) => comment.id == commentId);
     if (cIdx == -1) return false;
+    final isServerPost = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(postId);
+    final isServerComment = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(commentId);
+    if (_isBackendSynced && (!isServerPost || !isServerComment)) {
+      return false;
+    }
+
+    if (isServerPost && isServerComment) {
+      try {
+        await _client.patch(
+          'module2/posts/$postId/comments/$commentId',
+          authenticated: true,
+          body: {'body': trimmed},
+        );
+      } catch (_) {
+        return false;
+      }
+    }
     post.comments[cIdx].body = trimmed;
     notifyListeners();
-
-    unawaited(
-      _sendAuthenticatedRequest((client) async {
-        if (RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(postId) &&
-            RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(commentId)) {
-          await client.patch(
-            'module2/posts/$postId/comments/$commentId',
-            authenticated: true,
-            body: {'body': trimmed},
-          );
-        }
-      }),
-    );
     return true;
   }
 
   Future<bool> removeComment(String postId, String commentId) async {
-    final idx = communityPosts.indexWhere((p) => p.id == postId);
-    if (idx == -1) return false;
-    final post = communityPosts[idx];
-    post.comments.removeWhere((c) => c.id == commentId);
-    post.commentsCount = post.comments.length;
-    notifyListeners();
+    final post = _findPost(postId);
+    if (post == null) return false;
+    final cIdx = post.comments.indexWhere((comment) => comment.id == commentId);
+    if (cIdx == -1) return false;
+    final isServerPost = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(postId);
+    final isServerComment = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(commentId);
+    if (_isBackendSynced && (!isServerPost || !isServerComment)) return false;
 
-    unawaited(
-      _sendAuthenticatedRequest((client) async {
-        if (RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(postId) &&
-            RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(commentId)) {
-          await client.delete(
-            'module2/posts/$postId/comments/$commentId',
-            authenticated: true,
-          );
-        }
-      }),
-    );
+    if (isServerPost && isServerComment) {
+      try {
+        await _client.delete(
+          'module2/posts/$postId/comments/$commentId',
+          authenticated: true,
+        );
+      } catch (_) {
+        return false;
+      }
+    }
+    post.comments.removeAt(cIdx);
+    post.commentsCount = (post.commentsCount - 1).clamp(0, 999999);
+    notifyListeners();
     return true;
   }
 
   Future<bool> updatePrivacySetting(String id, String newValue) async {
-    final idx = privacySettings.indexWhere((s) => s.id == id);
-    if (idx != -1) {
-      privacySettings[idx].selectedValue = newValue;
-      notifyListeners();
+    final idx = privacySettings.indexWhere((setting) => setting.id == id);
+    if (idx == -1) return false;
 
-      unawaited(
-        _sendAuthenticatedRequest((client) async {
-          await client.put(
-            'module2/privacy',
-            authenticated: true,
-            body: {'appearInSearch': true},
-          );
-        }),
+    final previousValue = privacySettings[idx].selectedValue;
+    if ((id == 'view_profile' || id == 'see_posts') &&
+        newValue == 'Circle Members Only') {
+      return false;
+    }
+
+    final token = await _client.readAccessToken();
+    final hasSession = token != null && token.isNotEmpty;
+    if (_isBackendSynced && !hasSession) return false;
+
+    privacySettings[idx].selectedValue = newValue;
+    notifyListeners();
+    if (!hasSession) return true;
+
+    final apiValue = switch (id) {
+      'view_profile' || 'see_posts' =>
+        newValue == 'Followers Only'
+            ? 'Followers only'
+            : 'Verified members only',
+      'message_me' =>
+        newValue == 'No One'
+            ? 'No one'
+            : newValue == 'Followers Only'
+            ? 'Followers only'
+            : 'Verified members only',
+      'show_location' =>
+        newValue == 'Hide Location'
+            ? 'No location'
+            : newValue == 'Followers Only'
+            ? 'Followers only'
+            : 'General location only',
+      'search_results' => newValue == 'No' ? 'No' : 'Yes',
+      'business_enquiries' =>
+        newValue == 'No'
+            ? 'No'
+            : newValue == 'Verified businesses only'
+            ? 'Verified businesses only'
+            : 'Yes',
+      _ => newValue,
+    };
+
+    try {
+      await _client.put(
+        'module2/privacy',
+        authenticated: true,
+        body: {'settingId': id, 'selectedValue': apiValue},
       );
       return true;
+    } catch (_) {
+      privacySettings[idx].selectedValue = previousValue;
+      notifyListeners();
+      return false;
     }
-    return false;
   }
 
   Future<bool> toggleNotificationPref(String id, bool value) async {
-    final idx = notificationPreferences.indexWhere((n) => n.id == id);
-    if (idx != -1) {
-      notificationPreferences[idx].isEnabled = value;
-      notifyListeners();
+    final idx = notificationPreferences.indexWhere((item) => item.id == id);
+    if (idx == -1) return false;
 
-      unawaited(
-        _sendAuthenticatedRequest((client) async {
-          await client.put(
-            'module2/notifications',
-            authenticated: true,
-            body: {'communityReplies': value},
-          );
-        }),
+    final previousValue = notificationPreferences[idx].isEnabled;
+    final token = await _client.readAccessToken();
+    final hasSession = token != null && token.isNotEmpty;
+    if (_isBackendSynced && !hasSession) return false;
+
+    notificationPreferences[idx].isEnabled = value;
+    notifyListeners();
+    if (!hasSession) return true;
+
+    try {
+      await _client.put(
+        'module2/notifications',
+        authenticated: true,
+        body: {'prefId': id, 'isEnabled': value},
       );
       return true;
+    } catch (_) {
+      notificationPreferences[idx].isEnabled = previousValue;
+      notifyListeners();
+      return false;
     }
-    return false;
   }
 
   Future<bool> setMarketingConsent(bool accepted) async {
@@ -1555,84 +2024,130 @@ class SakhiPrototypeState extends ChangeNotifier {
     );
   }
 
-  void reportUserOrPost({
+  Future<bool> reportUserOrPost({
     required String targetHandle,
     required String reason,
     String? postId,
     String? category,
     String? details,
-  }) {
-    unawaited(
-      _sendAuthenticatedRequest((client) async {
-        await client.post(
+  }) async {
+    final target = targetHandle.trim();
+    final normalizedReason = reason.trim();
+    if (target.isEmpty || normalizedReason.length < 3) return false;
+    final isServerPost =
+        postId != null && RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(postId);
+    if (_isBackendSynced && postId != null && !isServerPost) return false;
+
+    if (_isBackendSynced || isServerPost) {
+      try {
+        final response = await _client.post(
           'module2/reports',
           authenticated: true,
           body: {
-            if (postId != null &&
-                RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(postId))
-              'postId': postId,
+            'targetHandle': target,
+            'targetType': postId == null ? 'member' : 'post',
+            if (isServerPost) 'postId': postId,
             'category': category ?? 'inappropriate_content',
-            'reason': reason,
+            'reason': normalizedReason,
             if (details != null && details.trim().isNotEmpty)
               'details': details.trim(),
           },
         );
-      }),
-    );
+        return response['reportId'] != null || response['status'] != null;
+      } catch (_) {
+        return false;
+      }
+    }
+    return true;
   }
 
   Future<bool> reportMember({
     String? accountId,
     String? reportedAccountId,
+    String? targetHandle,
     String? postId,
     String? commentId,
     String? reason,
     String? reasonCode,
     String? details,
   }) async {
-    reportUserOrPost(
-      targetHandle: reportedAccountId ?? accountId ?? '',
+    return reportUserOrPost(
+      targetHandle: targetHandle ?? reportedAccountId ?? accountId ?? '',
       reason: reason ?? reasonCode ?? 'inappropriate_content',
       postId: postId,
       category: reasonCode ?? reason ?? 'inappropriate_content',
       details: details,
     );
-    return true;
   }
 
-  void toggleBlockedUser({
+  Future<bool> toggleBlockedUser({
     required String username,
     required String displayName,
     String? accountId,
-  }) {
-    final idx = blockedUsers.indexWhere((b) => b.blockedUsername == username);
+  }) async {
+    final trimmedUsername = username.trim();
+    if (trimmedUsername.isEmpty) return false;
+
+    if (_isBackendSynced) {
+      try {
+        final response = await _client.post(
+          'module2/moderation/block',
+          authenticated: true,
+          body: {
+            'blockedUsername': trimmedUsername,
+            'blockedDisplayName': displayName.trim().isEmpty
+                ? trimmedUsername
+                : displayName.trim(),
+          },
+        );
+        final blocked = response['isBlocked'] as bool?;
+        if (blocked == null) return false;
+        blockedUsers.removeWhere(
+          (item) => item.blockedUsername == trimmedUsername,
+        );
+        if (blocked) {
+          blockedUsers.add(
+            BlockedUserModel(
+              id: (response['id'] ?? accountId ?? trimmedUsername).toString(),
+              blockedUsername: trimmedUsername,
+              blockedDisplayName: displayName,
+            ),
+          );
+          communityPosts.removeWhere(
+            (post) =>
+                post.authorUsername == trimmedUsername ||
+                post.authorName == displayName,
+          );
+        } else {
+          unawaited(syncFromBackend());
+        }
+        notifyListeners();
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    final idx = blockedUsers.indexWhere(
+      (item) => item.blockedUsername == trimmedUsername,
+    );
     if (idx != -1) {
       blockedUsers.removeAt(idx);
     } else {
       blockedUsers.add(
         BlockedUserModel(
           id: accountId ?? 'blk_${DateTime.now().millisecondsSinceEpoch}',
-          blockedUsername: username,
+          blockedUsername: trimmedUsername,
           blockedDisplayName: displayName,
         ),
       );
       communityPosts.removeWhere(
-        (p) => p.authorUsername == username || p.authorName == displayName,
+        (post) =>
+            post.authorUsername == trimmedUsername ||
+            post.authorName == displayName,
       );
     }
     notifyListeners();
-
-    unawaited(
-      _sendAuthenticatedRequest((client) async {
-        if (accountId != null &&
-            RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(accountId)) {
-          await client.post(
-            'module2/members/$accountId/block',
-            authenticated: true,
-            body: {'reason': 'Blocked from Social Wall'},
-          );
-        }
-      }),
-    );
+    return true;
   }
 }

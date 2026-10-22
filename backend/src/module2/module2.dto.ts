@@ -23,12 +23,16 @@ export class UpdateModule2ProfileDto {
   @MaxLength(80)
   displayName!: string;
 
+  @IsOptional()
+  @IsString()
+  @Matches(/^@?[a-z0-9_]{3,24}$/)
+  username?: string;
+
   @IsString()
   @MaxLength(300)
   bio!: string;
 
   @IsString()
-  @IsNotEmpty()
   @MaxLength(120)
   location!: string;
 

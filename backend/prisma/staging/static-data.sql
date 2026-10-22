@@ -20,4 +20,10 @@ VALUES
   ('wellness_lifestyle', 'Wellness and Lifestyle', 'Mindfulness, journaling, and lifestyle content.', 'sparkles', '#14B8A6', TRUE, 6, 'staging-static-config')
 ON CONFLICT (slug) DO NOTHING;
 
+INSERT INTO public.platform_registration_policies
+  (policy_key, minimum_age_years, updated_by, change_reason)
+VALUES
+  ('default', 18, 'staging-static-config', 'Initial staging registration minimum-age policy.')
+ON CONFLICT (policy_key) DO NOTHING;
+
 COMMIT;

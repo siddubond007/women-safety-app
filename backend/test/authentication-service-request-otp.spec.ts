@@ -64,6 +64,12 @@ function createService(account: { id: string; status?: string } | null) {
     authSession: {
       findUnique: vi.fn(),
     },
+    memberProfile: {
+      findUnique: vi.fn().mockResolvedValue(null),
+    },
+    auditEvent: {
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
     $transaction: vi.fn(
       async (callback: (transaction: typeof tx) => Promise<unknown>) =>
         callback(tx),
@@ -266,5 +272,127 @@ describe("AuthenticationService.requestOtp account checks", () => {
         purpose: "registration",
       }),
     ).rejects.toThrow(/not enabled for Sakhi staging test access/);
+  });
+
+  it("allows wildcard-accepted staging phones to create profiles and restore test access", async () => {
+    process.env.SAKHI_ENV = "staging";
+    process.env.NODE_ENV = "production";
+    process.env.SAKHI_OTP_MODE = "staging_test";
+    process.env.HOST = "0.0.0.0";
+    process.env.SAKHI_PREVIEW_MINIMUM_AGE_YEARS = "";
+    process.env.SAKHI_STAGING_TEST_PHONE_ALLOWLIST = "+91*";
+    process.env.SAKHI_STAGING_TEST_OTP_CODE = "314159";
+    process.env.SAKHI_STAGING_TEST_MINIMUM_AGE_YEARS = "18";
+
+    const phoneE164 = "+919123456789";
+    const authorization = "Bearer " + "x".repeat(32);
+    const account = {
+      id: "staging-account",
+      status: "PENDING_VERIFICATION",
+      verificationStatus: "UNVERIFIED",
+      phoneE164,
+    };
+    const { service, tx, prisma } = createService({
+      id: "staging-account",
+      status: "PENDING_VERIFICATION",
+    });
+    prisma.authSession.findUnique.mockResolvedValue({
+      id: "staging-session",
+      accountId: "staging-account",
+      revokedAt: null,
+      expiresAt: new Date(Date.now() + 60_000),
+      account,
+    });
+    tx.policyDocumentVersion.findFirst.mockImplementation(
+      async (args: { where: { documentType: string } }) => ({
+        id: args.where.documentType === "TERMS" ? "terms-id" : "privacy-id",
+      }),
+    );
+    tx.memberProfile.create.mockResolvedValue({
+      accountId: "staging-account",
+      displayName: "Sadhana",
+      dateOfBirth: new Date("2001-10-11T00:00:00.000Z"),
+      email: null,
+    });
+
+    const result = await service.createProfile(authorization, {
+      displayName: "Sadhana",
+      dateOfBirth: "2001-10-11",
+      termsVersion: "draft",
+      privacyVersion: "draft",
+      acceptedAt: new Date().toISOString(),
+      optionalUpdatesAccepted: false,
+      eligibilityConfirmed: true,
+    });
+
+    expect(result).toMatchObject({
+      accountState: "existingAccount",
+      testAccess: true,
+    });
+    expect(tx.memberProfile.create).toHaveBeenCalledOnce();
+    expect(tx.memberConsent.create).toHaveBeenCalledOnce();
+
+    prisma.memberProfile.findUnique.mockResolvedValue({
+      displayName: "Sadhana",
+      dateOfBirth: new Date("2001-10-11T00:00:00.000Z"),
+      email: null,
+    });
+    const restored = await service.getCurrentAccount(authorization);
+    expect(restored.testAccess).toBe(true);
+    expect(restored.profile).toMatchObject({ displayName: "Sadhana" });
+  });
+
+  it("enforces the persisted admin-configured minimum registration age server-side", async () => {
+    process.env.SAKHI_ENV = "staging";
+    process.env.NODE_ENV = "production";
+    process.env.SAKHI_OTP_MODE = "staging_test";
+    process.env.HOST = "0.0.0.0";
+    process.env.SAKHI_STAGING_TEST_PHONE_ALLOWLIST = "+91*";
+    process.env.SAKHI_STAGING_TEST_OTP_CODE = "314159";
+    process.env.SAKHI_STAGING_TEST_MINIMUM_AGE_YEARS = "18";
+
+    const authorization = "Bearer " + "y".repeat(32);
+    const { service, prisma } = createService({
+      id: "staging-account-2",
+      status: "PENDING_VERIFICATION",
+    });
+    prisma.authSession.findUnique.mockResolvedValue({
+      id: "staging-session-2",
+      accountId: "staging-account-2",
+      revokedAt: null,
+      expiresAt: new Date(Date.now() + 60_000),
+      account: {
+        id: "staging-account-2",
+        status: "PENDING_VERIFICATION",
+        verificationStatus: "UNVERIFIED",
+        phoneE164: "+919876543210",
+      },
+    });
+    prisma.auditEvent.findFirst.mockResolvedValue({
+      createdAt: new Date("2026-10-22T08:00:00.000Z"),
+      redactedMetadata: {
+        minimumAgeYears: 21,
+        reviewerLabel: "Sakhi Staging Super Admin",
+        reason: "Updated minimum registration age to 21 for cohort review.",
+      },
+    });
+
+    const policy = await service.getRegistrationPolicy();
+    expect(policy).toMatchObject({
+      configured: true,
+      minimumAgeYears: 21,
+      source: "database_admin_policy",
+    });
+
+    await expect(
+      service.createProfile(authorization, {
+        displayName: "Neha",
+        dateOfBirth: "2007-05-10",
+        termsVersion: "draft",
+        privacyVersion: "draft",
+        acceptedAt: new Date().toISOString(),
+        optionalUpdatesAccepted: false,
+      }),
+    ).rejects.toThrow(/configured minimum registration age of 21/);
   });
 });

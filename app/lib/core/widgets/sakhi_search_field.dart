@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
@@ -9,6 +10,7 @@ class SakhiSearchField extends StatelessWidget {
   final TextEditingController? controller;
   final ValueChanged<String>? onChanged;
   final ValueChanged<String>? onSubmitted;
+  final VoidCallback? onTap;
   final VoidCallback? onClear;
 
   const SakhiSearchField({
@@ -17,6 +19,7 @@ class SakhiSearchField extends StatelessWidget {
     this.controller,
     this.onChanged,
     this.onSubmitted,
+    this.onTap,
     this.onClear,
   });
 
@@ -30,6 +33,7 @@ class SakhiSearchField extends StatelessWidget {
       ),
       child: TextField(
         controller: controller,
+        onTap: onTap,
         onChanged: onChanged,
         onSubmitted: onSubmitted,
         textInputAction: TextInputAction.search,
@@ -40,8 +44,10 @@ class SakhiSearchField extends StatelessWidget {
           fillColor: Colors.transparent,
           filled: true,
           isDense: true,
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 11,
+          ),
           prefixIcon: const Icon(
             Icons.search_rounded,
             color: AppColors.primaryPurple,

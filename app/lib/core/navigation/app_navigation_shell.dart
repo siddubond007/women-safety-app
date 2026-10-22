@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../features/community/screens/community_screen.dart';
+import '../../features/community/screens/sakhi_post_creation_flow.dart';
 import '../../features/explore/screens/explore_screen.dart';
 import '../../features/home/screens/home_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
@@ -28,8 +29,6 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
   late int _currentIndex;
   // Optional sub-tab override for Wellness (4) or Safety (5) inside the bottom-nav shell
   String? _activeSubScreenRoute;
-  String? _requestedComposerMode;
-  int _createIntent = 0;
 
   @override
   void initState() {
@@ -42,7 +41,6 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
     setState(() {
       _currentIndex = index;
       _activeSubScreenRoute = null;
-      if (index != 2) _requestedComposerMode = null;
     });
   }
 
@@ -75,14 +73,15 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
           activeBody = ExploreScreen(onNavigateRoute: _handleRouteFromChild);
           break;
         case 2:
-          activeBody = CommunityScreen(
-            initialComposerMode: _requestedComposerMode,
-            createIntent: _createIntent,
-          );
+          activeBody = const CommunityScreen();
           break;
         case 3:
         default:
-          activeBody = ProfileScreen(onNavigateRoute: _handleRouteFromChild);
+          activeBody = ProfileScreen(
+            onNavigateRoute: _handleRouteFromChild,
+            onNavigateTab: _handleTabSelected,
+            onCreateTap: () => _showCenterActionModal(context),
+          );
           break;
       }
     }
@@ -102,18 +101,19 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
     final action = await showSakhiCreateHub(context);
     if (!mounted || action == null) return;
 
-    final composerMode = switch (action) {
-      SakhiCreateAction.photoVideo => 'media',
-      SakhiCreateAction.textPost => 'text',
-      SakhiCreateAction.communityQuestion => 'question',
-      SakhiCreateAction.usefulResource => 'resource',
-    };
+    await openSakhiCreateAction(
+      context,
+      action,
+      onPublished: _handlePostPublished,
+    );
+  }
 
+  void _handlePostPublished() {
+    if (!mounted) return;
     setState(() {
       _currentIndex = 2;
       _activeSubScreenRoute = null;
-      _requestedComposerMode = composerMode;
-      _createIntent++;
     });
+    unawaited(SakhiPrototypeState.instance.syncFromBackend());
   }
 }

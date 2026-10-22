@@ -140,7 +140,7 @@ void main() {
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
       service.requestGate!.complete(_session());
       await tester.pumpAndSettle();
-      expect(find.text('Verify your number'), findsOneWidget);
+      expect(find.text('Verify Mobile Number'), findsOneWidget);
       expect(service.requestCalls, 1);
     });
   });
@@ -159,9 +159,12 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        expect(find.text('Verify your number'), findsOneWidget);
+        expect(find.text('Verify Mobile Number'), findsOneWidget);
         expect(find.text('+91 ••••••3210'), findsOneWidget);
         expect(find.byKey(const Key('auth-otp-code-field')), findsOneWidget);
+        for (var i = 0; i < 6; i++) {
+          expect(find.byKey(Key('auth-otp-box-$i')), findsOneWidget);
+        }
         expect(find.byKey(const Key('auth-verify-otp-button')), findsOneWidget);
         expect(find.byKey(const Key('auth-resend-otp-button')), findsOneWidget);
         expect(
@@ -175,6 +178,42 @@ void main() {
         expect(tester.takeException(), isNull);
       },
     );
+
+    testWidgets('custom OTP keypad enters digits and supports backspace', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SakhiOtpScreen(
+            authService: const DemoAuthService(),
+            session: _session(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('auth-otp-custom-keypad')), findsOneWidget);
+      final otpFieldFinder = find.byKey(const Key('auth-otp-code-field'));
+      final otpField = tester.widget<TextFormField>(otpFieldFinder);
+      final editable = tester.widget<EditableText>(
+        find.descendant(
+          of: otpFieldFinder,
+          matching: find.byType(EditableText),
+        ),
+      );
+      expect(editable.keyboardType, TextInputType.none);
+
+      for (final digit in ['1', '2', '3', '4', '5', '6']) {
+        await tester.tap(find.byKey(Key('auth-otp-key-$digit')));
+        await tester.pump();
+      }
+      expect(otpField.controller!.text, '123456');
+
+      await tester.tap(find.byKey(const Key('auth-otp-key-backspace')));
+      await tester.pump();
+      expect(otpField.controller!.text, '12345');
+      expect(tester.takeException(), isNull);
+    });
 
     testWidgets('requires all six OTP digits before verify', (tester) async {
       await tester.pumpWidget(
@@ -272,7 +311,7 @@ void main() {
       await tester.tap(find.byKey(const Key('auth-verify-otp-button')));
       await tester.pumpAndSettle();
 
-      expect(find.text('Tell us about yourself'), findsOneWidget);
+      expect(find.text('Create Your Account'), findsOneWidget);
       expect(find.byKey(const Key('auth-profile-name-field')), findsOneWidget);
       expect(find.byKey(const Key('auth-profile-dob-picker')), findsOneWidget);
       expect(find.byKey(const Key('auth-profile-email-field')), findsOneWidget);
@@ -311,7 +350,7 @@ void main() {
         await tester.tap(find.byKey(const Key('auth-verify-otp-button')));
         await tester.pumpAndSettle();
 
-        expect(find.text('Tell us about yourself'), findsOneWidget);
+        expect(find.text('Create Your Account'), findsOneWidget);
         expect(
           find.byKey(const Key('auth-profile-name-field')),
           findsOneWidget,
@@ -547,6 +586,11 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.text('Confirm date'));
         await tester.pumpAndSettle();
+        expect(find.byKey(const Key('auth-age-status-badge')), findsOneWidget);
+        expect(
+          find.textContaining('Preview age rule met (13+)'),
+          findsOneWidget,
+        );
         await tester.ensureVisible(
           find.byKey(const Key('auth-profile-skip-photo-button')),
         );
@@ -835,6 +879,15 @@ class _FakeAuthService implements AuthService {
   Future<void> logout() async {
     logoutCalls++;
     restoredState = null;
+  }
+
+  @override
+  Future<RegistrationAgePolicy> fetchRegistrationPolicy() async {
+    return const RegistrationAgePolicy(
+      configured: true,
+      minimumAgeYears: 13,
+      source: 'test_fake',
+    );
   }
 
   @override

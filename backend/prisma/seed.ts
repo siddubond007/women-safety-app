@@ -93,6 +93,14 @@ async function main(): Promise<void> {
       },
     });
 
+    if (typeof (prisma as Record<string, any>).$executeRaw === "function") {
+      await (prisma as Record<string, any>).$executeRaw`
+        INSERT INTO public.platform_registration_policies (policy_key, minimum_age_years, updated_by, change_reason)
+        VALUES ('default', 18, 'prisma-seed', 'Default registration minimum-age policy')
+        ON CONFLICT (policy_key) DO NOTHING
+      `.catch(() => undefined);
+    }
+
     const categories = [
       { slug: "following", name: "Following", description: "Updates from verified Sakhi members and circles you follow.", iconKey: "heart_handshake", accentColorHex: "#EC4899", isEnabled: true, displayOrder: 1 },
       { slug: "community", name: "Community", description: "Open discussions, peer encouragement, and shared experiences.", iconKey: "users", accentColorHex: "#A855F7", isEnabled: true, displayOrder: 2 },

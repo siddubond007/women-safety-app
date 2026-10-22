@@ -1,5 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
   IsEmail,
   IsIn,
@@ -78,6 +80,17 @@ export class CreateProfileDto {
   @MaxLength(255)
   avatarAsset?: string | null;
 
+  @ApiPropertyOptional({
+    type: [String],
+    example: ["Mental Wellness", "WomenInTech"],
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(16)
+  @IsString({ each: true })
+  @MaxLength(40, { each: true })
+  interests?: string[];
+
   @ApiProperty({ example: "seed-draft-v1" })
   @IsString()
   @IsNotEmpty()
@@ -97,4 +110,9 @@ export class CreateProfileDto {
   @ApiProperty()
   @IsBoolean()
   optionalUpdatesAccepted!: boolean;
+
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  @IsBoolean()
+  eligibilityConfirmed?: boolean;
 }

@@ -21,7 +21,7 @@ void main() {
       expect(find.text('Sakhi'), findsOneWidget);
       expect(find.textContaining('Good Morning'), findsOneWidget);
       expect(find.text('For You Today'), findsOneWidget);
-      expect(find.text('Live posts unavailable'), findsOneWidget);
+      expect(find.text('Community posts unavailable'), findsOneWidget);
       expect(find.textContaining('LIVE POSTGRESQL DB'), findsNothing);
 
       // Tap Explore tab (Screen 2)

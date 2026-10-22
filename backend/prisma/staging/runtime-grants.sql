@@ -9,7 +9,8 @@ GRANT SELECT, INSERT, UPDATE ON TABLE
   public.otp_challenges,
   public.member_consents,
   public.auth_sessions,
-  public.member_communication_preferences
+  public.member_communication_preferences,
+  public.platform_registration_policies
 TO sakhi_staging_app;
 GRANT SELECT ON TABLE public.policy_document_versions TO sakhi_staging_app;
 GRANT INSERT, SELECT ON TABLE public.audit_events TO sakhi_staging_app;
