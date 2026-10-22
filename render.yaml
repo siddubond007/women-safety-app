@@ -1,6 +1,8 @@
 services:
   - type: web
     name: sakhi-staging-api
+    branch: feat/sakhi-ui-modules-1-to-3
+    autoDeployTrigger: commit
     runtime: node
     plan: free
     region: singapore
@@ -52,6 +54,8 @@ services:
 
   - type: web
     name: sakhi-staging-admin
+    branch: feat/sakhi-ui-modules-1-to-3
+    autoDeployTrigger: commit
     runtime: static
     rootDir: super-admin
     buildCommand: npm ci && npm run build
