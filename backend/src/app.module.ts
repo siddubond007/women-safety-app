@@ -12,6 +12,7 @@ import { Module2Module } from "./module2/module2.module.js";
 import { PrismaModule } from "./database/prisma.module.js";
 import { HealthController } from "./health/health.controller.js";
 import { HealthService } from "./health/health.service.js";
+import { ApiExceptionFilter } from "./common/filters/api-exception.filter.js";
 
 @Module({
   imports: [
@@ -72,6 +73,6 @@ import { HealthService } from "./health/health.service.js";
     Module2Module,
   ],
   controllers: [HealthController],
-  providers: [HealthService],
+  providers: [HealthService, ApiExceptionFilter],
 })
 export class AppModule {}
