@@ -14,7 +14,7 @@
 - Backend `test/module2.service.spec.ts`: **12 passed**, including the new unpredictable server-generated share-token test and the existing stale-location/HTML-escaping regression test. These 12 results were emitted by the latest aggregate backend test run.
 - Full backend aggregate suite: **not verified as green in the latest rerun**. The known intermittent `eligibility.spec.ts` provider-configuration test timed out at 10 seconds again. The aggregate run was stopped after prolonged lack of progress; no full-suite pass is claimed for this update.
 - `git diff --check`: **pass** (Git only warned about the configured LF/CRLF working-copy conversion).
-- Final Android release compile: being verified separately; the existing friend-testing APK is preserved and must not be overwritten by an internal verification build.
+- Final Android release compile on the final token-hardened source: **not verified**. The Gradle build stopped progressing in its workspace/cache-lock step and was terminated. An earlier compile of the GPS integration before the last Dart token cleanup did produce a debug-signed APK, but it was not kept as the final artifact; the original friend-testing APK was restored.
 
 ## Safety changes
 
