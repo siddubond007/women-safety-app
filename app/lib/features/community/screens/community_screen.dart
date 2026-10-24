@@ -1,3 +1,5 @@
+import '../../../core/widgets/sakhi_quote_loader.dart';
+
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -41,7 +43,7 @@ class CommunityScreen extends StatefulWidget {
 
 class _CommunityScreenState extends State<CommunityScreen> {
   String _selectedCategorySlug = 'community';
-  bool _showSearch = false;
+  final bool _showSearch = false;
   bool _showComposer = false;
   String _composerMode = 'media';
   int _composerStep = 0;
@@ -931,7 +933,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                               children: [
                                 Expanded(
                                   child: DropdownButtonFormField<String>(
-                                    value: _composerCategorySlug,
+                                    initialValue: _composerCategorySlug,
                                     decoration: const InputDecoration(
                                       labelText: 'Category',
                                       isDense: true,
@@ -966,7 +968,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: DropdownButtonFormField<String>(
-                                    value: _selectedVisibility,
+                                    initialValue: _selectedVisibility,
                                     decoration: const InputDecoration(
                                       labelText: 'Visibility',
                                       isDense: true,
@@ -1013,7 +1015,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                 dense: true,
                                 contentPadding: EdgeInsets.zero,
                                 value: _allowComments,
-                                activeColor: AppColors.primaryPurple,
+                                activeThumbColor: AppColors.primaryPurple,
                                 title: const Text(
                                   'Allow member comments',
                                   style: AppTypography.bodyMedium,
@@ -1028,7 +1030,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                 dense: true,
                                 contentPadding: EdgeInsets.zero,
                                 value: _shareToBusinessProfile,
-                                activeColor: AppColors.primaryPurple,
+                                activeThumbColor: AppColors.primaryPurple,
                                 title: const Text(
                                   'Feature on my Women-Owned Business profile',
                                   style: AppTypography.bodyMedium,
@@ -1117,8 +1119,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
                       child: Column(
                         children: [
                           if (state.isBackendSyncing)
-                            const CircularProgressIndicator(
-                              color: AppColors.primaryPurple,
+                            const SakhiQuoteLoader.inline(
+                              statusLabel: 'Loading live Social Wall…',
                             )
                           else
                             const Icon(
@@ -1153,8 +1155,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                       title: _selectedCategorySlug == 'safety_awareness'
                           ? 'No Posts in Safety Awareness Yet'
                           : 'No posts in this category yet',
-                      message:
-                          'Be the first to share trusted tips, emergency resources, or community alerts with women near you.',
+                      message: 'Be the first to share trusted tips, emergency resources, or community alerts with women near you.',
                       actionLabel: _selectedCategorySlug == 'safety_awareness'
                           ? '+ Create Post in Safety Awareness'
                           : 'Create Post',

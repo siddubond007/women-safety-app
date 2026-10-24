@@ -68,7 +68,8 @@ try {
     '20261018090000_module2_core_domain',
     '20261018090000_module2_profile_social_settings',
     '20261019120000_module3_social_wall_and_drive_media',
-    '20261022103000_platform_registration_policy_settings'
+    '20261022103000_platform_registration_policy_settings',
+    '20261023110000_module4_emergency_sos_and_safety'
   )
 
   foreach ($migrationName in $migrationNames) {

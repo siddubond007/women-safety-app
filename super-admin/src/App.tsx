@@ -9,8 +9,10 @@ import { MemberManagementPage } from "./pages/MemberManagementPage";
 import { EligibilityReviewPage } from "./pages/EligibilityReviewPage";
 import { CommunityManagementPage } from "./pages/CommunityManagementPage";
 import { ModerationPage } from "./pages/ModerationPage";
+import { SafetyConsolePage } from "./pages/SafetyConsolePage";
 import { StagingTestAccessPage } from "./pages/StagingTestAccessPage";
 import { RegistrationPolicyPage } from "./pages/RegistrationPolicyPage";
+import { SakhiQuoteLoader } from "./components/SakhiQuoteLoader";
 
 function AppRoutes() {
   const [isSignedIn, setIsSignedIn] = useState(() => adminAuthService.hasActiveSession());
@@ -47,7 +49,7 @@ function AppRoutes() {
   if (checkingSession) {
     return (
       <main className="admin-session-check" role="status">
-        Checking reviewer session...
+        <SakhiQuoteLoader statusLabel="Checking reviewer session..." />
       </main>
     );
   }
@@ -80,7 +82,7 @@ function AppRoutes() {
         <Route path="/community" element={canAccessFullWorkspace ? <CommunityManagementPage /> : <Navigate to="/test-access" replace />} />
         <Route path="/wellness" element={canAccessFullWorkspace ? <CommunityManagementPage /> : <Navigate to="/test-access" replace />} />
         <Route path="/moderation" element={canAccessFullWorkspace ? <ModerationPage section="moderation" /> : <Navigate to="/test-access" replace />} />
-        <Route path="/emergency" element={canAccessFullWorkspace ? <ModerationPage section="emergency" /> : <Navigate to="/test-access" replace />} />
+        <Route path="/emergency" element={canAccessFullWorkspace ? <SafetyConsolePage /> : <Navigate to="/test-access" replace />} />
         <Route path="/audit-security" element={canAccessFullWorkspace ? <ModerationPage section="audit" /> : <Navigate to="/test-access" replace />} />
         <Route path="/integrations" element={canAccessFullWorkspace ? <ModerationPage section="integrations" /> : <Navigate to="/test-access" replace />} />
         <Route path="/settings" element={canAccessFullWorkspace ? <RegistrationPolicyPage /> : <Navigate to="/test-access" replace />} />

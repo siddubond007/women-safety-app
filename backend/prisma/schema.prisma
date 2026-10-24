@@ -80,6 +80,7 @@ model MemberAccount {
   privacyPreference       MemberPrivacyPreference?
   notificationPreference  MemberNotificationPreference?
   emergencyContacts       SafetyEmergencyContact[]
+  locationShares          SafetyLocationShare[]
   sosEvents               SafetySosEvent[]
   moderationBlocks        MemberModerationBlock[]
   userReports             MemberUserReport[]
@@ -212,39 +213,39 @@ model EligibilitySubmission {
 }
 
 model CommunityPost {
-  id                       String                 @id @default(uuid()) @db.Uuid
-  authorAccountId          String?                @map("author_account_id") @db.Uuid
-  authorName               String                 @map("author_name") @db.VarChar(100)
-  authorUsername           String                 @map("author_username") @db.VarChar(50)
-  authorAvatar             String                 @map("author_avatar") @db.VarChar(255)
-  authorVerified           Boolean                @default(false) @map("author_verified")
-  content                  String                 @db.Text
-  imageAsset               String?                @map("image_asset") @db.VarChar(255)
-  categoryBadge            String?                @map("category_badge") @db.VarChar(64)
-  feedSection              String                 @default("community") @map("feed_section") @db.VarChar(32)
-  hasBreathingExerciseCard Boolean                @default(false) @map("has_breathing_exercise_card")
-  likesCount               Int                    @default(0) @map("likes_count")
-  commentsCount            Int                    @default(0) @map("comments_count")
-  createdAt                DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
-  authorAccount            MemberAccount?         @relation(fields: [authorAccountId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  id                       String                  @id @default(uuid()) @db.Uuid
+  authorAccountId          String?                 @map("author_account_id") @db.Uuid
+  authorName               String                  @map("author_name") @db.VarChar(100)
+  authorUsername           String                  @map("author_username") @db.VarChar(50)
+  authorAvatar             String                  @map("author_avatar") @db.VarChar(255)
+  authorVerified           Boolean                 @default(false) @map("author_verified")
+  content                  String                  @db.Text
+  imageAsset               String?                 @map("image_asset") @db.VarChar(255)
+  categoryBadge            String?                 @map("category_badge") @db.VarChar(64)
+  feedSection              String                  @default("community") @map("feed_section") @db.VarChar(32)
+  hasBreathingExerciseCard Boolean                 @default(false) @map("has_breathing_exercise_card")
+  likesCount               Int                     @default(0) @map("likes_count")
+  commentsCount            Int                     @default(0) @map("comments_count")
+  createdAt                DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  authorAccount            MemberAccount?          @relation(fields: [authorAccountId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   likes                    CommunityPostLike[]
   saves                    CommunityPostSave[]
   comments                 CommunityPostComment[]
   reactions                CommunityPostReaction[]
   mediaAssets              MediaAsset[]
-  categorySlug             String                 @default("community") @map("category_slug") @db.VarChar(40)
-  visibility               String                 @default("VERIFIED_MEMBERS") @db.VarChar(32)
-  status                   String                 @default("PUBLISHED") @db.VarChar(32)
-  hashtags                 Json                   @default("[]") @db.JsonB
-  locationTag              String?                @map("location_tag") @db.VarChar(120)
-  allowComments            Boolean                @default(true) @map("allow_comments")
-  shareToBusinessProfile   Boolean                @default(false) @map("share_to_business_profile")
-  cropPreset               String                 @default("4:5") @map("crop_preset") @db.VarChar(16)
-  savesCount               Int                    @default(0) @map("saves_count")
-  sharesCount              Int                    @default(0) @map("shares_count")
-  moderationReason         String?                @map("moderation_reason") @db.VarChar(500)
-  deletedAt                DateTime?              @map("deleted_at") @db.Timestamptz(6)
+  categorySlug             String                  @default("community") @map("category_slug") @db.VarChar(40)
+  visibility               String                  @default("VERIFIED_MEMBERS") @db.VarChar(32)
+  status                   String                  @default("PUBLISHED") @db.VarChar(32)
+  hashtags                 Json                    @default("[]") @db.JsonB
+  locationTag              String?                 @map("location_tag") @db.VarChar(120)
+  allowComments            Boolean                 @default(true) @map("allow_comments")
+  shareToBusinessProfile   Boolean                 @default(false) @map("share_to_business_profile")
+  cropPreset               String                  @default("4:5") @map("crop_preset") @db.VarChar(16)
+  savesCount               Int                     @default(0) @map("saves_count")
+  sharesCount              Int                     @default(0) @map("shares_count")
+  moderationReason         String?                 @map("moderation_reason") @db.VarChar(500)
+  deletedAt                DateTime?               @map("deleted_at") @db.Timestamptz(6)
 
   @@index([feedSection, createdAt], map: "community_posts_section_created_idx")
   @@index([authorAccountId, createdAt], map: "community_posts_author_created_idx")
@@ -279,17 +280,17 @@ model CommunityPostSave {
 }
 
 model CommunityPostComment {
-  id         String        @id @default(uuid()) @db.Uuid
-  postId     String        @map("post_id") @db.Uuid
-  accountId  String        @map("account_id") @db.Uuid
-  authorName String        @map("author_name") @db.VarChar(100)
+  id                   String        @id @default(uuid()) @db.Uuid
+  postId               String        @map("post_id") @db.Uuid
+  accountId            String        @map("account_id") @db.Uuid
+  authorName           String        @map("author_name") @db.VarChar(100)
   content              String        @db.VarChar(500)
   createdAt            DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   isRemovedByModerator Boolean       @default(false) @map("is_removed_by_moderator")
   deletedAt            DateTime?     @map("deleted_at") @db.Timestamptz(6)
   updatedAt            DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   post                 CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  account    MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  account              MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@index([postId, createdAt], map: "community_post_comments_post_created_idx")
   @@map("community_post_comments")
@@ -369,6 +370,8 @@ model SafetyEmergencyContact {
   name                     String        @db.VarChar(100)
   relationship             String        @db.VarChar(64)
   phoneE164                String        @map("phone_e164") @db.VarChar(16)
+  isPrimary                Boolean       @default(false) @map("is_primary")
+  alertEnabled             Boolean       @default(true) @map("alert_enabled")
   isTrustedLocationContact Boolean       @default(true) @map("is_trusted_location_contact")
   createdAt                DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   account                  MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
@@ -378,16 +381,80 @@ model SafetyEmergencyContact {
 }
 
 model SafetySosEvent {
-  id            String        @id @default(uuid()) @db.Uuid
-  accountId     String        @map("account_id") @db.Uuid
-  eventType     String        @map("event_type") @db.VarChar(32)
-  status        String        @default("RECORDED") @db.VarChar(32)
-  locationLabel String?       @map("location_label") @db.VarChar(120)
-  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  account       MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  id                   String        @id @default(uuid()) @db.Uuid
+  accountId            String        @map("account_id") @db.Uuid
+  eventType            String        @map("event_type") @db.VarChar(32)
+  status               String        @default("RECORDED") @db.VarChar(32)
+  locationLabel        String?       @map("location_label") @db.VarChar(120)
+  latitude             Float?
+  longitude            Float?
+  isTestMode           Boolean       @default(false) @map("is_test_mode")
+  contactsAlertedCount Int           @default(0) @map("contacts_alerted_count")
+  shareToken           String?       @map("share_token") @db.VarChar(80)
+  resolvedAt           DateTime?     @map("resolved_at") @db.Timestamptz(6)
+  createdAt            DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  account              MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@index([accountId, createdAt], map: "safety_sos_events_account_created_idx")
   @@map("safety_sos_events")
+}
+
+model SafetyLocationShare {
+  id               String        @id @default(uuid()) @db.Uuid
+  accountId        String        @map("account_id") @db.Uuid
+  shareToken       String        @unique(map: "safety_location_shares_share_token_key") @map("share_token") @db.VarChar(80)
+  status           String        @default("ACTIVE") @db.VarChar(32)
+  durationLabel    String        @default("1 Hour") @map("duration_label") @db.VarChar(40)
+  includeProfile   Boolean       @default(true) @map("include_profile")
+  includeTimestamp Boolean       @default(true) @map("include_timestamp")
+  latitude         Float
+  longitude        Float
+  accuracyMeters   Float?        @map("accuracy_meters")
+  batteryPercent   Int?          @map("battery_percent")
+  locationLabel    String?       @map("location_label") @db.VarChar(160)
+  stoppedAt        DateTime?     @map("stopped_at") @db.Timestamptz(6)
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  account          MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([accountId, status], map: "safety_location_shares_account_status_idx")
+  @@map("safety_location_shares")
+}
+
+model VerifiedPoliceStation {
+  id              String   @id @default(uuid()) @db.Uuid
+  stationCode     String   @unique(map: "verified_police_stations_station_code_key") @map("station_code") @db.VarChar(64)
+  name            String   @db.VarChar(160)
+  address         String   @db.VarChar(300)
+  city            String   @default("Bengaluru") @db.VarChar(80)
+  state           String   @default("Karnataka") @db.VarChar(80)
+  latitude        Float
+  longitude       Float
+  phoneNumber     String   @map("phone_number") @db.VarChar(40)
+  emergencyNumber String   @default("112") @map("emergency_number") @db.VarChar(20)
+  isWomenStation  Boolean  @default(false) @map("is_women_station")
+  isVerified      Boolean  @default(true) @map("is_verified")
+  updatedBy       String?  @map("updated_by") @db.VarChar(120)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([city, isVerified], map: "verified_police_stations_city_verified_idx")
+  @@map("verified_police_stations")
+}
+
+model SafetyHelplineConfig {
+  code         String   @id @db.VarChar(40)
+  number       String   @db.VarChar(32)
+  title        String   @db.VarChar(160)
+  subtitle     String   @db.VarChar(255)
+  category     String   @default("EMERGENCY") @db.VarChar(64)
+  isEnabled    Boolean  @default(true) @map("is_enabled")
+  displayOrder Int      @default(1) @map("display_order")
+  updatedBy    String?  @map("updated_by") @db.VarChar(120)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("safety_helpline_configs")
 }
 
 model WellnessResource {

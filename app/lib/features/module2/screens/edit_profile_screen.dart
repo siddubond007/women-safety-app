@@ -78,8 +78,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           decoration: const InputDecoration(hintText: 'e.g. Women in Tech'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Add')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('Add'),
+          ),
         ],
       ),
     );
@@ -89,7 +95,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       _message('You can add up to 20 interests.');
       return;
     }
-    if (_interests.any((value) => value.toLowerCase() == result.toLowerCase())) {
+    if (_interests.any(
+      (value) => value.toLowerCase() == result.toLowerCase(),
+    )) {
       _message('That interest is already on your profile.');
       return;
     }
@@ -114,7 +122,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     if (success) {
       _dirty = false;
       _lastLoadedName = _nameController.text.trim();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile saved to your Sakhi account.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profile saved to your Sakhi account.')),
+      );
       Navigator.of(context).maybePop();
     } else {
       _message(_state.backend?.errorMessage ?? 'Profile could not be saved.');
@@ -122,7 +132,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   void _message(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -132,123 +143,197 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       builder: (context, _) => Module2PageBody(
         child: Form(
           key: _formKey,
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              const Expanded(child: Module2PageTitle('Edit Profile', subtitle: 'Keep your details accurate and up to date')),
-              FilledButton(
-                onPressed: _saving ? null : _save,
-                child: _saving
-                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Text('Save'),
-              ),
-            ]),
-            const SizedBox(height: 13),
-            Container(
-              height: 126,
-              width: double.infinity,
-              decoration: BoxDecoration(gradient: AppColors.heroBannerGradient, borderRadius: BorderRadius.circular(AppSpacing.radiusXl)),
-              child: Stack(children: [
-                Positioned(left: 4, top: 7, bottom: 4, child: Image.asset(AppAssets.botanicalSprigLeft, fit: BoxFit.contain, width: 67, errorBuilder: (_, __, ___) => const SizedBox.shrink())),
-                Positioned(right: 4, top: 7, bottom: 4, child: Image.asset(AppAssets.botanicalSprigRight, fit: BoxFit.contain, width: 67, errorBuilder: (_, __, ___) => const SizedBox.shrink())),
-                Center(
-                  child: SakhiAvatar(
-                    imageAsset: _state.currentUser.avatarAsset,
-                    size: 92,
-                    fallbackLabel: _state.currentUser.displayName,
-                    showEditCameraBadge: true,
-                    onCameraTap: _showPhotoConfigurationNotice,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Expanded(
+                    child: Module2PageTitle(
+                      'Edit Profile',
+                      subtitle: 'Keep your details accurate and up to date',
+                    ),
                   ),
+                  FilledButton(
+                    onPressed: _saving ? null : _save,
+                    child: _saving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text('Save'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 13),
+              Container(
+                height: 126,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  gradient: AppColors.heroBannerGradient,
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusXl),
                 ),
-              ]),
-            ),
-            const SizedBox(height: 19),
-            const Text('Display name *', style: AppTypography.bodyMedium),
-            const SizedBox(height: 6),
-            TextFormField(
-              controller: _nameController,
-              maxLength: 100,
-              decoration: const InputDecoration(hintText: 'Your display name'),
-              onChanged: (_) => _dirty = true,
-              validator: (value) {
-                final name = value?.trim() ?? '';
-                if (name.isEmpty) return 'Display name is required.';
-                if (name.length > 100) return 'Use 100 characters or fewer.';
-                if (!RegExp(r"^[\p{L}\p{M}\p{N}\s.'’_-]+$", unicode: true).hasMatch(name)) {
-                  return 'Use letters, numbers, spaces, periods, apostrophes, hyphens or underscores.';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 8),
-            const Text('Email (optional)', style: AppTypography.bodyMedium),
-            const SizedBox(height: 6),
-            TextFormField(
-              controller: _emailController,
-              keyboardType: TextInputType.emailAddress,
-              maxLength: 254,
-              decoration: const InputDecoration(hintText: 'name@example.com'),
-              onChanged: (_) => _dirty = true,
-              validator: (value) {
-                final email = value?.trim() ?? '';
-                if (email.isEmpty) return null;
-                if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email)) return 'Enter a valid email address.';
-                return null;
-              },
-            ),
-            const SizedBox(height: 8),
-            const Text('Bio', style: AppTypography.bodyMedium),
-            const SizedBox(height: 6),
-            TextFormField(
-              controller: _bioController,
-              maxLength: 500,
-              minLines: 3,
-              maxLines: 5,
-              decoration: const InputDecoration(hintText: 'A short introduction about you'),
-              onChanged: (_) => _dirty = true,
-            ),
-            const SizedBox(height: 8),
-            const Text('Location (optional)', style: AppTypography.bodyMedium),
-            const SizedBox(height: 6),
-            TextFormField(
-              controller: _locationController,
-              maxLength: 100,
-              decoration: const InputDecoration(
-                hintText: 'City or general location',
-                helperText: 'Do not enter your precise live location.',
+                child: Stack(
+                  children: [
+                    Positioned(
+                      left: 4,
+                      top: 7,
+                      bottom: 4,
+                      child: Image.asset(
+                        AppAssets.botanicalSprigLeft,
+                        fit: BoxFit.contain,
+                        width: 67,
+                        errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                      ),
+                    ),
+                    Positioned(
+                      right: 4,
+                      top: 7,
+                      bottom: 4,
+                      child: Image.asset(
+                        AppAssets.botanicalSprigRight,
+                        fit: BoxFit.contain,
+                        width: 67,
+                        errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                      ),
+                    ),
+                    Center(
+                      child: SakhiAvatar(
+                        imageAsset: _state.currentUser.avatarAsset,
+                        size: 92,
+                        fallbackLabel: _state.currentUser.displayName,
+                        showEditCameraBadge: true,
+                        onCameraTap: _showPhotoConfigurationNotice,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              onChanged: (_) => _dirty = true,
-            ),
-            const SizedBox(height: 14),
-            Row(children: [
-              const Expanded(child: Text('Interests', style: AppTypography.bodyMedium)),
-              TextButton.icon(onPressed: _addInterest, icon: const Icon(Icons.add_rounded), label: const Text('Add interest')),
-            ]),
-            Wrap(
-              spacing: 7,
-              runSpacing: 7,
-              children: _interests.map((interest) => SakhiChip(
-                label: interest,
-                onDelete: () => setState(() {
-                  _dirty = true;
-                  _interests.remove(interest);
-                }),
-              )).toList(),
-            ),
-            const SizedBox(height: 14),
-            const Text('Choose a JPG, PNG, or WebP photo. Uploaded images are stored in your private Google Drive and linked to your Sakhi profile.', style: AppTypography.subtitle),
-            const SizedBox(height: 18),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: _saving ? null : _save,
-                child: _saving ? const CircularProgressIndicator(color: Colors.white) : const Text('Save changes'),
+              const SizedBox(height: 19),
+              const Text('Display name *', style: AppTypography.bodyMedium),
+              const SizedBox(height: 6),
+              TextFormField(
+                controller: _nameController,
+                maxLength: 100,
+                decoration: const InputDecoration(
+                  hintText: 'Your display name',
+                ),
+                onChanged: (_) => _dirty = true,
+                validator: (value) {
+                  final name = value?.trim() ?? '';
+                  if (name.isEmpty) return 'Display name is required.';
+                  if (name.length > 100) return 'Use 100 characters or fewer.';
+                  if (!RegExp(
+                    r"^[\p{L}\p{M}\p{N}\s.'’_-]+$",
+                    unicode: true,
+                  ).hasMatch(name)) {
+                    return 'Use letters, numbers, spaces, periods, apostrophes, hyphens or underscores.';
+                  }
+                  return null;
+                },
               ),
-            ),
-            if (_state.backend?.errorMessage != null) ...[
-              const SizedBox(height: 9),
-              Text(_state.backend!.errorMessage!, style: const TextStyle(color: AppColors.sosRed, fontSize: 12)),
+              const SizedBox(height: 8),
+              const Text('Email (optional)', style: AppTypography.bodyMedium),
+              const SizedBox(height: 6),
+              TextFormField(
+                controller: _emailController,
+                keyboardType: TextInputType.emailAddress,
+                maxLength: 254,
+                decoration: const InputDecoration(hintText: 'name@example.com'),
+                onChanged: (_) => _dirty = true,
+                validator: (value) {
+                  final email = value?.trim() ?? '';
+                  if (email.isEmpty) return null;
+                  if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email)) {
+                    return 'Enter a valid email address.';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 8),
+              const Text('Bio', style: AppTypography.bodyMedium),
+              const SizedBox(height: 6),
+              TextFormField(
+                controller: _bioController,
+                maxLength: 500,
+                minLines: 3,
+                maxLines: 5,
+                decoration: const InputDecoration(
+                  hintText: 'A short introduction about you',
+                ),
+                onChanged: (_) => _dirty = true,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Location (optional)',
+                style: AppTypography.bodyMedium,
+              ),
+              const SizedBox(height: 6),
+              TextFormField(
+                controller: _locationController,
+                maxLength: 100,
+                decoration: const InputDecoration(
+                  hintText: 'City or general location',
+                  helperText: 'Do not enter your precise live location.',
+                ),
+                onChanged: (_) => _dirty = true,
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text('Interests', style: AppTypography.bodyMedium),
+                  ),
+                  TextButton.icon(
+                    onPressed: _addInterest,
+                    icon: const Icon(Icons.add_rounded),
+                    label: const Text('Add interest'),
+                  ),
+                ],
+              ),
+              Wrap(
+                spacing: 7,
+                runSpacing: 7,
+                children: _interests
+                    .map(
+                      (interest) => SakhiChip(
+                        label: interest,
+                        onDelete: () => setState(() {
+                          _dirty = true;
+                          _interests.remove(interest);
+                        }),
+                      ),
+                    )
+                    .toList(),
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'Choose a JPG, PNG, or WebP photo. Uploaded images are stored in your private Google Drive and linked to your Sakhi profile.',
+                style: AppTypography.subtitle,
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: _saving ? null : _save,
+                  child: _saving
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text('Save changes'),
+                ),
+              ),
+              if (_state.backend?.errorMessage != null) ...[
+                const SizedBox(height: 9),
+                Text(
+                  _state.backend!.errorMessage!,
+                  style: const TextStyle(color: AppColors.sosRed, fontSize: 12),
+                ),
+              ],
             ],
-          ]),
+          ),
         ),
       ),
     );
@@ -291,11 +376,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       );
       if (!mounted) return;
       if (uploadedUrl == null) {
-        _message('Upload failed. Ensure Google Drive is connected in the backend, then retry.');
+        _message(
+          'Upload failed. Ensure Google Drive is connected in the backend, then retry.',
+        );
         return;
       }
       SakhiPrototypeState.instance.updateAvatar(uploadedUrl);
-      _message('Profile photo uploaded to Google Drive and saved to PostgreSQL.');
+      _message(
+        'Profile photo uploaded to Google Drive and saved to PostgreSQL.',
+      );
     } finally {
       if (mounted) setState(() => _saving = false);
     }

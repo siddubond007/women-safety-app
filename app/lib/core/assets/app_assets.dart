@@ -1,4 +1,4 @@
-/// Reusable asset locations across Onboarding, Auth, Eligibility, Module 2, and Module 3 screens.
+/// Reusable asset locations across Onboarding, Auth, Eligibility, Module 2, Module 3, and Module 4 screens.
 abstract final class AppAssets {
   // Stage 1 Onboarding & Auth illustrations
   static const String onboardingWelcome =
@@ -107,8 +107,58 @@ abstract final class AppAssets {
   static const String guidedMeditationThumb =
       'assets/images/wellness/guided_meditation_thumb.webp';
 
-  // Screen 5: Safety
+  // Screen 5 & Module 4: Safety & Emergency SOS Reusable Assets
   static const String safetyMapBg = 'assets/images/safety/safety_map_bg.webp';
+  static const String module4PastelMapCanvas =
+      'assets/module4/illustrations/bg_reusable_pastel_safety_map_canvas.jpg';
+  static const String module4ShieldLotus =
+      'assets/module4/illustrations/emblem_sakhi_safety_shield_lotus_transparent.png';
+  static const String module4SosHeroButton =
+      'assets/module4/illustrations/button_sos_pulsing_shield_pin_hero_transparent.png';
+  static const String module4Emergency112Emblem =
+      'assets/module4/illustrations/emblem_112_emergency_shield_phone_transparent.png';
+  static const String module4TrustedContactAvatar =
+      'assets/module4/illustrations/avatar_trusted_contact_female_transparent.png';
+  static const String module4CommuteSafetyIllustration =
+      'assets/module4/illustrations/illustration_commute_and_cab_safety.jpg';
+  static const String module4DiscreetSosIllustration =
+      'assets/module4/illustrations/illustration_using_discreet_sos_safely.jpg';
+
+  // Module 4 @3x Transparent PNG Category & Row Badges
+  static const String icM4EmergencyContacts =
+      'assets/module4/icons_png/ic_01_emergency_contacts_circle.png';
+  static const String icM4NearestPolice =
+      'assets/module4/icons_png/ic_02_nearest_police_circle.png';
+  static const String icM4SafetyTips =
+      'assets/module4/icons_png/ic_03_safety_tips_circle.png';
+  static const String icM4Helplines112 =
+      'assets/module4/icons_png/ic_04_helplines_112_circle.png';
+  static const String icM4LiveLocationRadar =
+      'assets/module4/icons_png/ic_05_live_location_radar_badge.png';
+  static const String icM4SosHistoryClock =
+      'assets/module4/icons_png/ic_06_sos_history_clock_badge.png';
+  static const String icM4SafetyChecklist =
+      'assets/module4/icons_png/ic_07_safety_checklist_badge.png';
+  static const String icM4HelplineHeadset =
+      'assets/module4/icons_png/ic_08_emergency_helpline_headset_badge.png';
+  static const String icM4WomenPolice1091 =
+      'assets/module4/icons_png/ic_09_women_police_1091_badge.png';
+  static const String icM4DomesticSupport181 =
+      'assets/module4/icons_png/ic_10_domestic_support_181_badge.png';
+  static const String icM4MedicalCyber108 =
+      'assets/module4/icons_png/ic_11_medical_cyber_108_1930_badge.png';
+  static const String icM4AdminSecurityLock =
+      'assets/module4/icons_png/ic_12_admin_security_lock_badge.png';
+
+  // Module 4 Reusable PNG Controls
+  static const String btnM4SosPulsingCenter =
+      'assets/module4/components_png/btn_sos_pulsing_hero_center.png';
+  static const String toggleM4PlumOn =
+      'assets/module4/components_png/toggle_switch_plum_on.png';
+  static const String toggleM4PlumOff =
+      'assets/module4/components_png/toggle_switch_plum_off.png';
+  static const String module4WomenQuotesJson =
+      'assets/module4/sakhi_women_quotes.json';
 
   // 12 Diverse Original Fictional Women Default Avatars
   static const String avatarSiddhu = 'assets/images/profile/avatar_siddhu.webp';

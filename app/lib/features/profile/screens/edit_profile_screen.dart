@@ -52,16 +52,20 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _usernameController = TextEditingController(text: _originalUsername);
     _emailController = TextEditingController(text: user.email);
     _bioController = TextEditingController(
-      text: user.bio.isNotEmpty
-          ? user.bio
-          : 'Mental wellness advocate, peer counselor & community builder 🌸 Helping women thrive together. 💜',
+      text: user.bio.isNotEmpty ? user.bio : 'Mental wellness advocate, peer counselor & community builder 🌸 Helping women thrive together. 💜',
     );
     _locationController = TextEditingController(
       text: user.location.isNotEmpty ? user.location : 'Bangalore, India',
     );
     _interests = user.interests.isNotEmpty
         ? List<String>.from(user.interests)
-        : <String>['Mental Wellness', 'Travel', 'Reading', 'WomenInTech', 'Art'];
+        : <String>[
+            'Mental Wellness',
+            'Travel',
+            'Reading',
+            'WomenInTech',
+            'Art',
+          ];
     _selectedAvatar = user.avatarAsset;
     _businessProfileEnabled =
         (user.businessProfileUrl ?? '').trim().isNotEmpty || true;
@@ -698,9 +702,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       ])
                         Expanded(
                           child: GestureDetector(
-                            onTap: () => setState(
-                              () => _locationVisibility = option,
-                            ),
+                            onTap: () =>
+                                setState(() => _locationVisibility = option),
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 140),
                               padding: const EdgeInsets.symmetric(vertical: 9),
@@ -764,9 +767,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             ),
                             const SizedBox(width: 6),
                             GestureDetector(
-                              onTap: () => setState(
-                                () => _interests.remove(interest),
-                              ),
+                              onTap: () =>
+                                  setState(() => _interests.remove(interest)),
                               child: const Icon(
                                 Icons.close_rounded,
                                 size: 15,
@@ -853,7 +855,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       ),
                       Switch(
                         value: _businessProfileEnabled,
-                        activeColor: AppColors.primaryPurple,
+                        activeThumbColor: AppColors.primaryPurple,
                         onChanged: (enabled) =>
                             setState(() => _businessProfileEnabled = enabled),
                       ),

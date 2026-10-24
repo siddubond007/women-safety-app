@@ -1193,8 +1193,9 @@ class SakhiPrototypeState extends ChangeNotifier {
       if (response['username'] is String) {
         currentUser.username = response['username'] as String;
       }
-      if (response['bio'] is String)
+      if (response['bio'] is String) {
         currentUser.bio = response['bio'] as String;
+      }
       if (response['location'] is String) {
         currentUser.location = response['location'] as String;
       }
@@ -1445,10 +1446,10 @@ class SakhiPrototypeState extends ChangeNotifier {
           authenticated: true,
           body: {
             'body': nextContent,
-            if (categorySlug != null) 'categorySlug': categorySlug,
-            if (visibility != null) 'visibility': visibility,
-            if (locationTag != null) 'locationTag': locationTag,
-            if (allowComments != null) 'allowComments': allowComments,
+            'categorySlug': ?categorySlug,
+            'visibility': ?visibility,
+            'locationTag': ?locationTag,
+            'allowComments': ?allowComments,
           },
         );
       } catch (_) {
@@ -1959,7 +1960,7 @@ class SakhiPrototypeState extends ChangeNotifier {
           authenticated: true,
           body: {
             'status': 'SAFE',
-            if (locationLabel != null) 'locationArea': locationLabel,
+            'locationArea': ?locationLabel,
             'note': eventType,
           },
         );

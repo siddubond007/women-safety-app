@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../constants/app_assets.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_typography.dart';
@@ -60,7 +61,7 @@ class SakhiBrandHeader extends StatelessWidget {
             ),
           ),
           const Spacer(),
-          if (actions != null) ...actions!,
+          ...?actions,
         ],
       ),
     );

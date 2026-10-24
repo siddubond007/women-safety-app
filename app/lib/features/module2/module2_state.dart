@@ -6,7 +6,7 @@ import 'module2_models.dart';
 
 class Module2State extends ChangeNotifier {
   Module2State({required this.authService, BackendApiClient? api})
-      : api = api ?? BackendApiClient();
+    : api = api ?? BackendApiClient();
 
   final AuthService authService;
   final BackendApiClient api;
@@ -15,7 +15,8 @@ class Module2State extends ChangeNotifier {
   List<Module2Post> feedPosts = [];
   List<Module2Post> profilePosts = [];
   List<Module2Post> savedPosts = [];
-  final Map<String, List<Module2Comment>> commentsByPost = <String, List<Module2Comment>>{};
+  final Map<String, List<Module2Comment>> commentsByPost =
+      <String, List<Module2Comment>>{};
   List<Module2Member> discoveredMembers = [];
   List<Module2Member> followers = [];
   List<Module2Member> following = [];
@@ -139,9 +140,12 @@ class Module2State extends ChangeNotifier {
         body: <String, Object?>{
           'displayName': displayName.trim(),
           'bio': bio.trim().isEmpty ? null : bio.trim(),
-          'locationCity': locationCity.trim().isEmpty ? null : locationCity.trim(),
+          'locationCity': locationCity.trim().isEmpty
+              ? null
+              : locationCity.trim(),
           'interests': interests,
-          if (email != null) 'email': email.trim().isEmpty ? null : email.trim(),
+          if (email != null)
+            'email': email.trim().isEmpty ? null : email.trim(),
         },
       ),
     );
@@ -168,7 +172,9 @@ class Module2State extends ChangeNotifier {
       params['accountId'] = accountId;
     }
     final base = accountId == null ? 'module2/feed' : 'module2/posts';
-    final suffix = params.isEmpty ? '' : '?' + Uri(queryParameters: params).query;
+    final suffix = params.isEmpty
+        ? ''
+        : '?${Uri(queryParameters: params).query}';
     final payload = await _safe(
       () => api.get(base + suffix, authenticated: true),
     );
@@ -177,7 +183,9 @@ class Module2State extends ChangeNotifier {
       notifyListeners();
       return false;
     }
-    final posts = jsonMapList(payload['posts']).map(Module2Post.fromMap).toList();
+    final posts = jsonMapList(payload['posts'])
+        .map(Module2Post.fromMap)
+        .toList();
     if (accountId != null) {
       profilePosts = posts;
     } else {
@@ -192,16 +200,16 @@ class Module2State extends ChangeNotifier {
     notifyListeners();
     final params = <String, String>{'limit': '30'};
     if (query.trim().isNotEmpty) params['q'] = query.trim();
-    final path = 'module2/discover?' + Uri(queryParameters: params).query;
-    final payload = await _safe(
-      () => api.get(path, authenticated: true),
-    );
+    final path = 'module2/discover?${Uri(queryParameters: params).query}';
+    final payload = await _safe(() => api.get(path, authenticated: true));
     isLoadingMembers = false;
     if (payload == null) {
       notifyListeners();
       return false;
     }
-    discoveredMembers = jsonMapList(payload['members']).map(Module2Member.fromMap).toList();
+    discoveredMembers = jsonMapList(payload['members'])
+        .map(Module2Member.fromMap)
+        .toList();
     notifyListeners();
     return true;
   }
@@ -218,7 +226,7 @@ class Module2State extends ChangeNotifier {
       if (query.trim().isNotEmpty) params['q'] = query.trim();
       final payload = await _safe(
         () => api.get(
-          'module2/groups?' + Uri(queryParameters: params).query,
+          'module2/groups?${Uri(queryParameters: params).query}',
           authenticated: true,
         ),
       );
@@ -249,7 +257,7 @@ class Module2State extends ChangeNotifier {
       if (query.trim().isNotEmpty) params['q'] = query.trim();
       final payload = await _safe(
         () => api.get(
-          'module2/events?' + Uri(queryParameters: params).query,
+          'module2/events?${Uri(queryParameters: params).query}',
           authenticated: true,
         ),
       );
@@ -275,7 +283,7 @@ class Module2State extends ChangeNotifier {
       if (query.trim().isNotEmpty) params['q'] = query.trim();
       final payload = await _safe(
         () => api.get(
-          'module2/experts?' + Uri(queryParameters: params).query,
+          'module2/experts?${Uri(queryParameters: params).query}',
           authenticated: true,
         ),
       );
@@ -323,10 +331,7 @@ class Module2State extends ChangeNotifier {
 
   Future<bool> joinGroup(Module2Group group) async {
     final payload = await _safe(
-      () => api.post(
-        'module2/groups/${group.id}/join',
-        authenticated: true,
-      ),
+      () => api.post('module2/groups/${group.id}/join', authenticated: true),
     );
     if (payload == null) return false;
     actionMessage = payload['status'] == 'PENDING'
@@ -339,17 +344,15 @@ class Module2State extends ChangeNotifier {
 
   Future<bool> leaveGroup(Module2Group group) async {
     final payload = await _safe(
-      () => api.delete(
-        'module2/groups/${group.id}/join',
-        authenticated: true,
-      ),
+      () => api.delete('module2/groups/${group.id}/join', authenticated: true),
     );
     if (payload == null) return false;
     actionMessage = payload['archived'] == true
         ? 'Group archived.'
-        : payload['requestCancelled'] == true || group.membershipStatus == 'PENDING'
-            ? 'Membership request cancelled.'
-            : 'You left ${group.name}.';
+        : payload['requestCancelled'] == true ||
+              group.membershipStatus == 'PENDING'
+        ? 'Membership request cancelled.'
+        : 'You left ${group.name}.';
     await Future.wait([loadGroups(), loadGroups(mine: true)]);
     notifyListeners();
     return true;
@@ -358,20 +361,18 @@ class Module2State extends ChangeNotifier {
   Future<List<Module2Member>> loadPendingGroupMembers(String groupId) async {
     final payload = await _safe(
       () => api.get(
-        'module2/groups/${groupId}/pending-members',
+        'module2/groups/$groupId/pending-members',
         authenticated: true,
       ),
     );
     if (payload == null) return <Module2Member>[];
-    return jsonMapList(payload['members'])
-        .map(Module2Member.fromMap)
-        .toList();
+    return jsonMapList(payload['members']).map(Module2Member.fromMap).toList();
   }
 
   Future<bool> approveGroupMember(String groupId, Module2Member member) async {
     final payload = await _safe(
       () => api.post(
-        'module2/groups/${groupId}/members/${member.accountId}/approve',
+        'module2/groups/$groupId/members/${member.accountId}/approve',
         authenticated: true,
       ),
     );
@@ -402,7 +403,8 @@ class Module2State extends ChangeNotifier {
       return false;
     }
     if (!endsAt.isAfter(startsAt) || !startsAt.isAfter(DateTime.now())) {
-      errorMessage = 'Choose a future start time and an end time after the start.';
+      errorMessage =
+          'Choose a future start time and an end time after the start.';
       notifyListeners();
       return false;
     }
@@ -414,7 +416,8 @@ class Module2State extends ChangeNotifier {
           'groupId': groupId,
           'title': trimmedTitle,
           'description': trimmedDescription,
-          if (locationCity.trim().isNotEmpty) 'locationCity': locationCity.trim(),
+          if (locationCity.trim().isNotEmpty)
+            'locationCity': locationCity.trim(),
           'startsAt': startsAt.toUtc().toIso8601String(),
           'endsAt': endsAt.toUtc().toIso8601String(),
         },
@@ -433,10 +436,7 @@ class Module2State extends ChangeNotifier {
   }) async {
     final payload = await _safe(
       () => register
-          ? api.post(
-              'module2/events/${event.id}/register',
-              authenticated: true,
-            )
+          ? api.post('module2/events/${event.id}/register', authenticated: true)
           : api.delete(
               'module2/events/${event.id}/register',
               authenticated: true,
@@ -463,10 +463,7 @@ class Module2State extends ChangeNotifier {
     notifyListeners();
 
     final payload = await _safe(
-      () => api.get(
-        'module2/members/${accountId}',
-        authenticated: true,
-      ),
+      () => api.get('module2/members/$accountId', authenticated: true),
     );
     if (memberProfileAccountId != accountId) return false;
     isLoadingMemberProfile = false;
@@ -486,8 +483,11 @@ class Module2State extends ChangeNotifier {
   }) async {
     final result = await _safe(
       () => follow
-          ? api.post('module2/members/${accountId}/follow', authenticated: true)
-          : api.delete('module2/members/${accountId}/follow', authenticated: true),
+          ? api.post('module2/members/$accountId/follow', authenticated: true)
+          : api.delete(
+              'module2/members/$accountId/follow',
+              authenticated: true,
+            ),
     );
     if (result == null) return false;
     actionMessage = follow ? 'Member followed.' : 'Member unfollowed.';
@@ -611,21 +611,33 @@ class Module2State extends ChangeNotifier {
   Future<bool> toggleLike(Module2Post post) async {
     final result = await _safe(
       () => post.isLiked
-          ? api.delete('module2/posts/' + post.id + '/like', authenticated: true)
-          : api.post('module2/posts/' + post.id + '/like', authenticated: true),
+          ? api.delete('module2/posts/${post.id}/like', authenticated: true)
+          : api.post('module2/posts/${post.id}/like', authenticated: true),
     );
     if (result == null) return false;
     final newLiked = !post.isLiked;
     final count = jsonInt(result['likeCount']);
-    feedPosts = feedPosts.map((item) => item.id == post.id
-        ? item.copyWith(isLiked: newLiked, likeCount: count)
-        : item).toList();
-    profilePosts = profilePosts.map((item) => item.id == post.id
-        ? item.copyWith(isLiked: newLiked, likeCount: count)
-        : item).toList();
-    savedPosts = savedPosts.map((item) => item.id == post.id
-        ? item.copyWith(isLiked: newLiked, likeCount: count)
-        : item).toList();
+    feedPosts = feedPosts
+        .map(
+          (item) => item.id == post.id
+              ? item.copyWith(isLiked: newLiked, likeCount: count)
+              : item,
+        )
+        .toList();
+    profilePosts = profilePosts
+        .map(
+          (item) => item.id == post.id
+              ? item.copyWith(isLiked: newLiked, likeCount: count)
+              : item,
+        )
+        .toList();
+    savedPosts = savedPosts
+        .map(
+          (item) => item.id == post.id
+              ? item.copyWith(isLiked: newLiked, likeCount: count)
+              : item,
+        )
+        .toList();
     notifyListeners();
     return true;
   }
@@ -633,17 +645,21 @@ class Module2State extends ChangeNotifier {
   Future<bool> toggleBookmark(Module2Post post) async {
     final result = await _safe(
       () => post.isSaved
-          ? api.delete('module2/posts/' + post.id + '/bookmark', authenticated: true)
-          : api.post('module2/posts/' + post.id + '/bookmark', authenticated: true),
+          ? api.delete('module2/posts/${post.id}/bookmark', authenticated: true)
+          : api.post('module2/posts/${post.id}/bookmark', authenticated: true),
     );
     if (result == null) return false;
     final saved = result['saved'] == true;
-    feedPosts = feedPosts.map((item) => item.id == post.id
-        ? item.copyWith(isSaved: saved)
-        : item).toList();
-    profilePosts = profilePosts.map((item) => item.id == post.id
-        ? item.copyWith(isSaved: saved)
-        : item).toList();
+    feedPosts = feedPosts
+        .map(
+          (item) => item.id == post.id ? item.copyWith(isSaved: saved) : item,
+        )
+        .toList();
+    profilePosts = profilePosts
+        .map(
+          (item) => item.id == post.id ? item.copyWith(isSaved: saved) : item,
+        )
+        .toList();
     await loadSavedPosts();
     notifyListeners();
     return true;
@@ -654,14 +670,16 @@ class Module2State extends ChangeNotifier {
       () => api.get('module2/posts/saved', authenticated: true),
     );
     if (payload == null) return false;
-    savedPosts = jsonMapList(payload['posts']).map(Module2Post.fromMap).toList();
+    savedPosts = jsonMapList(payload['posts'])
+        .map(Module2Post.fromMap)
+        .toList();
     notifyListeners();
     return true;
   }
 
   Future<bool> loadComments(String postId) async {
     final payload = await _safe(
-      () => api.get('module2/posts/' + postId + '/comments', authenticated: true),
+      () => api.get('module2/posts/$postId/comments', authenticated: true),
     );
     if (payload == null) return false;
     commentsByPost[postId] = jsonMapList(payload['comments'])
@@ -680,7 +698,7 @@ class Module2State extends ChangeNotifier {
     }
     final payload = await _safe(
       () => api.post(
-        'module2/posts/' + postId + '/comments',
+        'module2/posts/$postId/comments',
         authenticated: true,
         body: <String, Object?>{'body': text},
       ),
@@ -696,7 +714,7 @@ class Module2State extends ChangeNotifier {
 
   Future<bool> deleteComment(String commentId, String postId) async {
     final payload = await _safe(
-      () => api.delete('module2/comments/' + commentId, authenticated: true),
+      () => api.delete('module2/comments/$commentId', authenticated: true),
     );
     if (payload == null) return false;
     actionMessage = 'Comment removed.';
@@ -758,7 +776,7 @@ class Module2State extends ChangeNotifier {
     if (query.trim().isNotEmpty) params['q'] = query.trim();
     final payload = await _safe(
       () => api.get(
-        'module2/followers?' + Uri(queryParameters: params).query,
+        'module2/followers?${Uri(queryParameters: params).query}',
         authenticated: true,
       ),
     );
@@ -767,7 +785,9 @@ class Module2State extends ChangeNotifier {
       notifyListeners();
       return false;
     }
-    final members = jsonMapList(payload['members']).map(Module2Member.fromMap).toList();
+    final members = jsonMapList(payload['members'])
+        .map(Module2Member.fromMap)
+        .toList();
     if (showFollowing) {
       following = members;
     } else {
@@ -780,14 +800,24 @@ class Module2State extends ChangeNotifier {
   Future<bool> setFollowing(Module2Member member, bool follow) async {
     final result = await _safe(
       () => follow
-          ? api.post('module2/members/' + member.accountId + '/follow', authenticated: true)
-          : api.delete('module2/members/' + member.accountId + '/follow', authenticated: true),
+          ? api.post(
+              'module2/members/${member.accountId}/follow',
+              authenticated: true,
+            )
+          : api.delete(
+              'module2/members/${member.accountId}/follow',
+              authenticated: true,
+            ),
     );
     if (result == null) return false;
     actionMessage = follow
-        ? 'You are now following ' + member.displayName + '.'
-        : 'You unfollowed ' + member.displayName + '.';
-    await Future.wait([loadDiscover(), loadFollowers(showFollowing: true), loadProfile()]);
+        ? 'You are now following ${member.displayName}.'
+        : 'You unfollowed ${member.displayName}.';
+    await Future.wait([
+      loadDiscover(),
+      loadFollowers(showFollowing: true),
+      loadProfile(),
+    ]);
     notifyListeners();
     return true;
   }
@@ -847,16 +877,15 @@ class Module2State extends ChangeNotifier {
       () => api.get('module2/blocks', authenticated: true),
     );
     if (payload == null) return false;
-    blockedMembers = jsonMapList(payload['members']).map(Module2Member.fromMap).toList();
+    blockedMembers = jsonMapList(payload['members'])
+        .map(Module2Member.fromMap)
+        .toList();
     notifyListeners();
     return true;
   }
 
   Future<bool> blockMember(Module2Member member) =>
-      blockMemberByAccountId(
-        member.accountId,
-        displayName: member.displayName,
-      );
+      blockMemberByAccountId(member.accountId, displayName: member.displayName);
 
   Future<bool> blockMemberByAccountId(
     String accountId, {
@@ -868,7 +897,7 @@ class Module2State extends ChangeNotifier {
       return false;
     }
     final payload = await _safe(
-      () => api.post('module2/blocks/' + accountId, authenticated: true),
+      () => api.post('module2/blocks/$accountId', authenticated: true),
     );
     if (payload == null) return false;
     actionMessage = displayName != null && displayName.trim().isNotEmpty
@@ -888,7 +917,8 @@ class Module2State extends ChangeNotifier {
 
   Future<bool> unblockMember(Module2Member member) async {
     final payload = await _safe(
-      () => api.delete('module2/blocks/' + member.accountId, authenticated: true),
+      () =>
+          api.delete('module2/blocks/${member.accountId}', authenticated: true),
     );
     if (payload == null) return false;
     actionMessage = 'Member unblocked.';
@@ -910,8 +940,9 @@ class Module2State extends ChangeNotifier {
         body: <String, Object?>{
           'reportedAccountId': accountId,
           'reason': reason,
-          if (postId != null) 'postId': postId,
-          if (details != null && details.trim().isNotEmpty) 'details': details.trim(),
+          'postId': ?postId,
+          if (details != null && details.trim().isNotEmpty)
+            'details': details.trim(),
         },
       ),
     );
@@ -967,11 +998,13 @@ class Module2State extends ChangeNotifier {
 
   Future<bool> revokeSession(String sessionId) async {
     final payload = await _safe(
-      () => api.delete('module2/sessions/' + sessionId, authenticated: true),
+      () => api.delete('module2/sessions/$sessionId', authenticated: true),
     );
     if (payload == null) return false;
     final current = payload['currentSession'] == true;
-    actionMessage = current ? 'This device session was revoked.' : 'Login session revoked.';
+    actionMessage = current
+        ? 'This device session was revoked.'
+        : 'Login session revoked.';
     await loadSessions();
     if (current) await authService.logout();
     notifyListeners();
@@ -1000,7 +1033,8 @@ class Module2State extends ChangeNotifier {
         authenticated: true,
         body: <String, Object?>{
           'confirmation': 'DELETE',
-          if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim(),
+          if (reason != null && reason.trim().isNotEmpty)
+            'reason': reason.trim(),
         },
       ),
     );

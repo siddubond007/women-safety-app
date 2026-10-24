@@ -9,7 +9,7 @@ import '../../../core/widgets/sakhi_section_header.dart';
 import '../../account_security/screens/account_security_screen.dart';
 import '../../notifications/screens/notification_preferences_screen.dart';
 
-/// Screen 09 â€” Privacy & Account Settings
+/// Screen 09 — Privacy & Account Settings
 class PrivacySettingsScreen extends StatelessWidget {
   const PrivacySettingsScreen({super.key});
 
@@ -201,7 +201,7 @@ class PrivacySettingsScreen extends StatelessWidget {
                     const Divider(height: 1, color: AppColors.dividerColor),
                     SwitchListTile(
                       value: locationEnabled,
-                      activeColor: AppColors.primaryPurple,
+                      activeThumbColor: AppColors.primaryPurple,
                       title: const Text(
                         'Show my general location',
                         style: AppTypography.bodyMedium,
@@ -220,7 +220,7 @@ class PrivacySettingsScreen extends StatelessWidget {
                     const Divider(height: 1, color: AppColors.dividerColor),
                     SwitchListTile(
                       value: search.selectedValue == 'Yes',
-                      activeColor: AppColors.primaryPurple,
+                      activeThumbColor: AppColors.primaryPurple,
                       title: const Text(
                         'Appear in search results',
                         style: AppTypography.bodyMedium,
@@ -239,7 +239,7 @@ class PrivacySettingsScreen extends StatelessWidget {
                     const Divider(height: 1, color: AppColors.dividerColor),
                     SwitchListTile(
                       value: business.selectedValue == 'Yes',
-                      activeColor: AppColors.primaryPurple,
+                      activeThumbColor: AppColors.primaryPurple,
                       title: const Text(
                         'Allow business enquiries',
                         style: AppTypography.bodyMedium,
@@ -275,7 +275,7 @@ class PrivacySettingsScreen extends StatelessWidget {
                   children: [
                     SwitchListTile(
                       value: commNotif?.isEnabled ?? true,
-                      activeColor: AppColors.primaryPurple,
+                      activeThumbColor: AppColors.primaryPurple,
                       title: const Text(
                         'Community updates & replies',
                         style: AppTypography.bodyMedium,
@@ -288,7 +288,7 @@ class PrivacySettingsScreen extends StatelessWidget {
                     const Divider(height: 1, color: AppColors.dividerColor),
                     SwitchListTile(
                       value: groupNotif?.isEnabled ?? true,
-                      activeColor: AppColors.primaryPurple,
+                      activeThumbColor: AppColors.primaryPurple,
                       title: const Text(
                         'Circle & group activity',
                         style: AppTypography.bodyMedium,
@@ -299,7 +299,7 @@ class PrivacySettingsScreen extends StatelessWidget {
                     const Divider(height: 1, color: AppColors.dividerColor),
                     SwitchListTile(
                       value: wellnessNotif?.isEnabled ?? true,
-                      activeColor: AppColors.primaryPurple,
+                      activeThumbColor: AppColors.primaryPurple,
                       title: const Text(
                         'Wellness & cycle reminders',
                         style: AppTypography.bodyMedium,
@@ -312,7 +312,7 @@ class PrivacySettingsScreen extends StatelessWidget {
                     const Divider(height: 1, color: AppColors.dividerColor),
                     SwitchListTile(
                       value: safetyNotif?.isEnabled ?? true,
-                      activeColor: AppColors.primaryPurple,
+                      activeThumbColor: AppColors.primaryPurple,
                       title: const Text(
                         'Safety alerts & check-ins',
                         style: AppTypography.bodyMedium,
@@ -451,7 +451,7 @@ class PrivacySettingsScreen extends StatelessWidget {
                         style: AppTypography.bodyMedium,
                       ),
                       subtitle: Text(
-                        '${state.currentUser.activeSessionsCount} active device(s) Â· Bangalore (Current)',
+                        '${state.currentUser.activeSessionsCount} active device(s) • Bangalore (Current)',
                         style: AppTypography.subtitle,
                       ),
                       trailing: const Icon(

@@ -1,3 +1,5 @@
+import '../../../core/widgets/sakhi_quote_loader.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/mock_data.dart';
@@ -11,7 +13,7 @@ import '../../../core/widgets/sakhi_empty_state.dart';
 import '../../../core/widgets/sakhi_search_field.dart';
 import '../../explore/screens/explore_discovery_screens.dart';
 
-/// Screen 08 â€” Followers & Following + Member Options Modal
+/// Screen 08 — Followers & Following + Member Options Modal
 class FollowersFollowingScreen extends StatefulWidget {
   const FollowersFollowingScreen({super.key, this.initialFollowing = false});
 
@@ -160,7 +162,7 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          '${member.username} Â· Member Options',
+                          '${member.username} • Member Options',
                           style: AppTypography.subtitle,
                         ),
                       ],
@@ -310,7 +312,7 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
                         displayName: member.name,
                         accountId: member.id,
                       );
-                      if (!mounted) return;
+                      if (!mounted || !context.mounted) return;
                       setState(() {});
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
@@ -408,7 +410,7 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<String>(
-                value: reason,
+                initialValue: reason,
                 decoration: const InputDecoration(labelText: 'Reason'),
                 items: const [
                   DropdownMenuItem(
@@ -462,7 +464,7 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
         reasonCode: reason.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_'),
         details: noteController.text.trim(),
       );
-      if (mounted) {
+      if (mounted && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -623,10 +625,8 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
                   const SizedBox(height: 14),
                   Expanded(
                     child: _loadingConnections
-                        ? const Center(
-                            child: CircularProgressIndicator(
-                              color: AppColors.primaryPurple,
-                            ),
+                        ? const SakhiQuoteLoader.inline(
+                            statusLabel: 'Loading your Sakhi connections…',
                           )
                         : _connectionsUnavailable
                         ? SakhiEmptyState(
@@ -720,7 +720,7 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
                                               const SizedBox(height: 2),
                                               Text(
                                                 person.bio?.isNotEmpty == true
-                                                    ? '${person.username} Â· ${person.bio}'
+                                                    ? '${person.username} • ${person.bio}'
                                                     : person.username,
                                                 style: AppTypography.subtitle,
                                                 maxLines: 1,

@@ -176,9 +176,7 @@ class FeedPostCard extends StatelessWidget {
                             borderRadius: BorderRadius.circular(
                               AppSpacing.radiusPill,
                             ),
-                            border: Border.all(
-                              color: const Color(0xFFE5BDD1),
-                            ),
+                            border: Border.all(color: const Color(0xFFE5BDD1)),
                           ),
                           child: Text(
                             '+ Follow',
@@ -947,35 +945,39 @@ class FeedPostCard extends StatelessWidget {
           backgroundColor: AppColors.cardSurface,
           title: const Text('Report Post', style: AppTypography.sectionTitle),
           content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Confidential: Your identity is never disclosed to the reported member.',
-                  style: AppTypography.subtitle,
-                ),
-                const SizedBox(height: 8),
-                ...reasons.map(
-                  (r) => RadioListTile<String>(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    value: r,
-                    groupValue: selected,
-                    activeColor: AppColors.primaryPurple,
-                    title: Text(r, style: AppTypography.bodyRegular),
-                    onChanged: (v) {
-                      if (v != null) setDialogState(() => selected = v);
-                    },
+            child: RadioGroup<String>(
+              groupValue: selected,
+              onChanged: (value) {
+                if (value != null) {
+                  setDialogState(() => selected = value);
+                }
+              },
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Confidential: Your identity is never disclosed to the reported member.',
+                    style: AppTypography.subtitle,
                   ),
-                ),
-                TextField(
-                  controller: detailsCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Additional details (optional)',
+                  const SizedBox(height: 8),
+                  ...reasons.map(
+                    (r) => RadioListTile<String>(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      value: r,
+                      activeColor: AppColors.primaryPurple,
+                      title: Text(r, style: AppTypography.bodyRegular),
+                    ),
                   ),
-                ),
-              ],
+                  TextField(
+                    controller: detailsCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Additional details (optional)',
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           actions: [

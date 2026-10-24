@@ -137,9 +137,8 @@ class SakhiAuthScaffold extends StatelessWidget {
                                   ),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: const Color(
-                                        0xFF4A195C,
-                                      ).withValues(alpha: 0.07),
+                                      color: const Color(0xFF4A195C)
+                                          .withValues(alpha: 0.07),
                                       blurRadius: 24,
                                       offset: const Offset(0, 8),
                                     ),
@@ -169,7 +168,7 @@ class SakhiAuthScaffold extends StatelessWidget {
                 },
               ),
             ),
-            if (bottomAccessory != null) bottomAccessory!,
+            ?bottomAccessory,
           ],
         ),
       ),
@@ -252,9 +251,7 @@ class SakhiDevelopmentBackendBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const SizedBox.shrink(
-      key: Key('auth-development-backend-banner'),
-    );
+    return const SizedBox.shrink(key: Key('auth-development-backend-banner'));
   }
 }
 
@@ -371,9 +368,8 @@ class SakhiAuthSubmitButton extends StatelessWidget {
         style: FilledButton.styleFrom(
           backgroundColor: const Color(0xFF5D196A),
           foregroundColor: Colors.white,
-          disabledBackgroundColor: const Color(
-            0xFF5D196A,
-          ).withValues(alpha: 0.46),
+          disabledBackgroundColor: const Color(0xFF5D196A)
+              .withValues(alpha: 0.46),
           disabledForegroundColor: Colors.white.withValues(alpha: 0.9),
           minimumSize: const Size.fromHeight(52),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),

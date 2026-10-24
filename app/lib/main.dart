@@ -6,6 +6,7 @@ import 'core/navigation/app_navigation_shell.dart';
 import 'core/navigation/app_routes.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/sakhi_design_system.dart';
+import 'core/widgets/sakhi_quote_loader.dart';
 import 'features/account_security/screens/account_security_screen.dart';
 import 'features/auth/auth_service.dart';
 import 'features/auth/auth_service_factory.dart';
@@ -166,8 +167,8 @@ class _SakhiStartupRouterState extends State<SakhiStartupRouter> {
         if (snapshot.connectionState != ConnectionState.done) {
           return const Scaffold(
             backgroundColor: SakhiColors.blush,
-            body: Center(
-              child: CircularProgressIndicator(color: SakhiColors.purple),
+            body: SakhiQuoteLoader.fullScreen(
+              statusLabel: 'Restoring your verified Sakhi session...',
             ),
           );
         }
@@ -287,8 +288,8 @@ class _SakhiProtectedHomeGateState extends State<SakhiProtectedHomeGate> {
         if (snapshot.connectionState != ConnectionState.done) {
           return const Scaffold(
             backgroundColor: SakhiColors.blush,
-            body: Center(
-              child: CircularProgressIndicator(color: SakhiColors.purple),
+            body: SakhiQuoteLoader.fullScreen(
+              statusLabel: 'Verifying your Sakhi community access...',
             ),
           );
         }

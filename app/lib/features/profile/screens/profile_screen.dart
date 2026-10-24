@@ -1,3 +1,5 @@
+import '../../../core/widgets/sakhi_quote_loader.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -386,13 +388,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (selected == null || !mounted) return;
     if (selected == current.selectedValue) return;
     final saved = await state.updatePrivacySetting('show_location', selected);
-    if (!mounted) return;
+    if (!mounted || !context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          saved
-              ? 'Location visibility updated.'
-              : 'Location visibility could not be saved. Your previous setting was kept.',
+          saved ? 'Location visibility updated.' : 'Location visibility could not be saved. Your previous setting was kept.',
         ),
       ),
     );
@@ -583,9 +583,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        user.username.isEmpty
-                            ? '@ananya_rao'
-                            : user.username,
+                        user.username.isEmpty ? '@ananya_rao' : user.username,
                         style: AppTypography.subtitle,
                       ),
                       const SizedBox(height: 10),
@@ -616,7 +614,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       border: Border.all(color: AppColors.borderSubtle),
                       boxShadow: [
                         BoxShadow(
-                          color: AppColors.primaryPurple.withValues(alpha: 0.04),
+                          color: AppColors.primaryPurple.withValues(
+                            alpha: 0.04,
+                          ),
                           blurRadius: 12,
                           offset: const Offset(0, 4),
                         ),
@@ -817,8 +817,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           icon: Icons.grid_on_outlined,
           illustrationAsset: AppAssets.emptyPostsIllustration,
           title: 'No Posts Yet',
-          message:
-              'Share your first photo, thought, or question with the Sakhi community.',
+          message: 'Share your first photo, thought, or question with the Sakhi community.',
           actionLabel: '+ Create First Post',
           onAction:
               widget.onCreateTap ??
@@ -829,9 +828,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     } else if (_selectedTabIndex == 1) {
       if (_loadingSavedPosts) {
         return const Padding(
-          padding: EdgeInsets.symmetric(vertical: 32),
-          child: Center(
-            child: CircularProgressIndicator(color: AppColors.primaryPurple),
+          padding: EdgeInsets.symmetric(vertical: 20),
+          child: SakhiQuoteLoader.inline(
+            statusLabel: 'Loading your saved posts…',
           ),
         );
       }
@@ -839,8 +838,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         return SakhiEmptyState(
           icon: Icons.cloud_off_outlined,
           title: 'Saved posts could not be loaded',
-          message:
-              'Sakhi could not retrieve your saved posts. They have not been cleared.',
+          message: 'Sakhi could not retrieve your saved posts. They have not been cleared.',
           actionLabel: 'Retry',
           onAction: () => _loadSavedPosts(retryConnection: true),
         );
@@ -853,8 +851,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           icon: Icons.bookmark_border_rounded,
           illustrationAsset: AppAssets.emptySavedIllustration,
           title: 'No Saved Posts',
-          message:
-              'Bookmark inspiring stories, safety guides, and wellness tips to revisit anytime.',
+          message: 'Bookmark inspiring stories, safety guides, and wellness tips to revisit anytime.',
           actionLabel: 'Explore Community',
           onAction: widget.onNavigateTab != null
               ? () => widget.onNavigateTab!(2)
@@ -867,8 +864,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         icon: Icons.groups_outlined,
         illustrationAsset: AppAssets.emptyGroupsIllustration,
         title: 'Not in Any Groups Yet',
-        message:
-            'Join circles that match your career, wellness, and local community interests.',
+        message: 'Join circles that match your career, wellness, and local community interests.',
         actionLabel: 'Browse Circles',
         onAction: widget.onNavigateTab != null
             ? () => widget.onNavigateTab!(1)

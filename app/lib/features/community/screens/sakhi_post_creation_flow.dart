@@ -192,8 +192,9 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
       });
       await _applyCrop();
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         _message('The selected photo could not be opened. Try another image.');
+      }
     }
   }
 
@@ -247,8 +248,9 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
         _error = null;
       });
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         _message('Unable to read that video. Select an MP4 under 50 MB.');
+      }
     }
   }
 
@@ -309,8 +311,9 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
         _error = null;
       });
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         _message('Crop preview failed. Your original photo is preserved.');
+      }
     }
   }
 
@@ -484,7 +487,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
         fontWeight: FontWeight.w700,
       ),
     )..pushStyle(ui.TextStyle(color: foreground.withValues(alpha: .86)));
-    brand.addText('Sakhi  â€¢  A safe space for every woman');
+    brand.addText('Sakhi  •  A safe space for every woman');
     final brandParagraph = brand.build()
       ..layout(const ui.ParagraphConstraints(width: 920));
     canvas.drawParagraph(brandParagraph, const Offset(80, 1180));
@@ -634,7 +637,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
         leadingWidth: 100,
         leading: TextButton(
           onPressed: _uploading ? null : _back,
-          child: Text(_step == 1 ? 'â€¹ Back' : 'â€¹ Discard'),
+          child: Text(_step == 1 ? '‹ Back' : '‹ Discard'),
         ),
         title: Text(
           _step == 0
@@ -660,7 +663,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
                         });
                       }
                     },
-              child: const Text('Next â€º'),
+              child: const Text('Next ›'),
             ),
           if (_step == 1)
             TextButton(
@@ -808,7 +811,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
                           style: const TextStyle(color: Colors.white),
                         ),
                         const Text(
-                          'MP4 Â· max 60 seconds Â· 50 MB',
+                          'MP4 • max 60 seconds • 50 MB',
                           style: TextStyle(color: Colors.white70),
                         ),
                       ],
@@ -848,7 +851,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: const [
           Text('Recent Photos', style: AppTypography.bodyMedium),
-          Text('All Albums â€º', style: AppTypography.subtitle),
+          Text('All Albums ›', style: AppTypography.subtitle),
         ],
       ),
       const SizedBox(height: 8),
@@ -1512,9 +1515,9 @@ class _SakhiTextPostComposerScreenState
         _message('Enter a source link beginning with https:// or http://.');
         return;
       }
-      if (url.isNotEmpty) body = body + '\n\nResource: ' + url;
+      if (url.isNotEmpty) body = '$body\n\nResource: $url';
     } else if (_mode == SakhiTextPostMode.question) {
-      body = 'Community Question\n' + body;
+      body = 'Community Question\n$body';
     }
 
     setState(() => _submitting = true);
@@ -1543,10 +1546,10 @@ class _SakhiTextPostComposerScreenState
     SakhiPrototypeState.instance.loadFeed(categorySlug: 'all');
     widget.onPublished?.call();
     final success = _mode == SakhiTextPostMode.question
-        ? 'Question shared to ' + sakhiPostCategories[_category]! + '!'
+        ? 'Question shared to ${sakhiPostCategories[_category]!}!'
         : _mode == SakhiTextPostMode.resource
-        ? 'Resource shared to ' + sakhiPostCategories[_category]! + '!'
-        : 'Post shared to ' + sakhiPostCategories[_category]! + '!';
+        ? 'Resource shared to ${sakhiPostCategories[_category]!}!'
+        : 'Post shared to ${sakhiPostCategories[_category]!}!';
     _message(success);
     Navigator.of(context).pop();
   }
@@ -1579,7 +1582,7 @@ class _SakhiTextPostComposerScreenState
         leadingWidth: 100,
         leading: TextButton(
           onPressed: _submitting ? null : _back,
-          child: const Text('â€¹ Discard'),
+          child: const Text('‹ Discard'),
         ),
         title: Text(
           question
@@ -1707,7 +1710,7 @@ class _SakhiTextPostComposerScreenState
                     Align(
                       alignment: Alignment.centerRight,
                       child: Text(
-                        _bodyController.text.length.toString() + '/1000',
+                        '${_bodyController.text.length}/1000',
                         style: AppTypography.subtitle,
                       ),
                     ),
@@ -1825,7 +1828,7 @@ class _SakhiTextPostComposerScreenState
                         final body = _bodyController.text.trimRight();
                         _bodyController.text = body.isEmpty
                             ? tag
-                            : body + ' ' + tag;
+                            : '$body $tag';
                         _bodyController.selection = TextSelection.collapsed(
                           offset: _bodyController.text.length,
                         );
@@ -1857,7 +1860,7 @@ class _SakhiTextPostComposerScreenState
               width: double.infinity,
               child: SakhiPillButton(
                 label: _submitting
-                    ? 'Sharingâ€¦'
+                    ? 'Sharing...'
                     : question
                     ? 'Share Question to Social Wall'
                     : resource

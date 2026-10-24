@@ -1,3 +1,5 @@
+import '../../../core/widgets/sakhi_quote_loader.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -228,10 +230,10 @@ class _CategoryDestinationScreenState extends State<CategoryDestinationScreen> {
                 const SakhiSectionHeader(title: 'Featured Circles'),
                 const SizedBox(height: 10),
                 if (_loading && state.groups.isEmpty)
-                  const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(18),
-                      child: CircularProgressIndicator(),
+                  const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: SakhiQuoteLoader.inline(
+                      statusLabel: 'Discovering active circles near you…',
                     ),
                   )
                 else if (groups.isEmpty)
@@ -276,7 +278,7 @@ class _CategoryDestinationScreenState extends State<CategoryDestinationScreen> {
                                   ),
                                   const SizedBox(height: 3),
                                   Text(
-                                    '${group.membersCount} members Â· ${group.description}',
+                                    '${group.membersCount} members • ${group.description}',
                                     style: AppTypography.subtitle,
                                   ),
                                 ],
@@ -304,7 +306,7 @@ class _CategoryDestinationScreenState extends State<CategoryDestinationScreen> {
                 else if (_failed)
                   SakhiEmptyState(
                     icon: Icons.cloud_off_outlined,
-                    title: 'Couldnâ€™t refresh latest posts',
+                    title: "Couldn't refresh latest posts",
                     message:
                         'Your posts could not be loaded from the Sakhi API.',
                     actionLabel: 'Retry',
@@ -597,7 +599,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                     const SizedBox(height: 44),
                     const Center(child: CircularProgressIndicator()),
                     const SizedBox(height: 14),
-                    const Center(child: Text('Searching Sakhiâ€¦')),
+                    const Center(child: Text('Searching Sakhi...')),
                   ] else if (_failed) ...[
                     SakhiEmptyState(
                       icon: Icons.cloud_off_outlined,
@@ -694,7 +696,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                                     member.username,
                                     if (member.bio?.trim().isNotEmpty == true)
                                       member.bio!.trim(),
-                                  ].join(' Â· '),
+                                  ].join(' • '),
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -737,7 +739,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                               ),
                               title: Text(group.name),
                               subtitle: Text(
-                                '${group.membersCount} members Â· ${group.description}',
+                                '${group.membersCount} members • ${group.description}',
                               ),
                             ),
                           ),
@@ -778,7 +780,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                                   style: AppTypography.cardTitle,
                                 ),
                                 subtitle: Text(
-                                  '${member.businessCategory ?? 'Women-owned business'} Â· ${member.name}',
+                                  '${member.businessCategory ?? 'Women-owned business'} • ${member.name}',
                                 ),
                                 trailing: const Icon(
                                   Icons.chevron_right_rounded,

@@ -279,4 +279,45 @@ export class AdminReviewController {
       pickAdminToken(token, altToken, stagingSessionToken),
     );
   }
+
+  @Get("safety-console")
+  safetyConsoleOverview(
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.safetyConsoleOverview(
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
+  @Post("police-stations")
+  @HttpCode(201)
+  upsertPoliceStation(
+    @Body() body: Record<string, unknown>,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.upsertPoliceStation(
+      body,
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
+  @Post("sos-events/:eventId/review")
+  @HttpCode(200)
+  reviewSosEvent(
+    @Param("eventId") eventId: string,
+    @Body() body: Record<string, unknown>,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.reviewSosEvent(
+      eventId,
+      body,
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
 }

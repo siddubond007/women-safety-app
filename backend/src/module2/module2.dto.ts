@@ -7,6 +7,7 @@ import {
   IsISO8601,
   IsInt,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
@@ -394,40 +395,153 @@ export class UpdateNotificationPreferenceDto {
 }
 
 export class RecordSafetyEventDto {
+  @IsOptional()
   @IsString()
-  @IsIn([
-    "SOS_ACTIVATED",
-    "LOCATION_SHARED",
-    "FAKE_CALL_TRIGGERED",
-    "AUDIO_RECORDING_STARTED",
-  ])
-  eventType!:
-    | "SOS_ACTIVATED"
-    | "LOCATION_SHARED"
-    | "FAKE_CALL_TRIGGERED"
-    | "AUDIO_RECORDING_STARTED";
+  @MaxLength(40)
+  eventType?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  status?: string;
 
   @IsOptional()
   @IsString()
   @MaxLength(120)
   locationLabel?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  locationArea?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  note?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  latitude?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  longitude?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isTestMode?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  contactsAlertedCount?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  shareToken?: string;
 }
 
 export class CreateEmergencyContactDto {
+  @IsOptional()
   @IsString()
-  @MinLength(2)
   @MaxLength(80)
-  name!: string;
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  contactName?: string;
 
   @IsString()
   @MinLength(2)
   @MaxLength(50)
   relationship!: string;
 
+  @IsOptional()
   @IsString()
-  @MinLength(8)
   @MaxLength(20)
-  phoneE164!: string;
+  phoneE164?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  phoneNumber?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isPrimary?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  alertEnabled?: boolean;
+}
+
+export class UpdateEmergencyContactDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  relationship?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isPrimary?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  alertEnabled?: boolean;
+}
+
+export class StartLocationShareDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  shareToken?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  durationLabel?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  includeProfile?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  includeTimestamp?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  latitude?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  longitude?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  batteryPercent?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  locationLabel?: string;
 }
 
 export class ToggleTwoFactorDto {

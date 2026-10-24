@@ -25,6 +25,8 @@ import {
   EditPostCommentDto,
   ReactToPostDto,
   RecordSafetyEventDto,
+  StartLocationShareDto,
+  UpdateEmergencyContactDto,
   ReportUserOrPostDto,
   RequestAccountDeletionDto,
   RequestMediaUploadDto,
@@ -352,6 +354,29 @@ export class Module2Controller {
     return this.service.updateNotificationPreference(authorization, dto);
   }
 
+  @Get("quotes")
+  listWomenQuotes(@Query("category") category?: string) {
+    return this.service.listWomenQuotes(category);
+  }
+
+  @Get("safety/overview")
+  getSafetyOverview(@Headers("authorization") authorization?: string) {
+    return this.service.getSafetyOverview(authorization);
+  }
+
+  @Get("safety/police-stations")
+  listNearbyPoliceStations(
+    @Query("lat") lat?: string,
+    @Query("lng") lng?: string,
+    @Query("radiusMeters") radiusMeters?: string,
+  ) {
+    return this.service.listNearbyPoliceStations(
+      lat === undefined ? undefined : Number(lat),
+      lng === undefined ? undefined : Number(lng),
+      radiusMeters ? Number(radiusMeters) : 5000,
+    );
+  }
+
   @Post("safety/events")
   @HttpCode(201)
   recordSafetyEvent(
@@ -361,6 +386,42 @@ export class Module2Controller {
     return this.service.recordSafetyEvent(authorization, dto);
   }
 
+  @Post("safety/check-ins")
+  @HttpCode(201)
+  recordSafetyCheckInAlias(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: RecordSafetyEventDto,
+  ) {
+    return this.service.recordSafetyEvent(authorization, dto);
+  }
+
+  @Post("safety/sos/activate")
+  @HttpCode(201)
+  activateSos(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: RecordSafetyEventDto,
+  ) {
+    return this.service.activateSos(authorization, dto);
+  }
+
+  @Post("safety/sos/:eventId/cancel")
+  @HttpCode(200)
+  cancelSos(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("eventId") eventId: string,
+  ) {
+    return this.service.updateSosStatus(authorization, eventId, "CANCELLED");
+  }
+
+  @Post("safety/sos/:eventId/resolve")
+  @HttpCode(200)
+  resolveSos(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("eventId") eventId: string,
+  ) {
+    return this.service.updateSosStatus(authorization, eventId, "RESOLVED");
+  }
+
   @Post("safety/contacts")
   @HttpCode(201)
   addEmergencyContact(
@@ -368,6 +429,60 @@ export class Module2Controller {
     @Body() dto: CreateEmergencyContactDto,
   ) {
     return this.service.addEmergencyContact(authorization, dto);
+  }
+
+  @Patch("safety/contacts/:contactId")
+  updateEmergencyContact(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("contactId") contactId: string,
+    @Body() dto: UpdateEmergencyContactDto,
+  ) {
+    return this.service.updateEmergencyContact(authorization, contactId, dto);
+  }
+
+  @Delete("safety/contacts/:contactId")
+  deleteEmergencyContact(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("contactId") contactId: string,
+  ) {
+    return this.service.deleteEmergencyContact(authorization, contactId);
+  }
+
+  @Post("safety/location-shares")
+  @HttpCode(201)
+  startLocationShare(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: StartLocationShareDto,
+  ) {
+    return this.service.startLocationShare(authorization, dto);
+  }
+
+  @Patch("safety/location-shares/:token/ping")
+  pingLocationShare(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("token") token: string,
+    @Body() dto: StartLocationShareDto,
+  ) {
+    return this.service.pingLocationShare(authorization, token, dto);
+  }
+
+  @Post("safety/location-shares/:token/stop")
+  @HttpCode(200)
+  stopLocationShare(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("token") token: string,
+  ) {
+    return this.service.stopLocationShare(authorization, token);
+  }
+
+  @Get("safety/track/:token")
+  async getPublicLocationTrackPage(
+    @Param("token") token: string,
+    @Res() response: Response,
+  ) {
+    const html = await this.service.renderLiveLocationTrackHtml(token);
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    return response.status(200).send(html);
   }
 
   @Put("security/two-factor")

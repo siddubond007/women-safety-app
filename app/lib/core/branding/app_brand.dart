@@ -12,7 +12,7 @@ abstract final class AppBrand {
   static const String logoAsset = 'assets/brand/app_logo.png';
   static const String iconAsset = 'assets/brand/app_icon.png';
   static const String logoSemanticsLabel =
-      'Sakhi â€” Safer Women. Stronger Together.';
+      'Sakhi — Safer Women. Stronger Together.';
 
   static const Color primaryColor = Color(0xFF5D196A);
   static const Color darkTextColor = Color(0xFF2A1130);

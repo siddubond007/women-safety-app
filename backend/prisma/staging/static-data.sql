@@ -26,4 +26,15 @@ VALUES
   ('default', 18, 'staging-static-config', 'Initial staging registration minimum-age policy.')
 ON CONFLICT (policy_key) DO NOTHING;
 
+
+INSERT INTO public.safety_helpline_configs
+  (code, number, title, subtitle, category, is_enabled, display_order, updated_by)
+VALUES
+  ('112', '112', '112 — India National Emergency Number', '24/7 Police, Fire & Medical Emergency Response (ERSS)', 'NATIONAL_EMERGENCY', TRUE, 1, 'staging-static-config'),
+  ('100', '100', '100 — Direct Police Control Room', '24/7 Immediate Police Dispatch Across India', 'POLICE', TRUE, 2, 'staging-static-config'),
+  ('1091', '1091', '1091 — Women in Distress Helpline', 'Police Women Safety Cell • Toll-Free', 'WOMEN_SAFETY', TRUE, 3, 'staging-static-config'),
+  ('181', '181', '181 — Women Domestic & Safety Helpline', '24/7 Support & Counselling', 'WOMEN_SAFETY', TRUE, 4, 'staging-static-config'),
+  ('108', '108', '108 / 1930 — Medical Ambulance (108) & Cyber Crime (1930)', 'Emergency medical & online fraud support', 'MEDICAL_CYBER', TRUE, 5, 'staging-static-config')
+ON CONFLICT (code) DO NOTHING;
+
 COMMIT;

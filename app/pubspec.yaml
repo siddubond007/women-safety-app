@@ -51,3 +51,9 @@ flutter:
     - assets/images/safety/
     - assets/images/profile/
     - assets/icons/
+    - assets/module4/
+    - assets/module4/illustrations/
+    - assets/module4/icons_png/
+    - assets/module4/icons_svg/
+    - assets/module4/components_png/
+    - assets/module4/components_svg/

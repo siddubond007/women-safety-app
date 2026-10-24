@@ -14,6 +14,8 @@ import type {
   CreateEmergencyContactDto,
   CreatePostCommentDto,
   RecordSafetyEventDto,
+  StartLocationShareDto,
+  UpdateEmergencyContactDto,
   ReportUserOrPostDto,
   RequestMediaUploadDto,
   ToggleBlockedUserDto,
@@ -26,6 +28,22 @@ import type {
   UploadMediaObjectDto,
   UploadBinaryMediaDto,
 } from "./module2.dto.js";
+
+function hasValidCoordinatePair(
+  latitude: unknown,
+  longitude: unknown,
+): boolean {
+  return (
+    typeof latitude === "number" &&
+    Number.isFinite(latitude) &&
+    latitude >= -90 &&
+    latitude <= 90 &&
+    typeof longitude === "number" &&
+    Number.isFinite(longitude) &&
+    longitude >= -180 &&
+    longitude <= 180
+  );
+}
 
 const DEFAULT_INTERESTS = [
   "Mental Wellness",
@@ -1767,17 +1785,1382 @@ export class Module2Service {
     };
   }
 
+  private readonly curatedWomenQuotes = [
+    {
+      id: 1,
+      quote: "Awake, arise, and educate. Smash traditions—liberate!",
+      author: "Savitribai Phule",
+      category: "Trailblazers & Courage",
+    },
+    {
+      id: 2,
+      quote:
+        "We want deeper sincerity of motive, a greater courage in speech and earnestness in action.",
+      author: "Sarojini Naidu",
+      category: "Voice & Leadership",
+    },
+    {
+      id: 3,
+      quote:
+        "The path from dreams to success does exist. May you have the vision to find it, the courage to get on to it, and the perseverance to follow it.",
+      author: "Kalpana Chawla",
+      category: "Dreams & Perseverance",
+    },
+    {
+      id: 4,
+      quote:
+        "I shall not surrender my Jhansi—courage is the crown every woman wears within.",
+      author: "Rani Lakshmibai",
+      category: "Fearless Strength",
+    },
+    {
+      id: 5,
+      quote: "A woman with a voice is, by definition, a strong woman.",
+      author: "Melinda French Gates",
+      category: "Voice & Leadership",
+    },
+    {
+      id: 6,
+      quote: "There is no limit to what we, as women, can accomplish.",
+      author: "Michelle Obama",
+      category: "Boundless Potential",
+    },
+    {
+      id: 7,
+      quote:
+        "I raise up my voice—not so that I can shout, but so that those without a voice can be heard.",
+      author: "Malala Yousafzai",
+      category: "Sisterhood & Voice",
+    },
+    {
+      id: 8,
+      quote:
+        "Each time a woman stands up for herself, without knowing it possibly, without claiming it, she stands up for all women.",
+      author: "Maya Angelou",
+      category: "Sisterhood & Solidarity",
+    },
+    {
+      id: 9,
+      quote:
+        "Nothing in life is to be feared, it is only to be understood. Now is the time to understand more, so that we may fear less.",
+      author: "Marie Curie",
+      category: "Wisdom & Fearlessness",
+    },
+    {
+      id: 10,
+      quote: "No one can make you feel inferior without your consent.",
+      author: "Eleanor Roosevelt",
+      category: "Self-Worth & Dignity",
+    },
+    {
+      id: 11,
+      quote: "Women belong in all places where decisions are being made.",
+      author: "Ruth Bader Ginsburg",
+      category: "Voice & Leadership",
+    },
+    {
+      id: 12,
+      quote:
+        "I am not free while any woman is unfree, even when her shackles are very different from my own.",
+      author: "Audre Lorde",
+      category: "Sisterhood & Solidarity",
+    },
+    {
+      id: 13,
+      quote:
+        "At the end of the day, we can endure much more than we think we can.",
+      author: "Frida Kahlo",
+      category: "Resilience & Healing",
+    },
+    {
+      id: 14,
+      quote: "Culture does not make people. People make culture.",
+      author: "Chimamanda Ngozi Adichie",
+      category: "Change & Empowerment",
+    },
+    {
+      id: 15,
+      quote:
+        "The success of every woman should be the inspiration to another. We should raise each other up.",
+      author: "Serena Williams",
+      category: "Sisterhood & Solidarity",
+    },
+    {
+      id: 16,
+      quote:
+        "Vision without action is merely a dream; action with courage changes generations.",
+      author: "Sudha Murty",
+      category: "Wisdom & Action",
+    },
+    {
+      id: 17,
+      quote:
+        "Do not wait for someone else to come and speak for you. It's you who can change the world.",
+      author: "Mary Kom",
+      category: "Fearless Strength",
+    },
+    {
+      id: 18,
+      quote:
+        "Another world is not only possible, she is on her way. On a quiet day, I can hear her breathing.",
+      author: "Arundhati Roy",
+      category: "Hope & Renewal",
+    },
+    {
+      id: 19,
+      quote:
+        "Freedom is not given; it is claimed by women who refuse to shrink.",
+      author: "Captain Lakshmi Sahgal",
+      category: "Trailblazers & Courage",
+    },
+    {
+      id: 20,
+      quote:
+        "Empowerment begins the moment a woman knows she is never walking alone.",
+      author: "Sakhi Sisterhood",
+      category: "Sakhi Safety & Trust",
+    },
+    {
+      id: 21,
+      quote:
+        "A strong woman looks a challenge dead in the eye and gives it a wink.",
+      author: "Gina Carey",
+      category: "Fearless Strength",
+    },
+    {
+      id: 22,
+      quote:
+        "The most common way people give up their power is by thinking they don't have any.",
+      author: "Alice Walker",
+      category: "Self-Worth & Dignity",
+    },
+    {
+      id: 23,
+      quote: "Above all, be the heroine of your life, not the victim.",
+      author: "Nora Ephron",
+      category: "Courage & Agency",
+    },
+    {
+      id: 24,
+      quote: "What makes you different or weird—that's your strength.",
+      author: "Meryl Streep",
+      category: "Self-Worth & Dignity",
+    },
+    {
+      id: 25,
+      quote:
+        "Think like a queen. A queen is not afraid to fail. Failure is another steppingstone to greatness.",
+      author: "Oprah Winfrey",
+      category: "Resilience & Growth",
+    },
+    {
+      id: 26,
+      quote: "You may encounter many defeats, but you must not be defeated.",
+      author: "Maya Angelou",
+      category: "Resilience & Healing",
+    },
+    {
+      id: 27,
+      quote: "Well-behaved women seldom make history.",
+      author: "Laurel Thatcher Ulrich",
+      category: "Trailblazers & Courage",
+    },
+    {
+      id: 28,
+      quote:
+        "The question isn't who's going to let me; it's who is going to stop me.",
+      author: "Ayn Rand",
+      category: "Courage & Agency",
+    },
+    {
+      id: 29,
+      quote: "She remembered who she was and the game changed.",
+      author: "Lalah Delia",
+      category: "Self-Worth & Dignity",
+    },
+    {
+      id: 30,
+      quote:
+        "A woman is like a tea bag—you can't tell how strong she is until you put her in hot water.",
+      author: "Eleanor Roosevelt",
+      category: "Resilience & Growth",
+    },
+    {
+      id: 31,
+      quote:
+        "Life is not measured by the number of breaths we take, but by the moments that take our breath away.",
+      author: "Maya Angelou",
+      category: "Mindfulness & Joy",
+    },
+    {
+      id: 32,
+      quote: "When women support each other, incredible things happen.",
+      author: "Sakhi Community",
+      category: "Sisterhood & Solidarity",
+    },
+    {
+      id: 33,
+      quote:
+        "Your safety is your right, your voice is your shield, and your community is your strength.",
+      author: "Sakhi Safety Pledge",
+      category: "Sakhi Safety & Trust",
+    },
+    {
+      id: 34,
+      quote: "Courage is like a muscle. We strengthen it by use.",
+      author: "Ruth Gordon",
+      category: "Fearless Strength",
+    },
+    {
+      id: 35,
+      quote:
+        "If you want something said, ask a man; if you want something done, ask a woman.",
+      author: "Margaret Thatcher",
+      category: "Voice & Leadership",
+    },
+    {
+      id: 36,
+      quote:
+        "A feminist is anyone who recognizes the equality and full humanity of women and men.",
+      author: "Gloria Steinem",
+      category: "Equality & Justice",
+    },
+    {
+      id: 37,
+      quote:
+        "We need to reshape our own perception of how we view ourselves. We have to step up as women and take the lead.",
+      author: "Beyoncé",
+      category: "Voice & Leadership",
+    },
+    {
+      id: 38,
+      quote:
+        "No country can ever truly flourish if it stifles the potential of its women and deprives itself of the contributions of half of its citizens.",
+      author: "Michelle Obama",
+      category: "Equality & Justice",
+    },
+    {
+      id: 39,
+      quote:
+        "Educate a man and you educate an individual; educate a woman and you educate an entire generation.",
+      author: "Brigham Young",
+      category: "Education & Wisdom",
+    },
+    {
+      id: 40,
+      quote:
+        "I measure the progress of a community by the degree of progress which women have achieved.",
+      author: "Dr. B. R. Ambedkar",
+      category: "Equality & Justice",
+    },
+    {
+      id: 41,
+      quote:
+        "To awaken the people, it is the women who must be awakened. Once she is on the move, the family moves, the village moves, the nation moves.",
+      author: "Jawaharlal Nehru",
+      category: "Trailblazers & Courage",
+    },
+    {
+      id: 42,
+      quote:
+        "There is no chance for the welfare of the world unless the condition of women is improved. It is not possible for a bird to fly on only one wing.",
+      author: "Swami Vivekananda",
+      category: "Equality & Justice",
+    },
+    {
+      id: 43,
+      quote:
+        "Whatever you do, be different—that was the advice my mother gave me.",
+      author: "Anita Roddick",
+      category: "Dreams & Perseverance",
+    },
+    {
+      id: 44,
+      quote:
+        "Whatever the problem, be part of the solution. Don't just sit around raising questions and pointing out obstacles.",
+      author: "Tina Fey",
+      category: "Wisdom & Action",
+    },
+    {
+      id: 45,
+      quote:
+        "You are more powerful than you know; you are beautiful just as you are.",
+      author: "Melissa Etheridge",
+      category: "Self-Worth & Dignity",
+    },
+    {
+      id: 46,
+      quote:
+        "Fearlessness is not the absence of fear. It's the mastery of fear. It's about getting up one more time than we fall down.",
+      author: "Arianna Huffington",
+      category: "Fearless Strength",
+    },
+    {
+      id: 47,
+      quote:
+        "The power you have is to be the best version of yourself you can be, so you can create a better world.",
+      author: "Ashley Rickards",
+      category: "Change & Empowerment",
+    },
+    {
+      id: 48,
+      quote: "A girl should be two things: who and what she wants.",
+      author: "Coco Chanel",
+      category: "Courage & Agency",
+    },
+    {
+      id: 49,
+      quote: "The most courageous act is still to think for yourself. Aloud.",
+      author: "Coco Chanel",
+      category: "Voice & Leadership",
+    },
+    {
+      id: 50,
+      quote:
+        "Do not live someone else's life and someone else's idea of what womanhood is. Womanhood is you.",
+      author: "Viola Davis",
+      category: "Self-Worth & Dignity",
+    },
+    {
+      id: 51,
+      quote:
+        "Doubt is a killer. You just have to know who you are and what you stand for.",
+      author: "Jennifer Lopez",
+      category: "Confidence & Trust",
+    },
+    {
+      id: 52,
+      quote:
+        "Take criticism seriously, but not personally. If there is truth or merit in the criticism, try to learn from it.",
+      author: "Hillary Rodham Clinton",
+      category: "Wisdom & Action",
+    },
+    {
+      id: 53,
+      quote:
+        "Human rights are women's rights, and women's rights are human rights.",
+      author: "Hillary Rodham Clinton",
+      category: "Equality & Justice",
+    },
+    {
+      id: 54,
+      quote:
+        "Never doubt that you are valuable and powerful and deserving of every chance and opportunity in the world to pursue and achieve your own dreams.",
+      author: "Hillary Rodham Clinton",
+      category: "Dreams & Perseverance",
+    },
+    {
+      id: 55,
+      quote:
+        "It took me quite a long time to develop a voice, and now that I have it, I am not going to be silent.",
+      author: "Madeleine Albright",
+      category: "Voice & Leadership",
+    },
+    {
+      id: 56,
+      quote: "Women are the largest untapped reservoir of talent in the world.",
+      author: "Hillary Rodham Clinton",
+      category: "Boundless Potential",
+    },
+    {
+      id: 57,
+      quote:
+        "If your actions create a legacy that inspires others to dream more, learn more, do more and become more, then, you are an excellent leader.",
+      author: "Dolly Parton",
+      category: "Voice & Leadership",
+    },
+    {
+      id: 58,
+      quote: "Storms make trees take deeper roots.",
+      author: "Dolly Parton",
+      category: "Resilience & Healing",
+    },
+    {
+      id: 59,
+      quote:
+        "Just don't give up trying to do what you really want to do. Where there is love and inspiration, I don't think you can go wrong.",
+      author: "Ella Fitzgerald",
+      category: "Dreams & Perseverance",
+    },
+    {
+      id: 60,
+      quote:
+        "Define success on your own terms, achieve it by your own rules, and build a life you're proud to live.",
+      author: "Anne Sweeney",
+      category: "Courage & Agency",
+    },
+    {
+      id: 61,
+      quote: "Be messy and complicated and afraid and show up anyways.",
+      author: "Glennon Doyle",
+      category: "Fearless Strength",
+    },
+    {
+      id: 62,
+      quote:
+        "Owning our story and loving ourselves through that process is the bravest thing that we'll ever do.",
+      author: "Brené Brown",
+      category: "Self-Worth & Dignity",
+    },
+    {
+      id: 63,
+      quote:
+        "Vulnerability is the birthplace of innovation, creativity and change.",
+      author: "Brené Brown",
+      category: "Resilience & Growth",
+    },
+    {
+      id: 64,
+      quote: "Courage starts with showing up and letting ourselves be seen.",
+      author: "Brené Brown",
+      category: "Fearless Strength",
+    },
+    {
+      id: 65,
+      quote: "One child, one teacher, one book, one pen can change the world.",
+      author: "Malala Yousafzai",
+      category: "Education & Wisdom",
+    },
+    {
+      id: 66,
+      quote:
+        "We realize the importance of our voices only when we are silenced.",
+      author: "Malala Yousafzai",
+      category: "Voice & Leadership",
+    },
+    {
+      id: 67,
+      quote: "When the whole world is silent, even one voice becomes powerful.",
+      author: "Malala Yousafzai",
+      category: "Voice & Leadership",
+    },
+    {
+      id: 68,
+      quote:
+        "Extremists have shown what frightens them most: a girl with a book.",
+      author: "Malala Yousafzai",
+      category: "Education & Wisdom",
+    },
+    {
+      id: 69,
+      quote: "I'm tough, I'm ambitious, and I know exactly what I want.",
+      author: "Madonna",
+      category: "Confidence & Trust",
+    },
+    {
+      id: 70,
+      quote: "Power is not given to you. You have to take it.",
+      author: "Beyoncé",
+      category: "Courage & Agency",
+    },
+    {
+      id: 71,
+      quote:
+        "The allure of a woman is her confidence and her kindness toward other women.",
+      author: "Sakhi Sisterhood",
+      category: "Sisterhood & Solidarity",
+    },
+    {
+      id: 72,
+      quote:
+        "Trust your instincts. You never have to apologize for prioritizing your personal safety.",
+      author: "Sakhi Safety Guide",
+      category: "Sakhi Safety & Trust",
+    },
+    {
+      id: 73,
+      quote:
+        "Before boarding a late-evening cab, share your live route link with a trusted contact—preparedness is peace of mind.",
+      author: "Sakhi Safety Tip",
+      category: "Sakhi Safety & Trust",
+    },
+    {
+      id: 74,
+      quote:
+        "India's 112 emergency helpline connects Police, Fire, and Medical response in one call—always accessible from your Sakhi Safety Hub.",
+      author: "Sakhi Safety Tip",
+      category: "Sakhi Safety & Trust",
+    },
+    {
+      id: 75,
+      quote:
+        "A sisterhood that watches out for one another turns every street into a safer path.",
+      author: "Sakhi Community",
+      category: "Sakhi Safety & Trust",
+    },
+    {
+      id: 76,
+      quote: "You are never alone when your trusted circle carries your light.",
+      author: "Sakhi Community",
+      category: "Sakhi Safety & Trust",
+    },
+    {
+      id: 77,
+      quote:
+        "Whatever glory belongs to the race for a development unprecedented in history for the given length of time, a full share belongs to the womanhood of the race.",
+      author: "Mary McLeod Bethune",
+      category: "Trailblazers & Courage",
+    },
+    {
+      id: 78,
+      quote:
+        "Invest in the human soul. Who knows, it might be a diamond in the rough.",
+      author: "Mary McLeod Bethune",
+      category: "Sisterhood & Solidarity",
+    },
+    {
+      id: 79,
+      quote:
+        "If they don't give you a seat at the table, bring a folding chair.",
+      author: "Shirley Chisholm",
+      category: "Voice & Leadership",
+    },
+    {
+      id: 80,
+      quote:
+        "Tremendous amounts of talent are being lost to our society just because that talent wears a skirt.",
+      author: "Shirley Chisholm",
+      category: "Equality & Justice",
+    },
+    {
+      id: 81,
+      quote:
+        "Service is the rent we pay for the privilege of living on this earth.",
+      author: "Shirley Chisholm",
+      category: "Wisdom & Action",
+    },
+    {
+      id: 82,
+      quote:
+        "You don't make progress by standing on the sidelines, whimpering and complaining. You make progress by implementing ideas.",
+      author: "Shirley Chisholm",
+      category: "Wisdom & Action",
+    },
+    {
+      id: 83,
+      quote:
+        "Nothing I accept about myself can be used against me to diminish me.",
+      author: "Audre Lorde",
+      category: "Self-Worth & Dignity",
+    },
+    {
+      id: 84,
+      quote:
+        "When I dare to be powerful—to use my strength in the service of my vision—then it becomes less and less important whether I am afraid.",
+      author: "Audre Lorde",
+      category: "Fearless Strength",
+    },
+    {
+      id: 85,
+      quote:
+        "Caring for myself is not self-indulgence, it is self-preservation.",
+      author: "Audre Lorde",
+      category: "Mindfulness & Joy",
+    },
+    {
+      id: 86,
+      quote: "Your silence will not protect you.",
+      author: "Audre Lorde",
+      category: "Voice & Leadership",
+    },
+    {
+      id: 87,
+      quote:
+        "Delight in your own unfolding; every season of a woman's life holds its own brilliance.",
+      author: "Kiran Bedi",
+      category: "Resilience & Growth",
+    },
+    {
+      id: 88,
+      quote:
+        "Fearless policing and fearless living start with self-discipline and inner conviction.",
+      author: "Kiran Bedi",
+      category: "Fearless Strength",
+    },
+    {
+      id: 89,
+      quote:
+        "When you educate a girl, you give her the compass to navigate any storm.",
+      author: "Sudha Murty",
+      category: "Education & Wisdom",
+    },
+    {
+      id: 90,
+      quote:
+        "Kindness is not weakness; it is the quiet confidence of a strong woman.",
+      author: "Sudha Murty",
+      category: "Confidence & Trust",
+    },
+    {
+      id: 91,
+      quote:
+        "Whatever crown you wear, never forget to leave the door open for the women coming after you.",
+      author: "Indra Nooyi",
+      category: "Sisterhood & Solidarity",
+    },
+    {
+      id: 92,
+      quote:
+        "Be yourself, passionately and unapologetically, in every boardroom and every neighbourhood.",
+      author: "Indra Nooyi",
+      category: "Voice & Leadership",
+    },
+    {
+      id: 93,
+      quote: "The sky is not the limit when women build the rockets.",
+      author: "Tessy Thomas",
+      category: "Dreams & Perseverance",
+    },
+    {
+      id: 94,
+      quote:
+        "Science knows no gender; curiosity and grit belong to every daughter of India.",
+      author: "Ritu Karidhal",
+      category: "Trailblazers & Courage",
+    },
+    {
+      id: 95,
+      quote:
+        "Every medal won by a woman is a door opened for a million young girls.",
+      author: "P. V. Sindhu",
+      category: "Dreams & Perseverance",
+    },
+    {
+      id: 96,
+      quote:
+        "Champions aren't made in comfort zones; they are forged in determination.",
+      author: "Saina Nehwal",
+      category: "Fearless Strength",
+    },
+    {
+      id: 97,
+      quote:
+        "Run your own race, break the tape, and let your footsteps inspire the village behind you.",
+      author: "P. T. Usha",
+      category: "Trailblazers & Courage",
+    },
+    {
+      id: 98,
+      quote:
+        "Mountains do not bow to strength alone; they bow to a woman's unbreakable resolve.",
+      author: "Bachendri Pal",
+      category: "Fearless Strength",
+    },
+    {
+      id: 99,
+      quote:
+        "Even with a prosthetic leg, Everest could not stop a mind that refused to quit.",
+      author: "Arunima Sinha",
+      category: "Resilience & Healing",
+    },
+    {
+      id: 100,
+      quote:
+        "The ocean is vast, the waves are high, and a woman's courage is deeper than both.",
+      author: "Arati Saha",
+      category: "Fearless Strength",
+    },
+    {
+      id: 101,
+      quote:
+        "A pen in a woman's hand rewrites the history that tried to erase her.",
+      author: "Amrita Pritam",
+      category: "Voice & Leadership",
+    },
+    {
+      id: 102,
+      quote:
+        "Live with the dignity of a Banyan tree—rooted in truth and generous with shade.",
+      author: "Mahadevi Varma",
+      category: "Wisdom & Action",
+    },
+    {
+      id: 103,
+      quote:
+        "Let no wall be high enough to block the sunlight from a girl's classroom.",
+      author: "Fatima Sheikh",
+      category: "Education & Wisdom",
+    },
+    {
+      id: 104,
+      quote:
+        "True healing honors both the body's wisdom and the spirit's courage.",
+      author: "Dr. Anandibai Joshi",
+      category: "Trailblazers & Courage",
+    },
+    {
+      id: 105,
+      quote:
+        "The constitution of a free nation beats strongest when its daughters walk without fear.",
+      author: "Hansa Jivraj Mehta",
+      category: "Equality & Justice",
+    },
+    {
+      id: 106,
+      quote:
+        "Justice is incomplete until the last woman in the farthest village knows her rights.",
+      author: "Dakshayani Velayudhan",
+      category: "Equality & Justice",
+    },
+    {
+      id: 107,
+      quote:
+        "Democracy thrives where women speak, vote, lead, and build together.",
+      author: "Ammu Swaminathan",
+      category: "Voice & Leadership",
+    },
+    {
+      id: 108,
+      quote:
+        "Art, craft, and heritage survive because women wove their soul into every thread.",
+      author: "Kamaladevi Chattopadhyay",
+      category: "Trailblazers & Courage",
+    },
+    {
+      id: 109,
+      quote:
+        "A woman's entrepreneurship lifts not just a household, but an entire local economy.",
+      author: "Ela Bhatt (SEWA)",
+      category: "Change & Empowerment",
+    },
+    {
+      id: 110,
+      quote: "Self-reliance is the strongest shield a woman can carry.",
+      author: "Ela Bhatt",
+      category: "Courage & Agency",
+    },
+    {
+      id: 111,
+      quote:
+        "When rural women unite, banks listen, laws change, and futures bloom.",
+      author: "Chetna Gala Sinha",
+      category: "Sisterhood & Solidarity",
+    },
+    {
+      id: 112,
+      quote:
+        "Planting trees is planting hope; a woman who nurtures the earth heals tomorrow.",
+      author: "Saalumarada Thimmakka",
+      category: "Wisdom & Action",
+    },
+    {
+      id: 113,
+      quote:
+        "Like the little hummingbird, do the best you can—every drop of courage counts.",
+      author: "Wangari Maathai",
+      category: "Wisdom & Action",
+    },
+    {
+      id: 114,
+      quote:
+        "Human rights are not things that are put on the table for people to enjoy. They are things you fight for and then you protect.",
+      author: "Wangari Maathai",
+      category: "Equality & Justice",
+    },
+    {
+      id: 115,
+      quote:
+        "In the midst of winter, I found there was, within me, an invincible summer.",
+      author: "Albert Camus",
+      category: "Resilience & Healing",
+    },
+    {
+      id: 116,
+      quote: "You are the author of your next chapter. Write it boldly.",
+      author: "Sakhi Community",
+      category: "Dreams & Perseverance",
+    },
+    {
+      id: 117,
+      quote:
+        "No dream is too large when backed by a circle of women who believe in you.",
+      author: "Sakhi Sisterhood",
+      category: "Sisterhood & Solidarity",
+    },
+    {
+      id: 118,
+      quote:
+        "Rest is not quitting; taking a mindful breath prepares you to rise stronger.",
+      author: "Sakhi Wellness",
+      category: "Mindfulness & Joy",
+    },
+    {
+      id: 119,
+      quote:
+        "Your intuition is ancient wisdom speaking in real time—listen to it.",
+      author: "Sakhi Safety Guide",
+      category: "Sakhi Safety & Trust",
+    },
+    {
+      id: 120,
+      quote:
+        "Keep your trusted contacts updated in Sakhi—one tap can share your live GPS link when it matters most.",
+      author: "Sakhi Safety Tip",
+      category: "Sakhi Safety & Trust",
+    },
+    {
+      id: 121,
+      quote:
+        "I am no bird; and no net ensnares me; I am a free human being with an independent will.",
+      author: "Charlotte Brontë",
+      category: "Courage & Agency",
+    },
+    {
+      id: 122,
+      quote:
+        "There is no gate, no lock, no bolt that you can set upon the freedom of my mind.",
+      author: "Virginia Woolf",
+      category: "Education & Wisdom",
+    },
+    {
+      id: 123,
+      quote:
+        "Lock up your libraries if you like; but there is no gate, no lock, no bolt that you can set upon the freedom of my mind.",
+      author: "Virginia Woolf",
+      category: "Courage & Agency",
+    },
+    {
+      id: 124,
+      quote:
+        "One is not born, but rather becomes, a woman of fearless purpose.",
+      author: "Simone de Beauvoir",
+      category: "Change & Empowerment",
+    },
+    {
+      id: 125,
+      quote: "Hope is a passion for the possible.",
+      author: "Søren Kierkegaard",
+      category: "Hope & Renewal",
+    },
+    {
+      id: 126,
+      quote: "Out of difficulties grow miracles.",
+      author: "Jean de La Bruyère",
+      category: "Resilience & Healing",
+    },
+    {
+      id: 127,
+      quote:
+        "She stood in the storm, and when the wind did not blow her way, she adjusted her sails.",
+      author: "Elizabeth Edwards",
+      category: "Resilience & Growth",
+    },
+    {
+      id: 128,
+      quote:
+        "A woman is the full circle. Within her is the power to create, nurture and transform.",
+      author: "Diane Mariechild",
+      category: "Boundless Potential",
+    },
+    {
+      id: 129,
+      quote:
+        "Here's to strong women: May we know them. May we be them. May we raise them.",
+      author: " Traditional Proverb",
+      category: "Sisterhood & Solidarity",
+    },
+    {
+      id: 130,
+      quote:
+        "Strong women don't have 'attitudes', we have standards and boundaries.",
+      author: "Marilyn Monroe",
+      category: "Self-Worth & Dignity",
+    },
+    {
+      id: 131,
+      quote:
+        "You can never leave footprints that last if you are always walking on tiptoe.",
+      author: "Leymah Gbowee",
+      category: "Trailblazers & Courage",
+    },
+    {
+      id: 132,
+      quote:
+        "The world will be saved by the solidarity of women who refuse to look away.",
+      author: "Leymah Gbowee",
+      category: "Sisterhood & Solidarity",
+    },
+    {
+      id: 133,
+      quote:
+        "Peace is not just the absence of conflict; it is the presence of justice and safety for every woman.",
+      author: "Ellen Johnson Sirleaf",
+      category: "Equality & Justice",
+    },
+    {
+      id: 134,
+      quote: "If your dreams do not scare you, they are not big enough.",
+      author: "Ellen Johnson Sirleaf",
+      category: "Dreams & Perseverance",
+    },
+    {
+      id: 135,
+      quote:
+        "Optimism is the faith that leads to achievement. Nothing can be done without hope and confidence.",
+      author: "Helen Keller",
+      category: "Hope & Renewal",
+    },
+    {
+      id: 136,
+      quote: "Alone we can do so little; together we can do so much.",
+      author: "Helen Keller",
+      category: "Sisterhood & Solidarity",
+    },
+    {
+      id: 137,
+      quote: "Life shrinks or expands in proportion to one's courage.",
+      author: "Anaïs Nin",
+      category: "Fearless Strength",
+    },
+    {
+      id: 138,
+      quote:
+        "And the day came when the risk to remain tight in a bud was more painful than the risk it took to blossom.",
+      author: "Anaïs Nin",
+      category: "Resilience & Growth",
+    },
+    {
+      id: 139,
+      quote: "I am deliberate and afraid of nothing.",
+      author: "Audre Lorde",
+      category: "Fearless Strength",
+    },
+    {
+      id: 140,
+      quote:
+        "Be a first-rate version of yourself, not a second-rate version of someone else.",
+      author: "Judy Garland",
+      category: "Self-Worth & Dignity",
+    },
+    {
+      id: 141,
+      quote: "It is never too late to be what you might have been.",
+      author: "George Eliot",
+      category: "Dreams & Perseverance",
+    },
+    {
+      id: 142,
+      quote:
+        "What you do makes a difference, and you have to decide what kind of difference you want to make.",
+      author: "Jane Goodall",
+      category: "Wisdom & Action",
+    },
+    {
+      id: 143,
+      quote:
+        "How wonderful it is that nobody need wait a single moment before starting to improve the world.",
+      author: "Anne Frank",
+      category: "Hope & Renewal",
+    },
+    {
+      id: 144,
+      quote: "Think of all the beauty still left around you and be happy.",
+      author: "Anne Frank",
+      category: "Mindfulness & Joy",
+    },
+    {
+      id: 145,
+      quote: "Nothing is impossible; the word itself says 'I'm possible'!",
+      author: "Audrey Hepburn",
+      category: "Boundless Potential",
+    },
+    {
+      id: 146,
+      quote:
+        "As you grow older, you will discover that you have two hands—one for helping yourself, the other for helping others.",
+      author: "Audrey Hepburn",
+      category: "Sisterhood & Solidarity",
+    },
+    {
+      id: 147,
+      quote:
+        "We must believe that we are gifted for something, and that this thing, at whatever cost, must be attained.",
+      author: "Marie Curie",
+      category: "Dreams & Perseverance",
+    },
+    {
+      id: 148,
+      quote:
+        "First, have a definite, clear practical ideal; a goal, an objective. Second, have the necessary means to achieve your ends.",
+      author: "Grace Hopper",
+      category: "Wisdom & Action",
+    },
+    {
+      id: 149,
+      quote:
+        "A ship in port is safe, but that is not what ships are built for. Sail out to sea and do new things.",
+      author: "Rear Admiral Grace Hopper",
+      category: "Trailblazers & Courage",
+    },
+    {
+      id: 150,
+      quote:
+        "That brain of mine is something more than merely mortal; as time will show.",
+      author: "Ada Lovelace",
+      category: "Education & Wisdom",
+    },
+    {
+      id: 151,
+      quote:
+        "Code, create, lead, and mentor—women in technology are shaping a safer digital tomorrow.",
+      author: "Sakhi WomenInTech Circle",
+      category: "Change & Empowerment",
+    },
+    {
+      id: 152,
+      quote:
+        "Every woman who heals herself helps heal all the women who came before her and all those who come after her.",
+      author: "Christiane Northrup",
+      category: "Resilience & Healing",
+    },
+    {
+      id: 153,
+      quote:
+        "Daring to set boundaries is about having the courage to love ourselves, even when we risk disappointing others.",
+      author: "Brené Brown",
+      category: "Self-Worth & Dignity",
+    },
+    {
+      id: 154,
+      quote:
+        "You are allowed to be both a masterpiece and a work in progress simultaneously.",
+      author: "Sophia Bush",
+      category: "Resilience & Growth",
+    },
+    {
+      id: 155,
+      quote:
+        "Don't let anyone speak for you, and don't rely on others to fight for you.",
+      author: "Michelle Obama",
+      category: "Courage & Agency",
+    },
+    {
+      id: 156,
+      quote:
+        "Success isn't about how much money you make; it's about the difference you make in people's lives.",
+      author: "Michelle Obama",
+      category: "Wisdom & Action",
+    },
+    {
+      id: 157,
+      quote: "You can't be hesitant about who you are.",
+      author: "Viola Davis",
+      category: "Confidence & Trust",
+    },
+    {
+      id: 158,
+      quote:
+        "All dreams are within reach. All you have to do is keep moving towards them.",
+      author: "Viola Davis",
+      category: "Dreams & Perseverance",
+    },
+    {
+      id: 159,
+      quote:
+        "I've learned that people will forget what you said, people will forget what you did, but people will never forget how you made them feel.",
+      author: "Maya Angelou",
+      category: "Sisterhood & Solidarity",
+    },
+    {
+      id: 160,
+      quote: "Still, like air, I'll rise.",
+      author: "Maya Angelou",
+      category: "Resilience & Healing",
+    },
+    {
+      id: 161,
+      quote: "Be a rainbow in somebody else's cloud.",
+      author: "Maya Angelou",
+      category: "Sisterhood & Solidarity",
+    },
+    {
+      id: 162,
+      quote:
+        "Have enough courage to trust love one more time and always one more time.",
+      author: "Maya Angelou",
+      category: "Hope & Renewal",
+    },
+    {
+      id: 163,
+      quote:
+        "My mission in life is not merely to survive, but to thrive; and to do so with some passion, some compassion, some humor, and some style.",
+      author: "Maya Angelou",
+      category: "Mindfulness & Joy",
+    },
+    {
+      id: 164,
+      quote: "When a woman becomes her own best friend, life is easier.",
+      author: "Diane Von Furstenberg",
+      category: "Self-Worth & Dignity",
+    },
+    {
+      id: 165,
+      quote:
+        "I didn't know what I wanted to do, but I always knew the woman I wanted to be.",
+      author: "Diane Von Furstenberg",
+      category: "Confidence & Trust",
+    },
+    {
+      id: 166,
+      quote: "Fear is not an option when your sisters are beside you.",
+      author: "Sakhi Sisterhood",
+      category: "Sakhi Safety & Trust",
+    },
+    {
+      id: 167,
+      quote:
+        "Use Sakhi's Safe Test Mode anytime to practice your 3-second SOS shortcut without sending a live alert.",
+      author: "Sakhi Safety Tip",
+      category: "Sakhi Safety & Trust",
+    },
+    {
+      id: 168,
+      quote:
+        "Wherever you travel today, walk tall—your voice, your courage, and your Sakhi community travel with you.",
+      author: "Sakhi Community",
+      category: "Sakhi Safety & Trust",
+    },
+  ];
+
+  private haversineDistanceKm(
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number,
+  ): number {
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const r = 6371;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return Number(
+      (r * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))).toFixed(2),
+    );
+  }
+
+  listWomenQuotes(category?: string) {
+    const filter = category?.trim().toLowerCase();
+    const items = filter
+      ? this.curatedWomenQuotes.filter((q) =>
+          q.category.toLowerCase().includes(filter),
+        )
+      : this.curatedWomenQuotes;
+    return {
+      count: items.length,
+      quotes: items,
+    };
+  }
+
+  async listNearbyPoliceStations(
+    lat?: number,
+    lng?: number,
+    radiusMeters = 5000,
+  ) {
+    if (!hasValidCoordinatePair(lat, lng)) {
+      return {
+        disclaimer:
+          "Enable device location and provide current GPS coordinates to look up nearby stations. Listings do not automatically notify police.",
+        emergencyNumbers: {
+          nationalErss: "112",
+          policeControl: "100",
+          womenHelpline: "1091",
+          domesticSupport: "181",
+        },
+        stations: [],
+      };
+    }
+    const currentLatitude = lat as number;
+    const currentLongitude = lng as number;
+    const anyPrisma = this.prisma as Record<string, any>;
+    let dbStations: Array<Record<string, any>> = [];
+    if (anyPrisma.verifiedPoliceStation?.findMany) {
+      dbStations = await anyPrisma.verifiedPoliceStation
+        .findMany({ where: { isVerified: true }, take: 25 })
+        .catch(() => []);
+    }
+
+    const mapStations: Array<Record<string, any>> = [];
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3500);
+    try {
+      const radius = Math.min(15000, Math.max(1000, radiusMeters));
+      const query =
+        '[out:json][timeout:4];node["amenity"="police"](around:' +
+        radius +
+        "," +
+        currentLatitude +
+        "," +
+        currentLongitude +
+        ");out body 8;";
+      const response = await fetch("https://overpass-api.de/api/interpreter", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "data=" + encodeURIComponent(query),
+        signal: controller.signal,
+      });
+      if (response.ok) {
+        const data = (await response.json()) as { elements?: Array<any> };
+        for (const element of data.elements ?? []) {
+          if (
+            typeof element.lat === "number" &&
+            Number.isFinite(element.lat) &&
+            typeof element.lon === "number" &&
+            Number.isFinite(element.lon)
+          ) {
+            const name =
+              typeof element.tags?.name === "string"
+                ? element.tags.name
+                : "Police listing (name unavailable)";
+            mapStations.push({
+              id: "osm_" + element.id,
+              stationCode: "osm_" + element.id,
+              name,
+              address:
+                element.tags?.["addr:full"] ||
+                element.tags?.["addr:street"] ||
+                "OpenStreetMap listing; verify details with official sources",
+              latitude: element.lat,
+              longitude: element.lon,
+              phoneNumber:
+                element.tags?.phone ||
+                element.tags?.["contact:phone"] ||
+                "Not listed",
+              emergencyNumber: "112",
+              isWomenStation: /women|mahila/i.test(name),
+              isVerified: false,
+              dataSource: "OpenStreetMap; not officially verified by Sakhi",
+            });
+          }
+        }
+      }
+    } catch {
+      // The optional public map lookup can fail; never fabricate nearby results.
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    const merged = [...dbStations, ...mapStations].map((station) => {
+      const distanceKm = this.haversineDistanceKm(
+        currentLatitude,
+        currentLongitude,
+        Number(station.latitude),
+        Number(station.longitude),
+      );
+      return {
+        ...station,
+        distanceKm,
+        driveMinutes: Math.max(2, Math.round(distanceKm * 4.5)),
+      };
+    });
+    merged.sort((a, b) => a.distanceKm - b.distanceKm);
+
+    return {
+      disclaimer:
+        "Nearby map listings do not automatically notify police. Entries marked unverified must be confirmed independently. Call 112 or 100 for emergency help.",
+      emergencyNumbers: {
+        nationalErss: "112",
+        policeControl: "100",
+        womenHelpline: "1091",
+        domesticSupport: "181",
+      },
+      stations: merged.slice(0, 10),
+    };
+  }
+
+  async getSafetyOverview(authorization?: string) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    const [contacts, history, activeShare] = await Promise.all([
+      this.prisma.safetyEmergencyContact.findMany({
+        where: { accountId: session.accountId },
+        orderBy: { createdAt: "asc" },
+      }),
+      this.prisma.safetySosEvent.findMany({
+        where: { accountId: session.accountId },
+        orderBy: { createdAt: "desc" },
+        take: 25,
+      }),
+      anyPrisma.safetyLocationShare?.findFirst
+        ? anyPrisma.safetyLocationShare
+            .findFirst({
+              where: { accountId: session.accountId, status: "ACTIVE" },
+              orderBy: { createdAt: "desc" },
+            })
+            .catch(() => null)
+        : Promise.resolve(null),
+    ]);
+
+    return {
+      emergencyContacts: contacts.map(
+        (c: Record<string, any>, idx: number) => ({
+          id: c.id,
+          name: c.name,
+          relationship: c.relationship,
+          phoneE164: c.phoneE164,
+          isPrimary: c.isPrimary ?? idx === 0,
+          alertEnabled: c.alertEnabled ?? c.isTrustedLocationContact ?? true,
+          isTrustedLocationContact: c.isTrustedLocationContact,
+        }),
+      ),
+      sosHistory: history.map((h: Record<string, any>) => ({
+        id: h.id,
+        eventType: h.eventType,
+        status: h.status,
+        locationLabel: h.locationLabel ?? "Location unavailable",
+        latitude: h.latitude ?? null,
+        longitude: h.longitude ?? null,
+        isTestMode: h.isTestMode ?? false,
+        contactsAlertedCount: h.contactsAlertedCount ?? 0,
+        shareToken: h.shareToken ?? null,
+        createdAt: h.createdAt.toISOString(),
+      })),
+      activeLocationShare: activeShare,
+      policeStations: [],
+      policeStationsDisclaimer:
+        "Current device GPS coordinates are required to look up nearby stations.",
+      quotesSample: this.curatedWomenQuotes.slice(0, 12),
+    };
+  }
+
   async recordSafetyEvent(
     authorization: string | undefined,
     dto: RecordSafetyEventDto,
   ) {
     const session = await this.auth.authenticateAuthorization(authorization);
+    const resolvedType = (dto.eventType ?? dto.note ?? "SOS_ACTIVATED")
+      .trim()
+      .toUpperCase()
+      .slice(0, 32);
+    const resolvedStatus = (dto.status ?? "RECORDED")
+      .trim()
+      .toUpperCase()
+      .slice(0, 32);
+    const hasLatitude = dto.latitude !== undefined;
+    const hasLongitude = dto.longitude !== undefined;
+    if (hasLatitude !== hasLongitude) {
+      throw new BadRequestException(
+        "Latitude and longitude must be provided together.",
+      );
+    }
+    if (hasLatitude && !hasValidCoordinatePair(dto.latitude, dto.longitude)) {
+      throw new BadRequestException(
+        "The supplied GPS coordinates are invalid.",
+      );
+    }
+    const locationLabel =
+      dto.locationLabel?.trim() || dto.locationArea?.trim() || null;
     const event = await this.prisma.safetySosEvent.create({
       data: {
         accountId: session.accountId,
-        eventType: dto.eventType,
-        status: "RECORDED",
-        locationLabel: dto.locationLabel?.trim() || "Bangalore, India",
+        eventType: resolvedType,
+        status: resolvedStatus,
+        locationLabel,
+        latitude: hasLatitude ? dto.latitude! : null,
+        longitude: hasLongitude ? dto.longitude! : null,
+        isTestMode: dto.isTestMode === true,
+        contactsAlertedCount: 0,
       },
     });
 
@@ -1785,11 +3168,15 @@ export class Module2Service {
       data: {
         actorType: "MEMBER",
         actorId: session.accountId,
-        action: `module2.safety.${dto.eventType.toLowerCase()}`,
+        action: "module4.safety." + resolvedType.toLowerCase(),
         targetType: "safety_sos_event",
         targetId: event.id,
-        outcome: "recorded",
+        outcome: resolvedStatus.toLowerCase(),
         requestId: randomUUID(),
+        redactedMetadata: {
+          locationAvailable: hasLatitude,
+          locationLabel: locationLabel ?? "Location unavailable",
+        },
       },
     });
 
@@ -1797,7 +3184,145 @@ export class Module2Service {
       eventId: event.id,
       eventType: event.eventType,
       status: event.status,
+      locationLabel: event.locationLabel,
+      latitude: event.latitude,
+      longitude: event.longitude,
       createdAt: event.createdAt.toISOString(),
+    };
+  }
+
+  async activateSos(
+    authorization: string | undefined,
+    dto: RecordSafetyEventDto,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const isTestMode = dto.isTestMode === true;
+    const hasLatitude = dto.latitude !== undefined;
+    const hasLongitude = dto.longitude !== undefined;
+    if (hasLatitude !== hasLongitude) {
+      throw new BadRequestException(
+        "Latitude and longitude must be provided together.",
+      );
+    }
+    if (hasLatitude && !hasValidCoordinatePair(dto.latitude, dto.longitude)) {
+      throw new BadRequestException(
+        "The supplied GPS coordinates are invalid.",
+      );
+    }
+    const hasLocation = hasLatitude && hasLongitude;
+    const locationLabel =
+      dto.locationLabel?.trim() || dto.locationArea?.trim() || null;
+    const shareToken =
+      !isTestMode && hasLocation
+        ? dto.shareToken?.trim() || "sos-" + randomUUID().slice(0, 8)
+        : null;
+    const event = await this.prisma.safetySosEvent.create({
+      data: {
+        accountId: session.accountId,
+        eventType: isTestMode ? "SOS_TEST_MODE" : "SOS_ACTIVATED",
+        status: isTestMode ? "TEST_MODE" : "ACTIVE",
+        locationLabel,
+        latitude: hasLocation ? dto.latitude! : null,
+        longitude: hasLocation ? dto.longitude! : null,
+        isTestMode,
+        contactsAlertedCount: 0,
+      },
+    });
+
+    const anyPrisma = this.prisma as Record<string, any>;
+    let locationShareCreated = false;
+    if (shareToken && anyPrisma.safetyLocationShare?.create) {
+      try {
+        await anyPrisma.safetyLocationShare.create({
+          data: {
+            accountId: session.accountId,
+            shareToken,
+            status: "ACTIVE",
+            durationLabel: "Until I Stop",
+            includeProfile: true,
+            includeTimestamp: true,
+            latitude: dto.latitude!,
+            longitude: dto.longitude!,
+            locationLabel,
+          },
+        });
+        locationShareCreated = true;
+        await this.prisma.safetySosEvent
+          .update({ where: { id: event.id }, data: { shareToken } })
+          .catch(() => undefined);
+      } catch {
+        // Preserve the SOS record, but never claim that a tracking link exists.
+      }
+    }
+
+    await this.prisma.auditEvent.create({
+      data: {
+        actorType: "MEMBER",
+        actorId: session.accountId,
+        action: isTestMode
+          ? "module4.sos.test_mode_triggered"
+          : "module4.sos.activated",
+        targetType: "safety_sos_event",
+        targetId: event.id,
+        outcome: isTestMode ? "test_mode" : "active",
+        requestId: randomUUID(),
+        redactedMetadata: {
+          isTestMode,
+          locationAvailable: locationShareCreated,
+          locationLabel: locationLabel ?? "Location unavailable",
+          shareToken: locationShareCreated ? shareToken : null,
+        },
+      },
+    });
+
+    return {
+      eventId: event.id,
+      status: event.status,
+      isTestMode,
+      locationAvailable: locationShareCreated,
+      locationLabel: locationLabel ?? "Location unavailable",
+      shareToken: locationShareCreated ? shareToken : null,
+      trackingUrl: locationShareCreated
+        ? "/api/v1/module2/safety/track/" + shareToken
+        : null,
+      policeAutoNotified: false,
+      complianceNotice: locationShareCreated
+        ? "Direct police auto-dispatch is not connected. Please dial 112 or 100 immediately for police response."
+        : "No live GPS location link was created. Dial 112 or 100 for emergency assistance; police auto-dispatch is not connected.",
+      createdAt: event.createdAt.toISOString(),
+    };
+  }
+
+  async updateSosStatus(
+    authorization: string | undefined,
+    eventId: string,
+    nextStatus: "CANCELLED" | "RESOLVED",
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const existing = await this.prisma.safetySosEvent.findFirst({
+      where: { id: eventId, accountId: session.accountId },
+    });
+    if (!existing) {
+      throw new NotFoundException("SOS event was not found.");
+    }
+    const updated = await this.prisma.safetySosEvent.update({
+      where: { id: eventId },
+      data: { status: nextStatus },
+    });
+    await this.prisma.auditEvent.create({
+      data: {
+        actorType: "MEMBER",
+        actorId: session.accountId,
+        action: `module4.sos.${nextStatus.toLowerCase()}`,
+        targetType: "safety_sos_event",
+        targetId: eventId,
+        outcome: nextStatus.toLowerCase(),
+        requestId: randomUUID(),
+      },
+    });
+    return {
+      eventId: updated.id,
+      status: updated.status,
     };
   }
 
@@ -1806,13 +3331,42 @@ export class Module2Service {
     dto: CreateEmergencyContactDto,
   ) {
     const session = await this.auth.authenticateAuthorization(authorization);
+    const contactName = (dto.name ?? dto.contactName ?? "").trim();
+    const rawPhone = (dto.phoneE164 ?? dto.phoneNumber ?? "").trim();
+    if (contactName.length < 2 || rawPhone.length < 8) {
+      throw new BadRequestException(
+        "Provide a valid contact name and +91 mobile number.",
+      );
+    }
+    const existingCount = await this.prisma.safetyEmergencyContact.count({
+      where: { accountId: session.accountId },
+    });
+    if (existingCount >= 5) {
+      throw new BadRequestException(
+        "Maximum 5 trusted emergency contacts can be configured.",
+      );
+    }
     const contact = await this.prisma.safetyEmergencyContact.create({
       data: {
         accountId: session.accountId,
-        name: dto.name.trim(),
+        name: contactName,
         relationship: dto.relationship.trim(),
-        phoneE164: dto.phoneE164.trim(),
-        isTrustedLocationContact: true,
+        phoneE164: rawPhone.startsWith("+")
+          ? rawPhone
+          : `+91${rawPhone.replace(/^91/, "")}`,
+        isTrustedLocationContact: dto.alertEnabled !== false,
+      },
+    });
+
+    await this.prisma.auditEvent.create({
+      data: {
+        actorType: "MEMBER",
+        actorId: session.accountId,
+        action: "module4.emergency_contact.added",
+        targetType: "safety_emergency_contact",
+        targetId: contact.id,
+        outcome: "created",
+        requestId: randomUUID(),
       },
     });
 
@@ -1821,8 +3375,255 @@ export class Module2Service {
       name: contact.name,
       relationship: contact.relationship,
       phoneE164: contact.phoneE164,
+      isPrimary: dto.isPrimary === true || existingCount === 0,
+      alertEnabled: contact.isTrustedLocationContact,
       isTrustedLocationContact: contact.isTrustedLocationContact,
     };
+  }
+
+  async updateEmergencyContact(
+    authorization: string | undefined,
+    contactId: string,
+    dto: UpdateEmergencyContactDto,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const existing = await this.prisma.safetyEmergencyContact.findFirst({
+      where: { id: contactId, accountId: session.accountId },
+    });
+    if (!existing) {
+      throw new NotFoundException("Emergency contact not found.");
+    }
+    const updated = await this.prisma.safetyEmergencyContact.update({
+      where: { id: contactId },
+      data: {
+        ...(dto.name ? { name: dto.name.trim() } : {}),
+        ...(dto.relationship ? { relationship: dto.relationship.trim() } : {}),
+        ...(typeof dto.alertEnabled === "boolean"
+          ? { isTrustedLocationContact: dto.alertEnabled }
+          : {}),
+      },
+    });
+    return {
+      id: updated.id,
+      name: updated.name,
+      relationship: updated.relationship,
+      phoneE164: updated.phoneE164,
+      isPrimary: dto.isPrimary ?? false,
+      alertEnabled: updated.isTrustedLocationContact,
+    };
+  }
+
+  async deleteEmergencyContact(
+    authorization: string | undefined,
+    contactId: string,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const existing = await this.prisma.safetyEmergencyContact.findFirst({
+      where: { id: contactId, accountId: session.accountId },
+    });
+    if (!existing) {
+      throw new NotFoundException("Emergency contact not found.");
+    }
+    await this.prisma.safetyEmergencyContact.delete({
+      where: { id: contactId },
+    });
+    return { deleted: true, contactId };
+  }
+
+  async startLocationShare(
+    authorization: string | undefined,
+    dto: StartLocationShareDto,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    if (!hasValidCoordinatePair(dto.latitude, dto.longitude)) {
+      throw new BadRequestException(
+        "Live location sharing requires valid current device GPS coordinates.",
+      );
+    }
+    const shareToken =
+      dto.shareToken?.trim() || "sos-" + randomUUID().slice(0, 8);
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (!anyPrisma.safetyLocationShare?.create) {
+      throw new BadRequestException(
+        "Live location sharing is not available in this backend version.",
+      );
+    }
+    await anyPrisma.safetyLocationShare.create({
+      data: {
+        accountId: session.accountId,
+        shareToken,
+        status: "ACTIVE",
+        durationLabel: dto.durationLabel ?? "1 Hour",
+        includeProfile: dto.includeProfile !== false,
+        includeTimestamp: dto.includeTimestamp !== false,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
+        ...(typeof dto.batteryPercent === "number"
+          ? { batteryPercent: dto.batteryPercent }
+          : {}),
+        ...(dto.locationLabel?.trim()
+          ? { locationLabel: dto.locationLabel.trim() }
+          : {}),
+      },
+    });
+    await this.prisma.auditEvent.create({
+      data: {
+        actorType: "MEMBER",
+        actorId: session.accountId,
+        action: "module4.location_share.started",
+        targetType: "safety_location_share",
+        targetId: shareToken,
+        outcome: "active",
+        requestId: randomUUID(),
+      },
+    });
+    return {
+      shareToken,
+      status: "ACTIVE",
+      trackingUrl: "/api/v1/module2/safety/track/" + shareToken,
+    };
+  }
+
+  async pingLocationShare(
+    authorization: string | undefined,
+    token: string,
+    dto: StartLocationShareDto,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const hasLatitude = dto.latitude !== undefined;
+    const hasLongitude = dto.longitude !== undefined;
+    if (hasLatitude !== hasLongitude) {
+      throw new BadRequestException(
+        "Latitude and longitude must be provided together.",
+      );
+    }
+    if (hasLatitude && !hasValidCoordinatePair(dto.latitude, dto.longitude)) {
+      throw new BadRequestException(
+        "The supplied GPS coordinates are invalid.",
+      );
+    }
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (!anyPrisma.safetyLocationShare?.updateMany) {
+      throw new BadRequestException(
+        "Live location sharing is not available in this backend version.",
+      );
+    }
+    const result = await anyPrisma.safetyLocationShare.updateMany({
+      where: {
+        shareToken: token,
+        accountId: session.accountId,
+        status: "ACTIVE",
+      },
+      data: {
+        ...(hasLatitude && hasLongitude
+          ? { latitude: dto.latitude!, longitude: dto.longitude! }
+          : {}),
+        ...(typeof dto.batteryPercent === "number"
+          ? { batteryPercent: dto.batteryPercent }
+          : {}),
+        ...(dto.locationLabel?.trim()
+          ? { locationLabel: dto.locationLabel.trim() }
+          : {}),
+      },
+    });
+    if (result.count !== 1) {
+      throw new NotFoundException("Active location share was not found.");
+    }
+    return { shareToken: token, status: "ACTIVE" };
+  }
+
+  async stopLocationShare(authorization: string | undefined, token: string) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (anyPrisma.safetyLocationShare?.updateMany) {
+      await anyPrisma.safetyLocationShare
+        .updateMany({
+          where: { shareToken: token, accountId: session.accountId },
+          data: { status: "STOPPED", stoppedAt: new Date() },
+        })
+        .catch(() => null);
+    }
+    await this.prisma.auditEvent.create({
+      data: {
+        actorType: "MEMBER",
+        actorId: session.accountId,
+        action: "module4.location_share.stopped",
+        targetType: "safety_location_share",
+        targetId: token,
+        outcome: "stopped",
+        requestId: randomUUID(),
+      },
+    });
+    return { shareToken: token, status: "STOPPED" };
+  }
+
+  async renderLiveLocationTrackHtml(token: string): Promise<string> {
+    const safeToken = token.replace(/[^a-zA-Z0-9_-]/g, "");
+    const anyPrisma = this.prisma as Record<string, any>;
+    const share = anyPrisma.safetyLocationShare?.findUnique
+      ? await anyPrisma.safetyLocationShare
+          .findUnique({ where: { shareToken: safeToken } })
+          .catch(() => null)
+      : null;
+    if (
+      !share ||
+      share.status !== "ACTIVE" ||
+      !hasValidCoordinatePair(share.latitude, share.longitude)
+    ) {
+      return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sakhi Live Location Unavailable</title></head><body style="font-family:system-ui,sans-serif;background:#FDF8FB;color:#2A1930;padding:24px"><h1>Live location unavailable</h1><p>This link has no current, saved GPS coordinate pair. Sakhi will not substitute a sample location.</p><p>For emergency assistance in India, call 112.</p><a href="tel:112">Call 112</a></body></html>';
+    }
+    const lat = share.latitude as number;
+    const lng = share.longitude as number;
+    const status = String(share.status);
+    const locationLabel = String(
+      share.locationLabel ?? "GPS location recorded",
+    );
+    const batteryLabel =
+      typeof share.batteryPercent === "number"
+        ? String(share.batteryPercent) + "%"
+        : "Unknown";
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Sakhi Live Emergency Location Tracking</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body { margin:0; font-family: system-ui, -apple-system, sans-serif; background:#FDF8FB; color:#2A1930; }
+    header { background:#5A1868; color:#fff; padding:16px 20px; display:flex; justify-content:space-between; align-items:center; }
+    .pill { background:${status === "ACTIVE" ? "#C92A49" : "#6E6275"}; padding:4px 12px; border-radius:999px; font-weight:700; font-size:12px; }
+    main { max-width:680px; margin:16px auto; padding:0 16px; }
+    .card { background:#fff; border:1px solid #EFE3EE; border-radius:16px; padding:16px; margin-bottom:14px; }
+    #map { height:340px; border-radius:14px; border:1px solid #EFE3EE; }
+    .btn { display:inline-block; background:#C92A49; color:#fff; text-decoration:none; padding:12px 18px; border-radius:999px; font-weight:700; margin-right:8px; margin-top:10px; }
+    .btn-plum { background:#5A1868; }
+  </style>
+</head>
+<body>
+  <header>
+    <div><strong>Sakhi Safety • Live Location Share</strong></div>
+    <span class="pill">${status}</span>
+  </header>
+  <main>
+    <div class="card">
+      <h2 style="margin:0 0 6px 0;">${locationLabel}</h2>
+      <p style="margin:0;color:#6E6275;font-size:14px;">Coordinates: ${lat.toFixed(5)}, ${lng.toFixed(5)} · Battery: ${batteryLabel} · Share token: ${safeToken}</p>
+      <a class="btn" href="tel:112">Call 112 Emergency</a>
+      <a class="btn btn-plum" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank" rel="noopener">Open in Google Maps</a>
+    </div>
+    <div id="map"></div>
+  </main>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map').setView([${lat}, ${lng}], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+    L.marker([${lat}, ${lng}]).addTo(map).bindPopup('Sakhi Member Live Location (${locationLabel})').openPopup();
+  </script>
+</body>
+</html>`;
   }
 
   async toggleTwoFactor(

@@ -80,7 +80,7 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
           activeBody = ProfileScreen(
             onNavigateRoute: _handleRouteFromChild,
             onNavigateTab: _handleTabSelected,
-            onCreateTap: () => _showCenterActionModal(context),
+            onCreateTap: () => _showCenterActionModal(),
           );
           break;
       }
@@ -92,12 +92,12 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
       bottomNavigationBar: SakhiBottomNav(
         currentIndex: _currentIndex,
         onTabSelected: _handleTabSelected,
-        onCenterAddTap: () => _showCenterActionModal(context),
+        onCenterAddTap: () => _showCenterActionModal(),
       ),
     );
   }
 
-  Future<void> _showCenterActionModal(BuildContext context) async {
+  Future<void> _showCenterActionModal() async {
     final action = await showSakhiCreateHub(context);
     if (!mounted || action == null) return;
 

@@ -60,6 +60,7 @@ void main() {
 
       // Screen 5: Safety & SOS
       await tester.pumpWidget(const MaterialApp(home: SafetyScreen()));
+      await tester.pump(const Duration(seconds: 3));
       await tester.pumpAndSettle();
       expect(find.text('Tap SOS'), findsOneWidget);
       expect(find.text('Quick Safety Actions'), findsOneWidget);
