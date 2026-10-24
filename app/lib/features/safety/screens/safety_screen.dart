@@ -150,12 +150,17 @@ class _SafetyScreenState extends State<SafetyScreen> {
                   // GPS Location Permission Status Pill Banner
                   GestureDetector(
                     key: const Key('safety-gps-permission-banner'),
-                    onTap: () {
+                    onTap: () async {
+                      final available = await _controller
+                          .requestDeviceLocation();
+                      if (!context.mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Device GPS is not connected in this build. Live location sharing stays disabled.',
-                          ),
+                        SnackBar(
+                          content: Text(_controller.locationStatusMessage),
+                          backgroundColor: available
+                              ? SakhiModule4Colors.verifiedMintText
+                              : SakhiModule4Colors.warningAmberText,
+                          behavior: SnackBarBehavior.floating,
                         ),
                       );
                     },
@@ -166,12 +171,12 @@ class _SafetyScreenState extends State<SafetyScreen> {
                         vertical: 9,
                       ),
                       decoration: BoxDecoration(
-                        color: _controller.hasLiveLocation
+                        color: _controller.hasRecentDeviceLocation
                             ? SakhiModule4Colors.verifiedMintBg
                             : SakhiModule4Colors.warningAmberBg,
                         borderRadius: BorderRadius.circular(999),
                         border: Border.all(
-                          color: _controller.hasLiveLocation
+                          color: _controller.hasRecentDeviceLocation
                               ? SakhiModule4Colors.verifiedMintBorder
                               : SakhiModule4Colors.warningAmberBorder,
                         ),
@@ -180,25 +185,27 @@ class _SafetyScreenState extends State<SafetyScreen> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
-                            _controller.hasLiveLocation
+                            _controller.hasRecentDeviceLocation
                                 ? Icons.location_on_rounded
                                 : Icons.warning_amber_rounded,
                             size: 16,
-                            color: _controller.hasLiveLocation
+                            color: _controller.hasRecentDeviceLocation
                                 ? SakhiModule4Colors.verifiedMintText
                                 : SakhiModule4Colors.warningAmberText,
                           ),
                           const SizedBox(width: 6),
                           Flexible(
                             child: Text(
-                              _controller.hasLiveLocation
-                                  ? 'GPS Location Active'
-                                  : 'GPS unavailable — device location not connected in this build',
+                              _controller.isAcquiringLocation
+                                  ? 'Getting device GPS…'
+                                  : _controller.hasRecentDeviceLocation
+                                  ? 'GPS location available · tap to refresh'
+                                  : 'Tap to enable device GPS',
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w700,
-                                color: _controller.hasLiveLocation
+                                color: _controller.hasRecentDeviceLocation
                                     ? SakhiModule4Colors.verifiedMintText
                                     : SakhiModule4Colors.warningAmberText,
                               ),
@@ -678,6 +685,7 @@ class _SosWorkflowScreenState extends State<SosWorkflowScreen> {
   void initState() {
     super.initState();
     if (!_isWidgetTest) {
+      unawaited(_controller.refreshCurrentLocationIfAlreadyGranted());
       _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
         if (!mounted) return;
         if (_secondsRemaining > 1) {
@@ -844,7 +852,7 @@ class _SosWorkflowScreenState extends State<SosWorkflowScreen> {
                             Text(
                               widget.isTestMode
                                   ? 'Simulating 3s confirmation & GPS lookup locally without sending real external alerts.'
-                                  : 'Alerting trusted contacts & fetching GPS location in 3 seconds to prevent false triggers',
+                                  : 'A 3-second guard prevents accidental triggers. Location is included only with permission and a recent GPS fix; contacts and police are not auto-dispatched.',
                               style: const TextStyle(
                                 fontSize: 12.5,
                                 color: SakhiModule4Colors.textSecondary,
@@ -932,13 +940,13 @@ class _SosWorkflowScreenState extends State<SosWorkflowScreen> {
                   ),
                   const SizedBox(height: 14),
                   _WorkflowStepRow(
-                    isAmber: !_controller.hasLiveLocation,
-                    title: _controller.hasLiveLocation
+                    isAmber: !_controller.hasRecentDeviceLocation,
+                    title: _controller.hasRecentDeviceLocation
                         ? 'Current Location Obtained'
                         : 'Current Location Unavailable',
-                    subtitle: _controller.hasLiveLocation
+                    subtitle: _controller.hasRecentDeviceLocation
                         ? _controller.currentLocationLabel
-                        : 'Device GPS is not connected in this build. No coordinates or tracking link are attached.',
+                        : 'No recent GPS fix is available. This SOS record will not include old or sample coordinates.',
                   ),
                   const SizedBox(height: 14),
                   _WorkflowStepRow(
@@ -1285,11 +1293,11 @@ class _NearestPoliceStationsScreenState
                 ),
                 const SizedBox(height: 14),
 
-                if (!_controller.hasLiveLocation)
+                if (!_controller.hasRecentDeviceLocation)
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 22, horizontal: 8),
                     child: Text(
-                      'Device GPS is not connected in this build. Nearby stations cannot be calculated from a sample location.',
+                      'Enable device GPS to calculate nearby stations. Sakhi will not use a sample location.',
                       style: TextStyle(
                         color: SakhiModule4Colors.warningAmberText,
                         fontWeight: FontWeight.w700,
@@ -1297,7 +1305,7 @@ class _NearestPoliceStationsScreenState
                       ),
                     ),
                   ),
-                if (_controller.hasLiveLocation)
+                if (_controller.hasRecentDeviceLocation)
                   Container(
                     height: 185,
                     width: double.infinity,
@@ -1785,7 +1793,7 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
                             if (_controller.liveLocationSharingActive) {
                               _controller.stopLocationSharingAndEndSos();
                             } else {
-                              _controller.startLiveLocationSharing();
+                              unawaited(_controller.startLiveLocationSharing());
                             }
                           },
                           child: Text(
@@ -2110,28 +2118,42 @@ class _ShareLiveLocationScreenState extends State<ShareLiveLocationScreen> {
                   vertical: 4,
                 ),
                 decoration: BoxDecoration(
-                  color: SakhiModule4Colors.verifiedMintBg,
+                  color: _controller.hasRecentDeviceLocation
+                      ? SakhiModule4Colors.verifiedMintBg
+                      : SakhiModule4Colors.warningAmberBg,
                   borderRadius: BorderRadius.circular(999),
                   border: Border.all(
-                    color: SakhiModule4Colors.verifiedMintBorder,
+                    color: _controller.hasRecentDeviceLocation
+                        ? SakhiModule4Colors.verifiedMintBorder
+                        : SakhiModule4Colors.warningAmberBorder,
                   ),
                 ),
                 alignment: Alignment.center,
-                child: const Row(
+                child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
                       Icons.circle,
                       size: 8,
-                      color: SakhiModule4Colors.verifiedMintText,
+                      color: _controller.hasRecentDeviceLocation
+                          ? SakhiModule4Colors.verifiedMintText
+                          : SakhiModule4Colors.warningAmberText,
                     ),
-                    SizedBox(width: 5),
+                    const SizedBox(width: 5),
                     Text(
-                      'GPS unavailable',
+                      _controller.isAcquiringLocation
+                          ? 'Locating…'
+                          : _controller.liveLocationSharingActive
+                          ? 'Sharing active'
+                          : _controller.hasRecentDeviceLocation
+                          ? 'GPS ready'
+                          : 'GPS unavailable',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w800,
-                        color: SakhiModule4Colors.verifiedMintText,
+                        color: _controller.hasRecentDeviceLocation
+                            ? SakhiModule4Colors.verifiedMintText
+                            : SakhiModule4Colors.warningAmberText,
                       ),
                     ),
                   ],
@@ -2174,7 +2196,7 @@ class _ShareLiveLocationScreenState extends State<ShareLiveLocationScreen> {
                           ),
                         ),
                       ),
-                      if (_controller.hasLiveLocation)
+                      if (_controller.hasRecentDeviceLocation)
                         Container(
                           width: 54,
                           height: 54,
@@ -2208,7 +2230,7 @@ class _ShareLiveLocationScreenState extends State<ShareLiveLocationScreen> {
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
-                            _controller.hasLiveLocation
+                            _controller.hasRecentDeviceLocation
                                 ? 'Device GPS location recorded'
                                 : 'GPS unavailable — no live location is being shared',
                             style: const TextStyle(
@@ -2219,7 +2241,7 @@ class _ShareLiveLocationScreenState extends State<ShareLiveLocationScreen> {
                           ),
                         ),
                       ),
-                      if (_controller.hasLiveLocation)
+                      if (_controller.hasRecentDeviceLocation)
                         Positioned(
                           right: 10,
                           bottom: 10,
@@ -2304,6 +2326,17 @@ class _ShareLiveLocationScreenState extends State<ShareLiveLocationScreen> {
                     ],
                   ),
                 ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    _controller.locationStatusMessage,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: SakhiModule4Colors.textSecondary,
+                      height: 1.35,
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 14),
 
                 // Duration & Consent Card
@@ -2343,8 +2376,13 @@ class _ShareLiveLocationScreenState extends State<ShareLiveLocationScreen> {
                                   ),
                                   shape: const StadiumBorder(),
                                 ),
-                                onPressed: () => _controller
-                                    .startLiveLocationSharing(duration: label),
+                                onPressed: () {
+                                  unawaited(
+                                    _controller.startLiveLocationSharing(
+                                      duration: label,
+                                    ),
+                                  );
+                                },
                                 child: Text(
                                   label,
                                   style: const TextStyle(
@@ -2415,7 +2453,7 @@ class _ShareLiveLocationScreenState extends State<ShareLiveLocationScreen> {
                             if (_controller.liveLocationSharingActive) {
                               _controller.stopLocationSharingAndEndSos();
                             } else {
-                              _controller.startLiveLocationSharing();
+                              unawaited(_controller.startLiveLocationSharing());
                             }
                           },
                           child: Text(

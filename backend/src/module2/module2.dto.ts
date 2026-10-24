@@ -502,6 +502,7 @@ export class UpdateEmergencyContactDto {
 }
 
 export class StartLocationShareDto {
+  // Retained for request compatibility; the service always generates the public token.
   @IsOptional()
   @IsString()
   @MaxLength(80)
@@ -531,6 +532,12 @@ export class StartLocationShareDto {
   @Min(-180)
   @Max(180)
   longitude?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100000)
+  accuracyMeters?: number;
 
   @IsOptional()
   @IsInt()

@@ -3,10 +3,12 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../../core/assets/app_assets.dart';
 import '../../auth/backend_api_client.dart';
+import '../services/device_location_service.dart';
 
 class SafetyTrustedContact {
   final String id;
@@ -224,9 +226,178 @@ class SakhiSafetyController extends ChangeNotifier {
 
   BackendApiClient? _apiClient;
   BackendApiClient get _client => _apiClient ??= BackendApiClient();
+  final SakhiDeviceLocationService _deviceLocationService =
+      SakhiDeviceLocationService();
+  StreamSubscription<Position>? _locationUpdates;
+  DateTime? _lastLocationPingAt;
+  DateTime? currentLocationUpdatedAt;
+  bool isAcquiringLocation = false;
+  String locationStatusMessage = 'Tap to enable device GPS.';
 
   void configureApiClient(BackendApiClient client) {
     _apiClient = client;
+  }
+
+  bool get hasRecentDeviceLocation {
+    final updatedAt = currentLocationUpdatedAt;
+    if (!hasLiveLocation || !locationPermissionGranted || updatedAt == null) {
+      return false;
+    }
+    final age = DateTime.now().difference(updatedAt);
+    return age >= Duration.zero && age <= const Duration(minutes: 1);
+  }
+
+  Future<bool> requestDeviceLocation() async {
+    if (isAcquiringLocation) return false;
+    isAcquiringLocation = true;
+    locationStatusMessage = 'Getting current device location…';
+    notifyListeners();
+    try {
+      final position = await _deviceLocationService.requestCurrentLocation();
+      updateDeviceLocation(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        accuracyMeters: position.accuracy,
+        locationLabel: 'Current device location',
+      );
+      locationStatusMessage =
+          'Location is available. Access is limited to when Sakhi is in use.';
+      return true;
+    } catch (error) {
+      final token = activeShareToken;
+      _stopLocationUpdates();
+      _clearLocationState();
+      if (token.isNotEmpty) unawaited(_stopRemoteLocationShare(token));
+      locationStatusMessage = error is DeviceLocationException ? error.message : 'Unable to obtain device location. Check Location settings and try again.';
+      return false;
+    } finally {
+      isAcquiringLocation = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> refreshCurrentLocationIfAlreadyGranted() async {
+    final position = await _deviceLocationService
+        .currentLocationIfAlreadyAllowed();
+    if (position == null) {
+      if (currentLocationUpdatedAt == null ||
+          DateTime.now().difference(currentLocationUpdatedAt!) >
+              const Duration(minutes: 1)) {
+        locationStatusMessage = 'No recent GPS fix is available. Coordinates will not be attached to an SOS.';
+        notifyListeners();
+      }
+      return;
+    }
+    updateDeviceLocation(
+      latitude: position.latitude,
+      longitude: position.longitude,
+      accuracyMeters: position.accuracy,
+      locationLabel: 'Current device location',
+    );
+    locationStatusMessage = 'Current device location refreshed.';
+  }
+
+  void _startLocationUpdates() {
+    _stopLocationUpdates();
+    final expectedToken = activeShareToken;
+    if (expectedToken.isEmpty || !liveLocationSharingActive) return;
+
+    _locationUpdates = _deviceLocationService.positionStream.listen(
+      (position) {
+        if (expectedToken != activeShareToken || !liveLocationSharingActive) {
+          return;
+        }
+        updateDeviceLocation(
+          latitude: position.latitude,
+          longitude: position.longitude,
+          accuracyMeters: position.accuracy,
+          locationLabel: 'Current device location',
+        );
+        final now = DateTime.now();
+        if (_lastLocationPingAt == null ||
+            now.difference(_lastLocationPingAt!) >=
+                const Duration(seconds: 15)) {
+          _lastLocationPingAt = now;
+          unawaited(_pingLocationShare(expectedToken, position));
+        }
+      },
+      onError: (Object _) {
+        if (expectedToken != activeShareToken) return;
+        locationStatusMessage = 'GPS updates stopped. Check device Location settings; the shared position may be old.';
+        notifyListeners();
+      },
+    );
+  }
+
+  Future<void> _pingLocationShare(String token, Position position) async {
+    try {
+      final response = await _client.patch(
+        'module2/safety/location-shares/$token/ping',
+        authenticated: true,
+        body: {
+          'latitude': position.latitude,
+          'longitude': position.longitude,
+          'accuracyMeters': position.accuracy,
+          'locationLabel': 'Current device location',
+        },
+      );
+      if (token != activeShareToken) return;
+      if (response['status']?.toString().toUpperCase() != 'ACTIVE') {
+        _stopShareAfterLocationFailure(
+          token,
+          'The server no longer confirms this location share as active.',
+        );
+        return;
+      }
+      locationStatusMessage =
+          'Location updates are being sent while Sakhi is open.';
+    } catch (_) {
+      if (token != activeShareToken) return;
+      locationStatusMessage = 'Latest location update could not be confirmed. The tracking page may show an older position.';
+    }
+    notifyListeners();
+  }
+
+  void _stopShareAfterLocationFailure(String token, String message) {
+    _stopLocationUpdates();
+    activeShareToken = '';
+    activeTrackingUrl = '';
+    liveLocationSharingActive = false;
+    locationStatusMessage = message;
+    notifyListeners();
+    unawaited(_stopRemoteLocationShare(token));
+  }
+
+  Future<void> _stopRemoteLocationShare(String token) async {
+    await _sendBackend((client) async {
+      await client.post(
+        'module2/safety/location-shares/$token/stop',
+        authenticated: true,
+        body: {},
+      );
+    });
+  }
+
+  void _stopLocationUpdates() {
+    final subscription = _locationUpdates;
+    _locationUpdates = null;
+    _lastLocationPingAt = null;
+    if (subscription != null) unawaited(subscription.cancel());
+  }
+
+  void _clearLocationState() {
+    hasLiveLocation = false;
+    locationPermissionGranted = false;
+    currentLatitude = 0.0;
+    currentLongitude = 0.0;
+    currentAccuracyMeters = null;
+    currentLocationUpdatedAt = null;
+    batteryPercent = null;
+    currentLocationLabel = 'Location unavailable';
+    activeShareToken = '';
+    activeTrackingUrl = '';
+    liveLocationSharingActive = false;
+    nearbyPoliceStations.clear();
   }
 
   bool locationPermissionGranted = false;
@@ -254,8 +425,7 @@ class SakhiSafetyController extends ChangeNotifier {
   }
 
   String get liveShareFullUrl =>
-      hasLiveLocation &&
-          locationPermissionGranted &&
+      hasRecentDeviceLocation &&
           liveLocationSharingActive &&
           activeShareToken.isNotEmpty &&
           activeTrackingUrl.isNotEmpty
@@ -349,23 +519,19 @@ class SakhiSafetyController extends ChangeNotifier {
         batteryPercent != null && batteryPercent >= 0 && batteryPercent <= 100
         ? batteryPercent
         : null;
+    currentLocationUpdatedAt = DateTime.now();
     locationPermissionGranted = true;
     hasLiveLocation = true;
     notifyListeners();
   }
 
   void clearDeviceLocation() {
-    hasLiveLocation = false;
-    locationPermissionGranted = false;
-    currentLatitude = 0.0;
-    currentLongitude = 0.0;
-    currentAccuracyMeters = null;
-    batteryPercent = null;
-    currentLocationLabel = 'Location unavailable';
-    activeShareToken = '';
-    liveLocationSharingActive = false;
-    nearbyPoliceStations.clear();
+    final token = activeShareToken;
+    _stopLocationUpdates();
+    _clearLocationState();
+    locationStatusMessage = 'Location unavailable. Tap to enable device GPS.';
     notifyListeners();
+    if (token.isNotEmpty) unawaited(_stopRemoteLocationShare(token));
   }
 
   final List<SafetyTrustedContact> trustedContacts = [
@@ -532,7 +698,7 @@ class SakhiSafetyController extends ChangeNotifier {
   }
 
   Future<void> refreshNearbyPoliceStations() async {
-    if (!hasLiveLocation || !locationPermissionGranted) {
+    if (!hasRecentDeviceLocation) {
       nearbyPoliceStations.clear();
       isLoadingStations = false;
       notifyListeners();
@@ -714,15 +880,14 @@ class SakhiSafetyController extends ChangeNotifier {
     final now = DateTime.now();
     final eventId =
         'SOS-${now.year}-${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}-${now.second.toString().padLeft(2, '0')}';
-    final canSendLocation = hasLiveLocation && locationPermissionGranted;
+    final canSendLocation = hasRecentDeviceLocation;
 
-    // A locally generated token is only a request id, never a public tracking link.
+    // The backend generates unpredictable public tracking tokens after persistence.
+    final previousShareToken = activeShareToken;
+    _stopLocationUpdates();
     activeShareToken = '';
     activeTrackingUrl = '';
     liveLocationSharingActive = false;
-    final requestedShareToken = canSendLocation && !isTestMode
-        ? 'sos-${now.millisecondsSinceEpoch.toRadixString(16).substring(4)}'
-        : '';
     final item = SafetySosHistoryItem(
       id: eventId,
       timestampLabel:
@@ -740,6 +905,9 @@ class SakhiSafetyController extends ChangeNotifier {
     );
     sosHistory.insert(0, item);
     notifyListeners();
+    if (previousShareToken.isNotEmpty) {
+      unawaited(_stopRemoteLocationShare(previousShareToken));
+    }
 
     unawaited(
       _sendBackend((client) async {
@@ -754,17 +922,27 @@ class SakhiSafetyController extends ChangeNotifier {
               'locationLabel': currentLocationLabel,
               'latitude': currentLatitude,
               'longitude': currentLongitude,
-              if (requestedShareToken.isNotEmpty)
-                'shareToken': requestedShareToken,
             },
           },
         );
         if (!isTestMode && canSendLocation) {
-          _acceptLocationShareResponse(response, sosActivation: true);
+          final shareAccepted = _acceptLocationShareResponse(
+            response,
+            sosActivation: true,
+          );
+          if (shareAccepted) {
+            locationStatusMessage = 'SOS location share is active; updates run while Sakhi is open.';
+            _startLocationUpdates();
+          } else {
+            locationStatusMessage = 'SOS recorded, but the server did not confirm a live tracking link.';
+          }
         } else {
           activeShareToken = '';
           activeTrackingUrl = '';
           liveLocationSharingActive = false;
+          if (!isTestMode) {
+            locationStatusMessage = 'SOS recorded without a location because no recent GPS fix was available.';
+          }
         }
         notifyListeners();
       }),
@@ -806,9 +984,11 @@ class SakhiSafetyController extends ChangeNotifier {
 
   void stopLocationSharingAndEndSos() {
     final confirmedShareToken = activeShareToken;
+    _stopLocationUpdates();
     activeShareToken = '';
     activeTrackingUrl = '';
     liveLocationSharingActive = false;
+    locationStatusMessage = 'Live location sharing stopped.';
     for (var i = 0; i < sosHistory.length; i++) {
       if (sosHistory[i].status == 'ACTIVE') {
         final old = sosHistory[i];
@@ -841,46 +1021,58 @@ class SakhiSafetyController extends ChangeNotifier {
     }
   }
 
-  void startLiveLocationSharing({String? duration}) {
-    if (!hasLiveLocation || !locationPermissionGranted) {
-      activeShareToken = '';
-      activeTrackingUrl = '';
-      liveLocationSharingActive = false;
-      notifyListeners();
-      return;
-    }
+  Future<bool> startLiveLocationSharing({String? duration}) async {
     if (duration != null) selectedDurationLabel = duration;
+    final locationReady = await requestDeviceLocation();
+    if (!locationReady || !hasRecentDeviceLocation) return false;
 
-    // Keep the share hidden until the backend confirms it was persisted.
+    final previousShareToken = activeShareToken;
+    _stopLocationUpdates();
     activeShareToken = '';
     activeTrackingUrl = '';
     liveLocationSharingActive = false;
+    if (previousShareToken.isNotEmpty) {
+      unawaited(_stopRemoteLocationShare(previousShareToken));
+    }
+    // Keep the share hidden until the backend confirms it was persisted.
     notifyListeners();
-    final requestedShareToken =
-        'sos-${DateTime.now().millisecondsSinceEpoch.toRadixString(16).substring(4)}';
-
-    unawaited(
-      _sendBackend((client) async {
-        final response = await client.post(
-          'module2/safety/location-shares',
-          authenticated: true,
-          body: {
-            'shareToken': requestedShareToken,
-            'durationLabel': selectedDurationLabel,
-            'includeProfile': includeNameAndProfileInAlert,
-            'includeTimestamp': includeTimestampAndMapLink,
-            'latitude': currentLatitude,
-            'longitude': currentLongitude,
-            if (currentAccuracyMeters != null)
-              'accuracyMeters': currentAccuracyMeters,
-            if (batteryPercent != null) 'batteryPercent': batteryPercent,
-            'locationLabel': currentLocationLabel,
-          },
-        );
-        _acceptLocationShareResponse(response, sosActivation: false);
-        notifyListeners();
-      }),
-    );
+    try {
+      final response = await _client.post(
+        'module2/safety/location-shares',
+        authenticated: true,
+        body: {
+          'durationLabel': selectedDurationLabel,
+          'includeProfile': includeNameAndProfileInAlert,
+          'includeTimestamp': includeTimestampAndMapLink,
+          'latitude': currentLatitude,
+          'longitude': currentLongitude,
+          if (currentAccuracyMeters != null)
+            'accuracyMeters': currentAccuracyMeters,
+          if (batteryPercent != null) 'batteryPercent': batteryPercent,
+          'locationLabel': currentLocationLabel,
+        },
+      );
+      final accepted = _acceptLocationShareResponse(
+        response,
+        sosActivation: false,
+      );
+      if (accepted) {
+        locationStatusMessage =
+            'Location share is active. Updates are sent while Sakhi is open.';
+        _startLocationUpdates();
+      } else {
+        locationStatusMessage = 'The server did not confirm this location share. No tracking link is available.';
+      }
+      notifyListeners();
+      return accepted;
+    } catch (_) {
+      activeShareToken = '';
+      activeTrackingUrl = '';
+      liveLocationSharingActive = false;
+      locationStatusMessage = 'The server could not confirm the location share. Try again when connected.';
+      notifyListeners();
+      return false;
+    }
   }
 
   void toggleChecklist(String id, bool value) {
@@ -896,7 +1088,7 @@ class SakhiSafetyController extends ChangeNotifier {
       'SAKHI EMERGENCY SOS ALERT',
       if (includeNameAndProfileInAlert)
         'Member: Sakhi member requested emergency assistance.',
-      if (hasLiveLocation && locationPermissionGranted) ...[
+      if (hasRecentDeviceLocation) ...[
         'Location: $currentLocationLabel (Lat ${currentLatitude.toStringAsFixed(5)}, Lng ${currentLongitude.toStringAsFixed(5)})',
         if (includeTimestampAndMapLink) ...[
           'Google Maps: https://www.google.com/maps?q=$currentLatitude,$currentLongitude',
@@ -904,7 +1096,7 @@ class SakhiSafetyController extends ChangeNotifier {
             'Live Tracking Link: $liveShareFullUrl',
         ],
       ] else ...[
-        'GPS location is unavailable in this build. No live coordinates or tracking link are attached.',
+        'No recent device GPS fix is available. No coordinates or tracking link are attached.',
       ],
       'Battery: $batteryLabel',
       'Emergency Helpline: 112 / 100',

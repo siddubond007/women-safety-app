@@ -156,6 +156,55 @@ describe("Module2Service privacy regression checks", () => {
     );
   });
 
+  it("generates unpredictable public tracking tokens server-side", async () => {
+    const createShare = vi.fn().mockResolvedValue({});
+    const createAuditEvent = vi.fn().mockResolvedValue({});
+    prisma.safetyLocationShare = { create: createShare };
+    prisma.auditEvent = { create: createAuditEvent };
+
+    const response = await service.startLocationShare("Bearer test-token", {
+      shareToken: "sos-client-chosen-token",
+      latitude: 17.4,
+      longitude: 78.4,
+    });
+
+    expect(response.shareToken).not.toBe("sos-client-chosen-token");
+    expect(response.shareToken).toMatch(
+      /^sos-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    expect(createShare.mock.calls[0]?.[0]?.data.shareToken).toBe(
+      response.shareToken,
+    );
+    expect(createAuditEvent.mock.calls[0]?.[0]?.data.targetId).toBe(
+      response.shareToken,
+    );
+  });
+
+  it("marks an old tracking location as stale and escapes the displayed location label", async () => {
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60_000);
+    const unsafeLabel = '\"><script>alert(1)</script>';
+    prisma.safetyLocationShare = {
+      findUnique: vi.fn().mockResolvedValue({
+        shareToken: "sos-test",
+        status: "ACTIVE",
+        latitude: 17.4,
+        longitude: 78.4,
+        locationLabel: unsafeLabel,
+        batteryPercent: null,
+        createdAt: fiveMinutesAgo,
+        updatedAt: fiveMinutesAgo,
+      }),
+    };
+
+    const html = await service.renderLiveLocationTrackHtml("sos-test");
+
+    expect(html).toContain('http-equiv="refresh" content="15"');
+    expect(html).toContain("STALE");
+    expect(html).toContain("not been updated in over two minutes");
+    expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(html).not.toContain(unsafeLabel);
+  });
+
   it("does not create another member's privacy row merely by viewing their profile", async () => {
     const result = await service.getMemberProfile(
       "Bearer test-token",

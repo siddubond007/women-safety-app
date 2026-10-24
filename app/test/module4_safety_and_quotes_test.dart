@@ -44,7 +44,7 @@ void main() {
   group('Module 4 live-location safety gates', () {
     test(
       'tracking URLs remain unavailable until a backend-confirmed share',
-      () {
+      () async {
         final controller = SakhiSafetyController.instance;
         controller.clearDeviceLocation();
 
@@ -56,7 +56,7 @@ void main() {
         expect(controller.liveShareFullUrl, isEmpty);
         expect(controller.liveShareShortUrl, 'Live location unavailable');
 
-        controller.startLiveLocationSharing();
+        await controller.startLiveLocationSharing();
 
         expect(controller.liveLocationSharingActive, isFalse);
         expect(controller.activeShareToken, isEmpty);
@@ -76,12 +76,7 @@ void main() {
       expect(find.text('Safety'), findsOneWidget);
       expect(find.text('Tap SOS'), findsOneWidget);
       expect(find.text('Quick Safety Actions'), findsOneWidget);
-      expect(
-        find.text(
-          'GPS unavailable — device location not connected in this build',
-        ),
-        findsOneWidget,
-      );
+      expect(find.text('Tap to enable device GPS'), findsOneWidget);
       expect(find.text('Share my live location'), findsOneWidget);
       expect(find.text('SOS Activation History'), findsOneWidget);
       expect(find.text('Safety Checklist & Discreet Trigger'), findsOneWidget);
@@ -121,7 +116,7 @@ void main() {
         );
         expect(
           find.textContaining(
-            'Device GPS is not connected in this build. Nearby stations cannot be calculated from a sample location.',
+            'Enable device GPS to calculate nearby stations. Sakhi will not use a sample location.',
           ),
           findsOneWidget,
         );

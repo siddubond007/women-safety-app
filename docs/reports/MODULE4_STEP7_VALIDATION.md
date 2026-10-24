@@ -1,39 +1,41 @@
 # Module 4 — Step 7 Validation and Migration Gate
 
 **Date:** 24 October 2026 (Asia/Kolkata)
-**Branch:** feat/sakhi-module4-safety-sos
-**Checkpoint base:** 16c31c0c81df34083cf2a16cd2328ab59350df7f
+**Branch:** `feat/sakhi-module4-safety-sos`
+**Checkpoint base:** `16c31c0c81df34083cf2a16cd2328ab59350df7f`
+**Existing Step 7 checkpoint:** `1e08485a842ad23f1412db3049d0b333356d7d1c`
 
 ## Verification results
 
-- Flutter analysis of the changed safety model, safety screen, and Module 4 safety/quote tests: **pass — no issues found**.
-- Full Flutter test suite after the backend-confirmed tracking-link guard: **83 passed, 0 failed**.
-- Prisma schema validation: **pass**.
-- Backend TypeScript type-check: **pass**.
-- Backend unit suite, warmed recheck: **79 passed, 3 skipped, 0 failed**. The first full run had a 10-second timeout in one eligibility test; the same test passed when isolated, and the full warmed recheck passed.
-- Staging baseline audit (backend/scripts/audit-staging-baseline.cjs): **pass**.
-- Git whitespace check (git diff --check): **pass**.
-- The existing staging runtime-grants file and backend CA certificate were restored to their checkpoint versions; they are not intended to change in this checkpoint.
+- Full Flutter static analysis: **pass — no issues found**.
+- Full Flutter test suite on the updated GPS/token client: **83 passed, 0 failed**.
+- Module 4 safety/quotation regression file: **8 passed**, including all 168 quotation-loader data and screen checks.
+- Backend TypeScript type-check after the server-generated token change: **pass**.
+- Backend `test/module2.service.spec.ts`: **12 passed**, including the new unpredictable server-generated share-token test and the existing stale-location/HTML-escaping regression test. These 12 results were emitted by the latest aggregate backend test run.
+- Full backend aggregate suite: **not verified as green in the latest rerun**. The known intermittent `eligibility.spec.ts` provider-configuration test timed out at 10 seconds again. The aggregate run was stopped after prolonged lack of progress; no full-suite pass is claimed for this update.
+- `git diff --check`: **pass** (Git only warned about the configured LF/CRLF working-copy conversion).
+- Final Android release compile: being verified separately; the existing friend-testing APK is preserved and must not be overwritten by an internal verification build.
 
 ## Safety changes
 
-- Removed the hard-coded Bengaluru GPS, accuracy, and battery defaults from the Module 4 Prisma schema and migration. The staging baseline is aligned: coordinates are required, while accuracy/battery remain unknown until supplied by a device.
-- Removed bundled sample police stations that were presented as verified; the staging static-data script now seeds helpline metadata only.
-- Backend location-share creation requires a valid latitude/longitude pair. Missing, stopped, or invalid shares produce an unavailable tracking page instead of a sample map.
-- Police station lookups require caller-supplied coordinates. Public map listings are labelled unverified.
-- Flutter treats GPS as unavailable by default. Live-share URLs are exposed only after the backend returns a confirmed active share and a tracking path. A locally generated token is never treated as a public URL, and stopping/resetting a share clears the link.
-- UI messages no longer claim operating-system GPS permission, high accuracy, battery status, contact delivery, or police auto-dispatch when those have not been verified.
+- Added `geolocator 14.0.2` with foreground-only Android/iOS permission declarations and a device-location service that checks service availability and permission state, requests a current fix, and validates latitude/longitude and accuracy.
+- The Safety UI now reports GPS readiness from a real device fix, does not show old coordinates as current, and describes the foreground-sharing limitation. No background-location permission or background service was added.
+- Live sharing requires a recent real device fix. Confirmed active shares start a foreground location stream and send authenticated location pings; links remain hidden until the backend confirms that a share was persisted.
+- Public share tokens are now generated server-side with `randomUUID()` for SOS activation and standalone share creation. Client-supplied or timestamp-derived tokens are not used as public bearer links.
+- The tracking page refreshes every 15 seconds, marks location stale after two minutes without an update, displays the last update time, and HTML/JS-escapes the user-provided location label.
+- The app does not fabricate GPS coordinates, accuracy, battery readings, police-station verification, contact delivery, or automatic police dispatch.
 
 ## Database and deployment status
 
-**The Module 4 migration has NOT been applied to staging or production. No database permissions were changed, no database seed was run, and no deployment was triggered.**
+**The Module 4 migration has NOT been applied to staging or production. No database permissions were changed, no seed was run, and no deployment was triggered.**
 
-The migration at backend/prisma/migrations/20261023110000_module4_emergency_sos_and_safety/migration.sql is additive (new tables/indexes and added columns; no DROP, TRUNCATE, or delete operations). The staging bootstrap script lists this migration, but that workflow also applies runtime grants; it was not executed. The new tables' runtime grants remain unchanged pending an explicit, verified staging-only plan.
+The migration at `backend/prisma/migrations/20261023110000_module4_emergency_sos_and_safety/migration.sql` is additive (new tables/indexes and added columns; no `DROP`, `TRUNCATE`, or delete statements). The staging bootstrap also applies runtime grants, so it was not run. The existing staging runtime-grants file and backend CA certificate remain unchanged.
 
-No staging database target/migrator credential was positively verified in the process environment, so running the migration now would risk targeting the wrong database or applying an unapproved grants change.
+The staging database target/migrator credential and public staging API URL were not positively verified. The linked Render account did not have a workspace selected; no workspace was guessed or changed. The original friend-testing APK at `app/build/app/outputs/flutter-apk/app-release.apk` was backed up and hash-verified before build attempts, and that previous APK was restored after the initial internal compile check.
 
-## Remaining blockers before a live Module 4 APK
+## Remaining gates before friend testing
 
-1. The Flutter app still has no actual device-location provider wired in. Until a platform GPS provider and Android/iOS permission flow are implemented and tested, the app deliberately reports GPS unavailable and does not create live location shares.
-2. Verify a dedicated staging database target and migration credential, review the required runtime-role permissions, then apply the additive migration through an approved staging-only workflow.
-3. After those two items pass, validate the deployed API and admin UI before creating a friend-testing APK. No production deployment is authorized by this report.
+1. Complete and verify the final internal Android release compile; keep its artifact separate from the existing friend-testing APK and verify its signature/checksum.
+2. Test the new GPS permission, current-fix, location-stream and confirmed-share behavior on an actual Android device. Static analysis/widget tests do not substitute for a device-level GPS check. iOS runtime testing is also pending.
+3. Confirm the dedicated staging API endpoint and staging database target, review required runtime-role grants, and apply the additive migration only via the approved staging-only workflow.
+4. Validate the deployed API and admin UI before creating or distributing a friend-testing APK. No production deployment is authorized by this report.

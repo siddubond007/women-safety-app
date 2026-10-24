@@ -3212,10 +3212,9 @@ export class Module2Service {
     const hasLocation = hasLatitude && hasLongitude;
     const locationLabel =
       dto.locationLabel?.trim() || dto.locationArea?.trim() || null;
+    // Public tracking tokens must be generated server-side with full UUID entropy.
     const shareToken =
-      !isTestMode && hasLocation
-        ? dto.shareToken?.trim() || "sos-" + randomUUID().slice(0, 8)
-        : null;
+      !isTestMode && hasLocation ? "sos-" + randomUUID() : null;
     const event = await this.prisma.safetySosEvent.create({
       data: {
         accountId: session.accountId,
@@ -3440,8 +3439,8 @@ export class Module2Service {
         "Live location sharing requires valid current device GPS coordinates.",
       );
     }
-    const shareToken =
-      dto.shareToken?.trim() || "sos-" + randomUUID().slice(0, 8);
+    // A client-chosen value is not an acceptable bearer token for public tracking.
+    const shareToken = "sos-" + randomUUID();
     const anyPrisma = this.prisma as Record<string, any>;
     if (!anyPrisma.safetyLocationShare?.create) {
       throw new BadRequestException(
@@ -3518,6 +3517,9 @@ export class Module2Service {
         ...(hasLatitude && hasLongitude
           ? { latitude: dto.latitude!, longitude: dto.longitude! }
           : {}),
+        ...(typeof dto.accuracyMeters === "number"
+          ? { accuracyMeters: dto.accuracyMeters }
+          : {}),
         ...(typeof dto.batteryPercent === "number"
           ? { batteryPercent: dto.batteryPercent }
           : {}),
@@ -3574,10 +3576,33 @@ export class Module2Service {
     }
     const lat = share.latitude as number;
     const lng = share.longitude as number;
-    const status = String(share.status);
+    const updatedAt = share.updatedAt
+      ? new Date(share.updatedAt).getTime()
+      : share.createdAt
+        ? new Date(share.createdAt).getTime()
+        : Number.NaN;
+    const isStale =
+      !Number.isFinite(updatedAt) || Date.now() - updatedAt > 120_000;
+    const status = isStale ? "STALE" : String(share.status);
     const locationLabel = String(
       share.locationLabel ?? "GPS location recorded",
+    ).slice(0, 160);
+    const escapedLocationLabel = locationLabel
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+    const locationLabelJson = JSON.stringify(locationLabel).replace(
+      /</g,
+      "\\u003c",
     );
+    const lastUpdatedLabel = Number.isFinite(updatedAt)
+      ? new Date(updatedAt).toISOString()
+      : "Unknown";
+    const staleWarning = isStale
+      ? '<p role="alert" style="color:#9A4C00;font-weight:700">This GPS location has not been updated in over two minutes. Do not assume it is the member\'s current position; contact them or call 112.</p>'
+      : "";
     const batteryLabel =
       typeof share.batteryPercent === "number"
         ? String(share.batteryPercent) + "%"
@@ -3587,6 +3612,7 @@ export class Module2Service {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta http-equiv="refresh" content="15" />
   <title>Sakhi Live Emergency Location Tracking</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
@@ -3607,8 +3633,10 @@ export class Module2Service {
   </header>
   <main>
     <div class="card">
-      <h2 style="margin:0 0 6px 0;">${locationLabel}</h2>
-      <p style="margin:0;color:#6E6275;font-size:14px;">Coordinates: ${lat.toFixed(5)}, ${lng.toFixed(5)} · Battery: ${batteryLabel} · Share token: ${safeToken}</p>
+      <h2 style="margin:0 0 6px 0;">${escapedLocationLabel}</h2>
+      ${staleWarning}
+      <p style="margin:0;color:#6E6275;font-size:14px;">Last GPS update: ${lastUpdatedLabel}</p>
+      <p style="margin:6px 0 0;color:#6E6275;font-size:14px;">Coordinates: ${lat.toFixed(5)}, ${lng.toFixed(5)} · Battery: ${batteryLabel}</p>
       <a class="btn" href="tel:112">Call 112 Emergency</a>
       <a class="btn btn-plum" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank" rel="noopener">Open in Google Maps</a>
     </div>
@@ -3620,7 +3648,8 @@ export class Module2Service {
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
-    L.marker([${lat}, ${lng}]).addTo(map).bindPopup('Sakhi Member Live Location (${locationLabel})').openPopup();
+    const locationLabel = ${locationLabelJson};
+    L.marker([${lat}, ${lng}]).addTo(map).bindPopup('Sakhi Member Live Location (' + locationLabel + ')').openPopup();
   </script>
 </body>
 </html>`;
