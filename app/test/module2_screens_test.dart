@@ -61,7 +61,9 @@ void main() {
       // Screen 5: Safety & SOS
       await tester.pumpWidget(const MaterialApp(home: SafetyScreen()));
       await tester.pump(const Duration(seconds: 3));
-      await tester.pumpAndSettle();
+      // SafetyScreen has an intentional repeating SOS pulse animation, so
+      // pump a single frame instead of waiting for the animation to settle.
+      await tester.pump(const Duration(milliseconds: 250));
       expect(find.text('Tap SOS'), findsOneWidget);
       expect(find.text('Quick Safety Actions'), findsOneWidget);
 

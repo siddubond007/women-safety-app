@@ -1,12 +1,17 @@
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 
-/// Accesses foreground device location only. Background tracking is deliberately
-/// not requested or enabled by this service.
+/// Accesses foreground device location with fast hardware fallback.
 class SakhiDeviceLocationService {
+  static const MethodChannel _nativeChannel = MethodChannel(
+    'sakhi/native_actions',
+  );
+
   Future<Position> requestCurrentLocation() async {
-    if (!await Geolocator.isLocationServiceEnabled()) {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
       throw const DeviceLocationException(
-        'Turn on Location in your device settings, then try again.',
+        'Turn on Location (GPS) in your device settings, then try again.',
       );
     }
 
@@ -16,7 +21,7 @@ class SakhiDeviceLocationService {
     }
     if (permission == LocationPermission.denied) {
       throw const DeviceLocationException(
-        'Location permission was denied. Allow location access to share your position.',
+        'Location permission was denied. Allow location access to view your live map and nearby police stations.',
       );
     }
     if (permission == LocationPermission.deniedForever) {
@@ -25,18 +30,41 @@ class SakhiDeviceLocationService {
       );
     }
 
-    return _validatedPosition(
-      await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 15),
+    try {
+      return _validatedPosition(
+        await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 8),
+          ),
         ),
-      ),
-    );
+      );
+    } catch (_) {
+      // Fallback 1: Last known Geolocator position
+      final lastKnown = await Geolocator.getLastKnownPosition().catchError(
+        (_) => null,
+      );
+      if (lastKnown != null) {
+        return _validatedPosition(lastKnown);
+      }
+      // Fallback 2: Native Android LocationManager last known fix
+      final nativeFix = await _readNativeAndroidLastKnownFix();
+      if (nativeFix != null) {
+        return nativeFix;
+      }
+      // Fallback 3: Medium/Network accuracy fix
+      return _validatedPosition(
+        await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.medium,
+            timeLimit: Duration(seconds: 10),
+          ),
+        ),
+      );
+    }
   }
 
-  /// Reads location only if permission and device services are already enabled.
-  /// This path never opens a permission prompt, so it is safe for SOS handling.
+  /// Reads location if permission and device services are already enabled.
   Future<Position?> currentLocationIfAlreadyAllowed() async {
     try {
       if (!await Geolocator.isLocationServiceEnabled()) return null;
@@ -46,16 +74,52 @@ class SakhiDeviceLocationService {
         return null;
       }
 
-      return _validatedPosition(
-        await Geolocator.getCurrentPosition(
-          locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.high,
-            timeLimit: Duration(seconds: 4),
+      try {
+        return _validatedPosition(
+          await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+              timeLimit: Duration(seconds: 5),
+            ),
           ),
+        );
+      } catch (_) {
+        final lastKnown = await Geolocator.getLastKnownPosition().catchError(
+          (_) => null,
+        );
+        if (lastKnown != null) return _validatedPosition(lastKnown);
+        return await _readNativeAndroidLastKnownFix();
+      }
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<Position?> _readNativeAndroidLastKnownFix() async {
+    try {
+      final res = await _nativeChannel.invokeMethod<Map<Object?, Object?>>(
+        'getLastKnownNativeLocation',
+      );
+      if (res == null) return null;
+      final lat = (res['latitude'] as num?)?.toDouble();
+      final lng = (res['longitude'] as num?)?.toDouble();
+      final acc = (res['accuracy'] as num?)?.toDouble() ?? 15.0;
+      if (lat == null || lng == null) return null;
+      return _validatedPosition(
+        Position(
+          latitude: lat,
+          longitude: lng,
+          timestamp: DateTime.now(),
+          accuracy: acc,
+          altitude: 0.0,
+          altitudeAccuracy: 0.0,
+          heading: 0.0,
+          headingAccuracy: 0.0,
+          speed: 0.0,
+          speedAccuracy: 0.0,
         ),
       );
     } catch (_) {
-      // Plugin, permission, and sensor errors must not crash the SOS screen.
       return null;
     }
   }
@@ -63,7 +127,7 @@ class SakhiDeviceLocationService {
   Stream<Position> get positionStream => Geolocator.getPositionStream(
     locationSettings: const LocationSettings(
       accuracy: LocationAccuracy.high,
-      distanceFilter: 0,
+      distanceFilter: 5,
     ),
   );
 
@@ -77,7 +141,7 @@ class SakhiDeviceLocationService {
         !position.accuracy.isFinite ||
         position.accuracy < 0) {
       throw const DeviceLocationException(
-        'The device returned an invalid location. No location was shared.',
+        'The device returned an invalid location. Please check GPS settings.',
       );
     }
     return position;

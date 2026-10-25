@@ -1335,3 +1335,36 @@ svg { flex-shrink: 0; }
     grid-template-columns: 1fr;
   }
 }
+
+
+/* Fix form input styling in RegistrationPolicyPanel, EligibilityReviewPage & SafetyConsolePage */
+.member-filter-select input[type="text"],
+.member-filter-select input[type="number"],
+.member-filter-select input[type="search"],
+.registration-policy-form input[type="text"],
+.registration-policy-form input[type="number"] {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid #dccad9;
+  background: #ffffff;
+  color: #261829;
+  font: inherit;
+  font-size: 13.5px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.member-filter-select input:focus,
+.registration-policy-form input:focus {
+  outline: none;
+  border-color: #7c1f66;
+  box-shadow: 0 0 0 3px rgba(124, 31, 102, 0.14);
+}
+.environment-card {
+  overflow: visible;
+}
+.environment-copy small {
+  white-space: normal;
+  line-height: 1.35;
+  display: block;
+}

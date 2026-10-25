@@ -2,11 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
-import '../../../core/assets/app_assets.dart';
 import '../../../core/widgets/sakhi_quote_loader.dart';
 import '../models/safety_models.dart';
 import '../theme/sakhi_module4_theme.dart';
+import '../widgets/sakhi_live_osm_map.dart';
 
 /// Screen 1 — Module 4 Main Safety Hub & SOS Activation Dashboard
 /// (`01_Safety_Hub_Main_Dashboard_UI.jpg`)
@@ -24,13 +25,45 @@ class SafetyScreen extends StatefulWidget {
   State<SafetyScreen> createState() => _SafetyScreenState();
 }
 
-class _SafetyScreenState extends State<SafetyScreen> {
+class _SafetyScreenState extends State<SafetyScreen>
+    with SingleTickerProviderStateMixin {
   final SakhiSafetyController _controller = SakhiSafetyController.instance;
+  late final AnimationController _pulseController;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_controller.syncSafetyOverview());
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    )..repeat(reverse: true);
+
+    _controller.onDiscreetShortcutTriggered = _handleHardwareShortcutTrigger;
+    unawaited(_controller.initializeSafetyState(autoRequestGps: true));
+  }
+
+  @override
+  void dispose() {
+    if (_controller.onDiscreetShortcutTriggered ==
+        _handleHardwareShortcutTrigger) {
+      _controller.onDiscreetShortcutTriggered = null;
+    }
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  void _handleHardwareShortcutTrigger(String source) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: SakhiModule4Colors.sosCrimson,
+        behavior: SnackBarBehavior.floating,
+        content: Text(
+          'Discreet Shortcut detected ($source) • Opening 3s SOS Confirmation Guard…',
+        ),
+      ),
+    );
+    _openScreen(const SosWorkflowScreen(isTestMode: false));
   }
 
   void _openScreen(Widget page) {
@@ -86,11 +119,12 @@ class _SafetyScreenState extends State<SafetyScreen> {
                           ),
                         ),
                       ),
+                      // Top-Right Shortcut Gear -> Opens Dedicated DiscreetShortcutConfigScreen!
                       InkWell(
                         key: const Key('safety-shortcut-gear-button'),
                         borderRadius: BorderRadius.circular(12),
                         onTap: () =>
-                            _openScreen(const SafetyHistoryAndSettingsScreen()),
+                            _openScreen(const DiscreetShortcutConfigScreen()),
                         child: const Padding(
                           padding: EdgeInsets.symmetric(
                             horizontal: 10,
@@ -118,28 +152,30 @@ class _SafetyScreenState extends State<SafetyScreen> {
                       ),
                       const SizedBox(width: 6),
                       FilledButton.icon(
-                        key: const Key('safety-topbar-sos-button'),
+                        key: const Key('safety-top-sos-pill-button'),
                         style: FilledButton.styleFrom(
-                          backgroundColor: SakhiModule4Colors.emergencyCrimson,
+                          backgroundColor: SakhiModule4Colors.sosCrimson,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
+                            horizontal: 14,
                             vertical: 10,
                           ),
-                          shape: const StadiumBorder(),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(999),
+                          ),
                         ),
                         onPressed: () => _openScreen(
                           const SosWorkflowScreen(isTestMode: false),
                         ),
                         icon: const Icon(
-                          Icons.notifications_active_outlined,
-                          size: 18,
+                          Icons.notifications_active_rounded,
+                          size: 16,
                         ),
                         label: const Text(
                           'SOS',
                           style: TextStyle(
                             fontWeight: FontWeight.w800,
-                            fontSize: 13.5,
+                            letterSpacing: 0.4,
                           ),
                         ),
                       ),
@@ -147,336 +183,275 @@ class _SafetyScreenState extends State<SafetyScreen> {
                   ),
                   const SizedBox(height: 12),
 
-                  // GPS Location Permission Status Pill Banner
-                  GestureDetector(
-                    key: const Key('safety-gps-permission-banner'),
-                    onTap: () async {
-                      final available = await _controller
-                          .requestDeviceLocation();
-                      if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(_controller.locationStatusMessage),
-                          backgroundColor: available
-                              ? SakhiModule4Colors.verifiedMintText
-                              : SakhiModule4Colors.warningAmberText,
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
-                    },
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 9,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _controller.hasRecentDeviceLocation
-                            ? SakhiModule4Colors.verifiedMintBg
-                            : SakhiModule4Colors.warningAmberBg,
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(
-                          color: _controller.hasRecentDeviceLocation
-                              ? SakhiModule4Colors.verifiedMintBorder
-                              : SakhiModule4Colors.warningAmberBorder,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            _controller.hasRecentDeviceLocation
-                                ? Icons.location_on_rounded
-                                : Icons.warning_amber_rounded,
-                            size: 16,
-                            color: _controller.hasRecentDeviceLocation
-                                ? SakhiModule4Colors.verifiedMintText
-                                : SakhiModule4Colors.warningAmberText,
+                  // Hero Real Live Interactive Map Card with Clean Pulsing Vector SOS Button
+                  Stack(
+                    children: [
+                      SakhiLiveOsmMap(
+                        height: 235,
+                        latitude: _controller.currentLatitude,
+                        longitude: _controller.currentLongitude,
+                        hasLiveGps: _controller.hasRecentDeviceLocation,
+                        locationLabel: _controller.hasRecentDeviceLocation
+                            ? _controller.currentLocationLabel
+                            : 'Tap to enable device GPS',
+                        accuracyMeters: _controller.currentAccuracyMeters,
+                        policeStations: _controller.nearbyPoliceStations,
+                        onRequestGpsTap: () =>
+                            unawaited(_controller.requestDeviceLocation()),
+                        onStationTap: (_) =>
+                            _openScreen(const NearestPoliceStationsScreen()),
+                        centerOverlay: GestureDetector(
+                          key: const Key('safety-hero-tap-sos-card'),
+                          onTap: () => _openScreen(
+                            const SosWorkflowScreen(isTestMode: false),
                           ),
-                          const SizedBox(width: 6),
-                          Flexible(
-                            child: Text(
-                              _controller.isAcquiringLocation
-                                  ? 'Getting device GPS…'
-                                  : _controller.hasRecentDeviceLocation
-                                  ? 'GPS location available · tap to refresh'
-                                  : 'Tap to enable device GPS',
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                color: _controller.hasRecentDeviceLocation
-                                    ? SakhiModule4Colors.verifiedMintText
-                                    : SakhiModule4Colors.warningAmberText,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Hero Interactive Map Card with Central Pulsing SOS Control
-                  Container(
-                    height: 225,
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(22),
-                      border: Border.all(color: SakhiModule4Colors.cardBorder),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x0F5A1868),
-                          blurRadius: 14,
-                          offset: Offset(0, 5),
-                        ),
-                      ],
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        Positioned.fill(
-                          child: Image.asset(
-                            SakhiModule4Assets.pastelMapBackground,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, _, _) => Image.asset(
-                              AppAssets.safetyMapBg,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, _, _) =>
-                                  Container(color: const Color(0xFFF3EDF7)),
-                            ),
-                          ),
-                        ),
-                        // Concentric pulse aura
-                        Container(
-                          width: 156,
-                          height: 156,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: SakhiModule4Colors.emergencyCrimson
-                                .withValues(alpha: 0.08),
-                          ),
-                        ),
-                        Container(
-                          width: 118,
-                          height: 118,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: SakhiModule4Colors.emergencyCrimson
-                                .withValues(alpha: 0.16),
-                          ),
-                        ),
-                        // Center Tap SOS Button
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            GestureDetector(
-                              key: const Key('safety-center-tap-sos-button'),
-                              onTap: () => _openScreen(
-                                const SosWorkflowScreen(isTestMode: false),
-                              ),
-                              child: Container(
-                                width: 76,
-                                height: 76,
-                                decoration: const BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: SakhiModule4Colors.emergencyCrimson,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Color(0x44C92A49),
-                                      blurRadius: 16,
-                                      offset: Offset(0, 6),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const SizedBox(height: 14),
+                              AnimatedBuilder(
+                                animation: _pulseController,
+                                builder: (context, child) {
+                                  final scale =
+                                      1.0 + (_pulseController.value * 0.08);
+                                  return Transform.scale(
+                                    scale: scale,
+                                    child: child,
+                                  );
+                                },
+                                child: Container(
+                                  width: 96,
+                                  height: 96,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: SakhiModule4Colors.sosCrimson
+                                        .withValues(alpha: 0.14),
+                                  ),
+                                  alignment: Alignment.center,
+                                  child: Container(
+                                    width: 78,
+                                    height: 78,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: SakhiModule4Colors.sosCrimson
+                                          .withValues(alpha: 0.24),
                                     ),
-                                  ],
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(12),
-                                  child: Image.asset(
-                                    SakhiModule4Assets.sosPulsingHeroBtn,
-                                    fit: BoxFit.contain,
-                                    errorBuilder: (_, _, _) => const Icon(
-                                      Icons.shield_rounded,
-                                      color: Colors.white,
-                                      size: 36,
+                                    alignment: Alignment.center,
+                                    child: Container(
+                                      width: 62,
+                                      height: 62,
+                                      decoration: const BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        gradient: LinearGradient(
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                          colors: [
+                                            Color(0xFFE53858),
+                                            Color(0xFFB81D3B),
+                                          ],
+                                        ),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Color(0x55C92A49),
+                                            blurRadius: 16,
+                                            offset: Offset(0, 6),
+                                          ),
+                                        ],
+                                      ),
+                                      alignment: Alignment.center,
+                                      child: const Stack(
+                                        alignment: Alignment.center,
+                                        children: [
+                                          Icon(
+                                            Icons.shield_rounded,
+                                            color: Colors.white,
+                                            size: 34,
+                                          ),
+                                          Icon(
+                                            Icons.location_on_rounded,
+                                            color: Color(0xFFC92A49),
+                                            size: 16,
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
-                            ),
-                            const SizedBox(height: 8),
-                            const Text(
-                              'Tap SOS',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
-                                color: SakhiModule4Colors.textPrimary,
-                              ),
-                            ),
-                            const Text(
-                              'for emergency help',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                                color: SakhiModule4Colors.textSecondary,
-                              ),
-                            ),
-                          ],
-                        ),
-                        // Bottom Discreet Trigger Status Pill
-                        Positioned(
-                          bottom: 10,
-                          child: GestureDetector(
-                            onTap: () => _openScreen(
-                              const SafetyHistoryAndSettingsScreen(),
-                            ),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 5,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF423648)
-                                    .withValues(alpha: 0.86),
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                              child: Text(
-                                _controller.powerButtonShortcutEnabled
-                                    ? 'Discreet Trigger: Power Button 3x (Test Mode Ready)'
-                                    : 'Discreet Trigger: Tap to Configure Safe Shortcut',
-                                style: const TextStyle(
-                                  fontSize: 10.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white,
+                              const SizedBox(height: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 5,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.94),
+                                  borderRadius: BorderRadius.circular(14),
+                                  boxShadow: const [
+                                    BoxShadow(
+                                      color: Colors.black12,
+                                      blurRadius: 6,
+                                      offset: Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: const Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      'Tap SOS',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w800,
+                                        color: SakhiModule4Colors.textPrimary,
+                                      ),
+                                    ),
+                                    Text(
+                                      'for emergency help • 3s confirmation guard',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: SakhiModule4Colors.textSecondary,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                            ),
+                            ],
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // 4 Circular Pastel Category Buttons (64dp)
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _SafetyCategoryCircle(
-                        key: const Key('safety-circle-emergency-contacts'),
-                        assetPath: SakhiModule4Assets.icEmergencyContacts,
-                        fallbackIcon: Icons.people_alt_rounded,
-                        bgColor: SakhiModule4Colors.emergencySoftTint,
-                        iconColor: SakhiModule4Colors.emergencyCrimson,
-                        label: 'Emergency\nContacts',
-                        onTap: () =>
-                            _openScreen(const EmergencyContactsScreen()),
-                      ),
-                      _SafetyCategoryCircle(
-                        key: const Key('safety-circle-nearest-police'),
-                        assetPath: SakhiModule4Assets.icNearestPolice,
-                        fallbackIcon: Icons.local_police_rounded,
-                        bgColor: SakhiModule4Colors.verifiedMintBg,
-                        iconColor: SakhiModule4Colors.verifiedMintText,
-                        label: 'Nearest\nPolice',
-                        onTap: () =>
-                            _openScreen(const NearestPoliceStationsScreen()),
-                      ),
-                      _SafetyCategoryCircle(
-                        key: const Key('safety-circle-safety-tips'),
-                        assetPath: SakhiModule4Assets.icSafetyTips,
-                        fallbackIcon: Icons.verified_user_rounded,
-                        bgColor: SakhiModule4Colors.pastelPeachBg,
-                        iconColor: const Color(0xFFD97B16),
-                        label: 'Safety\nTips',
-                        onTap: () => _openScreen(
-                          const HelplinesAndSafetyTipsScreen(
-                            scrollToTips: true,
-                          ),
-                        ),
-                      ),
-                      _SafetyCategoryCircle(
-                        key: const Key('safety-circle-helplines-112'),
-                        assetPath: SakhiModule4Assets.icHelplines112,
-                        fallbackIcon: Icons.phone_in_talk_rounded,
-                        bgColor: SakhiModule4Colors.pastelLavenderBg,
-                        iconColor: SakhiModule4Colors.primaryPlum,
-                        label: 'Helplines\n(112)',
-                        onTap: () =>
-                            _openScreen(const HelplinesAndSafetyTipsScreen()),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
-
-                  // Discord-Style Animated Women's Quotations & Safety Inspiration Banner
-                  const SakhiQuoteLoader.banner(),
                   const SizedBox(height: 18),
 
-                  // Quick Safety Actions Section
+                  // 4 Circular Icon Actions Row — Each opens its own DISTINCT screen!
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: _CircularSafetyHubAction(
+                          key: const Key('circle-action-emergency-contacts'),
+                          icon: Icons.people_alt_rounded,
+                          tintBg: const Color(0xFFFDE8EC),
+                          iconColor: SakhiModule4Colors.sosCrimson,
+                          label: 'Emergency\nContacts',
+                          onTap: () =>
+                              _openScreen(const EmergencyContactsScreen()),
+                        ),
+                      ),
+                      Expanded(
+                        child: _CircularSafetyHubAction(
+                          key: const Key('circle-action-nearby-police'),
+                          icon: Icons.local_police_rounded,
+                          tintBg: const Color(0xFFE6F4EE),
+                          iconColor: SakhiModule4Colors.verifiedEmerald,
+                          label: 'Nearby\nPolice',
+                          onTap: () =>
+                              _openScreen(const NearestPoliceStationsScreen()),
+                        ),
+                      ),
+                      Expanded(
+                        child: _CircularSafetyHubAction(
+                          key: const Key('circle-action-safety-tips'),
+                          icon: Icons.menu_book_rounded,
+                          tintBg: const Color(0xFFFFF3E0),
+                          iconColor: const Color(0xFFD97706),
+                          label: 'Safety\nTips',
+                          onTap: () =>
+                              _openScreen(const PersonalSafetyTipsScreen()),
+                        ),
+                      ),
+                      Expanded(
+                        child: _CircularSafetyHubAction(
+                          key: const Key('circle-action-helplines-112'),
+                          icon: Icons.phone_in_talk_rounded,
+                          tintBg: const Color(0xFFF2E6F7),
+                          iconColor: SakhiModule4Colors.primaryPlum,
+                          label: 'Helplines\n(112)',
+                          onTap: () =>
+                              _openScreen(const NationalEmergency112Screen()),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
                   const Text(
                     'Quick Safety Actions',
                     style: TextStyle(
-                      fontSize: 16.5,
+                      fontSize: 17,
                       fontWeight: FontWeight.w800,
                       color: SakhiModule4Colors.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 10),
 
-                  _SafetyActionCardRow(
-                    key: const Key('safety-row-share-live-location'),
-                    assetPath: SakhiModule4Assets.icLiveLocationRadar,
-                    fallbackIcon: Icons.my_location_rounded,
-                    badgeBg: SakhiModule4Colors.emergencySoftTint,
-                    iconColor: SakhiModule4Colors.emergencyCrimson,
+                  // 5 Quick Safety Action Rows — Every Row Opens Its Own Dedicated Screen!
+                  _QuickActionRowCard(
+                    key: const Key('row-action-share-live-location'),
+                    icon: Icons.my_location_rounded,
+                    iconColor: SakhiModule4Colors.sosCrimson,
+                    iconBg: const Color(0xFFFDE8EC),
                     title: 'Share my live location',
-                    subtitle: 'Send real-time GPS link to trusted contacts',
-                    trailingBadgeText: _controller.liveLocationSharingActive
-                        ? 'Active'
-                        : null,
+                    subtitle: _controller.liveLocationSharingActive
+                        ? 'Active (${_controller.selectedDurationLabel}) • Tap to manage link'
+                        : 'With selected trusted contacts (Consent & GPS)',
                     onTap: () => _openScreen(const ShareLiveLocationScreen()),
                   ),
                   const SizedBox(height: 10),
-
-                  _SafetyActionCardRow(
-                    key: const Key('safety-row-sos-history'),
-                    assetPath: SakhiModule4Assets.icSosHistoryClock,
-                    fallbackIcon: Icons.history_rounded,
-                    badgeBg: SakhiModule4Colors.pastelLavenderBg,
+                  _QuickActionRowCard(
+                    key: const Key('row-action-sos-history'),
+                    icon: Icons.history_rounded,
                     iconColor: SakhiModule4Colors.primaryPlum,
+                    iconBg: const Color(0xFFF2E6F7),
                     title: 'SOS Activation History',
-                    subtitle: 'Review past safety alerts & delivery logs',
+                    subtitle:
+                        'View past emergency alerts & status (${_controller.sosHistory.length} logged)',
                     onTap: () =>
-                        _openScreen(const SafetyHistoryAndSettingsScreen()),
+                        _openScreen(const SosActivationHistoryScreen()),
                   ),
                   const SizedBox(height: 10),
-
-                  _SafetyActionCardRow(
-                    key: const Key('safety-row-safety-checklist'),
-                    assetPath: SakhiModule4Assets.icSafetyChecklist,
-                    fallbackIcon: Icons.fact_check_outlined,
-                    badgeBg: SakhiModule4Colors.pastelPeachBg,
-                    iconColor: const Color(0xFFD97B16),
+                  _QuickActionRowCard(
+                    key: const Key('row-action-safety-checklist'),
+                    icon: Icons.fact_check_rounded,
+                    iconColor: SakhiModule4Colors.verifiedEmerald,
+                    iconBg: const Color(0xFFE6F4EE),
                     title: 'Safety Checklist & Discreet Trigger',
-                    subtitle:
-                        'Pre-travel checks & accidental trigger protection',
+                    subtitle: 'Pre-travel checklist, cab plate logger & shortcut status',
                     onTap: () =>
-                        _openScreen(const SafetyHistoryAndSettingsScreen()),
+                        _openScreen(const PreTravelSafetyChecklistScreen()),
                   ),
                   const SizedBox(height: 10),
-
-                  _SafetyActionCardRow(
-                    key: const Key('safety-row-emergency-helplines'),
-                    assetPath: SakhiModule4Assets.icHelplineHeadset,
-                    fallbackIcon: Icons.support_agent_rounded,
-                    badgeBg: SakhiModule4Colors.verifiedMintBg,
-                    iconColor: SakhiModule4Colors.verifiedMintText,
+                  _QuickActionRowCard(
+                    key: const Key('row-action-emergency-helplines'),
+                    icon: Icons.support_agent_rounded,
+                    iconColor: const Color(0xFFB81D3B),
+                    iconBg: const Color(0xFFFDE8EC),
                     title: 'Emergency Helplines & 112',
-                    subtitle:
-                        'Police 112 / 100, Women Helpline 1091, Ambulance 108',
+                    subtitle: '112 National Emergency, 100 Police, 1091 & 181 Women Helpline',
                     onTap: () =>
-                        _openScreen(const HelplinesAndSafetyTipsScreen()),
+                        _openScreen(const VerifiedHelplinesDirectoryScreen()),
+                  ),
+                  const SizedBox(height: 10),
+                  _QuickActionRowCard(
+                    key: const Key('row-action-nearest-police-stations'),
+                    icon: Icons.local_police_rounded,
+                    iconColor: SakhiModule4Colors.primaryPlum,
+                    iconBg: const Color(0xFFF2E6F7),
+                    title: 'Nearest Police Stations',
+                    subtitle: _controller.nearbyPoliceStations.isNotEmpty
+                        ? '${_controller.nearbyPoliceStations.length} real stations found near your GPS • Call 100/112'
+                        : 'Real live GPS map, verified directory, directions & Call 112',
+                    onTap: () =>
+                        _openScreen(const NearestPoliceStationsScreen()),
+                  ),
+
+                  const SizedBox(height: 16),
+                  // Animated Women Quotations Banner (168 curated quotes)
+                  SakhiQuoteLoader.banner(
+                    statusLabel:
+                        'Daily Sakhi Strength • Tap for another inspiration',
                   ),
                 ],
               ),
@@ -488,19 +463,17 @@ class _SafetyScreenState extends State<SafetyScreen> {
   }
 }
 
-class _SafetyCategoryCircle extends StatelessWidget {
-  final String assetPath;
-  final IconData fallbackIcon;
-  final Color bgColor;
+class _CircularSafetyHubAction extends StatelessWidget {
+  final IconData icon;
+  final Color tintBg;
   final Color iconColor;
   final String label;
   final VoidCallback onTap;
 
-  const _SafetyCategoryCircle({
+  const _CircularSafetyHubAction({
     super.key,
-    required this.assetPath,
-    required this.fallbackIcon,
-    required this.bgColor,
+    required this.icon,
+    required this.tintBg,
     required this.iconColor,
     required this.label,
     required this.onTap,
@@ -509,36 +482,43 @@ class _SafetyCategoryCircle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: onTap,
       borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+        padding: const EdgeInsets.symmetric(vertical: 4),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 62,
-              height: 62,
-              decoration: BoxDecoration(color: bgColor, shape: BoxShape.circle),
-              child: ClipOval(
-                child: Image.asset(
-                  assetPath,
-                  width: 62,
-                  height: 62,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) =>
-                      Icon(fallbackIcon, color: iconColor, size: 28),
+              width: 58,
+              height: 58,
+              decoration: BoxDecoration(
+                color: tintBg,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: iconColor.withValues(alpha: 0.2),
+                  width: 1.2,
                 ),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x0D5A1868),
+                    blurRadius: 8,
+                    offset: Offset(0, 3),
+                  ),
+                ],
               ),
+              alignment: Alignment.center,
+              child: Icon(icon, color: iconColor, size: 26),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 7),
             Text(
               label,
               textAlign: TextAlign.center,
               style: const TextStyle(
-                fontSize: 11.5,
+                fontSize: 12,
+                height: 1.2,
                 fontWeight: FontWeight.w700,
                 color: SakhiModule4Colors.textPrimary,
-                height: 1.2,
               ),
             ),
           ],
@@ -548,41 +528,39 @@ class _SafetyCategoryCircle extends StatelessWidget {
   }
 }
 
-class _SafetyActionCardRow extends StatelessWidget {
-  final String assetPath;
-  final IconData fallbackIcon;
-  final Color badgeBg;
+class _QuickActionRowCard extends StatelessWidget {
+  final IconData icon;
   final Color iconColor;
+  final Color iconBg;
   final String title;
   final String subtitle;
-  final String? trailingBadgeText;
   final VoidCallback onTap;
 
-  const _SafetyActionCardRow({
+  const _QuickActionRowCard({
     super.key,
-    required this.assetPath,
-    required this.fallbackIcon,
-    required this.badgeBg,
+    required this.icon,
     required this.iconColor,
+    required this.iconBg,
     required this.title,
     required this.subtitle,
-    this.trailingBadgeText,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: SakhiModule4Colors.cardSurface,
+      color: Colors.white,
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
-        onTap: onTap,
         borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+          constraints: const BoxConstraints(minHeight: 74),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: SakhiModule4Colors.cardBorder),
+            border: Border.all(color: SakhiModule4Colors.borderSubtle),
+            boxShadow: SakhiModule4Colors.cardShadow,
           ),
           child: Row(
             children: [
@@ -590,20 +568,13 @@ class _SafetyActionCardRow extends StatelessWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: badgeBg,
+                  color: iconBg,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.asset(
-                    assetPath,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) =>
-                        Icon(fallbackIcon, color: iconColor, size: 22),
-                  ),
-                ),
+                alignment: Alignment.center,
+                child: Icon(icon, color: iconColor, size: 24),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -611,43 +582,22 @@ class _SafetyActionCardRow extends StatelessWidget {
                     Text(
                       title,
                       style: const TextStyle(
-                        fontSize: 14.5,
+                        fontSize: 15,
                         fontWeight: FontWeight.w800,
                         color: SakhiModule4Colors.textPrimary,
                       ),
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 3),
                     Text(
                       subtitle,
                       style: const TextStyle(
-                        fontSize: 12,
+                        fontSize: 12.5,
                         color: SakhiModule4Colors.textSecondary,
                       ),
                     ),
                   ],
                 ),
               ),
-              if (trailingBadgeText != null) ...[
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: SakhiModule4Colors.verifiedMintBg,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    trailingBadgeText!,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      color: SakhiModule4Colors.verifiedMintText,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 6),
-              ],
               const Icon(
                 Icons.chevron_right_rounded,
                 color: SakhiModule4Colors.textSecondary,
@@ -660,8 +610,10 @@ class _SafetyActionCardRow extends StatelessWidget {
   }
 }
 
-/// Screen 2 — SOS Short Confirmation (3s Countdown) & Active Emergency Workflow Screen
-/// (`02_SOS_Confirmation_3s_and_Active_Workflow_UI.jpg`)
+// ============================================================================
+// Screen 2 — SOS Short Confirmation (3s Guard) & Active SOS Workflow Screen
+// (`02_SOS_Confirmation_3s_and_Active_Workflow_UI.jpg`)
+// ============================================================================
 class SosWorkflowScreen extends StatefulWidget {
   final bool isTestMode;
 
@@ -674,28 +626,55 @@ class SosWorkflowScreen extends StatefulWidget {
 class _SosWorkflowScreenState extends State<SosWorkflowScreen> {
   final SakhiSafetyController _controller = SakhiSafetyController.instance;
   int _secondsRemaining = 3;
-  bool _isDispatched = false;
-  SafetySosHistoryItem? _activeEvent;
+  bool _sosDispatched = false;
   Timer? _countdownTimer;
-
-  bool get _isWidgetTest =>
-      WidgetsBinding.instance.runtimeType.toString().contains('Test');
 
   @override
   void initState() {
     super.initState();
-    if (!_isWidgetTest) {
-      unawaited(_controller.refreshCurrentLocationIfAlreadyGranted());
-      _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-        if (!mounted) return;
-        if (_secondsRemaining > 1) {
-          setState(() => _secondsRemaining--);
-        } else {
-          timer.cancel();
-          _triggerSosNow();
-        }
-      });
-    }
+    unawaited(_controller.refreshCurrentLocationIfAlreadyGranted());
+    _startCountdown();
+  }
+
+  void _startCountdown() {
+    _countdownTimer?.cancel();
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      if (_secondsRemaining > 1) {
+        setState(() {
+          _secondsRemaining -= 1;
+        });
+      } else {
+        timer.cancel();
+        _triggerSosNow();
+      }
+    });
+  }
+
+  Future<void> _triggerSosNow() async {
+    _countdownTimer?.cancel();
+    if (_sosDispatched) return;
+    setState(() {
+      _secondsRemaining = 0;
+      _sosDispatched = true;
+    });
+    await _controller.activateSosEvent(isTestMode: widget.isTestMode);
+  }
+
+  void _cancelSosDuringCountdown() {
+    _countdownTimer?.cancel();
+    _controller.cancelSosDuringCountdown(isTestMode: widget.isTestMode);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: SakhiModule4Colors.verifiedEmerald,
+        behavior: SnackBarBehavior.floating,
+        content: Text(
+          'SOS cancelled safely within 3s confirmation guard • No alert dispatched',
+        ),
+      ),
+    );
+    Navigator.of(context).pop();
   }
 
   @override
@@ -704,159 +683,309 @@ class _SosWorkflowScreenState extends State<SosWorkflowScreen> {
     super.dispose();
   }
 
-  Future<void> _triggerSosNow() async {
-    _countdownTimer?.cancel();
-    final event = await _controller.activateSosEvent(
-      isTestMode: widget.isTestMode,
-    );
-    if (!mounted) return;
-    setState(() {
-      _secondsRemaining = 0;
-      _isDispatched = true;
-      _activeEvent = event;
-    });
-  }
-
-  void _cancelSos() {
-    _countdownTimer?.cancel();
-    _controller.cancelSosDuringCountdown(isTestMode: widget.isTestMode);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        backgroundColor: SakhiModule4Colors.primaryPlum,
-        behavior: SnackBarBehavior.floating,
-        content: Text(
-          'SOS cancelled during 3-second confirmation guard • No external alert sent.',
-        ),
-      ),
-    );
-    Navigator.of(context).pop();
-  }
-
   @override
   Widget build(BuildContext context) {
-    final contactsNames = _controller.selectedContacts
-        .map(
-          (c) => c.isPrimary
-              ? '${c.name.split(" ").first} (Primary)'
-              : c.name.split(' ').first,
-        )
-        .join(', ');
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final selectedCount = _controller.selectedContacts.length;
+        final contactNames = _controller.selectedContacts
+            .map((c) => c.name)
+            .join(', ');
+        final hasLiveCoords = _controller.hasRecentDeviceLocation;
 
-    return Scaffold(
-      backgroundColor: SakhiModule4Colors.surfaceBackground,
-      appBar: AppBar(
-        backgroundColor: SakhiModule4Colors.surfaceBackground,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(
-            Icons.arrow_back_rounded,
-            color: SakhiModule4Colors.textPrimary,
-          ),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: Text(
-          widget.isTestMode ? 'Safe Test Mode SOS' : 'Emergency SOS Active',
-          style: const TextStyle(
-            fontSize: 18.5,
-            fontWeight: FontWeight.w800,
-            color: SakhiModule4Colors.textPrimary,
-          ),
-        ),
-        actions: [
-          Container(
-            margin: const EdgeInsets.only(right: 16, top: 12, bottom: 12),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            decoration: BoxDecoration(
-              color: widget.isTestMode
-                  ? SakhiModule4Colors.primaryPlum
-                  : SakhiModule4Colors.emergencyCrimson,
-              borderRadius: BorderRadius.circular(999),
+        return Scaffold(
+          backgroundColor: SakhiModule4Colors.surfaceBackground,
+          appBar: AppBar(
+            backgroundColor: SakhiModule4Colors.surfaceBackground,
+            elevation: 0,
+            leading: IconButton(
+              icon: const Icon(
+                Icons.arrow_back_ios_new_rounded,
+                color: SakhiModule4Colors.textPrimary,
+              ),
+              onPressed: () => Navigator.of(context).pop(),
             ),
-            alignment: Alignment.center,
-            child: Text(
-              widget.isTestMode ? 'SAFE TEST' : 'LIVE ALERT',
+            title: Text(
+              widget.isTestMode ? 'Safe SOS Test Mode' : 'Emergency SOS',
               style: const TextStyle(
-                color: Colors.white,
-                fontSize: 11,
+                fontSize: 19,
                 fontWeight: FontWeight.w800,
+                color: SakhiModule4Colors.textPrimary,
               ),
             ),
-          ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Card 1: Short Confirmation / 3-Second Countdown Guard (SRS 6.2)
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(
-                  color: SakhiModule4Colors.emergencyCrimson.withValues(
-                    alpha: 0.45,
-                  ),
-                  width: 1.5,
+            centerTitle: true,
+            actions: [
+              Container(
+                margin: const EdgeInsets.only(right: 14),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFCE8EC),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.circle,
+                      size: 8,
+                      color: SakhiModule4Colors.sosCrimson,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      _sosDispatched ? 'Active SOS' : '3s Guard',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: SakhiModule4Colors.sosCrimson,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              child: Column(
-                children: [
-                  Row(
+            ],
+          ),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // 1. Short Confirmation Guard Card (Section 6.2)
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: SakhiModule4Colors.sosCrimson,
+                      width: 1.5,
+                    ),
+                    boxShadow: SakhiModule4Colors.cardShadow,
+                  ),
+                  child: Column(
                     children: [
+                      Text(
+                        widget.isTestMode
+                            ? 'Safe Test Mode — Confirm SOS Simulation'
+                            : 'Confirm Emergency SOS',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: SakhiModule4Colors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _sosDispatched
+                            ? 'SOS workflow active • Prepare emergency actions below'
+                            : 'Sending alert & recording location in $_secondsRemaining seconds (Prevents accidental triggers)',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          color: SakhiModule4Colors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
                       Container(
-                        width: 68,
-                        height: 68,
+                        width: 78,
+                        height: 78,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
+                          color: const Color(0xFFFCE8EC),
                           border: Border.all(
-                            color: _isDispatched
-                                ? SakhiModule4Colors.verifiedMintText
-                                : SakhiModule4Colors.emergencyCrimson,
+                            color: SakhiModule4Colors.sosCrimson,
                             width: 4,
                           ),
                         ),
                         alignment: Alignment.center,
                         child: Text(
-                          _isDispatched ? 'LIVE' : '0${_secondsRemaining}s',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                            color: _isDispatched
-                                ? SakhiModule4Colors.verifiedMintText
-                                : SakhiModule4Colors.emergencyCrimson,
+                          _sosDispatched ? 'SOS' : '0${_secondsRemaining}s',
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                            color: SakhiModule4Colors.sosCrimson,
                           ),
                         ),
                       ),
-                      const SizedBox(width: 14),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton(
+                              key: const Key('sos-trigger-now-button'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: SakhiModule4Colors.sosCrimson,
+                                foregroundColor: Colors.white,
+                                minimumSize: const Size.fromHeight(46),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                              ),
+                              onPressed: _triggerSosNow,
+                              child: const Text(
+                                'Trigger SOS Now',
+                                style: TextStyle(fontWeight: FontWeight.w800),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: OutlinedButton(
+                              key: const Key('sos-cancel-safe-button'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: SakhiModule4Colors.primaryPlum,
+                                side: const BorderSide(
+                                  color: SakhiModule4Colors.primaryPlum,
+                                  width: 1.4,
+                                ),
+                                minimumSize: const Size.fromHeight(46),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                              ),
+                              onPressed: _cancelSosDuringCountdown,
+                              child: const Text(
+                                "Cancel (I'm Safe)",
+                                style: TextStyle(fontWeight: FontWeight.w800),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                const Text(
+                  'Active SOS Workflow & Verified Status',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: SakhiModule4Colors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 10),
+
+                // Step 1: GPS Location Status
+                _WorkflowStatusStepCard(
+                  icon: hasLiveCoords
+                      ? Icons.check_rounded
+                      : Icons.location_searching_rounded,
+                  iconBg: hasLiveCoords
+                      ? SakhiModule4Colors.verifiedEmerald
+                      : SakhiModule4Colors.amberWarningText,
+                  title: hasLiveCoords
+                      ? 'Current Location Captured (GPS Granted)'
+                      : 'Current Location Unavailable',
+                  subtitle: hasLiveCoords
+                      ? '${_controller.currentLocationLabel} • Lat ${_controller.currentLatitude.toStringAsFixed(4)}° N, ${_controller.currentLongitude.toStringAsFixed(4)}° E'
+                      : _controller.locationStatusMessage,
+                  pillText: hasLiveCoords ? 'Confirmed' : 'Enable GPS',
+                  pillBg: hasLiveCoords
+                      ? SakhiModule4Colors.verifiedEmeraldTint
+                      : SakhiModule4Colors.amberWarningBg,
+                  pillTextColor: hasLiveCoords
+                      ? SakhiModule4Colors.verifiedEmerald
+                      : SakhiModule4Colors.amberWarningText,
+                ),
+                if (!hasLiveCoords) ...[
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: _controller.isAcquiringLocation
+                        ? null
+                        : () => unawaited(_controller.requestDeviceLocation()),
+                    icon: const Icon(Icons.my_location_rounded, size: 18),
+                    label: Text(
+                      _controller.isAcquiringLocation
+                          ? 'Getting device location…'
+                          : 'Enable Device GPS Now',
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 10),
+
+                // Step 2: Emergency Contacts Alert Preparation
+                _WorkflowStatusStepCard(
+                  icon: Icons.people_alt_rounded,
+                  iconBg: SakhiModule4Colors.primaryPlum,
+                  title: selectedCount > 0
+                      ? 'Emergency Contacts ($selectedCount Selected)'
+                      : 'No Emergency Contacts Added Yet',
+                  subtitle: widget.isTestMode
+                      ? 'Safe Test Mode: External SMS/WhatsApp dispatch suppressed'
+                      : selectedCount > 0
+                      ? '$contactNames • Tap below to send live GPS alert via SMS/WhatsApp'
+                      : 'Add trusted contacts in Emergency Contacts to send one-tap SMS/WhatsApp alerts',
+                  pillText: widget.isTestMode
+                      ? 'Test Mode'
+                      : selectedCount > 0
+                      ? 'Ready'
+                      : 'Configure',
+                  pillBg: const Color(0xFFF2E6F7),
+                  pillTextColor: SakhiModule4Colors.primaryPlum,
+                ),
+                const SizedBox(height: 10),
+
+                // Step 3: Safety History Recording
+                _WorkflowStatusStepCard(
+                  icon: Icons.check_rounded,
+                  iconBg: SakhiModule4Colors.verifiedEmerald,
+                  title: 'Recorded in Personal Safety History',
+                  subtitle: 'Event logged with timestamp & device coordinates for your records',
+                  pillText: 'Saved',
+                  pillBg: SakhiModule4Colors.verifiedEmeraldTint,
+                  pillTextColor: SakhiModule4Colors.verifiedEmerald,
+                ),
+                const SizedBox(height: 10),
+
+                // Step 4: Mandatory Police Integration Compliance Card (SRS 6.3.8 & 6.4)
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: SakhiModule4Colors.amberWarningBg,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: SakhiModule4Colors.amberWarningBorder,
+                    ),
+                  ),
+                  child: const Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      CircleAvatar(
+                        radius: 13,
+                        backgroundColor: SakhiModule4Colors.amberWarningText,
+                        child: Text(
+                          '!',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              _isDispatched
-                                  ? (widget.isTestMode
-                                        ? 'Safe Test Mode Verified'
-                                        : 'Emergency SOS Triggered')
-                                  : 'Confirm Emergency SOS',
-                              style: const TextStyle(
-                                fontSize: 16.5,
+                              'Official Police Integration Status',
+                              style: TextStyle(
+                                fontSize: 13.5,
                                 fontWeight: FontWeight.w800,
-                                color: SakhiModule4Colors.textPrimary,
+                                color: Color(0xFF5C3700),
                               ),
                             ),
-                            const SizedBox(height: 4),
+                            SizedBox(height: 3),
                             Text(
-                              widget.isTestMode
-                                  ? 'Simulating 3s confirmation & GPS lookup locally without sending real external alerts.'
-                                  : 'A 3-second guard prevents accidental triggers. Location is included only with permission and a recent GPS fix; contacts and police are not auto-dispatched.',
-                              style: const TextStyle(
-                                fontSize: 12.5,
-                                color: SakhiModule4Colors.textSecondary,
+                              'Direct police auto-dispatch is not connected. Please tap Call 112 or 100 below to speak directly with emergency responders.',
+                              style: TextStyle(
+                                fontSize: 12,
                                 height: 1.35,
+                                color: Color(0xFF6B4200),
                               ),
                             ),
                           ],
@@ -864,290 +993,208 @@ class _SosWorkflowScreenState extends State<SosWorkflowScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: FilledButton(
-                          key: const Key('sos-trigger-now-button'),
-                          style: FilledButton.styleFrom(
-                            backgroundColor:
-                                SakhiModule4Colors.emergencyCrimson,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: const StadiumBorder(),
-                          ),
-                          onPressed: _triggerSosNow,
-                          child: const Text(
-                            'Trigger SOS Now',
-                            style: TextStyle(fontWeight: FontWeight.w800),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: FilledButton.tonal(
-                          key: const Key('sos-cancel-safe-button'),
-                          style: FilledButton.styleFrom(
-                            backgroundColor:
-                                SakhiModule4Colors.secondaryLavenderPill,
-                            foregroundColor: SakhiModule4Colors.primaryPlumDark,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: const StadiumBorder(),
-                          ),
-                          onPressed: _cancelSos,
-                          child: const Text(
-                            "Cancel (I'm Safe)",
-                            style: TextStyle(fontWeight: FontWeight.w800),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
+                ),
+                const SizedBox(height: 16),
 
-            // Card 2: Emergency Action Status Steps (SRS 6.3.1 - 6.3.9)
-            Container(
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: SakhiModule4Colors.cardBorder),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Emergency Action Status',
-                          style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800,
-                            color: SakhiModule4Colors.textPrimary,
-                          ),
-                        ),
-                      ),
-                      Icon(
-                        Icons.monitor_heart_outlined,
-                        color: SakhiModule4Colors.primaryPlum,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  _WorkflowStepRow(
-                    isAmber: !_controller.hasRecentDeviceLocation,
-                    title: _controller.hasRecentDeviceLocation
-                        ? 'Current Location Obtained'
-                        : 'Current Location Unavailable',
-                    subtitle: _controller.hasRecentDeviceLocation
-                        ? _controller.currentLocationLabel
-                        : 'No recent GPS fix is available. This SOS record will not include old or sample coordinates.',
-                  ),
-                  const SizedBox(height: 14),
-                  _WorkflowStepRow(
-                    isAmber: false,
-                    title: widget.isTestMode
-                        ? 'Trusted Contacts Check (Safe Test Mode)'
-                        : 'Emergency Contacts Selected (${_controller.selectedContacts.length}/${_controller.trustedContacts.length})',
-                    subtitle: widget.isTestMode
-                        ? 'No external SMS sent during Safe Test Mode ($contactsNames configured)'
-                        : 'Sakhi does not dispatch calls or SMS automatically. Share manually and call 112/100 for emergencies.',
-                  ),
-                  const SizedBox(height: 14),
-                  _WorkflowStepRow(
-                    isAmber: false,
-                    title: 'Recorded in Safety History',
-                    subtitle:
-                        'Event ID #${_activeEvent?.id ?? "SOS-2026-1023"} saved to personal log',
-                  ),
-                  const SizedBox(height: 14),
-                  const _WorkflowStepRow(
-                    isAmber: true,
-                    title: 'Official Police Integration Status',
-                    subtitle: 'Direct auto-dispatch not connected. Tap Call 112 or Call 100 below to speak with Police Control Room.',
-                  ),
-                  if (!widget.isTestMode) ...[
-                    const SizedBox(height: 14),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: () =>
-                            _controller.dispatchSosAlertToContacts(context),
-                        icon: const Icon(
-                          Icons.share_location_rounded,
-                          size: 18,
-                        ),
-                        label: const Text(
-                          'Send WhatsApp / SMS Alert Link to Contacts',
-                          style: TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                      ),
+                // Primary Call 112 CTA (Opens Native SIM Phone Dialer!)
+                FilledButton.icon(
+                  key: const Key('sos-call-112-button'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: SakhiModule4Colors.sosCrimson,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size.fromHeight(54),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(999),
                     ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 18),
+                  ),
+                  onPressed: () => _controller.launchPhoneCall(
+                    context,
+                    '112',
+                    label: '112 National Emergency Response',
+                  ),
+                  icon: const Icon(Icons.phone_in_talk_rounded),
+                  label: const Text(
+                    'Call 112 National Emergency Helpline',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+                  ),
+                ),
+                const SizedBox(height: 10),
 
-            // Bottom Primary Action Buttons: Call 112, Call 100, and Stop Location Sharing
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                key: const Key('sos-call-112-button'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: SakhiModule4Colors.emergencyCrimson,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 15),
-                  shape: const StadiumBorder(),
-                ),
-                onPressed: () => _controller.launchPhoneCall(
-                  context,
-                  '112',
-                  label: '112 National Emergency Helpline',
-                ),
-                icon: const Icon(Icons.call_rounded),
-                label: const Text(
-                  'Call 112 National Emergency Helpline',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.tonalIcon(
-                key: const Key('sos-call-100-button'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: SakhiModule4Colors.emergencySoftTint,
-                  foregroundColor: SakhiModule4Colors.emergencyCrimson,
-                  padding: const EdgeInsets.symmetric(vertical: 13),
-                  shape: const StadiumBorder(),
-                ),
-                onPressed: () => _controller.launchPhoneCall(
-                  context,
-                  '100',
-                  label: '100 Police Control Room',
-                ),
-                icon: const Icon(Icons.local_police_outlined),
-                label: const Text(
-                  'Call 100 Direct Police Control Room',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                key: const Key('sos-stop-sharing-end-button'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: SakhiModule4Colors.primaryPlumDark,
-                  side: const BorderSide(
-                    color: SakhiModule4Colors.primaryPlumDark,
-                    width: 1.6,
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: const StadiumBorder(),
-                ),
-                onPressed: () {
-                  _controller.stopLocationSharingAndEndSos();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      backgroundColor: SakhiModule4Colors.verifiedMintText,
-                      behavior: SnackBarBehavior.floating,
-                      content: Text(
-                        'Live location sharing stopped & SOS marked Resolved Safely.',
-                      ),
+                // Secondary Call 100 CTA (Opens Native SIM Phone Dialer!)
+                FilledButton.icon(
+                  key: const Key('sos-call-100-button'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: SakhiModule4Colors.primaryPlum,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size.fromHeight(50),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(999),
                     ),
-                  );
-                  Navigator.of(context).pop();
-                },
-                icon: const Icon(Icons.cancel_outlined, size: 19),
-                label: const Text(
-                  'Stop Location Sharing & End SOS',
-                  style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800),
+                  ),
+                  onPressed: () => _controller.launchPhoneCall(
+                    context,
+                    '100',
+                    label: '100 Police Control Room',
+                  ),
+                  icon: const Icon(Icons.local_police_rounded),
+                  label: const Text(
+                    'Call 100 Direct Police Control Room',
+                    style: TextStyle(
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
                 ),
+                const SizedBox(height: 10),
+
+                // Send / Resend Alert via SMS / WhatsApp
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: SakhiModule4Colors.primaryPlum,
+                    side: const BorderSide(
+                      color: SakhiModule4Colors.primaryPlum,
+                    ),
+                    minimumSize: const Size.fromHeight(48),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  onPressed: () =>
+                      _controller.dispatchSosAlertToContacts(context),
+                  icon: const Icon(Icons.share_location_rounded),
+                  label: const Text(
+                    'Send / Share Live SOS Alert to Contacts',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+                const SizedBox(height: 10),
+
+                // Stop Location Sharing & End SOS
+                FilledButton.tonal(
+                  key: const Key('sos-stop-and-end-button'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFF3E6EE),
+                    foregroundColor: SakhiModule4Colors.sosCrimson,
+                    minimumSize: const Size.fromHeight(48),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  onPressed: () {
+                    _controller.stopLocationSharingAndEndSos();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        backgroundColor: SakhiModule4Colors.verifiedEmerald,
+                        behavior: SnackBarBehavior.floating,
+                        content: Text(
+                          'Live location sharing stopped & SOS event marked Resolved Safely.',
+                        ),
+                      ),
+                    );
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text(
+                    'Stop Location Sharing & End SOS',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _WorkflowStatusStepCard extends StatelessWidget {
+  final IconData icon;
+  final Color iconBg;
+  final String title;
+  final String subtitle;
+  final String pillText;
+  final Color pillBg;
+  final Color pillTextColor;
+
+  const _WorkflowStatusStepCard({
+    required this.icon,
+    required this.iconBg,
+    required this.title,
+    required this.subtitle,
+    required this.pillText,
+    required this.pillBg,
+    required this.pillTextColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: SakhiModule4Colors.borderSubtle),
+        boxShadow: SakhiModule4Colors.cardShadow,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 13,
+            backgroundColor: iconBg,
+            child: Icon(icon, size: 15, color: Colors.white),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w800,
+                    color: SakhiModule4Colors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.35,
+                    color: SakhiModule4Colors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: pillBg,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              pillText,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                color: pillTextColor,
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _WorkflowStepRow extends StatelessWidget {
-  final bool isAmber;
-  final String title;
-  final String subtitle;
-
-  const _WorkflowStepRow({
-    required this.isAmber,
-    required this.title,
-    required this.subtitle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 28,
-          height: 28,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: isAmber
-                ? const Color(0xFFD99B26)
-                : SakhiModule4Colors.verifiedMintText,
-          ),
-          child: Icon(
-            isAmber ? Icons.priority_high_rounded : Icons.check_rounded,
-            color: Colors.white,
-            size: 17,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 14.5,
-                  fontWeight: FontWeight.w800,
-                  color: isAmber
-                      ? SakhiModule4Colors.warningAmberText
-                      : SakhiModule4Colors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                subtitle,
-                style: TextStyle(
-                  fontSize: 12.5,
-                  color: isAmber
-                      ? SakhiModule4Colors.warningAmberText
-                      : SakhiModule4Colors.textSecondary,
-                  height: 1.35,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// Screen 3 — Nearest Police Stations & Verified Directory
-/// (`03_Nearest_Police_Stations_and_Verified_Directory_UI.jpg`)
+// ============================================================================
+// Screen 3 — Nearest Police Stations & Real Live Interactive Map Directory
+// (`03_Nearest_Police_Stations_and_Verified_Directory_UI.jpg`)
+// ============================================================================
 class NearestPoliceStationsScreen extends StatefulWidget {
   const NearestPoliceStationsScreen({super.key});
 
@@ -1163,7 +1210,14 @@ class _NearestPoliceStationsScreenState
   @override
   void initState() {
     super.initState();
-    unawaited(_controller.refreshNearbyPoliceStations());
+    unawaited(_initPoliceDiscovery());
+  }
+
+  Future<void> _initPoliceDiscovery() async {
+    await _controller.refreshCurrentLocationIfAlreadyGranted();
+    if (_controller.hasRecentDeviceLocation) {
+      await _controller.refreshNearbyPoliceStations();
+    }
   }
 
   @override
@@ -1172,6 +1226,8 @@ class _NearestPoliceStationsScreenState
       animation: _controller,
       builder: (context, _) {
         final stations = _controller.nearbyPoliceStations;
+        final hasLiveGps = _controller.hasRecentDeviceLocation;
+
         return Scaffold(
           backgroundColor: SakhiModule4Colors.surfaceBackground,
           appBar: AppBar(
@@ -1179,7 +1235,7 @@ class _NearestPoliceStationsScreenState
             elevation: 0,
             leading: IconButton(
               icon: const Icon(
-                Icons.arrow_back_rounded,
+                Icons.arrow_back_ios_new_rounded,
                 color: SakhiModule4Colors.textPrimary,
               ),
               onPressed: () => Navigator.of(context).pop(),
@@ -1187,357 +1243,318 @@ class _NearestPoliceStationsScreenState
             title: const Text(
               'Nearest Police Stations',
               style: TextStyle(
-                fontSize: 18.5,
+                fontSize: 18,
                 fontWeight: FontWeight.w800,
                 color: SakhiModule4Colors.textPrimary,
               ),
             ),
             actions: [
               Padding(
-                padding: const EdgeInsets.only(right: 14, top: 8, bottom: 8),
+                padding: const EdgeInsets.only(right: 12),
                 child: FilledButton.icon(
                   style: FilledButton.styleFrom(
-                    backgroundColor: SakhiModule4Colors.emergencyCrimson,
+                    backgroundColor: SakhiModule4Colors.sosCrimson,
                     foregroundColor: Colors.white,
-                    shape: const StadiumBorder(),
+                    visualDensity: VisualDensity.compact,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(999),
+                    ),
                   ),
                   onPressed: () => _controller.launchPhoneCall(
                     context,
                     '112',
-                    label: '112 Emergency Dispatch',
+                    label: '112 Emergency',
                   ),
-                  icon: const Icon(Icons.phone_in_talk_rounded, size: 16),
+                  icon: const Icon(Icons.call_rounded, size: 14),
                   label: const Text(
                     'Call 112',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 12.5,
-                    ),
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
                   ),
                 ),
               ),
             ],
           ),
-          bottomNavigationBar: SafeArea(
-            child: Container(
-              color: SakhiModule4Colors.emergencyCrimson,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: InkWell(
-                onTap: () => _controller.launchPhoneCall(
-                  context,
-                  '112',
-                  label: '112 National Police Dispatch',
-                ),
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.phone_in_talk_rounded,
-                      color: Colors.white,
-                      size: 20,
-                    ),
-                    SizedBox(width: 8),
-                    Flexible(
-                      child: Text(
-                        'Need Immediate Police Dispatch? Call 112 / 100 Now',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
           body: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(16, 6, 16, 28),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Mandatory Compliance Disclaimer Banner (SRS 6.4)
+                // Mandatory SRS 6.4 Non-Notification Disclaimer Banner
                 Container(
                   key: const Key('police-compliance-disclaimer-banner'),
-                  padding: const EdgeInsets.all(13),
+                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: SakhiModule4Colors.warningAmberBg,
+                    color: SakhiModule4Colors.amberWarningBg,
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
-                      color: SakhiModule4Colors.warningAmberBorder,
+                      color: SakhiModule4Colors.amberWarningBorder,
                     ),
                   ),
                   child: const Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Icon(
-                        Icons.info_rounded,
-                        color: SakhiModule4Colors.warningAmberText,
+                        Icons.warning_amber_rounded,
+                        color: SakhiModule4Colors.amberWarningText,
                         size: 20,
                       ),
                       SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Note: Viewing nearby police stations on the map does not automatically notify the police. Please call 112, 100, or the station directly.',
+                          'Important: Finding a police station on the map does NOT automatically notify police. Tap Call Station or Call 112 / 100 for immediate assistance.',
                           style: TextStyle(
-                            fontSize: 12.2,
+                            fontSize: 12,
                             fontWeight: FontWeight.w700,
-                            color: SakhiModule4Colors.warningAmberText,
                             height: 1.35,
+                            color: Color(0xFF5C3700),
                           ),
                         ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 12),
 
-                if (!_controller.hasRecentDeviceLocation)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 22, horizontal: 8),
-                    child: Text(
-                      'Enable device GPS to calculate nearby stations. Sakhi will not use a sample location.',
+                // Real Interactive OpenStreetMap with Live User GPS Dot & Real Station Pins
+                SakhiLiveOsmMap(
+                  height: 220,
+                  initialZoom: 14,
+                  latitude: _controller.currentLatitude,
+                  longitude: _controller.currentLongitude,
+                  hasLiveGps: hasLiveGps,
+                  locationLabel: hasLiveGps
+                      ? _controller.currentLocationLabel
+                      : 'Tap to enable live GPS',
+                  accuracyMeters: _controller.currentAccuracyMeters,
+                  policeStations: stations,
+                  onRequestGpsTap: () =>
+                      unawaited(_controller.requestDeviceLocation()),
+                  onStationTap: (station) =>
+                      _controller.launchDirectionsToStation(context, station),
+                ),
+                const SizedBox(height: 12),
+
+                // Search Radius Selector & Refresh Live GPS Button
+                Row(
+                  children: [
+                    const Text(
+                      'Search Radius:',
                       style: TextStyle(
-                        color: SakhiModule4Colors.warningAmberText,
+                        fontSize: 12.5,
                         fontWeight: FontWeight.w700,
-                        height: 1.4,
+                        color: SakhiModule4Colors.textSecondary,
                       ),
                     ),
-                  ),
-                if (_controller.hasRecentDeviceLocation)
-                  Container(
-                    height: 185,
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: SakhiModule4Colors.cardBorder),
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
-                          child: Image.asset(
-                            SakhiModule4Assets.pastelMapBackground,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, _, _) =>
-                                Container(color: const Color(0xFFF3EDF7)),
+                    const SizedBox(width: 8),
+                    for (final radKm in [10, 25, 45]) ...[
+                      ChoiceChip(
+                        label: Text('${radKm}km'),
+                        selected:
+                            _controller.selectedSearchRadiusMeters ==
+                            radKm * 1000,
+                        selectedColor: SakhiModule4Colors.primaryPlum,
+                        labelStyle: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w800,
+                          color:
+                              _controller.selectedSearchRadiusMeters ==
+                                  radKm * 1000
+                              ? Colors.white
+                              : SakhiModule4Colors.textPrimary,
+                        ),
+                        onSelected: (_) => unawaited(
+                          _controller.refreshNearbyPoliceStations(
+                            radiusMeters: radKm * 1000,
                           ),
                         ),
-                        // User Blue GPS Dot
-                        Positioned(
-                          left: 65,
-                          top: 68,
-                          child: Column(
-                            children: [
-                              Container(
-                                width: 34,
-                                height: 34,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: const Color(0xFF2A7DE1)
-                                      .withValues(alpha: 0.25),
-                                ),
-                                alignment: Alignment.center,
-                                child: Container(
-                                  width: 16,
-                                  height: 16,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: const Color(0xFF1B66C9),
-                                    border: Border.all(
-                                      color: Colors.white,
-                                      width: 2.5,
-                                    ),
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                    const Spacer(),
+                    IconButton(
+                      tooltip: 'Refresh Live GPS & Stations',
+                      onPressed: _controller.isLoadingStations
+                          ? null
+                          : () => unawaited(
+                              _controller.refreshNearbyPoliceStations(),
+                            ),
+                      icon: const Icon(
+                        Icons.refresh_rounded,
+                        color: SakhiModule4Colors.primaryPlum,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Nearby Police Stations (${stations.length})',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: SakhiModule4Colors.textPrimary,
+                      ),
+                    ),
+                    if (hasLiveGps)
+                      Text(
+                        '${_controller.currentLatitude.toStringAsFixed(4)}, ${_controller.currentLongitude.toStringAsFixed(4)}',
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          color: SakhiModule4Colors.verifiedEmerald,
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+
+                if (_controller.isLoadingStations) ...[
+                  SakhiQuoteLoader.inline(
+                    statusLabel: 'Searching real OpenStreetMap police stations around your live GPS coordinates…',
+                  ),
+                  const SizedBox(height: 10),
+                ],
+
+                if (!hasLiveGps)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: SakhiModule4Colors.borderSubtle,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Live Device Location Required',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: SakhiModule4Colors.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Enable device GPS to calculate nearby stations. Sakhi will not use a sample location.',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            height: 1.4,
+                            color: SakhiModule4Colors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: SakhiModule4Colors.primaryPlum,
+                            foregroundColor: Colors.white,
+                          ),
+                          onPressed: _controller.isAcquiringLocation
+                              ? null
+                              : () async {
+                                  final ok = await _controller
+                                      .requestDeviceLocation();
+                                  if (ok) {
+                                    await _controller
+                                        .refreshNearbyPoliceStations();
+                                  }
+                                },
+                          icon: const Icon(Icons.my_location_rounded, size: 18),
+                          label: Text(
+                            _controller.isAcquiringLocation
+                                ? 'Acquiring GPS…'
+                                : 'Enable Device GPS & Find Stations Near Me',
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else if (stations.isEmpty && !_controller.isLoadingStations)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: SakhiModule4Colors.borderSubtle,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'No mapped stations returned within current radius',
+                          style: TextStyle(
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w800,
+                            color: SakhiModule4Colors.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Tap "45km" radius above to expand the OpenStreetMap search, or open Google Maps directly for police stations near your GPS.',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            color: SakhiModule4Colors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () => unawaited(
+                                  _controller.refreshNearbyPoliceStations(
+                                    radiusMeters: 45000,
                                   ),
                                 ),
+                                icon: const Icon(Icons.radar_rounded, size: 16),
+                                label: const Text('Expand to 45 km'),
                               ),
-                              const SizedBox(height: 2),
-                              const Text(
-                                'Your Location',
-                                style: TextStyle(
-                                  fontSize: 10.5,
-                                  fontWeight: FontWeight.w800,
-                                  color: Color(0xFF123B7A),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: FilledButton.icon(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor:
+                                      SakhiModule4Colors.primaryPlum,
                                 ),
+                                onPressed: () => _controller.launchPhoneCall(
+                                  context,
+                                  '100',
+                                  label: '100 Police Control',
+                                ),
+                                icon: const Icon(Icons.call_rounded, size: 16),
+                                label: const Text('Call 100 Police'),
                               ),
-                            ],
-                          ),
-                        ),
-                        // Station Pins
-                        const Positioned(
-                          left: 165,
-                          top: 48,
-                          child: _MapPolicePinBadge(distanceLabel: '0.8 km'),
-                        ),
-                        const Positioned(
-                          left: 185,
-                          top: 102,
-                          child: _MapPolicePinBadge(distanceLabel: '1.4 km'),
-                        ),
-                        const Positioned(
-                          right: 42,
-                          top: 44,
-                          child: _MapPolicePinBadge(distanceLabel: '2.1 km'),
+                            ),
+                          ],
                         ),
                       ],
                     ),
                   ),
-                const SizedBox(height: 16),
 
-                if (_controller.isLoadingStations) ...[
-                  const SakhiQuoteLoader.inline(
-                    statusLabel:
-                        'Discovering verified nearby police stations...',
-                  ),
-                  const SizedBox(height: 14),
-                ],
-
-                Text(
-                  'Nearby Police Stations (${stations.length})',
-                  style: const TextStyle(
-                    fontSize: 16.5,
-                    fontWeight: FontWeight.w800,
-                    color: SakhiModule4Colors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 10),
-
+                // Real Nearby Police Station Cards
                 ...stations.map(
                   (station) => Padding(
                     padding: const EdgeInsets.only(bottom: 12),
-                    child: Container(
-                      padding: const EdgeInsets.all(15),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: SakhiModule4Colors.cardBorder,
-                        ),
+                    child: _PoliceStationCard(
+                      station: station,
+                      onDirections: () => _controller.launchDirectionsToStation(
+                        context,
+                        station,
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  station.name,
-                                  style: const TextStyle(
-                                    fontSize: 15.5,
-                                    fontWeight: FontWeight.w800,
-                                    color: SakhiModule4Colors.textPrimary,
-                                  ),
-                                ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: SakhiModule4Colors.verifiedMintBg,
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                                child: Text(
-                                  station.distanceBadgeText,
-                                  style: const TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w800,
-                                    color: SakhiModule4Colors.verifiedMintText,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            station.address,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: SakhiModule4Colors.textSecondary,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              const Icon(
-                                Icons.call_rounded,
-                                size: 15,
-                                color: SakhiModule4Colors.primaryPlum,
-                              ),
-                              const SizedBox(width: 5),
-                              Text(
-                                station.phoneNumber,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                  color: SakhiModule4Colors.textPrimary,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: FilledButton(
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor:
-                                        SakhiModule4Colors.primaryPlumDark,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 11,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                  ),
-                                  onPressed: () =>
-                                      _controller.launchDirectionsToStation(
-                                        context,
-                                        station,
-                                      ),
-                                  child: const Text(
-                                    'Directions / Navigate',
-                                    style: TextStyle(
-                                      fontSize: 12.5,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: FilledButton(
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: SakhiModule4Colors
-                                        .emergencyRoseSecondary,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 11,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                  ),
-                                  onPressed: () => _controller.launchPhoneCall(
-                                    context,
-                                    station.phoneNumber,
-                                    label: station.name,
-                                  ),
-                                  child: const Text(
-                                    'Call Station',
-                                    style: TextStyle(
-                                      fontSize: 12.5,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                      onCall: () => _controller.launchPhoneCall(
+                        context,
+                        station.phoneNumber,
+                        label: station.name,
                       ),
                     ),
                   ),
@@ -1551,53 +1568,160 @@ class _NearestPoliceStationsScreenState
   }
 }
 
-class _MapPolicePinBadge extends StatelessWidget {
-  final String distanceLabel;
+class _PoliceStationCard extends StatelessWidget {
+  final NearbyPoliceStationModel station;
+  final VoidCallback onDirections;
+  final VoidCallback onCall;
 
-  const _MapPolicePinBadge({required this.distanceLabel});
+  const _PoliceStationCard({
+    required this.station,
+    required this.onDirections,
+    required this.onCall,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 30,
-          height: 30,
-          decoration: BoxDecoration(
-            color: const Color(0xFF9E1F47),
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 2),
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: SakhiModule4Colors.borderSubtle),
+        boxShadow: SakhiModule4Colors.cardShadow,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF3EBF5),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                alignment: Alignment.center,
+                child: const Icon(
+                  Icons.local_police_rounded,
+                  color: SakhiModule4Colors.primaryPlum,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      station.name,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: SakhiModule4Colors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${station.address} • Ph: ${station.phoneNumber}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: SakhiModule4Colors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Source: ${station.dataSource} (${station.latitude?.toStringAsFixed(4)}, ${station.longitude?.toStringAsFixed(4)})',
+                      style: const TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w600,
+                        color: SakhiModule4Colors.verifiedEmerald,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: SakhiModule4Colors.verifiedEmeraldTint,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  station.distanceBadgeText,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: SakhiModule4Colors.verifiedEmerald,
+                  ),
+                ),
+              ),
+            ],
           ),
-          child: const Icon(
-            Icons.local_police_rounded,
-            color: Colors.white,
-            size: 16,
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: SakhiModule4Colors.primaryPlum,
+                    side: const BorderSide(
+                      color: SakhiModule4Colors.primaryPlum,
+                    ),
+                    minimumSize: const Size.fromHeight(42),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  onPressed: onDirections,
+                  icon: const Icon(Icons.directions_rounded, size: 17),
+                  label: const Text(
+                    'Directions / Navigate',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: SakhiModule4Colors.primaryPlum,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size.fromHeight(42),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  onPressed: onCall,
+                  icon: const Icon(Icons.call_rounded, size: 17),
+                  label: Text(
+                    'Call Station (${station.phoneNumber})',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ),
-        const SizedBox(width: 4),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.92),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Text(
-            distanceLabel,
-            style: const TextStyle(
-              fontSize: 10.5,
-              fontWeight: FontWeight.w800,
-              color: SakhiModule4Colors.textPrimary,
-            ),
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
-/// Screen 4 — Emergency Contacts & Active Location Link Management Screen
-/// (`04_Emergency_Contacts_and_Location_Link_UI.jpg`)
+// ============================================================================
+// Screen 4 — Emergency Contacts Management & Show/Hide Phone Number Toggle
+// (`04_Emergency_Contacts_and_Location_Link_UI.jpg`)
+// ============================================================================
 class EmergencyContactsScreen extends StatefulWidget {
   const EmergencyContactsScreen({super.key});
 
@@ -1609,14 +1733,17 @@ class EmergencyContactsScreen extends StatefulWidget {
 class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
   final SakhiSafetyController _controller = SakhiSafetyController.instance;
 
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_controller.initializeSafetyState(autoRequestGps: false));
+  }
+
   void _openAddContactModal() {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      backgroundColor: Colors.transparent,
       builder: (_) => const AddTrustedContactSheet(),
     );
   }
@@ -1627,6 +1754,7 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
       animation: _controller,
       builder: (context, _) {
         final contacts = _controller.trustedContacts;
+
         return Scaffold(
           backgroundColor: SakhiModule4Colors.surfaceBackground,
           appBar: AppBar(
@@ -1634,7 +1762,7 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
             elevation: 0,
             leading: IconButton(
               icon: const Icon(
-                Icons.arrow_back_rounded,
+                Icons.arrow_back_ios_new_rounded,
                 color: SakhiModule4Colors.textPrimary,
               ),
               onPressed: () => Navigator.of(context).pop(),
@@ -1642,21 +1770,51 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
             title: const Text(
               'Emergency Contacts',
               style: TextStyle(
-                fontSize: 18.5,
+                fontSize: 18,
                 fontWeight: FontWeight.w800,
                 color: SakhiModule4Colors.textPrimary,
               ),
             ),
             actions: [
-              TextButton(
-                key: const Key('emergency-contacts-add-button'),
-                onPressed: _openAddContactModal,
-                child: const Text(
-                  '+ Add Contact',
-                  style: TextStyle(
-                    fontSize: 14,
+              // Show / Hide Phone Numbers Toggle Button
+              TextButton.icon(
+                key: const Key('toggle-all-contact-numbers-button'),
+                onPressed: _controller.toggleShowAllPhoneNumbers,
+                icon: Icon(
+                  _controller.showAllContactPhoneNumbers
+                      ? Icons.visibility_off_rounded
+                      : Icons.visibility_rounded,
+                  size: 16,
+                  color: SakhiModule4Colors.primaryPlum,
+                ),
+                label: Text(
+                  _controller.showAllContactPhoneNumbers
+                      ? 'Hide Numbers'
+                      : 'Show Numbers',
+                  style: const TextStyle(
+                    fontSize: 12,
                     fontWeight: FontWeight.w800,
                     color: SakhiModule4Colors.primaryPlum,
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: FilledButton.icon(
+                  key: const Key('open-add-contact-modal-button'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: SakhiModule4Colors.primaryPlum,
+                    foregroundColor: Colors.white,
+                    visualDensity: VisualDensity.compact,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  onPressed: _openAddContactModal,
+                  icon: const Icon(Icons.add_rounded, size: 16),
+                  label: const Text(
+                    'Add',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
                   ),
                 ),
               ),
@@ -1665,402 +1823,314 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
           body: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Top Active Live Location Sharing Card
+                // Info Banner
                 Container(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFEDE0EA),
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: const Color(0xFFD9C5D6)),
+                    color: const Color(0xFFF6ECF8),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: SakhiModule4Colors.borderSubtle),
                   ),
-                  child: Column(
+                  child: const Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFDCC8DA),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Icon(
-                              Icons.radar_rounded,
-                              color: SakhiModule4Colors.primaryPlumDark,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _controller.liveLocationSharingActive
-                                      ? 'Live Location Sharing: ACTIVE'
-                                      : 'Live Location Sharing: STANDBY',
-                                  style: const TextStyle(
-                                    fontSize: 15.5,
-                                    fontWeight: FontWeight.w800,
-                                    color: SakhiModule4Colors.emergencyCrimson,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  _controller.liveLocationSharingActive
-                                      ? 'Backend-confirmed live location sharing is active.'
-                                      : 'Live sharing requires device GPS and backend confirmation.',
-                                  style: const TextStyle(
-                                    fontSize: 12.2,
-                                    fontWeight: FontWeight.w600,
-                                    color: SakhiModule4Colors.textPrimary,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      InkWell(
-                        onTap: () {
-                          final trackingLink = _controller.liveShareFullUrl;
-                          if (trackingLink.isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'No backend-confirmed live tracking link is available.',
-                                ),
-                              ),
-                            );
-                            return;
-                          }
-                          Clipboard.setData(ClipboardData(text: trackingLink));
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Live tracking link copied.'),
-                            ),
-                          );
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.85),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.link_rounded,
-                                size: 16,
-                                color: SakhiModule4Colors.primaryPlumDark,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                _controller.liveShareShortUrl,
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                  color: SakhiModule4Colors.textPrimary,
-                                ),
-                              ),
-                            ],
-                          ),
+                      Text(
+                        'Your Trusted Circle (Max 5 Contacts • Persistent)',
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w800,
+                          color: SakhiModule4Colors.primaryPlum,
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton(
-                          style: FilledButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor:
-                                SakhiModule4Colors.emergencyCrimson,
-                            side: const BorderSide(
-                              color: SakhiModule4Colors.emergencyCrimson,
-                              width: 1.5,
-                            ),
-                            shape: const StadiumBorder(),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
-                          onPressed: () {
-                            if (_controller.liveLocationSharingActive) {
-                              _controller.stopLocationSharingAndEndSos();
-                            } else {
-                              unawaited(_controller.startLiveLocationSharing());
-                            }
-                          },
-                          child: Text(
-                            _controller.liveLocationSharingActive
-                                ? 'Stop Location Sharing'
-                                : 'Start Live Location Sharing',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
+                      SizedBox(height: 3),
+                      Text(
+                        'Contacts you add are saved permanently on your device and synced to your account. Use the eye icon to view or mask mobile numbers anytime.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: SakhiModule4Colors.textSecondary,
                         ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 18),
+                const SizedBox(height: 14),
 
-                Text(
-                  'Trusted Contacts (${contacts.length}/5)',
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800,
-                    color: SakhiModule4Colors.textPrimary,
+                // Empty State when user hasn't added any contact yet (Zero fake contacts!)
+                if (contacts.isEmpty)
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    margin: const EdgeInsets.only(bottom: 14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: SakhiModule4Colors.borderSubtle,
+                      ),
+                      boxShadow: SakhiModule4Colors.cardShadow,
+                    ),
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 56,
+                          height: 56,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFFF2E6F7),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.person_add_alt_1_rounded,
+                            color: SakhiModule4Colors.primaryPlum,
+                            size: 28,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        const Text(
+                          'Add Your Primary Contact',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: SakhiModule4Colors.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'No fake or sample contacts are pre-filled. Add your real family members or friends (+91) so they receive your SOS & live location alerts.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            color: SakhiModule4Colors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: SakhiModule4Colors.primaryPlum,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                          ),
+                          onPressed: _openAddContactModal,
+                          icon: const Icon(Icons.add_rounded),
+                          label: const Text(
+                            'Add Primary Contact Now',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(height: 10),
 
+                // Contact Cards List
                 ...contacts.map(
                   (contact) => Padding(
                     padding: const EdgeInsets.only(bottom: 12),
-                    child: Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: SakhiModule4Colors.cardBorder,
-                        ),
+                    child: _TrustedContactCard(
+                      contact: contact,
+                      globalShowAll: _controller.showAllContactPhoneNumbers,
+                      onTogglePhoneVisibility: () => _controller
+                          .toggleSingleContactPhoneVisibility(contact.id),
+                      onCallContact: () => _controller.launchPhoneCall(
+                        context,
+                        contact.phoneE164,
+                        label: contact.name,
                       ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          ClipOval(
-                            child: Image.asset(
-                              SakhiModule4Assets.trustedContactAvatar,
-                              width: 50,
-                              height: 50,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, _, _) => const CircleAvatar(
-                                radius: 25,
-                                backgroundColor:
-                                    SakhiModule4Colors.emergencySoftTint,
-                                child: Icon(
-                                  Icons.person_rounded,
-                                  color: SakhiModule4Colors.emergencyCrimson,
-                                ),
+                      onSetPrimary: () =>
+                          _controller.setPrimaryContact(contact.id),
+                      onToggleSelected: (val) {
+                        final ok = _controller.toggleContactSelectedForSos(
+                          contact.id,
+                          val,
+                        );
+                        if (!ok && context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Guardrail: At least 1 contact must remain selected for SOS alerts.',
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '${contact.name} (${contact.relationship})',
-                                  style: const TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w800,
-                                    color: SakhiModule4Colors.textPrimary,
-                                  ),
-                                ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  contact.phoneMasked,
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
-                                    color: SakhiModule4Colors.textPrimary,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                if (contact.isPrimary)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: SakhiModule4Colors.primaryPlumDark,
-                                      borderRadius: BorderRadius.circular(999),
-                                    ),
-                                    child: const Text(
-                                      'Primary Contact',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 11.5,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                  )
-                                else
-                                  InkWell(
-                                    onTap: () => _controller.setPrimaryContact(
-                                      contact.id,
-                                    ),
-                                    child: const Text(
-                                      'Set as Primary',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w800,
-                                        color:
-                                            SakhiModule4Colors.primaryPlumDark,
-                                      ),
-                                    ),
-                                  ),
-                              ],
+                          );
+                        }
+                      },
+                      onDelete: () {
+                        _controller.removeTrustedContact(contact.id);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                '${contact.name} removed from Emergency Contacts.',
+                              ),
                             ),
-                          ),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Switch(
-                                value: contact.selectedForSosAlert,
-                                activeThumbColor:
-                                    SakhiModule4Colors.primaryPlumDark,
-                                activeTrackColor: const Color(0xFFB596C2),
-                                onChanged: (val) {
-                                  final ok = _controller
-                                      .toggleContactSelectedForSos(
-                                        contact.id,
-                                        val,
-                                      );
-                                  if (!ok) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                          'At least 1 Primary Contact must remain selected for SOS alerts.',
-                                        ),
-                                      ),
-                                    );
-                                  }
-                                },
-                              ),
-                              const Text(
-                                'Selected for SOS Alert',
-                                style: TextStyle(
-                                  fontSize: 10.5,
-                                  fontWeight: FontWeight.w700,
-                                  color: SakhiModule4Colors.textPrimary,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    visualDensity: VisualDensity.compact,
-                                    icon: const Icon(
-                                      Icons.call_rounded,
-                                      color: SakhiModule4Colors.primaryPlumDark,
-                                      size: 20,
-                                    ),
-                                    onPressed: () =>
-                                        _controller.launchPhoneCall(
-                                          context,
-                                          contact.phoneE164,
-                                          label: contact.name,
-                                        ),
-                                  ),
-                                  IconButton(
-                                    visualDensity: VisualDensity.compact,
-                                    icon: const Icon(
-                                      Icons.delete_outline_rounded,
-                                      color:
-                                          SakhiModule4Colors.emergencyCrimson,
-                                      size: 20,
-                                    ),
-                                    onPressed: () {
-                                      final removed = _controller
-                                          .removeTrustedContact(contact.id);
-                                      if (!removed) {
-                                        ScaffoldMessenger.of(context)
-                                            .showSnackBar(
-                                              const SnackBar(
-                                                content: Text(
-                                                  'Keep at least 1 trusted emergency contact configured.',
-                                                ),
-                                              ),
-                                            );
-                                      }
-                                    },
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
+                          );
+                        }
+                      },
                     ),
                   ),
                 ),
 
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    key: const Key('contacts-send-alert-button'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: SakhiModule4Colors.emergencyCrimson,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 15),
-                      shape: const StadiumBorder(),
+                // Live Location Link & Emergency Dispatch Panel
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: SakhiModule4Colors.primaryPlum,
+                      width: 1.4,
                     ),
-                    onPressed: () =>
-                        _controller.dispatchSosAlertToContacts(context),
-                    child: const Text(
-                      'Send Emergency Alert to Selected Contacts',
-                      style: TextStyle(
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
+                    boxShadow: SakhiModule4Colors.cardShadow,
                   ),
-                ),
-                const SizedBox(height: 10),
-                Material(
-                  color: const Color(0xFFE3D5E8),
-                  borderRadius: BorderRadius.circular(999),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(999),
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const SafetyHistoryAndSettingsScreen(),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Live Location Link & Emergency Dispatch',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: SakhiModule4Colors.textPrimary,
+                        ),
                       ),
-                    ),
-                    child: const Padding(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 13,
+                      const SizedBox(height: 4),
+                      Text(
+                        _controller.hasRecentDeviceLocation
+                            ? 'Payload: Name, Timestamp & Live GPS (${_controller.currentLatitude.toStringAsFixed(4)}, ${_controller.currentLongitude.toStringAsFixed(4)})'
+                            : 'Enable device GPS in "Share My Live Location" to attach live coordinates.',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: SakhiModule4Colors.textSecondary,
+                        ),
                       ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.access_time_rounded,
-                            color: SakhiModule4Colors.primaryPlumDark,
-                            size: 20,
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF6ECF8),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                _controller.liveShareFullUrl.isNotEmpty
+                                    ? _controller.liveShareFullUrl
+                                    : (_controller.googleMapsPinUrl.isNotEmpty
+                                          ? _controller.googleMapsPinUrl
+                                          : 'Start Live Location Sharing to generate link'),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: SakhiModule4Colors.primaryPlum,
+                                ),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () async {
+                                final url =
+                                    _controller.liveShareFullUrl.isNotEmpty
+                                    ? _controller.liveShareFullUrl
+                                    : _controller.googleMapsPinUrl;
+                                if (url.isEmpty) {
+                                  final started = await _controller
+                                      .startLiveLocationSharing();
+                                  if (!started || !context.mounted) return;
+                                }
+                                final linkToCopy =
+                                    _controller.liveShareFullUrl.isNotEmpty
+                                    ? _controller.liveShareFullUrl
+                                    : _controller.googleMapsPinUrl;
+                                await Clipboard.setData(
+                                  ClipboardData(text: linkToCopy),
+                                );
+                                if (!context.mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Live location tracking link copied to clipboard!',
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: const Text(
+                                'Copy Link',
+                                style: TextStyle(fontWeight: FontWeight.w800),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: SakhiModule4Colors.sosCrimson,
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size.fromHeight(48),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(999),
                           ),
-                          SizedBox(width: 12),
+                        ),
+                        onPressed: () =>
+                            _controller.dispatchSosAlertToContacts(context),
+                        icon: const Icon(Icons.send_rounded, size: 18),
+                        label: const Text(
+                          'Send Emergency Alert to Selected Contacts',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
                           Expanded(
-                            child: Text(
-                              'Review SOS Activation History',
-                              style: TextStyle(
-                                fontSize: 14.5,
-                                fontWeight: FontWeight.w800,
-                                color: SakhiModule4Colors.textPrimary,
+                            child: OutlinedButton(
+                              onPressed: () {
+                                _controller.stopLocationSharingAndEndSos();
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Live location sharing stopped.',
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: const Text(
+                                'Stop Location Sharing',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                ),
                               ),
                             ),
                           ),
-                          Icon(
-                            Icons.chevron_right_rounded,
-                            color: SakhiModule4Colors.textPrimary,
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) =>
+                                        const SosActivationHistoryScreen(),
+                                  ),
+                                );
+                              },
+                              child: const Text(
+                                'Review SOS History',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
                           ),
                         ],
                       ),
-                    ),
+                    ],
                   ),
                 ),
               ],
@@ -2072,8 +2142,217 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
   }
 }
 
-/// Screen 5 — Share Live Location & Add Trusted Contact Bottom Sheet
-/// (`05_Share_Live_Location_and_Add_Contact_Modal_UI.jpg`)
+class _TrustedContactCard extends StatelessWidget {
+  final SafetyTrustedContact contact;
+  final bool globalShowAll;
+  final VoidCallback onTogglePhoneVisibility;
+  final VoidCallback onCallContact;
+  final VoidCallback onSetPrimary;
+  final ValueChanged<bool> onToggleSelected;
+  final VoidCallback onDelete;
+
+  const _TrustedContactCard({
+    required this.contact,
+    required this.globalShowAll,
+    required this.onTogglePhoneVisibility,
+    required this.onCallContact,
+    required this.onSetPrimary,
+    required this.onToggleSelected,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isVisible = globalShowAll || contact.isNumberVisible;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: contact.isPrimary
+              ? SakhiModule4Colors.primaryPlum
+              : SakhiModule4Colors.borderSubtle,
+          width: contact.isPrimary ? 1.5 : 1.0,
+        ),
+        boxShadow: SakhiModule4Colors.cardShadow,
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              ClipOval(
+                child: Image.asset(
+                  SakhiModule4Assets.trustedContactAvatar,
+                  width: 48,
+                  height: 48,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => CircleAvatar(
+                    radius: 24,
+                    backgroundColor: const Color(0xFFF3E6F5),
+                    child: Text(
+                      contact.name.isNotEmpty ? contact.name[0] : 'S',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: SakhiModule4Colors.primaryPlum,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            '${contact.name} (${contact.relationship})',
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: SakhiModule4Colors.textPrimary,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        if (contact.isPrimary)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: SakhiModule4Colors.primaryPlum,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: const Text(
+                              'Primary Contact',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            contact.displayPhone(globalShowAll: globalShowAll),
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: SakhiModule4Colors.primaryPlum,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        InkWell(
+                          borderRadius: BorderRadius.circular(999),
+                          onTap: onTogglePhoneVisibility,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  isVisible
+                                      ? Icons.visibility_off_rounded
+                                      : Icons.visibility_rounded,
+                                  size: 15,
+                                  color: SakhiModule4Colors.textSecondary,
+                                ),
+                                const SizedBox(width: 3),
+                                Text(
+                                  isVisible ? 'Hide' : 'Show',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: SakhiModule4Colors.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'Call ${contact.name}',
+                onPressed: onCallContact,
+                icon: const Icon(
+                  Icons.call_rounded,
+                  color: SakhiModule4Colors.verifiedEmerald,
+                ),
+              ),
+            ],
+          ),
+          const Divider(height: 16),
+          Row(
+            children: [
+              const Icon(
+                Icons.notifications_active_outlined,
+                size: 16,
+                color: SakhiModule4Colors.primaryPlum,
+              ),
+              const SizedBox(width: 6),
+              const Expanded(
+                child: Text(
+                  'Selected for SOS Alert',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: SakhiModule4Colors.textPrimary,
+                  ),
+                ),
+              ),
+              if (!contact.isPrimary)
+                TextButton(
+                  onPressed: onSetPrimary,
+                  child: const Text(
+                    'Set Primary',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              IconButton(
+                tooltip: 'Delete contact',
+                onPressed: onDelete,
+                icon: const Icon(
+                  Icons.delete_outline_rounded,
+                  color: SakhiModule4Colors.sosCrimson,
+                  size: 20,
+                ),
+              ),
+              Switch(
+                value: contact.selectedForSosAlert,
+                activeThumbColor: Colors.white,
+                activeTrackColor: SakhiModule4Colors.primaryPlum,
+                onChanged: onToggleSelected,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// Screen 5 — Share Live Location & Add Contact Bottom Sheet
+// (`05_Share_Live_Location_and_Add_Contact_Modal_UI.jpg`)
+// ============================================================================
 class ShareLiveLocationScreen extends StatefulWidget {
   const ShareLiveLocationScreen({super.key});
 
@@ -2086,10 +2365,19 @@ class _ShareLiveLocationScreenState extends State<ShareLiveLocationScreen> {
   final SakhiSafetyController _controller = SakhiSafetyController.instance;
 
   @override
+  void initState() {
+    super.initState();
+    unawaited(_controller.initializeSafetyState(autoRequestGps: true));
+  }
+
+  @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, _) {
+        final durations = ['15 Mins', '1 Hour', 'Until I Stop'];
+        final hasLiveGps = _controller.hasRecentDeviceLocation;
+
         return Scaffold(
           backgroundColor: SakhiModule4Colors.surfaceBackground,
           appBar: AppBar(
@@ -2097,383 +2385,255 @@ class _ShareLiveLocationScreenState extends State<ShareLiveLocationScreen> {
             elevation: 0,
             leading: IconButton(
               icon: const Icon(
-                Icons.arrow_back_rounded,
+                Icons.arrow_back_ios_new_rounded,
                 color: SakhiModule4Colors.textPrimary,
               ),
               onPressed: () => Navigator.of(context).pop(),
             ),
             title: const Text(
-              'Share Live Location',
+              'Share My Live Location',
               style: TextStyle(
-                fontSize: 18.5,
+                fontSize: 18,
                 fontWeight: FontWeight.w800,
                 color: SakhiModule4Colors.textPrimary,
               ),
             ),
             actions: [
               Container(
-                margin: const EdgeInsets.only(right: 14, top: 10, bottom: 10),
+                margin: const EdgeInsets.only(right: 12),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 10,
-                  vertical: 4,
+                  vertical: 5,
                 ),
                 decoration: BoxDecoration(
-                  color: _controller.hasRecentDeviceLocation
-                      ? SakhiModule4Colors.verifiedMintBg
-                      : SakhiModule4Colors.warningAmberBg,
+                  color: hasLiveGps
+                      ? SakhiModule4Colors.verifiedEmeraldTint
+                      : SakhiModule4Colors.amberWarningBg,
                   borderRadius: BorderRadius.circular(999),
-                  border: Border.all(
-                    color: _controller.hasRecentDeviceLocation
-                        ? SakhiModule4Colors.verifiedMintBorder
-                        : SakhiModule4Colors.warningAmberBorder,
-                  ),
                 ),
-                alignment: Alignment.center,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.circle,
-                      size: 8,
-                      color: _controller.hasRecentDeviceLocation
-                          ? SakhiModule4Colors.verifiedMintText
-                          : SakhiModule4Colors.warningAmberText,
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      _controller.isAcquiringLocation
-                          ? 'Locating…'
-                          : _controller.liveLocationSharingActive
-                          ? 'Sharing active'
-                          : _controller.hasRecentDeviceLocation
-                          ? 'GPS ready'
-                          : 'GPS unavailable',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        color: _controller.hasRecentDeviceLocation
-                            ? SakhiModule4Colors.verifiedMintText
-                            : SakhiModule4Colors.warningAmberText,
-                      ),
-                    ),
-                  ],
+                child: Text(
+                  hasLiveGps ? 'GPS High Accuracy' : 'GPS unavailable',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: hasLiveGps
+                        ? SakhiModule4Colors.verifiedEmerald
+                        : SakhiModule4Colors.amberWarningText,
+                  ),
                 ),
               ),
             ],
           ),
           body: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Interactive Live Map Card with Avatar Pin & Copy Link
-                Container(
+                // Real Interactive OpenStreetMap with Live User Coordinate Marker
+                SakhiLiveOsmMap(
                   height: 210,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: SakhiModule4Colors.cardBorder),
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Positioned.fill(
-                        child: Image.asset(
-                          SakhiModule4Assets.pastelMapBackground,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) =>
-                              Container(color: const Color(0xFFF3EDF7)),
-                        ),
-                      ),
-                      Container(
-                        width: 112,
-                        height: 112,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: SakhiModule4Colors.primaryPlum.withValues(
-                            alpha: 0.14,
-                          ),
-                        ),
-                      ),
-                      if (_controller.hasRecentDeviceLocation)
-                        Container(
-                          width: 54,
-                          height: 54,
-                          padding: const EdgeInsets.all(3),
-                          decoration: const BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: SakhiModule4Colors.emergencyCrimson,
-                          ),
-                          child: ClipOval(
-                            child: Image.asset(
-                              SakhiModule4Assets.trustedContactAvatar,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, _, _) => const Icon(
-                                Icons.person_pin_circle_rounded,
-                                color: Colors.white,
-                                size: 32,
-                              ),
-                            ),
-                          ),
-                        ),
-                      Positioned(
-                        left: 12,
-                        bottom: 12,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.92),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            _controller.hasRecentDeviceLocation
-                                ? 'Device GPS location recorded'
-                                : 'GPS unavailable — no live location is being shared',
-                            style: const TextStyle(
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w800,
-                              color: SakhiModule4Colors.textPrimary,
-                            ),
-                          ),
-                        ),
-                      ),
-                      if (_controller.hasRecentDeviceLocation)
-                        Positioned(
-                          right: 10,
-                          bottom: 10,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(12),
-                              boxShadow: const [
-                                BoxShadow(
-                                  color: Color(0x18000000),
-                                  blurRadius: 8,
-                                ),
-                              ],
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  _controller.liveShareFullUrl.isNotEmpty
-                                      ? _controller.liveShareFullUrl
-                                      : 'No backend-confirmed tracking link yet.',
-                                  style: const TextStyle(
-                                    fontSize: 10.5,
-                                    fontWeight: FontWeight.w700,
-                                    color: SakhiModule4Colors.textPrimary,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                InkWell(
-                                  onTap: () {
-                                    final trackingLink =
-                                        _controller.liveShareFullUrl;
-                                    if (trackingLink.isEmpty) {
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(
-                                            const SnackBar(
-                                              content: Text(
-                                                'No backend-confirmed live tracking link is available.',
-                                              ),
-                                            ),
-                                          );
-                                      return;
-                                    }
-                                    Clipboard.setData(
-                                      ClipboardData(text: trackingLink),
-                                    );
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                          'Live tracking link copied.',
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: SakhiModule4Colors.primaryPlumDark,
-                                      borderRadius: BorderRadius.circular(999),
-                                    ),
-                                    child: const Text(
-                                      'Copy Link',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: Text(
-                    _controller.locationStatusMessage,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: SakhiModule4Colors.textSecondary,
-                      height: 1.35,
-                    ),
-                  ),
+                  initialZoom: 16,
+                  latitude: _controller.currentLatitude,
+                  longitude: _controller.currentLongitude,
+                  hasLiveGps: hasLiveGps,
+                  locationLabel: hasLiveGps
+                      ? _controller.currentLocationLabel
+                      : 'Tap to acquire live GPS',
+                  accuracyMeters: _controller.currentAccuracyMeters,
+                  onRequestGpsTap: () =>
+                      unawaited(_controller.requestDeviceLocation()),
                 ),
                 const SizedBox(height: 14),
 
-                // Duration & Consent Card
+                // Live Location Duration & Consent Card
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: SakhiModule4Colors.cardBorder),
+                    border: Border.all(color: SakhiModule4Colors.borderSubtle),
+                    boxShadow: SakhiModule4Colors.cardShadow,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      const Text(
+                        'Select Sharing Duration',
+                        style: TextStyle(
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w800,
+                          color: SakhiModule4Colors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
                       Row(
-                        children: ['15 Mins', '1 Hour', 'Until I Stop'].map((
-                          label,
-                        ) {
+                        children: durations.map((dur) {
                           final selected =
-                              _controller.selectedDurationLabel == label;
+                              _controller.selectedDurationLabel == dur;
                           return Expanded(
                             child: Padding(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 4,
                               ),
-                              child: OutlinedButton(
-                                style: OutlinedButton.styleFrom(
-                                  backgroundColor: selected
-                                      ? SakhiModule4Colors.primaryPlumDark
-                                      : Colors.white,
-                                  foregroundColor: selected
+                              child: ChoiceChip(
+                                label: Center(child: Text(dur)),
+                                selected: selected,
+                                selectedColor: SakhiModule4Colors.primaryPlum,
+                                backgroundColor: const Color(0xFFF6ECF8),
+                                labelStyle: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  color: selected
                                       ? Colors.white
-                                      : SakhiModule4Colors.textPrimary,
-                                  side: BorderSide(
-                                    color: selected
-                                        ? SakhiModule4Colors.primaryPlumDark
-                                        : SakhiModule4Colors.cardBorder,
-                                  ),
-                                  shape: const StadiumBorder(),
+                                      : SakhiModule4Colors.primaryPlum,
                                 ),
-                                onPressed: () {
-                                  unawaited(
-                                    _controller.startLiveLocationSharing(
-                                      duration: label,
-                                    ),
-                                  );
+                                onSelected: (_) {
+                                  setState(() {
+                                    _controller.selectedDurationLabel = dur;
+                                  });
                                 },
-                                child: Text(
-                                  label,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
                               ),
                             ),
                           );
                         }).toList(),
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 8),
                       Material(
                         color: Colors.transparent,
                         child: CheckboxListTile(
                           contentPadding: EdgeInsets.zero,
-                          controlAffinity: ListTileControlAffinity.leading,
-                          activeColor: SakhiModule4Colors.primaryPlumDark,
+                          dense: true,
+                          activeColor: SakhiModule4Colors.primaryPlum,
                           value: _controller.includeNameAndProfileInAlert,
+                          title: const Text(
+                            'Include my Name & Emergency Profile',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                           onChanged: (val) => setState(() {
                             _controller.includeNameAndProfileInAlert =
                                 val ?? true;
                           }),
-                          title: const Text(
-                            'Include my Name & Emergency Profile',
-                            style: TextStyle(
-                              fontSize: 13.5,
-                              fontWeight: FontWeight.w700,
-                              color: SakhiModule4Colors.textPrimary,
-                            ),
-                          ),
                         ),
                       ),
                       Material(
                         color: Colors.transparent,
                         child: CheckboxListTile(
                           contentPadding: EdgeInsets.zero,
-                          controlAffinity: ListTileControlAffinity.leading,
-                          activeColor: SakhiModule4Colors.primaryPlumDark,
+                          dense: true,
+                          activeColor: SakhiModule4Colors.primaryPlum,
                           value: _controller.includeTimestampAndMapLink,
+                          title: const Text(
+                            'Include Timestamp & Live Map Link (Consent Granted)',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                           onChanged: (val) => setState(() {
                             _controller.includeTimestampAndMapLink =
                                 val ?? true;
                           }),
-                          title: const Text(
-                            'Include Timestamp & Live Map Link',
-                            style: TextStyle(
-                              fontSize: 13.5,
-                              fontWeight: FontWeight.w700,
-                              color: SakhiModule4Colors.textPrimary,
-                            ),
-                          ),
                         ),
                       ),
                       const SizedBox(height: 8),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton(
-                          style: FilledButton.styleFrom(
-                            backgroundColor:
-                                SakhiModule4Colors.emergencyCrimson,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: const StadiumBorder(),
-                          ),
-                          onPressed: () {
-                            if (_controller.liveLocationSharingActive) {
-                              _controller.stopLocationSharingAndEndSos();
-                            } else {
-                              unawaited(_controller.startLiveLocationSharing());
-                            }
-                          },
-                          child: Text(
-                            _controller.liveLocationSharingActive
-                                ? 'Stop Live Location Sharing'
-                                : 'Start Live Location Sharing Now',
-                            style: const TextStyle(
-                              fontSize: 14.5,
-                              fontWeight: FontWeight.w800,
-                            ),
+                      FilledButton.icon(
+                        key: const Key('start-live-location-sharing-button'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: SakhiModule4Colors.sosCrimson,
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size.fromHeight(50),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(999),
                           ),
                         ),
+                        onPressed: _controller.isAcquiringLocation
+                            ? null
+                            : () async {
+                                final started = await _controller
+                                    .startLiveLocationSharing();
+                                if (!context.mounted) return;
+                                if (!started) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      backgroundColor:
+                                          SakhiModule4Colors.sosCrimson,
+                                      behavior: SnackBarBehavior.floating,
+                                      content: Text(
+                                        _controller.locationStatusMessage,
+                                      ),
+                                    ),
+                                  );
+                                  return;
+                                }
+                                await _controller.dispatchSosAlertToContacts(
+                                  context,
+                                );
+                              },
+                        icon: const Icon(Icons.my_location_rounded, size: 18),
+                        label: Text(
+                          _controller.isAcquiringLocation
+                              ? 'Acquiring Live GPS…'
+                              : _controller.liveLocationSharingActive
+                              ? 'Share Active Live Location Link Again'
+                              : 'Start Live Location Sharing Now',
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
                       ),
+                      if (_controller.liveLocationSharingActive) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: SakhiModule4Colors.verifiedEmeraldTint,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Row(
+                                children: [
+                                  Icon(
+                                    Icons.check_circle_rounded,
+                                    color: SakhiModule4Colors.verifiedEmerald,
+                                    size: 16,
+                                  ),
+                                  SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      'Live Tracking Link Active',
+                                      style: TextStyle(
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w800,
+                                        color:
+                                            SakhiModule4Colors.verifiedEmerald,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              SelectableText(
+                                _controller.liveShareFullUrl,
+                                style: const TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: SakhiModule4Colors.primaryPlum,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
                 const SizedBox(height: 16),
 
-                // Embedded Add Trusted Emergency Contact Card (matching Screen 5 bottom sheet design)
-                const AddTrustedContactSheet(embeddedInPage: true),
+                // Inline Add Trusted Contact Form
+                const AddTrustedContactCardInline(),
               ],
             ),
           ),
@@ -2483,34 +2643,60 @@ class _ShareLiveLocationScreenState extends State<ShareLiveLocationScreen> {
   }
 }
 
-class AddTrustedContactSheet extends StatefulWidget {
-  final bool embeddedInPage;
-
-  const AddTrustedContactSheet({super.key, this.embeddedInPage = false});
+class AddTrustedContactSheet extends StatelessWidget {
+  const AddTrustedContactSheet({super.key});
 
   @override
-  State<AddTrustedContactSheet> createState() => _AddTrustedContactSheetState();
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+        left: 12,
+        right: 12,
+        top: 24,
+      ),
+      child: const SingleChildScrollView(child: AddTrustedContactCardInline()),
+    );
+  }
 }
 
-class _AddTrustedContactSheetState extends State<AddTrustedContactSheet> {
-  final SakhiSafetyController _controller = SakhiSafetyController.instance;
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _phoneController = TextEditingController();
-  String _selectedRelationship = 'Sister';
+class AddTrustedContactCardInline extends StatefulWidget {
+  const AddTrustedContactCardInline({super.key});
+
+  @override
+  State<AddTrustedContactCardInline> createState() =>
+      _AddTrustedContactCardInlineState();
+}
+
+class _AddTrustedContactCardInlineState
+    extends State<AddTrustedContactCardInline> {
+  final TextEditingController _nameCtrl = TextEditingController();
+  final TextEditingController _phoneCtrl = TextEditingController();
+  String _selectedRelationship = 'Mom';
   bool _setAsPrimary = false;
   String? _errorText;
 
+  final List<String> _relationships = const [
+    'Mom',
+    'Dad',
+    'Sister',
+    'Husband / Partner',
+    'Roommate',
+    'Best Friend',
+    'Guardian',
+  ];
+
   @override
   void dispose() {
-    _nameController.dispose();
-    _phoneController.dispose();
+    _nameCtrl.dispose();
+    _phoneCtrl.dispose();
     super.dispose();
   }
 
   void _saveContact() {
-    final err = _controller.addTrustedContact(
-      name: _nameController.text,
-      mobileNumber: _phoneController.text,
+    final err = SakhiSafetyController.instance.addTrustedContact(
+      name: _nameCtrl.text,
+      mobileNumber: _phoneCtrl.text,
       relationship: _selectedRelationship,
       setAsPrimary: _setAsPrimary,
     );
@@ -2519,190 +2705,153 @@ class _AddTrustedContactSheetState extends State<AddTrustedContactSheet> {
       return;
     }
     setState(() => _errorText = null);
-    _nameController.clear();
-    _phoneController.clear();
+    _nameCtrl.clear();
+    _phoneCtrl.clear();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        backgroundColor: SakhiModule4Colors.primaryPlumDark,
+        backgroundColor: SakhiModule4Colors.verifiedEmerald,
+        behavior: SnackBarBehavior.floating,
         content: Text(
-          'Trusted emergency contact saved & consent SMS prepared!',
+          'Trusted emergency contact saved permanently to your device & account!',
         ),
       ),
     );
-    if (!widget.embeddedInPage && Navigator.of(context).canPop()) {
-      Navigator.of(context).pop();
+    if (Navigator.of(context).canPop()) {
+      // Close modal sheet if inside bottom sheet
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final content = Container(
-      padding: EdgeInsets.fromLTRB(
-        18,
-        16,
-        18,
-        widget.embeddedInPage
-            ? 18
-            : MediaQuery.of(context).viewInsets.bottom + 24,
-      ),
+    return Container(
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        border: widget.embeddedInPage
-            ? Border.all(color: SakhiModule4Colors.cardBorder)
-            : null,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: SakhiModule4Colors.primaryPlum.withValues(alpha: 0.4),
+        ),
+        boxShadow: SakhiModule4Colors.cardShadow,
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Center(
-            child: Container(
-              width: 42,
-              height: 4,
-              decoration: BoxDecoration(
-                color: const Color(0xFFD6C6DC),
-                borderRadius: BorderRadius.circular(999),
-              ),
+          const Text(
+            'Add Trusted Emergency Contact',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: SakhiModule4Colors.textPrimary,
             ),
           ),
           const SizedBox(height: 12),
-          const Center(
-            child: Text(
-              'Add Trusted Emergency Contact',
-              style: TextStyle(
-                fontSize: 16.5,
-                fontWeight: FontWeight.w800,
-                color: SakhiModule4Colors.textPrimary,
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
           TextField(
-            controller: _nameController,
+            key: const Key('add-contact-name-input'),
+            controller: _nameCtrl,
             decoration: InputDecoration(
-              labelText: 'Contact Name',
-              hintText: 'e.g., Priya Sharma',
+              labelText: 'Full Name',
+              hintText: 'e.g., Meera Verma',
+              filled: true,
+              fillColor: const Color(0xFFFAF5FB),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(12),
               ),
-              isDense: true,
             ),
           ),
           const SizedBox(height: 10),
           TextField(
-            controller: _phoneController,
+            key: const Key('add-contact-phone-input'),
+            controller: _phoneCtrl,
             keyboardType: TextInputType.phone,
             decoration: InputDecoration(
               labelText: 'Mobile Number (+91)',
-              hintText: 'e.g., 9876543210',
+              hintText: '98450 99887',
+              prefixText: '+91 ',
+              filled: true,
+              fillColor: const Color(0xFFFAF5FB),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(12),
               ),
-              isDense: true,
             ),
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              const Text(
-                'Relationship',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                  color: SakhiModule4Colors.textPrimary,
-                ),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String>(
+            initialValue: _selectedRelationship,
+            decoration: InputDecoration(
+              labelText: 'Relationship',
+              filled: true,
+              fillColor: const Color(0xFFFAF5FB),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Wrap(
-                  spacing: 6,
-                  children: ['Mother', 'Sister', 'Partner', 'Friend'].map((
-                    rel,
-                  ) {
-                    final selected = _selectedRelationship == rel;
-                    return ChoiceChip(
-                      label: Text(rel),
-                      selected: selected,
-                      selectedColor: SakhiModule4Colors.secondaryLavenderPill,
-                      onSelected: (_) =>
-                          setState(() => _selectedRelationship = rel),
-                    );
-                  }).toList(),
-                ),
-              ),
-            ],
+            ),
+            items: _relationships
+                .map((r) => DropdownMenuItem(value: r, child: Text(r)))
+                .toList(),
+            onChanged: (val) {
+              if (val != null) setState(() => _selectedRelationship = val);
+            },
           ),
           Material(
             color: Colors.transparent,
-            child: SwitchListTile(
+            child: CheckboxListTile(
               contentPadding: EdgeInsets.zero,
+              dense: true,
+              activeColor: SakhiModule4Colors.primaryPlum,
+              value: _setAsPrimary,
               title: const Text(
                 'Set as Primary Emergency Contact',
-                style: TextStyle(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w800,
-                  color: SakhiModule4Colors.textPrimary,
-                ),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
               ),
-              value: _setAsPrimary,
-              activeThumbColor: SakhiModule4Colors.primaryPlumDark,
-              onChanged: (val) => setState(() => _setAsPrimary = val),
+              onChanged: (val) => setState(() => _setAsPrimary = val ?? false),
             ),
           ),
-          if (_errorText != null) ...[
-            Text(
-              _errorText!,
-              style: const TextStyle(
-                color: SakhiModule4Colors.emergencyCrimson,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
+          if (_errorText != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                _errorText!,
+                style: const TextStyle(
+                  color: SakhiModule4Colors.sosCrimson,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
-            const SizedBox(height: 8),
-          ],
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              key: const Key('save-trusted-contact-button'),
-              style: FilledButton.styleFrom(
-                backgroundColor: SakhiModule4Colors.primaryPlumDark,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: const StadiumBorder(),
+          FilledButton(
+            key: const Key('save-trusted-contact-button'),
+            style: FilledButton.styleFrom(
+              backgroundColor: SakhiModule4Colors.primaryPlum,
+              foregroundColor: Colors.white,
+              minimumSize: const Size.fromHeight(48),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(999),
               ),
-              onPressed: _saveContact,
-              child: const Text(
-                'Save & Send Consent SMS',
-                style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800),
-              ),
+            ),
+            onPressed: _saveContact,
+            child: const Text(
+              'Save Trusted Contact',
+              style: TextStyle(fontWeight: FontWeight.w800),
             ),
           ),
         ],
       ),
     );
-    return content;
   }
 }
 
-/// Screen 6 — Safety History, Discreet Shortcut & Pre-Travel Safety Checklist Screen
-/// (`06_Safety_History_Discreet_Shortcut_and_Checklist_UI.jpg`)
-class SafetyHistoryAndSettingsScreen extends StatefulWidget {
-  const SafetyHistoryAndSettingsScreen({super.key});
-
-  @override
-  State<SafetyHistoryAndSettingsScreen> createState() =>
-      _SafetyHistoryAndSettingsScreenState();
-}
-
-class _SafetyHistoryAndSettingsScreenState
-    extends State<SafetyHistoryAndSettingsScreen> {
-  final SakhiSafetyController _controller = SakhiSafetyController.instance;
+// ============================================================================
+// Dedicated Screen A — Discreet Shortcut Configuration & Live Sensor Test
+// (Opened exclusively by the Top-Right `Shortcut` Gear Icon on Safety Hub)
+// ============================================================================
+class DiscreetShortcutConfigScreen extends StatelessWidget {
+  const DiscreetShortcutConfigScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final controller = SakhiSafetyController.instance;
     return AnimatedBuilder(
-      animation: _controller,
+      animation: controller,
       builder: (context, _) {
         return Scaffold(
           backgroundColor: SakhiModule4Colors.surfaceBackground,
@@ -2711,15 +2860,15 @@ class _SafetyHistoryAndSettingsScreenState
             elevation: 0,
             leading: IconButton(
               icon: const Icon(
-                Icons.arrow_back_rounded,
+                Icons.arrow_back_ios_new_rounded,
                 color: SakhiModule4Colors.textPrimary,
               ),
               onPressed: () => Navigator.of(context).pop(),
             ),
             title: const Text(
-              'Safety History & Settings',
+              'Discreet SOS Shortcuts',
               style: TextStyle(
-                fontSize: 18.5,
+                fontSize: 18,
                 fontWeight: FontWeight.w800,
                 color: SakhiModule4Colors.textPrimary,
               ),
@@ -2728,94 +2877,372 @@ class _SafetyHistoryAndSettingsScreenState
           body: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Section 1: Configurable & Discreet SOS Activation (6.2)
-                const Text(
-                  'Configurable & Discreet SOS Activation (6.2)',
-                  style: TextStyle(
-                    fontSize: 15.5,
-                    fontWeight: FontWeight.w800,
-                    color: SakhiModule4Colors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 8),
                 Container(
-                  padding: const EdgeInsets.all(14),
+                  padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: SakhiModule4Colors.cardBorder),
+                    border: Border.all(color: SakhiModule4Colors.borderSubtle),
+                    boxShadow: SakhiModule4Colors.cardShadow,
                   ),
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      const Text(
+                        'Hardware & Gesture SOS Triggers (Section 6.2)',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: SakhiModule4Colors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Configure how you want to trigger SOS discreetly without unlocking or staring at your phone. Every trigger opens the 3-second confirmation guard first to prevent false alarms.',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: SakhiModule4Colors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
                       Material(
                         color: Colors.transparent,
                         child: SwitchListTile(
                           contentPadding: EdgeInsets.zero,
+                          activeThumbColor: Colors.white,
+                          activeTrackColor: SakhiModule4Colors.primaryPlum,
+                          value: controller.powerButtonShortcutEnabled,
                           title: const Text(
-                            'Power Button Triple-Press Shortcut',
+                            'Power / Volume Button Triple-Press Shortcut',
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w800,
-                              color: SakhiModule4Colors.textPrimary,
                             ),
                           ),
                           subtitle: const Text(
-                            '(OS Permission Granted)',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: SakhiModule4Colors.textSecondary,
-                            ),
+                            'Press Volume Up/Down or Power button 3 times rapidly within 2 seconds to open the 3s SOS confirmation guard',
+                            style: TextStyle(fontSize: 12),
                           ),
-                          value: _controller.powerButtonShortcutEnabled,
-                          activeThumbColor: Colors.white,
-                          activeTrackColor: SakhiModule4Colors.primaryPlumDark,
-                          onChanged: (val) => setState(() {
-                            _controller.powerButtonShortcutEnabled = val;
-                          }),
+                          onChanged: controller.setPowerButtonShortcut,
                         ),
                       ),
-                      const Divider(height: 16),
+                      const Divider(),
                       Material(
                         color: Colors.transparent,
                         child: SwitchListTile(
                           contentPadding: EdgeInsets.zero,
+                          activeThumbColor: Colors.white,
+                          activeTrackColor: SakhiModule4Colors.primaryPlum,
+                          value: controller.discreetShakeTriggerEnabled,
                           title: const Text(
-                            'Discreet Shake-to-SOS Trigger',
+                            'Discreet Shake-to-Trigger SOS',
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w800,
-                              color: SakhiModule4Colors.textPrimary,
                             ),
                           ),
                           subtitle: const Text(
-                            '(Requires 3s confirmation screen)',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: SakhiModule4Colors.textSecondary,
-                            ),
+                            'Shake your phone firmly 3 times using the hardware accelerometer to trigger the 3s SOS guard',
+                            style: TextStyle(fontSize: 12),
                           ),
-                          value: _controller.discreetShakeTriggerEnabled,
-                          activeThumbColor: Colors.white,
-                          activeTrackColor: SakhiModule4Colors.primaryPlumDark,
-                          onChanged: (val) => setState(() {
-                            _controller.discreetShakeTriggerEnabled = val;
-                          }),
+                          onChanged: controller.setDiscreetShakeShortcut,
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.tonal(
-                          key: const Key('run-safe-test-mode-button'),
-                          style: FilledButton.styleFrom(
-                            backgroundColor:
-                                SakhiModule4Colors.secondaryLavenderPill,
-                            foregroundColor: SakhiModule4Colors.textPrimary,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: const StadiumBorder(),
+                      if (controller.discreetShakeTriggerEnabled) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Shake Sensitivity Threshold:',
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            Text(
+                              '${controller.shakeSensitivityG.toStringAsFixed(1)} G (${controller.shakeSensitivityG <= 2.0
+                                  ? "High Sensitivity"
+                                  : controller.shakeSensitivityG >= 3.0
+                                  ? "Firm Shake Only"
+                                  : "Balanced"})',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                                color: SakhiModule4Colors.primaryPlum,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Slider(
+                          value: controller.shakeSensitivityG,
+                          min: 1.6,
+                          max: 3.8,
+                          divisions: 11,
+                          activeColor: SakhiModule4Colors.primaryPlum,
+                          onChanged: controller.setShakeSensitivity,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Live Sensor & Hardware Button Diagnostic Card
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF6ECF8),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: SakhiModule4Colors.primaryPlum.withValues(
+                        alpha: 0.3,
+                      ),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(
+                            Icons.sensors_rounded,
+                            color: SakhiModule4Colors.primaryPlum,
                           ),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Live Shortcut Diagnostics & Safe Test',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                                color: SakhiModule4Colors.primaryPlum,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        controller.lastShortcutTriggerSource != null
+                            ? 'Last hardware trigger detected: ${controller.lastShortcutTriggerSource} at ${controller.lastShortcutTriggeredAt?.toLocal().toString().substring(11, 19)}'
+                            : 'Try pressing your Volume Down/Up button 3 times rapidly right now (or shaking your phone if Shake-to-SOS is enabled), or tap below to test!',
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          color: SakhiModule4Colors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      FilledButton.icon(
+                        key: const Key('run-safe-test-mode-button'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: SakhiModule4Colors.primaryPlum,
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size.fromHeight(48),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) =>
+                                  const SosWorkflowScreen(isTestMode: true),
+                            ),
+                          );
+                        },
+                        icon: const Icon(
+                          Icons.verified_user_outlined,
+                          size: 18,
+                        ),
+                        label: const Text(
+                          'Run Safe Test Mode (Avoid False Triggers)',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ============================================================================
+// Dedicated Screen B — SOS Activation History Log Screen
+// (Opened by Row 2 `SOS Activation History` on Safety Hub)
+// ============================================================================
+class SosActivationHistoryScreen extends StatefulWidget {
+  const SosActivationHistoryScreen({super.key});
+
+  @override
+  State<SosActivationHistoryScreen> createState() =>
+      _SosActivationHistoryScreenState();
+}
+
+class _SosActivationHistoryScreenState
+    extends State<SosActivationHistoryScreen> {
+  final SakhiSafetyController _controller = SakhiSafetyController.instance;
+  String _filter = 'ALL'; // 'ALL', 'LIVE', 'TEST'
+
+  void _showEventDetailDialog(SafetySosHistoryItem item) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          item.badgeLabel,
+          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Event ID: ${item.id}'),
+            const SizedBox(height: 6),
+            Text('Timestamp: ${item.timestampLabel}'),
+            const SizedBox(height: 6),
+            Text('Location: ${item.locationLabel}'),
+            if (item.latitude != null && item.longitude != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Coordinates: ${item.latitude!.toStringAsFixed(5)}, ${item.longitude!.toStringAsFixed(5)}',
+              ),
+            ],
+            const SizedBox(height: 8),
+            Text(
+              item.detailsSummary,
+              style: const TextStyle(color: SakhiModule4Colors.textSecondary),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final filtered = _controller.sosHistory.where((item) {
+          if (_filter == 'LIVE') return !item.isTestMode;
+          if (_filter == 'TEST') return item.isTestMode;
+          return true;
+        }).toList();
+
+        return Scaffold(
+          backgroundColor: SakhiModule4Colors.surfaceBackground,
+          appBar: AppBar(
+            backgroundColor: SakhiModule4Colors.surfaceBackground,
+            elevation: 0,
+            leading: IconButton(
+              icon: const Icon(
+                Icons.arrow_back_ios_new_rounded,
+                color: SakhiModule4Colors.textPrimary,
+              ),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+            title: const Text(
+              'SOS Activation History',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: SakhiModule4Colors.textPrimary,
+              ),
+            ),
+            actions: [
+              if (_controller.sosHistory.any((h) => h.isTestMode))
+                TextButton(
+                  onPressed: _controller.clearLocalTestLogs,
+                  child: const Text(
+                    'Clear Tests',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: SakhiModule4Colors.sosCrimson,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    ChoiceChip(
+                      label: Text('All (${_controller.sosHistory.length})'),
+                      selected: _filter == 'ALL',
+                      onSelected: (_) => setState(() => _filter = 'ALL'),
+                    ),
+                    const SizedBox(width: 8),
+                    ChoiceChip(
+                      label: const Text('Live SOS'),
+                      selected: _filter == 'LIVE',
+                      onSelected: (_) => setState(() => _filter = 'LIVE'),
+                    ),
+                    const SizedBox(width: 8),
+                    ChoiceChip(
+                      label: const Text('Safe Tests / Cancelled'),
+                      selected: _filter == 'TEST',
+                      onSelected: (_) => setState(() => _filter = 'TEST'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                if (filtered.isEmpty)
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: SakhiModule4Colors.borderSubtle,
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        const Icon(
+                          Icons.history_toggle_off_rounded,
+                          size: 38,
+                          color: SakhiModule4Colors.primaryPlum,
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'No SOS Events Recorded Yet',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: SakhiModule4Colors.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'When you trigger SOS or run a Safe Test, the timestamp, GPS coordinates, and status will be logged here.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            color: SakhiModule4Colors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        OutlinedButton.icon(
                           onPressed: () {
                             Navigator.of(context).push(
                               MaterialPageRoute<void>(
@@ -2824,8 +3251,1266 @@ class _SafetyHistoryAndSettingsScreenState
                               ),
                             );
                           },
-                          child: const Text(
-                            'Run Safe Test Mode (Avoid False Triggers)',
+                          icon: const Icon(Icons.verified_user_outlined),
+                          label: const Text('Run a Safe SOS Test Now'),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                ...filtered.map((item) {
+                  final isCancelledOrTest =
+                      item.isTestMode || item.status == 'CANCELLED';
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: () => _showEventDetailDialog(item),
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: SakhiModule4Colors.borderSubtle,
+                          ),
+                          boxShadow: SakhiModule4Colors.cardShadow,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    item.timestampLabel,
+                                    style: const TextStyle(
+                                      fontSize: 13.5,
+                                      fontWeight: FontWeight.w800,
+                                      color: SakhiModule4Colors.textPrimary,
+                                    ),
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: isCancelledOrTest
+                                        ? const Color(0xFFF3EBF5)
+                                        : SakhiModule4Colors
+                                              .verifiedEmeraldTint,
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    item.badgeLabel,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                      color: isCancelledOrTest
+                                          ? SakhiModule4Colors.primaryPlum
+                                          : SakhiModule4Colors.verifiedEmerald,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Location: ${item.locationLabel}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: SakhiModule4Colors.textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              item.detailsSummary,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: SakhiModule4Colors.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ============================================================================
+// Dedicated Screen C — Pre-Travel Safety Checklist & Cab/Auto Ride Logger
+// (Opened by Row 3 `Safety Checklist & Discreet Trigger` on Safety Hub)
+// ============================================================================
+class PreTravelSafetyChecklistScreen extends StatefulWidget {
+  const PreTravelSafetyChecklistScreen({super.key});
+
+  @override
+  State<PreTravelSafetyChecklistScreen> createState() =>
+      _PreTravelSafetyChecklistScreenState();
+}
+
+class _PreTravelSafetyChecklistScreenState
+    extends State<PreTravelSafetyChecklistScreen> {
+  final SakhiSafetyController _controller = SakhiSafetyController.instance;
+  final TextEditingController _vehicleCtrl = TextEditingController();
+  final TextEditingController _destCtrl = TextEditingController();
+  final TextEditingController _customItemCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _vehicleCtrl.text = _controller.loggedVehicleNumber;
+    _destCtrl.text = _controller.loggedRideDestination;
+  }
+
+  @override
+  void dispose() {
+    _vehicleCtrl.dispose();
+    _destCtrl.dispose();
+    _customItemCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final total = _controller.preTravelChecklist.length;
+        final checkedCount = _controller.preTravelChecklist
+            .where((c) => c.isChecked)
+            .length;
+
+        return Scaffold(
+          backgroundColor: SakhiModule4Colors.surfaceBackground,
+          appBar: AppBar(
+            backgroundColor: SakhiModule4Colors.surfaceBackground,
+            elevation: 0,
+            leading: IconButton(
+              icon: const Icon(
+                Icons.arrow_back_ios_new_rounded,
+                color: SakhiModule4Colors.textPrimary,
+              ),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+            title: const Text(
+              'Pre-Travel Safety Checklist',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: SakhiModule4Colors.textPrimary,
+              ),
+            ),
+            actions: [
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const DiscreetShortcutConfigScreen(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.vibration_rounded, size: 16),
+                label: const Text('Shortcuts'),
+              ),
+            ],
+          ),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Checklist Card
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: SakhiModule4Colors.borderSubtle),
+                    boxShadow: SakhiModule4Colors.cardShadow,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Pre-Travel Safety Readiness',
+                            style: TextStyle(
+                              fontSize: 15.5,
+                              fontWeight: FontWeight.w800,
+                              color: SakhiModule4Colors.textPrimary,
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: SakhiModule4Colors.verifiedEmeraldTint,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              '$checkedCount / $total Ready',
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w800,
+                                color: SakhiModule4Colors.verifiedEmerald,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      ..._controller.preTravelChecklist.map(
+                        (chk) => CheckboxListTile(
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          activeColor: SakhiModule4Colors.verifiedEmerald,
+                          value: chk.isChecked,
+                          title: Text(
+                            chk.title,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          onChanged: (val) =>
+                              _controller.toggleChecklist(chk.id, val ?? false),
+                        ),
+                      ),
+                      const Divider(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _customItemCtrl,
+                              decoration: InputDecoration(
+                                hintText: 'Add your own safety check item…',
+                                isDense: true,
+                                filled: true,
+                                fillColor: const Color(0xFFFAF5FB),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: SakhiModule4Colors.primaryPlum,
+                            ),
+                            onPressed: () {
+                              _controller.addCustomChecklistItem(
+                                _customItemCtrl.text,
+                              );
+                              _customItemCtrl.clear();
+                            },
+                            child: const Text('+ Add'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Cab / Auto Vehicle Plate Logger Card
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: SakhiModule4Colors.primaryPlum.withValues(
+                        alpha: 0.35,
+                      ),
+                    ),
+                    boxShadow: SakhiModule4Colors.cardShadow,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(
+                            Icons.local_taxi_rounded,
+                            color: SakhiModule4Colors.primaryPlum,
+                          ),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Cab / Auto Vehicle Plate Logger',
+                              style: TextStyle(
+                                fontSize: 15.5,
+                                fontWeight: FontWeight.w800,
+                                color: SakhiModule4Colors.textPrimary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Log the vehicle registration plate before boarding. It will automatically be included in any SOS alert.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: SakhiModule4Colors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: _vehicleCtrl,
+                        textCapitalization: TextCapitalization.characters,
+                        decoration: InputDecoration(
+                          labelText: 'Vehicle Registration Plate (e.g., AP 21 AB 1234)',
+                          filled: true,
+                          fillColor: const Color(0xFFFAF5FB),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: _destCtrl,
+                        decoration: InputDecoration(
+                          labelText: 'Destination / Route Note',
+                          filled: true,
+                          fillColor: const Color(0xFFFAF5FB),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () {
+                                _controller.saveRideLog(
+                                  vehicleNumber: _vehicleCtrl.text,
+                                  destination: _destCtrl.text,
+                                );
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Ride details saved & attached to SOS payload!',
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: const Text('Save Ride Log'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: SakhiModule4Colors.primaryPlum,
+                              ),
+                              onPressed: () {
+                                _controller.saveRideLog(
+                                  vehicleNumber: _vehicleCtrl.text,
+                                  destination: _destCtrl.text,
+                                );
+                                _controller.dispatchSosAlertToContacts(context);
+                              },
+                              icon: const Icon(Icons.share_rounded, size: 16),
+                              label: const Text('Share with Family'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ============================================================================
+// Dedicated Screen D — Personal Safety Tips & Interactive Step-by-Step Guides
+// (Opened by Circle 3 `Safety Tips` on Safety Hub — Tapping ANY card opens detail!)
+// ============================================================================
+class PersonalSafetyTipsScreen extends StatefulWidget {
+  const PersonalSafetyTipsScreen({super.key});
+
+  @override
+  State<PersonalSafetyTipsScreen> createState() =>
+      _PersonalSafetyTipsScreenState();
+}
+
+class _PersonalSafetyTipsScreenState extends State<PersonalSafetyTipsScreen> {
+  final SakhiSafetyController _controller = SakhiSafetyController.instance;
+  String _selectedCategory = 'All';
+
+  void _openTipDetail(SafetyTipGuideModel tip) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => SafetyTipDetailSheet(tip: tip),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final categories = <String>[
+      'All',
+      ...{for (final g in _controller.safetyTipGuides) g.category},
+    ];
+    final filtered = _selectedCategory == 'All'
+        ? _controller.safetyTipGuides
+        : _controller.safetyTipGuides
+              .where((g) => g.category == _selectedCategory)
+              .toList();
+
+    return Scaffold(
+      backgroundColor: SakhiModule4Colors.surfaceBackground,
+      appBar: AppBar(
+        backgroundColor: SakhiModule4Colors.surfaceBackground,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(
+            Icons.arrow_back_ios_new_rounded,
+            color: SakhiModule4Colors.textPrimary,
+          ),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: const Text(
+          'Personal Safety Tips & Guides',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: SakhiModule4Colors.textPrimary,
+          ),
+        ),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Tap any safety guide card below to open the complete step-by-step action checklist, legal rights, and emergency dialer:',
+              style: TextStyle(
+                fontSize: 12.5,
+                color: SakhiModule4Colors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 10),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: categories.map((cat) {
+                  final selected = _selectedCategory == cat;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      label: Text(cat),
+                      selected: selected,
+                      selectedColor: SakhiModule4Colors.primaryPlum,
+                      labelStyle: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: selected
+                            ? Colors.white
+                            : SakhiModule4Colors.textPrimary,
+                      ),
+                      onSelected: (_) =>
+                          setState(() => _selectedCategory = cat),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+            const SizedBox(height: 14),
+            ...filtered.map(
+              (tip) => Padding(
+                padding: const EdgeInsets.only(bottom: 14),
+                child: _InteractiveSafetyTipWideCard(
+                  tip: tip,
+                  onTap: () => _openTipDetail(tip),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InteractiveSafetyTipWideCard extends StatelessWidget {
+  final SafetyTipGuideModel tip;
+  final VoidCallback onTap;
+
+  const _InteractiveSafetyTipWideCard({required this.tip, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: SakhiModule4Colors.borderSubtle),
+            boxShadow: SakhiModule4Colors.cardShadow,
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                height: 120,
+                width: double.infinity,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Image.asset(
+                      tip.illustrationAsset,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) =>
+                          Container(color: const Color(0xFFF3EBF5)),
+                    ),
+                    Positioned(
+                      top: 10,
+                      left: 10,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: SakhiModule4Colors.primaryPlum.withValues(
+                            alpha: 0.9,
+                          ),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          tip.category,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      tip.title,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: SakhiModule4Colors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      tip.subtitle,
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        color: SakhiModule4Colors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '${tip.actionSteps.length} Actionable Steps • Tap to Open Guide',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            color: SakhiModule4Colors.primaryPlum,
+                          ),
+                        ),
+                        const Icon(
+                          Icons.arrow_forward_rounded,
+                          size: 18,
+                          color: SakhiModule4Colors.primaryPlum,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class SafetyTipDetailSheet extends StatefulWidget {
+  final SafetyTipGuideModel tip;
+
+  const SafetyTipDetailSheet({super.key, required this.tip});
+
+  @override
+  State<SafetyTipDetailSheet> createState() => _SafetyTipDetailSheetState();
+}
+
+class _SafetyTipDetailSheetState extends State<SafetyTipDetailSheet> {
+  final Set<int> _completedSteps = <int>{0};
+
+  @override
+  Widget build(BuildContext context) {
+    final tip = widget.tip;
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.86,
+      ),
+      decoration: const BoxDecoration(
+        color: SakhiModule4Colors.surfaceBackground,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(18, 14, 18, 32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 44,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: const Color(0xFFF2E6F7),
+                  child: Icon(tip.icon, color: SakhiModule4Colors.primaryPlum),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        tip.category.toUpperCase(),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: SakhiModule4Colors.primaryPlum,
+                        ),
+                      ),
+                      Text(
+                        tip.title,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: SakhiModule4Colors.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: SizedBox(
+                height: 135,
+                child: Image.asset(
+                  tip.illustrationAsset,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) =>
+                      Container(color: const Color(0xFFF3EBF5)),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'Step-by-Step Safety Action Plan (Tap to Check Off):',
+              style: TextStyle(
+                fontSize: 14.5,
+                fontWeight: FontWeight.w800,
+                color: SakhiModule4Colors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            ...List.generate(tip.actionSteps.length, (index) {
+              final done = _completedSteps.contains(index);
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () {
+                    setState(() {
+                      if (done) {
+                        _completedSteps.remove(index);
+                      } else {
+                        _completedSteps.add(index);
+                      }
+                    });
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: done
+                            ? SakhiModule4Colors.verifiedEmerald
+                            : SakhiModule4Colors.borderSubtle,
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          done
+                              ? Icons.check_circle_rounded
+                              : Icons.radio_button_unchecked_rounded,
+                          color: done
+                              ? SakhiModule4Colors.verifiedEmerald
+                              : SakhiModule4Colors.primaryPlum,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Step ${index + 1}: ${tip.actionSteps[index]}',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              height: 1.35,
+                              fontWeight: FontWeight.w600,
+                              color: SakhiModule4Colors.textPrimary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF6ECF8),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Essential Do’s & Don’ts',
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w800,
+                      color: SakhiModule4Colors.primaryPlum,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  ...tip.dosAndDonts.map(
+                    (d) => Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        '• $d',
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          height: 1.35,
+                          color: SakhiModule4Colors.textPrimary,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      final text =
+                          '${tip.title}\n\n${tip.actionSteps.map((s) => "• $s").join("\n")}\n\nEmergency Helpline: ${tip.emergencyNumber}';
+                      SharePlus.instance.share(ShareParams(text: text));
+                    },
+                    icon: const Icon(Icons.share_rounded, size: 17),
+                    label: const Text('Share Guide'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: SakhiModule4Colors.sosCrimson,
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: () =>
+                        SakhiSafetyController.instance.launchPhoneCall(
+                          context,
+                          tip.emergencyNumber,
+                          label: '${tip.emergencyNumber} Emergency Helpline',
+                        ),
+                    icon: const Icon(Icons.call_rounded, size: 17),
+                    label: Text('Call ${tip.emergencyNumber} Now'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// Dedicated Screen E — National Emergency 112 Rapid-Dispatch Screen
+// (Opened by Circle 4 `Helplines (112)` on Safety Hub)
+// ============================================================================
+class NationalEmergency112Screen extends StatelessWidget {
+  const NationalEmergency112Screen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = SakhiSafetyController.instance;
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final hasGps = controller.hasRecentDeviceLocation;
+        return Scaffold(
+          backgroundColor: SakhiModule4Colors.surfaceBackground,
+          appBar: AppBar(
+            backgroundColor: SakhiModule4Colors.surfaceBackground,
+            elevation: 0,
+            leading: IconButton(
+              icon: const Icon(
+                Icons.arrow_back_ios_new_rounded,
+                color: SakhiModule4Colors.textPrimary,
+              ),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+            title: const Text(
+              '112 Emergency Rapid Dispatch',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: SakhiModule4Colors.textPrimary,
+              ),
+            ),
+          ),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Hero 112 ERSS + 100 Police Card
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFC92A49), Color(0xFF8C1630)],
+                    ),
+                    borderRadius: BorderRadius.circular(22),
+                    boxShadow: SakhiModule4Colors.cardShadow,
+                  ),
+                  child: Column(
+                    children: [
+                      const Icon(
+                        Icons.emergency_share_rounded,
+                        color: Colors.white,
+                        size: 42,
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        '112 — India National Emergency Number',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Opens your phone’s native SIM dialer immediately for Police, Fire & Medical ERSS dispatch.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 12.5, color: Colors.white),
+                      ),
+                      const SizedBox(height: 14),
+                      FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: SakhiModule4Colors.sosCrimson,
+                          minimumSize: const Size.fromHeight(50),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                        onPressed: () => controller.launchPhoneCall(
+                          context,
+                          '112',
+                          label: '112 National Emergency Response',
+                        ),
+                        icon: const Icon(Icons.phone_in_talk_rounded),
+                        label: const Text(
+                          'Dial 112 in Phone Dialer Now',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          side: const BorderSide(color: Colors.white),
+                          minimumSize: const Size.fromHeight(46),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                        onPressed: () => controller.launchPhoneCall(
+                          context,
+                          '100',
+                          label: '100 Direct Police Control Room',
+                        ),
+                        icon: const Icon(Icons.local_police_rounded),
+                        label: const Text(
+                          'Dial 100 Direct Police Control Room',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Read My Live GPS Coordinates to the 112 Operator Card
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: SakhiModule4Colors.borderSubtle),
+                    boxShadow: SakhiModule4Colors.cardShadow,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(
+                            Icons.record_voice_over_rounded,
+                            color: SakhiModule4Colors.primaryPlum,
+                          ),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Read Your Live GPS Location to the 112 Operator',
+                              style: TextStyle(
+                                fontSize: 14.5,
+                                fontWeight: FontWeight.w800,
+                                color: SakhiModule4Colors.textPrimary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFAF5FB),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              hasGps
+                                  ? 'Area: ${controller.currentLocationLabel}'
+                                  : 'GPS not yet active — tap Refresh GPS below',
+                              style: const TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w800,
+                                color: SakhiModule4Colors.textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              hasGps
+                                  ? 'Coordinates: Lat ${controller.currentLatitude.toStringAsFixed(5)}° N, Lng ${controller.currentLongitude.toStringAsFixed(5)}° E'
+                                  : 'Coordinates unavailable',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: SakhiModule4Colors.primaryPlum,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () =>
+                                  unawaited(controller.requestDeviceLocation()),
+                              icon: const Icon(
+                                Icons.my_location_rounded,
+                                size: 16,
+                              ),
+                              label: const Text('Refresh GPS'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: SakhiModule4Colors.primaryPlum,
+                              ),
+                              onPressed: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) =>
+                                        const VerifiedHelplinesDirectoryScreen(),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(
+                                Icons.list_alt_rounded,
+                                size: 16,
+                              ),
+                              label: const Text('All Helplines'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ============================================================================
+// Dedicated Screen F — Full Verified Helplines Directory & Safety Tips
+// (Opened by Row 4 `Emergency Helplines & 112` on Safety Hub)
+// ============================================================================
+class VerifiedHelplinesDirectoryScreen extends StatefulWidget {
+  const VerifiedHelplinesDirectoryScreen({super.key});
+
+  @override
+  State<VerifiedHelplinesDirectoryScreen> createState() =>
+      _VerifiedHelplinesDirectoryScreenState();
+}
+
+class _VerifiedHelplinesDirectoryScreenState
+    extends State<VerifiedHelplinesDirectoryScreen> {
+  final SakhiSafetyController _controller = SakhiSafetyController.instance;
+  String _searchQuery = '';
+
+  void _openTipDetail(SafetyTipGuideModel tip) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => SafetyTipDetailSheet(tip: tip),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final helplines = _controller.verifiedHelplines.where((h) {
+      final q = _searchQuery.trim().toLowerCase();
+      if (q.isEmpty) return true;
+      return h.title.toLowerCase().contains(q) ||
+          h.subtitle.toLowerCase().contains(q) ||
+          h.number.toLowerCase().contains(q);
+    }).toList();
+
+    return Scaffold(
+      backgroundColor: SakhiModule4Colors.surfaceBackground,
+      appBar: AppBar(
+        backgroundColor: SakhiModule4Colors.surfaceBackground,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(
+            Icons.arrow_back_ios_new_rounded,
+            color: SakhiModule4Colors.textPrimary,
+          ),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: const Text(
+          'Helplines & Safety Directory',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: SakhiModule4Colors.textPrimary,
+          ),
+        ),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Hero 112 & 100 Card
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFDECEF),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: SakhiModule4Colors.sosCrimson,
+                  width: 1.5,
+                ),
+                boxShadow: SakhiModule4Colors.cardShadow,
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 52,
+                        height: 52,
+                        decoration: const BoxDecoration(
+                          color: SakhiModule4Colors.sosCrimson,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.phone_in_talk_rounded,
+                          color: Colors.white,
+                          size: 26,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '112 — India National Emergency Number',
+                              style: TextStyle(
+                                fontSize: 15.5,
+                                fontWeight: FontWeight.w800,
+                                color: SakhiModule4Colors.textPrimary,
+                              ),
+                            ),
+                            SizedBox(height: 3),
+                            Text(
+                              '24/7 Police, Fire & Medical Emergency Response (ERSS)',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: SakhiModule4Colors.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: SakhiModule4Colors.sosCrimson,
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size.fromHeight(46),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                          ),
+                          onPressed: () => _controller.launchPhoneCall(
+                            context,
+                            '112',
+                            label: '112 National Emergency Response',
+                          ),
+                          icon: const Icon(Icons.call_rounded, size: 17),
+                          label: const Text(
+                            'Tap to Call 112',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: SakhiModule4Colors.primaryPlum,
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size.fromHeight(46),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                          ),
+                          onPressed: () => _controller.launchPhoneCall(
+                            context,
+                            '100',
+                            label: '100 Direct Police Dispatch',
+                          ),
+                          icon: const Icon(
+                            Icons.local_police_rounded,
+                            size: 17,
+                          ),
+                          label: const Text(
+                            'Call 100 Police',
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w800,
@@ -2835,314 +4520,41 @@ class _SafetyHistoryAndSettingsScreenState
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 20),
-
-                // Section 2: SOS Activation History (6.3 & 6.5)
-                const Text(
-                  'SOS Activation History (6.3 & 6.5)',
-                  style: TextStyle(
-                    fontSize: 15.5,
-                    fontWeight: FontWeight.w800,
-                    color: SakhiModule4Colors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                ..._controller.sosHistory.map(
-                  (item) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: SakhiModule4Colors.cardBorder,
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  item.timestampLabel,
-                                  style: const TextStyle(
-                                    fontSize: 14.5,
-                                    fontWeight: FontWeight.w800,
-                                    color: SakhiModule4Colors.textPrimary,
-                                  ),
-                                ),
-                              ),
-                              const Text(
-                                'View Log >',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w800,
-                                  color: SakhiModule4Colors.primaryPlum,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: item.isTestMode
-                                  ? SakhiModule4Colors.warningAmberBg
-                                  : SakhiModule4Colors.verifiedMintBg,
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Text(
-                              item.badgeLabel,
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
-                                color: item.isTestMode
-                                    ? SakhiModule4Colors.warningAmberText
-                                    : SakhiModule4Colors.verifiedMintText,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            '${item.locationLabel} (Map Link)',
-                            style: const TextStyle(
-                              fontSize: 13.5,
-                              fontWeight: FontWeight.w800,
-                              color: SakhiModule4Colors.textPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            item.detailsSummary,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: SakhiModule4Colors.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // Section 3: Pre-Travel Safety Checklist
-                const Text(
-                  'Pre-Travel Safety Checklist',
-                  style: TextStyle(
-                    fontSize: 15.5,
-                    fontWeight: FontWeight.w800,
-                    color: SakhiModule4Colors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: SakhiModule4Colors.cardBorder),
-                  ),
-                  child: Column(
-                    children: _controller.preTravelChecklist.map((chk) {
-                      return Material(
-                        color: Colors.transparent,
-                        child: CheckboxListTile(
-                          contentPadding: EdgeInsets.zero,
-                          controlAffinity: ListTileControlAffinity.leading,
-                          activeColor: SakhiModule4Colors.primaryPlumDark,
-                          value: chk.isChecked,
-                          onChanged: (val) =>
-                              _controller.toggleChecklist(chk.id, val ?? false),
-                          title: Text(
-                            chk.title,
-                            style: const TextStyle(
-                              fontSize: 13.5,
-                              fontWeight: FontWeight.w700,
-                              color: SakhiModule4Colors.textPrimary,
-                            ),
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-/// Screen 7 — Verified 24/7 Helplines (112, 100, 1091, 181, 108/1930) & Safety Tips Screen
-/// (`07_Verified_Helplines_112_and_Safety_Tips_UI.jpg`)
-class HelplinesAndSafetyTipsScreen extends StatelessWidget {
-  final bool scrollToTips;
-
-  const HelplinesAndSafetyTipsScreen({super.key, this.scrollToTips = false});
-
-  @override
-  Widget build(BuildContext context) {
-    final controller = SakhiSafetyController.instance;
-    return Scaffold(
-      backgroundColor: SakhiModule4Colors.surfaceBackground,
-      appBar: AppBar(
-        backgroundColor: SakhiModule4Colors.surfaceBackground,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(
-            Icons.arrow_back_rounded,
-            color: SakhiModule4Colors.textPrimary,
-          ),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: const Text(
-          'Helplines & Safety Tips',
-          style: TextStyle(
-            fontSize: 18.5,
-            fontWeight: FontWeight.w800,
-            color: SakhiModule4Colors.textPrimary,
-          ),
-        ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 14, top: 8, bottom: 8),
-            child: FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: SakhiModule4Colors.emergencyCrimson,
-                foregroundColor: Colors.white,
-                shape: const StadiumBorder(),
-              ),
-              onPressed: () => controller.launchPhoneCall(
-                context,
-                '112',
-                label: '112 National Emergency Number',
-              ),
-              icon: const Icon(Icons.phone_in_talk_rounded, size: 16),
-              label: const Text(
-                'Call 112',
-                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5),
-              ),
-            ),
-          ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Hero 112 & 100 Emergency Card
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF7D1935), Color(0xFFC92A49)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 54,
-                        height: 54,
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Image.asset(
-                          SakhiModule4Assets.emergency112Emblem,
-                          fit: BoxFit.contain,
-                          errorBuilder: (_, _, _) => const Icon(
-                            Icons.shield_rounded,
-                            color: Colors.white,
-                            size: 34,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '112 — India National Emergency Number',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            SizedBox(height: 4),
-                            Text(
-                              '24/7 Police (112 / 100), Fire & Medical Emergency Response',
-                              style: TextStyle(
-                                color: Color(0xFFFCE8EC),
-                                fontSize: 12.2,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: SakhiModule4Colors.emergencyCrimson,
-                        padding: const EdgeInsets.symmetric(vertical: 13),
-                        shape: const StadiumBorder(),
-                      ),
-                      onPressed: () => controller.launchPhoneCall(
-                        context,
-                        '112',
-                        label: '112 National Emergency Response',
-                      ),
-                      child: const Text(
-                        'Tap to Call 112 Immediately',
-                        style: TextStyle(
-                          fontSize: 14.5,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                  ),
                 ],
               ),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 14),
+
+            // Search Bar
+            TextField(
+              onChanged: (v) => setState(() => _searchQuery = v),
+              decoration: InputDecoration(
+                hintText: 'Search helplines (1091, 181, 108, 1930, NCW…)',
+                prefixIcon: const Icon(Icons.search_rounded),
+                isDense: true,
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(
+                    color: SakhiModule4Colors.borderSubtle,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
 
             const Text(
               'Verified 24/7 Women & Safety Helplines',
               style: TextStyle(
-                fontSize: 16.5,
+                fontSize: 16,
                 fontWeight: FontWeight.w800,
                 color: SakhiModule4Colors.textPrimary,
               ),
             ),
             const SizedBox(height: 10),
 
-            ...controller.verifiedHelplines.map(
+            ...helplines.map(
               (hl) => Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: Container(
@@ -3150,26 +4562,23 @@ class HelplinesAndSafetyTipsScreen extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: SakhiModule4Colors.cardBorder),
+                    border: Border.all(color: SakhiModule4Colors.borderSubtle),
+                    boxShadow: SakhiModule4Colors.cardShadow,
                   ),
                   child: Row(
                     children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.asset(
-                          hl.badgeAsset,
-                          width: 46,
-                          height: 46,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => Container(
-                            width: 46,
-                            height: 46,
-                            color: SakhiModule4Colors.pastelLavenderBg,
-                            child: const Icon(
-                              Icons.phone_in_talk_rounded,
-                              color: SakhiModule4Colors.primaryPlum,
-                            ),
-                          ),
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: hl.accentColor.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        alignment: Alignment.center,
+                        child: Icon(
+                          hl.vectorIcon,
+                          color: hl.accentColor,
+                          size: 24,
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -3197,22 +4606,21 @@ class HelplinesAndSafetyTipsScreen extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      FilledButton(
+                      FilledButton.icon(
                         style: FilledButton.styleFrom(
-                          backgroundColor: SakhiModule4Colors.primaryPlumDark,
+                          backgroundColor: hl.accentColor,
                           foregroundColor: Colors.white,
-                          shape: const StadiumBorder(),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 10,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(999),
                           ),
                         ),
-                        onPressed: () => controller.launchPhoneCall(
+                        onPressed: () => _controller.launchPhoneCall(
                           context,
                           hl.number,
                           label: hl.title,
                         ),
-                        child: const Text(
+                        icon: const Icon(Icons.call_rounded, size: 15),
+                        label: const Text(
                           'Call Now',
                           style: TextStyle(
                             fontSize: 12,
@@ -3225,30 +4633,54 @@ class HelplinesAndSafetyTipsScreen extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 16),
 
-            const Text(
-              'Essential Personal Safety Tips',
-              style: TextStyle(
-                fontSize: 16.5,
-                fontWeight: FontWeight.w800,
-                color: SakhiModule4Colors.textPrimary,
-              ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Essential Personal Safety Tips (Tap to Read)',
+                    style: TextStyle(
+                      fontSize: 15.5,
+                      fontWeight: FontWeight.w800,
+                      color: SakhiModule4Colors.textPrimary,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const PersonalSafetyTipsScreen(),
+                      ),
+                    );
+                  },
+                  child: const Text('See All Guides ›'),
+                ),
+              ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 6),
 
-            _IllustratedSafetyTipCard(
-              imageAsset: SakhiModule4Assets.commuteSafetyIllustration,
-              bgColor: const Color(0xFFEAF7F1),
-              title: 'Commute & Cab Safety',
-              subtitle: 'Verify child lock, share live GPS link, and sit behind the driver.',
-            ),
-            const SizedBox(height: 10),
-            _IllustratedSafetyTipCard(
-              imageAsset: SakhiModule4Assets.discreetSosIllustration,
-              bgColor: const Color(0xFFFDF0F5),
-              title: 'Using Discreet SOS Safely',
-              subtitle: 'How to trigger silent alerts to trusted contacts without unlocking.',
+            // Tappable Safety Tip Cards — Tapping opens SafetyTipDetailSheet!
+            Row(
+              children: [
+                Expanded(
+                  child: _SafetyTipCardTile(
+                    key: const Key('tip-card-commute-cab-safety'),
+                    tip: _controller.safetyTipGuides[0],
+                    onTap: () => _openTipDetail(_controller.safetyTipGuides[0]),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _SafetyTipCardTile(
+                    key: const Key('tip-card-discreet-sos-safely'),
+                    tip: _controller.safetyTipGuides[1],
+                    onTap: () => _openTipDetail(_controller.safetyTipGuides[1]),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -3257,75 +4689,221 @@ class HelplinesAndSafetyTipsScreen extends StatelessWidget {
   }
 }
 
-class _IllustratedSafetyTipCard extends StatelessWidget {
-  final String imageAsset;
-  final Color bgColor;
-  final String title;
-  final String subtitle;
+class _SafetyTipCardTile extends StatelessWidget {
+  final SafetyTipGuideModel tip;
+  final VoidCallback onTap;
 
-  const _IllustratedSafetyTipCard({
-    required this.imageAsset,
-    required this.bgColor,
-    required this.title,
-    required this.subtitle,
-  });
+  const _SafetyTipCardTile({super.key, required this.tip, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: SakhiModule4Colors.cardBorder),
-      ),
-      child: Row(
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Image.asset(
-              imageAsset,
-              width: 112,
-              height: 76,
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => Container(
-                width: 112,
-                height: 76,
-                color: Colors.white,
-                child: const Icon(
-                  Icons.shield_outlined,
-                  color: SakhiModule4Colors.primaryPlum,
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: SakhiModule4Colors.borderSubtle),
+            boxShadow: SakhiModule4Colors.cardShadow,
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                height: 92,
+                width: double.infinity,
+                child: Image.asset(
+                  tip.illustrationAsset,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) =>
+                      Container(color: const Color(0xFFF3EBF5)),
                 ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      tip.title,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: SakhiModule4Colors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      tip.subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: SakhiModule4Colors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Row(
+                      children: [
+                        Text(
+                          'Read Guide',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: SakhiModule4Colors.primaryPlum,
+                          ),
+                        ),
+                        SizedBox(width: 3),
+                        Icon(
+                          Icons.open_in_new_rounded,
+                          size: 12,
+                          color: SakhiModule4Colors.primaryPlum,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// Backward-Compatible Combined Screen Classes for Existing Widget Tests
+// (`SafetyHistoryAndSettingsScreen` & `HelplinesAndSafetyTipsScreen`)
+// ============================================================================
+class SafetyHistoryAndSettingsScreen extends StatelessWidget {
+  const SafetyHistoryAndSettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = SakhiSafetyController.instance;
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        return Scaffold(
+          backgroundColor: SakhiModule4Colors.surfaceBackground,
+          appBar: AppBar(
+            backgroundColor: SakhiModule4Colors.surfaceBackground,
+            elevation: 0,
+            title: const Text(
+              'Safety History & Settings',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: SakhiModule4Colors.textPrimary,
               ),
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 14.5,
-                    fontWeight: FontWeight.w800,
-                    color: SakhiModule4Colors.textPrimary,
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: SakhiModule4Colors.borderSubtle),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: controller.powerButtonShortcutEnabled,
+                        title: const Text(
+                          'Power Button Triple-Press Shortcut',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        onChanged: controller.setPowerButtonShortcut,
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: controller.discreetShakeTriggerEnabled,
+                        title: const Text(
+                          'Discreet Shake-to-Trigger SOS (Beta)',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        onChanged: controller.setDiscreetShakeShortcut,
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) =>
+                                  const SosWorkflowScreen(isTestMode: true),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.verified_user_outlined),
+                        label: const Text(
+                          'Run Safe Test Mode (Avoid False Triggers)',
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    fontSize: 12.2,
-                    color: SakhiModule4Colors.textPrimary,
-                    height: 1.35,
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: SakhiModule4Colors.borderSubtle),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Pre-Travel Safety Checklist',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      ...controller.preTravelChecklist.map(
+                        (chk) => CheckboxListTile(
+                          contentPadding: EdgeInsets.zero,
+                          value: chk.isChecked,
+                          title: Text(chk.title),
+                          onChanged: (val) =>
+                              controller.toggleChecklist(chk.id, val ?? false),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
-        ],
-      ),
+        );
+      },
     );
+  }
+}
+
+class HelplinesAndSafetyTipsScreen extends StatelessWidget {
+  const HelplinesAndSafetyTipsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const VerifiedHelplinesDirectoryScreen();
   }
 }

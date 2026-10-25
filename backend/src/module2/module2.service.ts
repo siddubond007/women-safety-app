@@ -2985,15 +2985,15 @@ export class Module2Service {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3500);
     try {
-      const radius = Math.min(15000, Math.max(1000, radiusMeters));
+      const radius = Math.min(45000, Math.max(2000, radiusMeters));
       const query =
-        '[out:json][timeout:4];node["amenity"="police"](around:' +
+        '[out:json][timeout:6];nwr["amenity"="police"](around:'
         radius +
         "," +
         currentLatitude +
         "," +
         currentLongitude +
-        ");out body 8;";
+        ");out center 15;";
       const response = await fetch("https://overpass-api.de/api/interpreter", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -3003,11 +3003,15 @@ export class Module2Service {
       if (response.ok) {
         const data = (await response.json()) as { elements?: Array<any> };
         for (const element of data.elements ?? []) {
+          const elLat =
+            typeof element.lat === "number" ? element.lat : element.center?.lat;
+          const elLon =
+            typeof element.lon === "number" ? element.lon : element.center?.lon;
           if (
-            typeof element.lat === "number" &&
-            Number.isFinite(element.lat) &&
-            typeof element.lon === "number" &&
-            Number.isFinite(element.lon)
+            typeof elLat === "number" &&
+            Number.isFinite(elLat) &&
+            typeof elLon === "number" &&
+            Number.isFinite(elLon)
           ) {
             const name =
               typeof element.tags?.name === "string"
@@ -3021,8 +3025,8 @@ export class Module2Service {
                 element.tags?.["addr:full"] ||
                 element.tags?.["addr:street"] ||
                 "OpenStreetMap listing; verify details with official sources",
-              latitude: element.lat,
-              longitude: element.lon,
+              latitude: elLat,
+              longitude: elLon,
               phoneNumber:
                 element.tags?.phone ||
                 element.tags?.["contact:phone"] ||
@@ -3041,7 +3045,21 @@ export class Module2Service {
       clearTimeout(timeout);
     }
 
-    const merged = [...dbStations, ...mapStations].map((station) => {
+    const nearbyDbStations = dbStations.filter((station) => {
+      const stationLat = Number(station.latitude);
+      const stationLng = Number(station.longitude);
+      if (!Number.isFinite(stationLat) || !Number.isFinite(stationLng)) {
+        return false;
+      }
+      const distance = this.haversineDistanceKm(
+        currentLatitude,
+        currentLongitude,
+        stationLat,
+        stationLng,
+      );
+      return Number.isFinite(distance) && distance <= 60;
+    });
+    const merged = [...nearbyDbStations, ...mapStations].map((station) => {
       const distanceKm = this.haversineDistanceKm(
         currentLatitude,
         currentLongitude,

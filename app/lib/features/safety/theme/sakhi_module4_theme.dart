@@ -1,6 +1,8 @@
 // Sakhi — Module 4: Emergency SOS & Personal Safety Design System & Asset Tokens (Screen 9)
 import 'package:flutter/material.dart';
+
 import '../../../core/assets/app_assets.dart';
+import '../../../core/theme/app_spacing.dart';
 
 abstract final class SakhiModule4Colors {
   static const Color surfaceBackground = Color(0xFFFDF8FB);
@@ -22,6 +24,16 @@ abstract final class SakhiModule4Colors {
   static const Color pastelLavenderBg = Color(0xFFEFE6F7);
   static const Color textPrimary = Color(0xFF2A1930);
   static const Color textSecondary = Color(0xFF6E6275);
+
+  // Compatibility tokens used by the Module 4 screen implementation.
+  static const Color sosCrimson = emergencyCrimson;
+  static const Color verifiedEmerald = verifiedMintText;
+  static const Color verifiedEmeraldTint = verifiedMintBg;
+  static const Color amberWarningText = warningAmberText;
+  static const Color amberWarningBg = warningAmberBg;
+  static const Color amberWarningBorder = warningAmberBorder;
+  static const Color borderSubtle = cardBorder;
+  static List<BoxShadow> get cardShadow => AppSpacing.cardShadow;
 }
 
 abstract final class SakhiModule4Dimensions {
@@ -38,9 +50,12 @@ abstract final class SakhiModule4Assets {
   static const String sakhiShieldLotus = AppAssets.module4ShieldLotus;
   static const String sosPulsingHeroBtn = AppAssets.module4SosHeroButton;
   static const String emergency112Emblem = AppAssets.module4Emergency112Emblem;
-  static const String trustedContactAvatar = AppAssets.module4TrustedContactAvatar;
-  static const String commuteSafetyIllustration = AppAssets.module4CommuteSafetyIllustration;
-  static const String discreetSosIllustration = AppAssets.module4DiscreetSosIllustration;
+  static const String trustedContactAvatar =
+      AppAssets.module4TrustedContactAvatar;
+  static const String commuteSafetyIllustration =
+      AppAssets.module4CommuteSafetyIllustration;
+  static const String discreetSosIllustration =
+      AppAssets.module4DiscreetSosIllustration;
   static const String pastelMapBackground = AppAssets.module4PastelMapCanvas;
 
   // @3x Transparent PNG Category & Row Badges

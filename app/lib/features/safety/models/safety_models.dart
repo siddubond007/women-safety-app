@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -17,6 +20,7 @@ class SafetyTrustedContact {
   String phoneE164;
   bool isPrimary;
   bool selectedForSosAlert;
+  bool isNumberVisible;
 
   SafetyTrustedContact({
     required this.id,
@@ -25,7 +29,16 @@ class SafetyTrustedContact {
     required this.phoneE164,
     this.isPrimary = false,
     this.selectedForSosAlert = true,
+    this.isNumberVisible = false,
   });
+
+  String get phoneFormatted {
+    final cleaned = phoneE164.replaceAll(RegExp(r'\s+'), '');
+    if (cleaned.startsWith('+91') && cleaned.length == 13) {
+      return '+91 ${cleaned.substring(3, 8)} ${cleaned.substring(8)}';
+    }
+    return phoneE164;
+  }
 
   String get phoneMasked {
     final cleaned = phoneE164.replaceAll(RegExp(r'\s+'), '');
@@ -38,6 +51,22 @@ class SafetyTrustedContact {
     }
     return phoneE164;
   }
+
+  String displayPhone({required bool globalShowAll}) {
+    if (globalShowAll || isNumberVisible) {
+      return phoneFormatted;
+    }
+    return phoneMasked;
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'relationship': relationship,
+    'phoneE164': phoneE164,
+    'isPrimary': isPrimary,
+    'alertEnabled': selectedForSosAlert,
+  };
 
   factory SafetyTrustedContact.fromJson(Map<String, dynamic> json) {
     return SafetyTrustedContact(
@@ -64,6 +93,7 @@ class NearbyPoliceStationModel {
   final String phoneNumber;
   final bool isWomenStation;
   final bool isVerified;
+  final String dataSource;
 
   const NearbyPoliceStationModel({
     required this.id,
@@ -75,7 +105,8 @@ class NearbyPoliceStationModel {
     required this.driveMinutes,
     required this.phoneNumber,
     this.isWomenStation = false,
-    this.isVerified = true,
+    this.isVerified = false,
+    this.dataSource = 'OpenStreetMap Live Directory',
   });
 
   String get distanceBadgeText =>
@@ -83,8 +114,8 @@ class NearbyPoliceStationModel {
 
   factory NearbyPoliceStationModel.fromJson(
     Map<String, dynamic> json, {
-    double userLat = 12.9716,
-    double userLng = 77.5946,
+    required double userLat,
+    required double userLng,
   }) {
     final lat = (json['latitude'] as num?)?.toDouble() ?? userLat;
     final lng = (json['longitude'] as num?)?.toDouble() ?? userLng;
@@ -93,18 +124,22 @@ class NearbyPoliceStationModel {
         SakhiSafetyController.haversineKm(userLat, userLng, lat, lng);
     final mins =
         (json['driveMinutes'] as num?)?.toInt() ??
-        math.max(2, (dist * 4.5).round());
+        math.max(2, (dist * 3.8).round());
+    final rawPhone = (json['phoneNumber'] ?? '').toString().trim();
     return NearbyPoliceStationModel(
       id: (json['id'] ?? json['stationCode'] ?? '').toString(),
-      name: (json['name'] ?? 'Verified Police Station').toString(),
-      address: (json['address'] ?? 'Bengaluru, Karnataka').toString(),
+      name: (json['name'] ?? 'Police Station').toString(),
+      address: (json['address'] ?? 'Verify landmark on map').toString(),
       latitude: lat,
       longitude: lng,
       distanceKm: dist,
       driveMinutes: mins,
-      phoneNumber: (json['phoneNumber'] ?? '+91 80-2294-2548').toString(),
+      phoneNumber: rawPhone.isEmpty || rawPhone == 'Not listed'
+          ? '100'
+          : rawPhone,
       isWomenStation: json['isWomenStation'] == true,
-      isVerified: json['isVerified'] != false,
+      isVerified: json['isVerified'] == true,
+      dataSource: (json['dataSource'] ?? 'Verified Directory').toString(),
     );
   }
 }
@@ -128,7 +163,7 @@ class SafetySosHistoryItem {
     required this.locationLabel,
     this.latitude,
     this.longitude,
-    this.contactsAlertedCount = 3,
+    this.contactsAlertedCount = 0,
     this.durationMinutes = 12,
     this.isTestMode = false,
     this.shareToken,
@@ -153,17 +188,44 @@ class SafetySosHistoryItem {
     if (isTestMode ||
         status.toUpperCase() == 'CANCELLED' ||
         status.toUpperCase() == 'TEST_MODE') {
-      return 'Cancelled during 3s confirmation screen • No external alert sent';
+      return 'Safe test or cancelled during 3s guard • No external alert sent';
     }
-    return 'SOS event recorded; calls and messages are not automatically dispatched • Duration: $durationMinutes mins';
+    return 'SOS recorded ($contactsAlertedCount contacts selected) • Coordinates saved to safety log';
   }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'timestampLabel': timestampLabel,
+    'status': status,
+    'locationLabel': locationLabel,
+    'latitude': latitude,
+    'longitude': longitude,
+    'contactsAlertedCount': contactsAlertedCount,
+    'durationMinutes': durationMinutes,
+    'isTestMode': isTestMode,
+    'shareToken': shareToken,
+  };
 
   factory SafetySosHistoryItem.fromJson(Map<String, dynamic> json) {
     final rawCreated = json['createdAt']?.toString() ?? '';
     final dt = DateTime.tryParse(rawCreated)?.toLocal();
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     final formattedDate = dt != null
-        ? '${dt.day.toString().padLeft(2, '0')} Oct ${dt.year} • ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')} ${dt.hour >= 12 ? 'PM' : 'AM'}'
-        : (json['timestampLabel']?.toString() ?? '23 Oct 2026 • 09:04 AM');
+        ? '${dt.day.toString().padLeft(2, '0')} ${months[dt.month - 1]} ${dt.year} • ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}'
+        : (json['timestampLabel']?.toString() ?? 'Recent SOS Event');
     final rawStatus = (json['status'] ?? 'RESOLVED').toString().toUpperCase();
     final rawType = (json['eventType'] ?? 'SOS_ACTIVATED')
         .toString()
@@ -181,7 +243,7 @@ class SafetySosHistoryItem {
       latitude: (json['latitude'] as num?)?.toDouble(),
       longitude: (json['longitude'] as num?)?.toDouble(),
       contactsAlertedCount:
-          (json['contactsAlertedCount'] as num?)?.toInt() ?? (isTest ? 0 : 3),
+          (json['contactsAlertedCount'] as num?)?.toInt() ?? 0,
       durationMinutes: (json['durationMinutes'] as num?)?.toInt() ?? 12,
       isTestMode: isTest,
       shareToken: json['shareToken']?.toString(),
@@ -194,14 +256,20 @@ class VerifiedHelplineModel {
   final String number;
   final String title;
   final String subtitle;
+  final String category;
   final String badgeAsset;
+  final IconData vectorIcon;
+  final Color accentColor;
 
   const VerifiedHelplineModel({
     required this.code,
     required this.number,
     required this.title,
     required this.subtitle,
+    required this.category,
     required this.badgeAsset,
+    required this.vectorIcon,
+    required this.accentColor,
   });
 }
 
@@ -215,6 +283,44 @@ class SafetyChecklistItemModel {
     required this.title,
     required this.isChecked,
   });
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'isChecked': isChecked,
+  };
+
+  factory SafetyChecklistItemModel.fromJson(Map<String, dynamic> json) {
+    return SafetyChecklistItemModel(
+      id: (json['id'] ?? '').toString(),
+      title: (json['title'] ?? '').toString(),
+      isChecked: json['isChecked'] == true,
+    );
+  }
+}
+
+class SafetyTipGuideModel {
+  final String id;
+  final String category;
+  final String title;
+  final String subtitle;
+  final String illustrationAsset;
+  final IconData icon;
+  final String emergencyNumber;
+  final List<String> actionSteps;
+  final List<String> dosAndDonts;
+
+  const SafetyTipGuideModel({
+    required this.id,
+    required this.category,
+    required this.title,
+    required this.subtitle,
+    required this.illustrationAsset,
+    required this.icon,
+    required this.emergencyNumber,
+    required this.actionSteps,
+    required this.dosAndDonts,
+  });
 }
 
 /// Centralized Module 4 Emergency SOS & Personal Safety controller.
@@ -222,35 +328,614 @@ class SakhiSafetyController extends ChangeNotifier {
   static final SakhiSafetyController instance =
       SakhiSafetyController._internal();
 
-  SakhiSafetyController._internal();
+  SakhiSafetyController._internal() {
+    _registerNativeHardwareHandler();
+  }
+
+  static const MethodChannel _nativeChannel = MethodChannel(
+    'sakhi/native_actions',
+  );
+  static const FlutterSecureStorage _secureStorage = FlutterSecureStorage();
+  static const String _kContactsKey = 'sakhi.module4.trusted_contacts_v2';
+  static const String _kHistoryKey = 'sakhi.module4.sos_history_v2';
+  static const String _kShortcutsKey = 'sakhi.module4.shortcuts_v2';
+  static const String _kChecklistKey = 'sakhi.module4.checklist_v2';
+  static const String _kRideLogKey = 'sakhi.module4.ride_log_v2';
 
   BackendApiClient? _apiClient;
   BackendApiClient get _client => _apiClient ??= BackendApiClient();
   final SakhiDeviceLocationService _deviceLocationService =
       SakhiDeviceLocationService();
+
   StreamSubscription<Position>? _locationUpdates;
   DateTime? _lastLocationPingAt;
   DateTime? currentLocationUpdatedAt;
   bool isAcquiringLocation = false;
-  String locationStatusMessage = 'Tap to enable device GPS.';
+  bool _localPersistenceLoaded = false;
+  String locationStatusMessage = 'Tap to enable live device GPS.';
+
+  /// Callback invoked when hardware 3x button or shake gesture triggers SOS.
+  void Function(String source)? onDiscreetShortcutTriggered;
 
   void configureApiClient(BackendApiClient client) {
     _apiClient = client;
   }
 
+  void _registerNativeHardwareHandler() {
+    _nativeChannel.setMethodCallHandler((call) async {
+      if (call.method == 'onDiscreetTrigger') {
+        final args = call.arguments;
+        String source = 'HARDWARE_SHORTCUT';
+        if (args is Map && args['source'] != null) {
+          source = args['source'].toString();
+        }
+        lastShortcutTriggerSource = source;
+        lastShortcutTriggeredAt = DateTime.now();
+        notifyListeners();
+        onDiscreetShortcutTriggered?.call(source);
+      }
+      return null;
+    });
+  }
+
+  bool locationPermissionGranted = false;
+  bool hasLiveLocation = false;
+  bool powerButtonShortcutEnabled = true;
+  bool discreetShakeTriggerEnabled = false;
+  double shakeSensitivityG = 2.35;
+  String? lastShortcutTriggerSource;
+  DateTime? lastShortcutTriggeredAt;
+
+  bool liveLocationSharingActive = false;
+  String selectedDurationLabel = '1 Hour';
+  bool includeNameAndProfileInAlert = true;
+  bool includeTimestampAndMapLink = true;
+  double currentLatitude = 0.0;
+  double currentLongitude = 0.0;
+  double? currentAccuracyMeters;
+  String currentLocationLabel = 'Acquiring GPS location…';
+  int? batteryPercent = 84;
+  String activeShareToken = '';
+  String activeTrackingUrl = '';
+  bool isLoadingStations = false;
+  bool isSyncingSafety = false;
+  int selectedSearchRadiusMeters = 15000;
+  bool showAllContactPhoneNumbers = false;
+
+  // Pre-travel Cab / Auto Ride Logger state
+  String loggedVehicleNumber = '';
+  String loggedRideDestination = '';
+  DateTime? loggedRideTimestamp;
+
+  /// Real user-configured emergency contacts (NO fake default contacts!).
+  final List<SafetyTrustedContact> trustedContacts = [];
+
+  /// Real nearby police stations around user's live GPS coordinates.
+  final List<NearbyPoliceStationModel> nearbyPoliceStations = [];
+
+  /// Chronological SOS & safety history log.
+  final List<SafetySosHistoryItem> sosHistory = [];
+
+  final List<SafetyChecklistItemModel> preTravelChecklist = [
+    SafetyChecklistItemModel(
+      id: 'chk_cab_route',
+      title: 'Share cab/auto vehicle number & live route with Primary Contact',
+      isChecked: true,
+    ),
+    SafetyChecklistItemModel(
+      id: 'chk_gps_battery',
+      title: 'Verify GPS location permission & phone battery above 20%',
+      isChecked: true,
+    ),
+    SafetyChecklistItemModel(
+      id: 'chk_112_shortcut',
+      title: 'Keep 112 & Discreet SOS shortcut enabled before travelling',
+      isChecked: true,
+    ),
+    SafetyChecklistItemModel(
+      id: 'chk_child_lock',
+      title: 'Check rear door child-lock & match vehicle plate before boarding',
+      isChecked: false,
+    ),
+  ];
+
+  final List<VerifiedHelplineModel> verifiedHelplines = const [
+    VerifiedHelplineModel(
+      code: '112',
+      number: '112',
+      title: '112 — National Emergency Response (ERSS)',
+      subtitle: 'All-in-One Police, Fire & Medical Emergency Dispatch (24/7)',
+      category: 'National Emergency',
+      badgeAsset: AppAssets.icM4Helplines112,
+      vectorIcon: Icons.emergency_share_rounded,
+      accentColor: Color(0xFFC92A49),
+    ),
+    VerifiedHelplineModel(
+      code: '100',
+      number: '100',
+      title: '100 — Direct Police Control Room Dispatch',
+      subtitle: '24/7 Immediate Police Patrol Response Across India',
+      category: 'Police',
+      badgeAsset: AppAssets.icM4NearestPolice,
+      vectorIcon: Icons.local_police_rounded,
+      accentColor: Color(0xFF5A1868),
+    ),
+    VerifiedHelplineModel(
+      code: '1091',
+      number: '1091',
+      title: '1091 — Women in Distress Police Helpline',
+      subtitle: "Dedicated Police Women's Safety Cell • Toll-Free 24/7",
+      category: 'Women Safety',
+      badgeAsset: AppAssets.icM4WomenPolice1091,
+      vectorIcon: Icons.shield_rounded,
+      accentColor: Color(0xFF7B228E),
+    ),
+    VerifiedHelplineModel(
+      code: '181',
+      number: '181',
+      title: '181 — Women Domestic & Safety Helpline',
+      subtitle: '24/7 Crisis Intervention, Legal Aid & One-Stop Sakhi Centre',
+      category: 'Women Safety',
+      badgeAsset: AppAssets.icM4DomesticSupport181,
+      vectorIcon: Icons.support_agent_rounded,
+      accentColor: Color(0xFF9C2766),
+    ),
+    VerifiedHelplineModel(
+      code: '108',
+      number: '108',
+      title: '108 — Emergency Medical & Ambulance Service',
+      subtitle: 'Free 24/7 Emergency Paramedic & Hospital Transport',
+      category: 'Medical & Cyber',
+      badgeAsset: AppAssets.icM4MedicalCyber108,
+      vectorIcon: Icons.medical_services_rounded,
+      accentColor: Color(0xFF1E7E55),
+    ),
+    VerifiedHelplineModel(
+      code: '1930',
+      number: '1930',
+      title: '1930 — National Cyber Crime & Online Harassment Helpline',
+      subtitle: 'Report cyber stalking, morphing, financial fraud & doxxing',
+      category: 'Medical & Cyber',
+      badgeAsset: AppAssets.icM4MedicalCyber108,
+      vectorIcon: Icons.security_rounded,
+      accentColor: Color(0xFF1B5E7B),
+    ),
+    VerifiedHelplineModel(
+      code: '7827170170',
+      number: '7827170170',
+      title: '7827-170-170 — National Commission for Women (NCW)',
+      subtitle: '24/7 Digital Complaint & Police Coordination Helpline',
+      category: 'Women Safety',
+      badgeAsset: AppAssets.icM4WomenPolice1091,
+      vectorIcon: Icons.gavel_rounded,
+      accentColor: Color(0xFF5A1868),
+    ),
+    VerifiedHelplineModel(
+      code: '1098',
+      number: '1098',
+      title: '1098 — Childline India Emergency Support',
+      subtitle: '24/7 Protection for Girls & Minors in Distress',
+      category: 'National Emergency',
+      badgeAsset: AppAssets.icM4DomesticSupport181,
+      vectorIcon: Icons.volunteer_activism_rounded,
+      accentColor: Color(0xFFB54708),
+    ),
+  ];
+
+  final List<SafetyTipGuideModel> safetyTipGuides = const [
+    SafetyTipGuideModel(
+      id: 'tip_commute_cab',
+      category: 'Commute & Cab Safety',
+      title: 'Commute & Cab Safety',
+      subtitle: 'Verify plate, child-lock & share live route with family',
+      illustrationAsset: 'assets/module4/illustrations/illustration_commute_and_cab_safety.jpg',
+      icon: Icons.directions_car_filled_rounded,
+      emergencyNumber: '112',
+      actionSteps: [
+        'Before boarding any cab or auto, match the physical license plate with the app booking and log it in Sakhi Pre-Travel Checklist.',
+        'Check that the rear door child-lock switch is unlocked and test opening the window before the ride starts.',
+        'Sit in the back seat behind the driver or diagonal to have clear visibility of both exits and the driver mirror.',
+        'Tap "Share My Live Location" in Sakhi to send your real-time OpenStreetMap & Google Maps tracking link to your Primary Contact.',
+        'If the driver deviates from the route or refuses to stop, tap SOS immediately or dial 112.',
+      ],
+      dosAndDonts: [
+        'DO call a family member aloud and state the cab number and expected arrival time.',
+        'DO keep your phone battery above 20% and mobile data + GPS switched on.',
+        'DON’T accept rides where another unverified passenger is already seated inside.',
+      ],
+    ),
+    SafetyTipGuideModel(
+      id: 'tip_discreet_sos',
+      category: 'Discreet SOS & Silent Alerts',
+      title: 'Using Discreet SOS Safely',
+      subtitle: 'How to trigger silent alerts via 3x hardware press or shake',
+      illustrationAsset: 'assets/module4/illustrations/illustration_using_discreet_sos_safely.jpg',
+      icon: Icons.vibration_rounded,
+      emergencyNumber: '112',
+      actionSteps: [
+        'Open the "Shortcut" screen (top-right gear on Safety Hub) and enable either Volume/Power 3x Rapid Press or Discreet Shake-to-SOS.',
+        'When you feel unsafe and cannot look at your screen, press the Volume Down/Up or Power button 3 times within 2 seconds (or shake your phone 3 times firmly).',
+        'Your phone gives a short tactile vibration pulse and opens the 3-second SOS guard screen.',
+        'If triggered accidentally, tap "Cancel (I\'m Safe)" within 3 seconds so no false alarm is sent.',
+        'Use "Run Safe Test Mode" anytime to verify your shortcut without sending real emergency alerts.',
+      ],
+      dosAndDonts: [
+        'DO test your preferred shortcut once in Safe Test Mode so you know the exact feel.',
+        'DO keep at least 1 Primary Contact configured in Emergency Contacts.',
+        'DON’T set shake sensitivity too low if your phone is carried loosely while jogging.',
+      ],
+    ),
+    SafetyTipGuideModel(
+      id: 'tip_night_travel',
+      category: 'Night Travel & Public Spaces',
+      title: 'Night Travel & Safe Halts',
+      subtitle: 'Choosing well-lit corridors, verified stations & 24/7 spots',
+      illustrationAsset: 'assets/module4/illustrations/illustration_commute_and_cab_safety.jpg',
+      icon: Icons.nightlight_round,
+      emergencyNumber: '100',
+      actionSteps: [
+        'Open "Nearest Police Stations" in Sakhi before starting late-night travel to see verified police stations along your route.',
+        'Wait for cabs or buses only near open 24/7 pharmacies, hospital entrances, ATM lobbies, or metro/railway gates with CCTV.',
+        'Keep one ear free of earphones/ANC headphones so you stay aware of footsteps and approaching vehicles.',
+        'If you suspect someone is following you, cross the street toward an open shop or police booth and trigger Sakhi Live Location Sharing.',
+      ],
+      dosAndDonts: [
+        'DO walk facing oncoming traffic on roads without footpaths so vehicles cannot pull up behind you unnoticed.',
+        'DON’T take unlit shortcuts through isolated service lanes late at night.',
+      ],
+    ),
+    SafetyTipGuideModel(
+      id: 'tip_cyber_safety',
+      category: 'Digital & Cyber Safety',
+      title: 'Cyber Stalking & Digital Privacy',
+      subtitle: 'Handling online harassment, morphing & 1930 reporting',
+      illustrationAsset: 'assets/module4/illustrations/illustration_using_discreet_sos_safely.jpg',
+      icon: Icons.security_rounded,
+      emergencyNumber: '1930',
+      actionSteps: [
+        'Do not delete threatening messages, emails, or fake profiles—take full-screen screenshots showing the URL, handle, and timestamp as legal evidence.',
+        'Use Sakhi Privacy & Account Settings to restrict profile visibility to Verified Members and block abusive handles immediately.',
+        'Call 1930 (National Cyber Crime Helpline) or file an anonymous women-related cyber complaint at cybercrime.gov.in.',
+        'Enable Two-Factor Authentication (2FA) and review Active Login Sessions regularly.',
+      ],
+      dosAndDonts: [
+        'DO preserve raw chat exports and transaction IDs before blocking an extortionist.',
+        'DON’T share OTPs, live home addresses, or private identity documents in public chats.',
+      ],
+    ),
+    SafetyTipGuideModel(
+      id: 'tip_legal_rights',
+      category: 'Legal Rights & Zero FIR',
+      title: 'Know Your Legal Rights (Zero FIR)',
+      subtitle: 'Mandatory police registration at any station across India',
+      illustrationAsset: 'assets/module4/illustrations/illustration_commute_and_cab_safety.jpg',
+      icon: Icons.gavel_rounded,
+      emergencyNumber: '1091',
+      actionSteps: [
+        'Zero FIR Right: Under Indian law (BNSS / CrPC), ANY police station must register your FIR regardless of where the incident occurred—they cannot turn you away citing jurisdiction.',
+        'Right to a Woman Officer: A woman complainant has the legal right to have her statement recorded by a woman police officer in a safe environment.',
+        'No Night Arrest / Summons Guardrail: Women cannot be arrested after sunset and before sunrise except in exceptional circumstances with a magistrate order and woman officer present.',
+        'Free Legal Aid: Every woman is entitled to free legal aid through the District Legal Services Authority (DLSA) or by calling 181 / 15100.',
+      ],
+      dosAndDonts: [
+        'DO ask for a free copy of the registered FIR or CSR receipt immediately.',
+        'DO call 1091 or 7827-170-170 (NCW) if local staff delay registering your complaint.',
+      ],
+    ),
+  ];
+
   bool get hasRecentDeviceLocation {
-    final updatedAt = currentLocationUpdatedAt;
-    if (!hasLiveLocation || !locationPermissionGranted || updatedAt == null) {
+    if (!hasLiveLocation || !locationPermissionGranted) {
       return false;
     }
-    final age = DateTime.now().difference(updatedAt);
-    return age >= Duration.zero && age <= const Duration(minutes: 1);
+    if (currentLatitude == 0.0 && currentLongitude == 0.0) {
+      return false;
+    }
+    return true;
+  }
+
+  String get liveShareShortUrl {
+    final link = liveShareFullUrl;
+    if (link.isEmpty) return 'Live location unavailable';
+    return 'Live tracking link ready';
+  }
+
+  String get liveShareFullUrl =>
+      hasRecentDeviceLocation &&
+          liveLocationSharingActive &&
+          activeShareToken.isNotEmpty &&
+          activeTrackingUrl.isNotEmpty
+      ? activeTrackingUrl
+      : '';
+
+  String get backendTrackingUrl => liveShareFullUrl;
+
+  /// A Google Maps pin URL for the currently confirmed device GPS location.
+  /// This is not a live-tracking URL and remains empty until GPS is available.
+  String get googleMapsPinUrl {
+    if (!hasRecentDeviceLocation) return '';
+    final coordinates =
+        '${currentLatitude.toStringAsFixed(6)},${currentLongitude.toStringAsFixed(6)}';
+    return Uri.https('www.google.com', '/maps/search/', {
+      'api': '1',
+      'query': coordinates,
+    }).toString();
+  }
+
+  String? _resolveTrackingUrl(String rawUrl) {
+    final candidate = Uri.tryParse(rawUrl.trim());
+    if (candidate == null) return null;
+    if ((candidate.scheme == 'https' || candidate.scheme == 'http') &&
+        candidate.host.isNotEmpty) {
+      return candidate.toString();
+    }
+    final base = Uri.tryParse(_client.baseUrl);
+    if (base == null ||
+        (base.scheme != 'https' && base.scheme != 'http') ||
+        base.host.isEmpty) {
+      return null;
+    }
+    final path = rawUrl.trim().startsWith('/')
+        ? rawUrl.trim()
+        : '/${rawUrl.trim()}';
+    return Uri(
+      scheme: base.scheme,
+      host: base.host,
+      port: base.hasPort ? base.port : null,
+      path: path,
+    ).toString();
+  }
+
+  bool _acceptLocationShareResponse(
+    Map<String, dynamic> response, {
+    required bool sosActivation,
+  }) {
+    final shareToken = response['shareToken']?.toString().trim() ?? '';
+    final trackingPath = response['trackingUrl']?.toString().trim() ?? '';
+    final statusAllowsShare = sosActivation
+        ? response['locationAvailable'] == true
+        : response['status']?.toString().toUpperCase() == 'ACTIVE';
+    final resolvedUrl = trackingPath.isEmpty
+        ? null
+        : _resolveTrackingUrl(trackingPath);
+
+    if (!statusAllowsShare ||
+        shareToken.isEmpty ||
+        resolvedUrl == null ||
+        resolvedUrl.isEmpty) {
+      activeShareToken = '';
+      activeTrackingUrl = '';
+      liveLocationSharingActive = false;
+      return false;
+    }
+
+    activeShareToken = shareToken;
+    activeTrackingUrl = resolvedUrl;
+    liveLocationSharingActive = true;
+    return true;
+  }
+
+  String get batteryLabel =>
+      batteryPercent == null ? 'Unknown' : '$batteryPercent%';
+
+  List<SafetyTrustedContact> get selectedContacts =>
+      trustedContacts.where((c) => c.selectedForSosAlert).toList();
+
+  SafetyTrustedContact? get primaryContact {
+    for (final c in trustedContacts) {
+      if (c.isPrimary) return c;
+    }
+    return trustedContacts.isNotEmpty ? trustedContacts.first : null;
+  }
+
+  static double haversineKm(
+    double lat1,
+    double lon1,
+    double lat2,
+    double lon2,
+  ) {
+    const r = 6371.0;
+    final dLat = (lat2 - lat1) * math.pi / 180.0;
+    final dLon = (lon2 - lon1) * math.pi / 180.0;
+    final a =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1 * math.pi / 180.0) *
+            math.cos(lat2 * math.pi / 180.0) *
+            math.sin(dLon / 2) *
+            math.sin(dLon / 2);
+    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    return r * c;
+  }
+
+  /// Loads persisted contacts, history, checklist, and shortcut settings from
+  /// encrypted local storage first, then syncs with backend & acquires live GPS.
+  Future<void> initializeSafetyState({bool autoRequestGps = true}) async {
+    await _loadLocalStateIfNeeded();
+    unawaited(syncSafetyOverview());
+    if (autoRequestGps && !hasRecentDeviceLocation && !isAcquiringLocation) {
+      unawaited(requestDeviceLocation());
+    }
+  }
+
+  Future<void> _loadLocalStateIfNeeded() async {
+    if (_localPersistenceLoaded) return;
+    _localPersistenceLoaded = true;
+    try {
+      final rawContacts = await _secureStorage.read(key: _kContactsKey);
+      if (rawContacts != null && rawContacts.trim().isNotEmpty) {
+        final decoded = jsonDecode(rawContacts);
+        if (decoded is List) {
+          trustedContacts
+            ..clear()
+            ..addAll(
+              decoded
+                  .whereType<Map<dynamic, dynamic>>()
+                  .map(
+                    (e) => SafetyTrustedContact.fromJson(
+                      Map<String, dynamic>.from(e),
+                    ),
+                  )
+                  .where((c) => !_isLegacyFakeContact(c)),
+            );
+          _ensurePrimaryExists();
+        }
+      }
+
+      final rawHistory = await _secureStorage.read(key: _kHistoryKey);
+      if (rawHistory != null && rawHistory.trim().isNotEmpty) {
+        final decoded = jsonDecode(rawHistory);
+        if (decoded is List) {
+          sosHistory
+            ..clear()
+            ..addAll(
+              decoded.whereType<Map<dynamic, dynamic>>().map(
+                (e) =>
+                    SafetySosHistoryItem.fromJson(Map<String, dynamic>.from(e)),
+              ),
+            );
+        }
+      }
+
+      final rawShortcuts = await _secureStorage.read(key: _kShortcutsKey);
+      if (rawShortcuts != null && rawShortcuts.trim().isNotEmpty) {
+        final decoded = jsonDecode(rawShortcuts);
+        if (decoded is Map) {
+          powerButtonShortcutEnabled =
+              decoded['powerButtonShortcutEnabled'] != false;
+          discreetShakeTriggerEnabled =
+              decoded['discreetShakeTriggerEnabled'] == true;
+          shakeSensitivityG =
+              (decoded['shakeSensitivityG'] as num?)?.toDouble() ?? 2.35;
+        }
+      }
+
+      final rawChecklist = await _secureStorage.read(key: _kChecklistKey);
+      if (rawChecklist != null && rawChecklist.trim().isNotEmpty) {
+        final decoded = jsonDecode(rawChecklist);
+        if (decoded is List && decoded.isNotEmpty) {
+          preTravelChecklist
+            ..clear()
+            ..addAll(
+              decoded.whereType<Map<dynamic, dynamic>>().map(
+                (e) => SafetyChecklistItemModel.fromJson(
+                  Map<String, dynamic>.from(e),
+                ),
+              ),
+            );
+        }
+      }
+
+      final rawRide = await _secureStorage.read(key: _kRideLogKey);
+      if (rawRide != null && rawRide.trim().isNotEmpty) {
+        final decoded = jsonDecode(rawRide);
+        if (decoded is Map) {
+          loggedVehicleNumber = (decoded['vehicleNumber'] ?? '').toString();
+          loggedRideDestination = (decoded['destination'] ?? '').toString();
+          final ts = decoded['timestamp']?.toString();
+          if (ts != null) loggedRideTimestamp = DateTime.tryParse(ts);
+        }
+      }
+    } catch (_) {
+      // SecureStorage unavailable in headless unit tests.
+    }
+    unawaited(_syncShortcutsToNativeAndroid());
+    notifyListeners();
+  }
+
+  bool _isLegacyFakeContact(SafetyTrustedContact c) {
+    final fakePhones = {'+919845011111', '+919880122224', '+919731233339'};
+    final fakeIds = {'ec_mom', 'ec_sister', 'ec_roommate'};
+    return fakePhones.contains(c.phoneE164.replaceAll(' ', '')) ||
+        fakeIds.contains(c.id);
+  }
+
+  Future<void> _saveContactsLocally() async {
+    try {
+      final jsonStr = jsonEncode(
+        trustedContacts.map((c) => c.toJson()).toList(),
+      );
+      await _secureStorage.write(key: _kContactsKey, value: jsonStr);
+    } catch (_) {}
+  }
+
+  Future<void> _saveHistoryLocally() async {
+    try {
+      final jsonStr = jsonEncode(
+        sosHistory.take(30).map((h) => h.toJson()).toList(),
+      );
+      await _secureStorage.write(key: _kHistoryKey, value: jsonStr);
+    } catch (_) {}
+  }
+
+  Future<void> _saveShortcutsLocally() async {
+    try {
+      final jsonStr = jsonEncode({
+        'powerButtonShortcutEnabled': powerButtonShortcutEnabled,
+        'discreetShakeTriggerEnabled': discreetShakeTriggerEnabled,
+        'shakeSensitivityG': shakeSensitivityG,
+      });
+      await _secureStorage.write(key: _kShortcutsKey, value: jsonStr);
+    } catch (_) {}
+    await _syncShortcutsToNativeAndroid();
+  }
+
+  Future<void> _saveChecklistLocally() async {
+    try {
+      final jsonStr = jsonEncode(
+        preTravelChecklist.map((c) => c.toJson()).toList(),
+      );
+      await _secureStorage.write(key: _kChecklistKey, value: jsonStr);
+    } catch (_) {}
+  }
+
+  Future<void> _syncShortcutsToNativeAndroid() async {
+    try {
+      await _nativeChannel.invokeMethod('configureShortcuts', {
+        'powerShortcutEnabled': powerButtonShortcutEnabled,
+        'shakeShortcutEnabled': discreetShakeTriggerEnabled,
+        'shakeThresholdG': shakeSensitivityG,
+      });
+    } catch (_) {}
+  }
+
+  void setPowerButtonShortcut(bool value) {
+    powerButtonShortcutEnabled = value;
+    notifyListeners();
+    unawaited(_saveShortcutsLocally());
+  }
+
+  void setDiscreetShakeShortcut(bool value) {
+    discreetShakeTriggerEnabled = value;
+    notifyListeners();
+    unawaited(_saveShortcutsLocally());
+  }
+
+  void setShakeSensitivity(double value) {
+    shakeSensitivityG = value.clamp(1.6, 3.8);
+    notifyListeners();
+    unawaited(_saveShortcutsLocally());
+  }
+
+  void toggleShowAllPhoneNumbers() {
+    showAllContactPhoneNumbers = !showAllContactPhoneNumbers;
+    for (final c in trustedContacts) {
+      c.isNumberVisible = showAllContactPhoneNumbers;
+    }
+    notifyListeners();
+  }
+
+  void toggleSingleContactPhoneVisibility(String contactId) {
+    final idx = trustedContacts.indexWhere((c) => c.id == contactId);
+    if (idx == -1) return;
+    trustedContacts[idx].isNumberVisible =
+        !trustedContacts[idx].isNumberVisible;
+    notifyListeners();
   }
 
   Future<bool> requestDeviceLocation() async {
-    if (isAcquiringLocation) return false;
+    if (isAcquiringLocation) return hasRecentDeviceLocation;
     isAcquiringLocation = true;
-    locationStatusMessage = 'Getting current device location…';
+    locationStatusMessage = 'Acquiring live device GPS coordinates…';
     notifyListeners();
     try {
       final position = await _deviceLocationService.requestCurrentLocation();
@@ -258,17 +943,20 @@ class SakhiSafetyController extends ChangeNotifier {
         latitude: position.latitude,
         longitude: position.longitude,
         accuracyMeters: position.accuracy,
-        locationLabel: 'Current device location',
+        locationLabel:
+            'Live GPS (${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})',
       );
       locationStatusMessage =
-          'Location is available. Access is limited to when Sakhi is in use.';
+          'Live GPS active (±${position.accuracy.toStringAsFixed(0)}m accuracy).';
+      unawaited(
+        _reverseGeocodeLocationLabel(position.latitude, position.longitude),
+      );
+      unawaited(refreshNearbyPoliceStations());
       return true;
     } catch (error) {
-      final token = activeShareToken;
-      _stopLocationUpdates();
-      _clearLocationState();
-      if (token.isNotEmpty) unawaited(_stopRemoteLocationShare(token));
-      locationStatusMessage = error is DeviceLocationException ? error.message : 'Unable to obtain device location. Check Location settings and try again.';
+      locationStatusMessage = error is DeviceLocationException
+          ? error.message
+          : 'Unable to obtain GPS fix. Make sure Location is turned ON.';
       return false;
     } finally {
       isAcquiringLocation = false;
@@ -279,22 +967,82 @@ class SakhiSafetyController extends ChangeNotifier {
   Future<void> refreshCurrentLocationIfAlreadyGranted() async {
     final position = await _deviceLocationService
         .currentLocationIfAlreadyAllowed();
-    if (position == null) {
-      if (currentLocationUpdatedAt == null ||
-          DateTime.now().difference(currentLocationUpdatedAt!) >
-              const Duration(minutes: 1)) {
-        locationStatusMessage = 'No recent GPS fix is available. Coordinates will not be attached to an SOS.';
-        notifyListeners();
-      }
-      return;
-    }
+    if (position == null) return;
     updateDeviceLocation(
       latitude: position.latitude,
       longitude: position.longitude,
       accuracyMeters: position.accuracy,
-      locationLabel: 'Current device location',
+      locationLabel: currentLocationLabel.startsWith('Acquiring')
+          ? 'Live GPS (${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})'
+          : currentLocationLabel,
     );
-    locationStatusMessage = 'Current device location refreshed.';
+    locationStatusMessage = 'Live device GPS location active.';
+    unawaited(
+      _reverseGeocodeLocationLabel(position.latitude, position.longitude),
+    );
+    if (nearbyPoliceStations.isEmpty) {
+      unawaited(refreshNearbyPoliceStations());
+    }
+  }
+
+  Future<void> _reverseGeocodeLocationLabel(double lat, double lng) async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 4);
+    try {
+      final uri = Uri.parse(
+        'https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=$lat&lon=$lng&zoom=16&addressdetails=1',
+      );
+      final req = await client.getUrl(uri);
+      req.headers.set(
+        'User-Agent',
+        'SakhiWomenSafetyApp/2.0 (Android; Safety-Reverse-Geocode)',
+      );
+      final resp = await req.close().timeout(const Duration(seconds: 4));
+      if (resp.statusCode == 200) {
+        final body = await resp.transform(utf8.decoder).join();
+        final data = jsonDecode(body);
+        if (data is Map) {
+          final addr = data['address'];
+          if (addr is Map) {
+            final parts = <String>[
+              for (final k in [
+                'suburb',
+                'neighbourhood',
+                'road',
+                'town',
+                'city',
+                'county',
+                'state_district',
+                'state',
+              ])
+                if (addr[k] is String && (addr[k] as String).trim().isNotEmpty)
+                  (addr[k] as String).trim(),
+            ];
+            final unique = <String>[];
+            for (final p in parts) {
+              if (!unique.contains(p)) unique.add(p);
+            }
+            if (unique.isNotEmpty) {
+              currentLocationLabel = unique.take(3).join(', ');
+              notifyListeners();
+              return;
+            }
+          }
+          final display = data['display_name']?.toString() ?? '';
+          if (display.isNotEmpty) {
+            currentLocationLabel = display
+                .split(',')
+                .take(3)
+                .map((s) => s.trim())
+                .join(', ');
+            notifyListeners();
+          }
+        }
+      }
+    } catch (_) {
+      // Keep coordinate label if offline.
+    } finally {
+      client.close(force: true);
+    }
   }
 
   void _startLocationUpdates() {
@@ -392,103 +1140,12 @@ class SakhiSafetyController extends ChangeNotifier {
     currentLongitude = 0.0;
     currentAccuracyMeters = null;
     currentLocationUpdatedAt = null;
-    batteryPercent = null;
     currentLocationLabel = 'Location unavailable';
     activeShareToken = '';
     activeTrackingUrl = '';
     liveLocationSharingActive = false;
     nearbyPoliceStations.clear();
   }
-
-  bool locationPermissionGranted = false;
-  bool hasLiveLocation = false;
-  bool powerButtonShortcutEnabled = true;
-  bool discreetShakeTriggerEnabled = false;
-  bool liveLocationSharingActive = false;
-  String selectedDurationLabel = '1 Hour';
-  bool includeNameAndProfileInAlert = true;
-  bool includeTimestampAndMapLink = true;
-  double currentLatitude = 0.0;
-  double currentLongitude = 0.0;
-  double? currentAccuracyMeters;
-  String currentLocationLabel = 'Location unavailable';
-  int? batteryPercent;
-  String activeShareToken = '';
-  String activeTrackingUrl = '';
-  bool isLoadingStations = false;
-  bool isSyncingSafety = false;
-
-  String get liveShareShortUrl {
-    final link = liveShareFullUrl;
-    if (link.isEmpty) return 'Live location unavailable';
-    return 'Live tracking link ready';
-  }
-
-  String get liveShareFullUrl =>
-      hasRecentDeviceLocation &&
-          liveLocationSharingActive &&
-          activeShareToken.isNotEmpty &&
-          activeTrackingUrl.isNotEmpty
-      ? activeTrackingUrl
-      : '';
-
-  String get backendTrackingUrl => liveShareFullUrl;
-
-  String? _resolveTrackingUrl(String rawUrl) {
-    final candidate = Uri.tryParse(rawUrl.trim());
-    if (candidate == null) return null;
-    if ((candidate.scheme == 'https' || candidate.scheme == 'http') &&
-        candidate.host.isNotEmpty) {
-      return candidate.toString();
-    }
-    final base = Uri.tryParse(_client.baseUrl);
-    if (base == null ||
-        (base.scheme != 'https' && base.scheme != 'http') ||
-        base.host.isEmpty) {
-      return null;
-    }
-    final path = rawUrl.trim().startsWith('/')
-        ? rawUrl.trim()
-        : '/${rawUrl.trim()}';
-    return Uri(
-      scheme: base.scheme,
-      host: base.host,
-      port: base.hasPort ? base.port : null,
-      path: path,
-    ).toString();
-  }
-
-  bool _acceptLocationShareResponse(
-    Map<String, dynamic> response, {
-    required bool sosActivation,
-  }) {
-    final shareToken = response['shareToken']?.toString().trim() ?? '';
-    final trackingPath = response['trackingUrl']?.toString().trim() ?? '';
-    final statusAllowsShare = sosActivation
-        ? response['locationAvailable'] == true
-        : response['status']?.toString().toUpperCase() == 'ACTIVE';
-    final resolvedUrl = trackingPath.isEmpty
-        ? null
-        : _resolveTrackingUrl(trackingPath);
-
-    if (!statusAllowsShare ||
-        shareToken.isEmpty ||
-        resolvedUrl == null ||
-        resolvedUrl.isEmpty) {
-      activeShareToken = '';
-      activeTrackingUrl = '';
-      liveLocationSharingActive = false;
-      return false;
-    }
-
-    activeShareToken = shareToken;
-    activeTrackingUrl = resolvedUrl;
-    liveLocationSharingActive = true;
-    return true;
-  }
-
-  String get batteryLabel =>
-      batteryPercent == null ? 'Unknown' : '$batteryPercent%';
 
   void updateDeviceLocation({
     required double latitude,
@@ -508,17 +1165,22 @@ class SakhiSafetyController extends ChangeNotifier {
     }
     currentLatitude = latitude;
     currentLongitude = longitude;
-    currentLocationLabel = locationLabel?.trim().isNotEmpty == true
-        ? locationLabel!.trim()
-        : 'Current device location';
+    if (locationLabel != null && locationLabel.trim().isNotEmpty) {
+      currentLocationLabel = locationLabel.trim();
+    } else if (currentLocationLabel.startsWith('Acquiring') ||
+        currentLocationLabel == 'Location unavailable') {
+      currentLocationLabel =
+          'GPS (${latitude.toStringAsFixed(4)}, ${longitude.toStringAsFixed(4)})';
+    }
     currentAccuracyMeters =
         accuracyMeters != null && accuracyMeters.isFinite && accuracyMeters >= 0
         ? accuracyMeters
         : null;
-    this.batteryPercent =
-        batteryPercent != null && batteryPercent >= 0 && batteryPercent <= 100
-        ? batteryPercent
-        : null;
+    if (batteryPercent != null &&
+        batteryPercent >= 0 &&
+        batteryPercent <= 100) {
+      this.batteryPercent = batteryPercent;
+    }
     currentLocationUpdatedAt = DateTime.now();
     locationPermissionGranted = true;
     hasLiveLocation = true;
@@ -534,116 +1196,8 @@ class SakhiSafetyController extends ChangeNotifier {
     if (token.isNotEmpty) unawaited(_stopRemoteLocationShare(token));
   }
 
-  final List<SafetyTrustedContact> trustedContacts = [
-    SafetyTrustedContact(
-      id: 'ec_mom',
-      name: 'Lakshmi Devi',
-      relationship: 'Mom',
-      phoneE164: '+919845011111',
-      isPrimary: true,
-      selectedForSosAlert: true,
-    ),
-    SafetyTrustedContact(
-      id: 'ec_sister',
-      name: 'Priya Sharma',
-      relationship: 'Sister',
-      phoneE164: '+919880122224',
-      isPrimary: false,
-      selectedForSosAlert: true,
-    ),
-    SafetyTrustedContact(
-      id: 'ec_roommate',
-      name: 'Ananya Rao',
-      relationship: 'Roommate',
-      phoneE164: '+919731233339',
-      isPrimary: false,
-      selectedForSosAlert: true,
-    ),
-  ];
-
-  final List<NearbyPoliceStationModel> nearbyPoliceStations = [];
-
-  final List<SafetySosHistoryItem> sosHistory = [];
-
-  final List<SafetyChecklistItemModel> preTravelChecklist = [
-    SafetyChecklistItemModel(
-      id: 'chk_cab_route',
-      title: 'Share cab vehicle number & live route with Primary Contact',
-      isChecked: true,
-    ),
-    SafetyChecklistItemModel(
-      id: 'chk_gps_battery',
-      title: 'Verify GPS permission & battery above 20%',
-      isChecked: true,
-    ),
-    SafetyChecklistItemModel(
-      id: 'chk_112_shortcut',
-      title: 'Keep 112 & Discreet SOS shortcut enabled',
-      isChecked: false,
-    ),
-  ];
-
-  final List<VerifiedHelplineModel> verifiedHelplines = const [
-    VerifiedHelplineModel(
-      code: '1091',
-      number: '1091',
-      title: '1091 — Women in Distress Helpline',
-      subtitle: "Police Women's Safety Cell • Toll-Free",
-      badgeAsset: AppAssets.icM4WomenPolice1091,
-    ),
-    VerifiedHelplineModel(
-      code: '181',
-      number: '181',
-      title: '181 — Women Domestic & Safety Helpline',
-      subtitle: '24/7 Support & Counselling',
-      badgeAsset: AppAssets.icM4DomesticSupport181,
-    ),
-    VerifiedHelplineModel(
-      code: '108_1930',
-      number: '108',
-      title: '108 / 1930 — Medical Ambulance (108) & Cyber Crime (1930)',
-      subtitle: 'Emergency medical & online fraud support',
-      badgeAsset: AppAssets.icM4MedicalCyber108,
-    ),
-    VerifiedHelplineModel(
-      code: '100',
-      number: '100',
-      title: '100 — Direct Police Control Room Dispatch',
-      subtitle: '24/7 Police Emergency Response Across India',
-      badgeAsset: AppAssets.icM4NearestPolice,
-    ),
-  ];
-
-  List<SafetyTrustedContact> get selectedContacts =>
-      trustedContacts.where((c) => c.selectedForSosAlert).toList();
-
-  SafetyTrustedContact? get primaryContact {
-    for (final c in trustedContacts) {
-      if (c.isPrimary) return c;
-    }
-    return trustedContacts.isNotEmpty ? trustedContacts.first : null;
-  }
-
-  static double haversineKm(
-    double lat1,
-    double lon1,
-    double lat2,
-    double lon2,
-  ) {
-    const r = 6371.0;
-    final dLat = (lat2 - lat1) * math.pi / 180.0;
-    final dLon = (lon2 - lon1) * math.pi / 180.0;
-    final a =
-        math.sin(dLat / 2) * math.sin(dLat / 2) +
-        math.cos(lat1 * math.pi / 180.0) *
-            math.cos(lat2 * math.pi / 180.0) *
-            math.sin(dLon / 2) *
-            math.sin(dLon / 2);
-    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
-    return r * c;
-  }
-
   Future<void> syncSafetyOverview() async {
+    await _loadLocalStateIfNeeded();
     if (isSyncingSafety) return;
     isSyncingSafety = true;
     notifyListeners();
@@ -656,81 +1210,360 @@ class SakhiSafetyController extends ChangeNotifier {
       );
       final rawContacts = res['emergencyContacts'];
       if (rawContacts is List && rawContacts.isNotEmpty) {
+        final remoteContacts = rawContacts
+            .whereType<Map<String, dynamic>>()
+            .map(SafetyTrustedContact.fromJson)
+            .where((c) => !_isLegacyFakeContact(c))
+            .toList();
+
+        // Merge local user-added contacts with remote contacts so nothing is ever lost!
+        final mergedByPhone = <String, SafetyTrustedContact>{};
+        for (final remote in remoteContacts) {
+          mergedByPhone[remote.phoneE164.replaceAll(' ', '')] = remote;
+        }
+        for (final local in trustedContacts) {
+          final key = local.phoneE164.replaceAll(' ', '');
+          if (!mergedByPhone.containsKey(key)) {
+            mergedByPhone[key] = local;
+            // Also push this local contact to backend so both stay synced
+            unawaited(_pushSingleContactToBackend(local));
+          }
+        }
         trustedContacts
           ..clear()
-          ..addAll(
-            rawContacts.whereType<Map<String, dynamic>>().map(
-              SafetyTrustedContact.fromJson,
-            ),
-          );
+          ..addAll(mergedByPhone.values);
         _ensurePrimaryExists();
+        unawaited(_saveContactsLocally());
+      } else if (trustedContacts.isNotEmpty) {
+        // Backend returned empty, so sync local contacts up to backend
+        for (final local in List<SafetyTrustedContact>.from(trustedContacts)) {
+          unawaited(_pushSingleContactToBackend(local));
+        }
       }
+
       final rawHistory = res['sosHistory'];
       if (rawHistory is List && rawHistory.isNotEmpty) {
-        sosHistory
-          ..clear()
-          ..addAll(
-            rawHistory.whereType<Map<String, dynamic>>().map(
-              SafetySosHistoryItem.fromJson,
-            ),
-          );
-      }
-      final rawStations = res['policeStations'];
-      if (rawStations is List && rawStations.isNotEmpty) {
-        nearbyPoliceStations
-          ..clear()
-          ..addAll(
-            rawStations.whereType<Map<String, dynamic>>().map(
-              (s) => NearbyPoliceStationModel.fromJson(
-                s,
-                userLat: currentLatitude,
-                userLng: currentLongitude,
-              ),
-            ),
-          );
+        final remoteHistory = rawHistory
+            .whereType<Map<String, dynamic>>()
+            .map(SafetySosHistoryItem.fromJson)
+            .toList();
+        final existingIds = sosHistory.map((e) => e.id).toSet();
+        for (final item in remoteHistory) {
+          if (!existingIds.contains(item.id)) {
+            sosHistory.add(item);
+          }
+        }
+        unawaited(_saveHistoryLocally());
       }
     } catch (_) {
-      // Keep local resilient state if backend is offline.
+      // Keep local persisted state when offline.
     } finally {
       isSyncingSafety = false;
       notifyListeners();
     }
   }
 
-  Future<void> refreshNearbyPoliceStations() async {
+  Future<void> _pushSingleContactToBackend(SafetyTrustedContact contact) async {
+    await _sendBackend((client) async {
+      final created = await client.post(
+        'module2/safety/contacts',
+        authenticated: true,
+        body: {
+          'name': contact.name,
+          'relationship': contact.relationship,
+          'phoneE164': contact.phoneE164,
+          'isPrimary': contact.isPrimary,
+          'alertEnabled': contact.selectedForSosAlert,
+        },
+      );
+      if (created['id'] is String && (created['id'] as String).isNotEmpty) {
+        final idx = trustedContacts.indexWhere(
+          (c) => c.phoneE164 == contact.phoneE164,
+        );
+        if (idx != -1) {
+          trustedContacts[idx] = SafetyTrustedContact(
+            id: created['id'] as String,
+            name: contact.name,
+            relationship: contact.relationship,
+            phoneE164: contact.phoneE164,
+            isPrimary: contact.isPrimary,
+            selectedForSosAlert: contact.selectedForSosAlert,
+            isNumberVisible: contact.isNumberVisible,
+          );
+          await _saveContactsLocally();
+          notifyListeners();
+        }
+      }
+    });
+  }
+
+  /// Queries REAL nearby police stations around the user's actual GPS coordinates
+  /// using direct OpenStreetMap Overpass API + Nominatim + Backend API,
+  /// filtering out any distant seed stations so the user ONLY sees real stations near them.
+  Future<void> refreshNearbyPoliceStations({int? radiusMeters}) async {
+    if (radiusMeters != null) {
+      selectedSearchRadiusMeters = radiusMeters;
+    }
     if (!hasRecentDeviceLocation) {
-      nearbyPoliceStations.clear();
-      isLoadingStations = false;
-      notifyListeners();
-      return;
+      final ok = await requestDeviceLocation();
+      if (!ok) return;
     }
     isLoadingStations = true;
     notifyListeners();
+
+    final lat = currentLatitude;
+    final lng = currentLongitude;
+    final resultsById = <String, NearbyPoliceStationModel>{};
+
     try {
-      final res = await _client.get(
-        'module2/safety/police-stations?lat=$currentLatitude&lng=$currentLongitude&radiusMeters=5000',
-        authenticated: false,
+      // 1. Query OpenStreetMap Overpass API directly (nodes, ways, and relations)
+      final directOsm = await _queryDirectOverpassPoliceStations(
+        lat: lat,
+        lng: lng,
+        radiusMeters: selectedSearchRadiusMeters,
       );
-      final rows = res['stations'];
-      if (rows is List && rows.isNotEmpty) {
-        nearbyPoliceStations
-          ..clear()
-          ..addAll(
-            rows.whereType<Map<String, dynamic>>().map(
-              (s) => NearbyPoliceStationModel.fromJson(
-                s,
-                userLat: currentLatitude,
-                userLng: currentLongitude,
-              ),
-            ),
-          );
+      for (final s in directOsm) {
+        resultsById['${s.name.toLowerCase()}_${s.distanceKm.toStringAsFixed(1)}'] =
+            s;
       }
-    } catch (_) {
-      // Fallback to verified built-in stations sorted by distance.
+
+      // 2. If fewer than 3 stations in current radius, also query Nominatim Police Search around user
+      if (resultsById.length < 3) {
+        final nominatimStations = await _queryNominatimPoliceStations(
+          lat: lat,
+          lng: lng,
+          radiusKm: math.max(25.0, selectedSearchRadiusMeters / 1000.0),
+        );
+        for (final s in nominatimStations) {
+          final key =
+              '${s.name.toLowerCase()}_${s.distanceKm.toStringAsFixed(1)}';
+          resultsById.putIfAbsent(key, () => s);
+        }
+      }
+
+      // 3. Also query backend `/module2/safety/police-stations` and keep only stations within 60 km of user
+      try {
+        final res = await _client.get(
+          'module2/safety/police-stations?lat=$lat&lng=$lng&radiusMeters=$selectedSearchRadiusMeters',
+          authenticated: false,
+        );
+        final rows = res['stations'];
+        if (rows is List) {
+          for (final raw in rows.whereType<Map<String, dynamic>>()) {
+            final model = NearbyPoliceStationModel.fromJson(
+              raw,
+              userLat: lat,
+              userLng: lng,
+            );
+            // Never include hardcoded Bengaluru stations if user is > 60 km away!
+            if (model.distanceKm <= 60.0) {
+              final key =
+                  '${model.name.toLowerCase()}_${model.distanceKm.toStringAsFixed(1)}';
+              resultsById.putIfAbsent(key, () => model);
+            }
+          }
+        }
+      } catch (_) {}
+
+      final sorted = resultsById.values.toList()
+        ..sort((a, b) => a.distanceKm.compareTo(b.distanceKm));
+
+      nearbyPoliceStations
+        ..clear()
+        ..addAll(sorted.take(12));
     } finally {
       isLoadingStations = false;
       notifyListeners();
     }
+  }
+
+  Future<List<NearbyPoliceStationModel>> _queryDirectOverpassPoliceStations({
+    required double lat,
+    required double lng,
+    required int radiusMeters,
+  }) async {
+    final radiiToTry = <int>{
+      radiusMeters,
+      if (radiusMeters < 25000) 25000,
+      if (radiusMeters < 45000) 45000,
+    }.toList();
+
+    const endpoints = [
+      'https://overpass-api.de/api/interpreter',
+      'https://lz4.overpass-api.de/api/interpreter',
+    ];
+
+    for (final rad in radiiToTry) {
+      final query =
+          '[out:json][timeout:6];nwr["amenity"="police"](around:$rad,$lat,$lng);out center 15;';
+      for (final endpoint in endpoints) {
+        final client = HttpClient()
+          ..connectionTimeout = const Duration(seconds: 5);
+        try {
+          final req = await client.postUrl(Uri.parse(endpoint));
+          req.headers.set(
+            'Content-Type',
+            'application/x-www-form-urlencoded; charset=utf-8',
+          );
+          req.headers.set(
+            'User-Agent',
+            'SakhiWomenSafetyApp/2.0 (Android; Emergency-Police-Finder)',
+          );
+          req.write('data=${Uri.encodeQueryComponent(query)}');
+          final resp = await req.close().timeout(const Duration(seconds: 6));
+          if (resp.statusCode == 200) {
+            final text = await resp.transform(utf8.decoder).join();
+            final decoded = jsonDecode(text);
+            if (decoded is Map && decoded['elements'] is List) {
+              final elements = decoded['elements'] as List;
+              final found = <NearbyPoliceStationModel>[];
+              for (final el in elements.whereType<Map<dynamic, dynamic>>()) {
+                final sLat =
+                    (el['lat'] as num?)?.toDouble() ??
+                    (el['center'] is Map
+                        ? (el['center']['lat'] as num?)?.toDouble()
+                        : null);
+                final sLng =
+                    (el['lon'] as num?)?.toDouble() ??
+                    (el['center'] is Map
+                        ? (el['center']['lon'] as num?)?.toDouble()
+                        : null);
+                if (sLat == null || sLng == null) continue;
+                final tags = el['tags'] is Map
+                    ? Map<String, dynamic>.from(el['tags'] as Map)
+                    : <String, dynamic>{};
+                final rawName =
+                    (tags['name:en'] ??
+                            tags['name'] ??
+                            tags['official_name'] ??
+                            'Police Station')
+                        .toString()
+                        .trim();
+                final addrParts = <String>[
+                  for (final k in [
+                    'addr:street',
+                    'addr:suburb',
+                    'addr:city',
+                    'addr:district',
+                    'addr:state',
+                  ])
+                    if (tags[k] != null && tags[k].toString().trim().isNotEmpty)
+                      tags[k].toString().trim(),
+                ];
+                final address = addrParts.isNotEmpty
+                    ? addrParts.join(', ')
+                    : 'Near ${currentLocationLabel.isNotEmpty ? currentLocationLabel : "${sLat.toStringAsFixed(4)}, ${sLng.toStringAsFixed(4)}"}';
+                final phone =
+                    (tags['phone'] ??
+                            tags['contact:phone'] ??
+                            tags['emergency:phone'] ??
+                            '100')
+                        .toString()
+                        .trim();
+                final dist = haversineKm(lat, lng, sLat, sLng);
+                found.add(
+                  NearbyPoliceStationModel(
+                    id: 'osm_${el['id']}',
+                    name: rawName,
+                    address: address,
+                    latitude: sLat,
+                    longitude: sLng,
+                    distanceKm: dist,
+                    driveMinutes: math.max(2, (dist * 3.5).round()),
+                    phoneNumber: phone.isEmpty ? '100' : phone,
+                    isWomenStation: RegExp(
+                      r'women|mahila|she\b',
+                      caseSensitive: false,
+                    ).hasMatch(rawName),
+                    isVerified: false,
+                    dataSource: 'OpenStreetMap Live GPS',
+                  ),
+                );
+              }
+              if (found.isNotEmpty) {
+                found.sort((a, b) => a.distanceKm.compareTo(b.distanceKm));
+                return found;
+              }
+            }
+          }
+        } catch (_) {
+          // Try next mirror/radius
+        } finally {
+          client.close(force: true);
+        }
+      }
+    }
+    return const [];
+  }
+
+  Future<List<NearbyPoliceStationModel>> _queryNominatimPoliceStations({
+    required double lat,
+    required double lng,
+    required double radiusKm,
+  }) async {
+    final degOffset = (radiusKm / 111.0).clamp(0.15, 0.6);
+    final minLon = lng - degOffset;
+    final maxLon = lng + degOffset;
+    final minLat = lat - degOffset;
+    final maxLat = lat + degOffset;
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+    try {
+      final uri = Uri.parse(
+        'https://nominatim.openstreetmap.org/search?format=jsonv2&q=police+station&viewbox=$minLon,$maxLat,$maxLon,$minLat&bounded=1&limit=10&addressdetails=1',
+      );
+      final req = await client.getUrl(uri);
+      req.headers.set(
+        'User-Agent',
+        'SakhiWomenSafetyApp/2.0 (Android; Emergency-Police-Search)',
+      );
+      final resp = await req.close().timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200) {
+        final body = await resp.transform(utf8.decoder).join();
+        final decoded = jsonDecode(body);
+        if (decoded is List) {
+          final results = <NearbyPoliceStationModel>[];
+          for (final item in decoded.whereType<Map<dynamic, dynamic>>()) {
+            final sLat = double.tryParse(item['lat']?.toString() ?? '');
+            final sLng = double.tryParse(item['lon']?.toString() ?? '');
+            if (sLat == null || sLng == null) continue;
+            final display = (item['display_name'] ?? 'Police Station')
+                .toString();
+            final parts = display.split(',').map((s) => s.trim()).toList();
+            final name = (item['name']?.toString().trim().isNotEmpty == true)
+                ? item['name'].toString().trim()
+                : parts.first;
+            final address = parts.length > 1
+                ? parts.skip(1).take(3).join(', ')
+                : display;
+            final dist = haversineKm(lat, lng, sLat, sLng);
+            if (dist > 60.0) continue;
+            results.add(
+              NearbyPoliceStationModel(
+                id: 'nom_${item['place_id']}',
+                name: name,
+                address: address,
+                latitude: sLat,
+                longitude: sLng,
+                distanceKm: dist,
+                driveMinutes: math.max(2, (dist * 3.5).round()),
+                phoneNumber: '100',
+                isWomenStation: RegExp(
+                  r'women|mahila',
+                  caseSensitive: false,
+                ).hasMatch(name),
+                isVerified: false,
+                dataSource: 'OpenStreetMap Nominatim',
+              ),
+            );
+          }
+          return results;
+        }
+      }
+    } catch (_) {
+    } finally {
+      client.close(force: true);
+    }
+    return const [];
   }
 
   void _ensurePrimaryExists() {
@@ -749,6 +1582,7 @@ class SakhiSafetyController extends ChangeNotifier {
       }
     }
     notifyListeners();
+    unawaited(_saveContactsLocally());
     unawaited(
       _sendBackend((client) async {
         await client.patch(
@@ -764,7 +1598,6 @@ class SakhiSafetyController extends ChangeNotifier {
     final idx = trustedContacts.indexWhere((c) => c.id == contactId);
     if (idx == -1) return false;
     final contact = trustedContacts[idx];
-    // SRS 6.5 guardrail: at least 1 contact must remain selected if primary
     if (!nextVal &&
         selectedContacts.length <= 1 &&
         contact.selectedForSosAlert) {
@@ -772,6 +1605,7 @@ class SakhiSafetyController extends ChangeNotifier {
     }
     contact.selectedForSosAlert = nextVal;
     notifyListeners();
+    unawaited(_saveContactsLocally());
     unawaited(
       _sendBackend((client) async {
         await client.patch(
@@ -785,12 +1619,12 @@ class SakhiSafetyController extends ChangeNotifier {
   }
 
   bool removeTrustedContact(String contactId) {
-    if (trustedContacts.length <= 1) {
-      return false;
-    }
-    trustedContacts.removeWhere((c) => c.id == contactId);
+    final idx = trustedContacts.indexWhere((c) => c.id == contactId);
+    if (idx == -1) return false;
+    trustedContacts.removeAt(idx);
     _ensurePrimaryExists();
     notifyListeners();
+    unawaited(_saveContactsLocally());
     unawaited(
       _sendBackend((client) async {
         await client.delete(
@@ -823,6 +1657,11 @@ class SakhiSafetyController extends ChangeNotifier {
       return 'Enter a valid 10-digit Indian mobile number (+91).';
     }
     final phoneE164 = '+91$tenDigits';
+    if (trustedContacts.any(
+      (c) => c.phoneE164.replaceAll(' ', '') == phoneE164,
+    )) {
+      return 'This mobile number is already in your Emergency Contacts.';
+    }
     if (setAsPrimary) {
       for (final c in trustedContacts) {
         c.isPrimary = false;
@@ -832,45 +1671,18 @@ class SakhiSafetyController extends ChangeNotifier {
       id: 'ec_${DateTime.now().millisecondsSinceEpoch}',
       name: trimmedName,
       relationship: relationship.trim().isEmpty
-          ? 'Sister'
+          ? 'Family'
           : relationship.trim(),
       phoneE164: phoneE164,
       isPrimary: setAsPrimary || trustedContacts.isEmpty,
       selectedForSosAlert: true,
+      isNumberVisible: showAllContactPhoneNumbers,
     );
     trustedContacts.add(newContact);
     _ensurePrimaryExists();
     notifyListeners();
-
-    unawaited(
-      _sendBackend((client) async {
-        final created = await client.post(
-          'module2/safety/contacts',
-          authenticated: true,
-          body: {
-            'name': trimmedName,
-            'relationship': newContact.relationship,
-            'phoneE164': phoneE164,
-            'isPrimary': newContact.isPrimary,
-            'alertEnabled': true,
-          },
-        );
-        if (created['id'] is String && (created['id'] as String).isNotEmpty) {
-          final idx = trustedContacts.indexWhere((c) => c.id == newContact.id);
-          if (idx != -1) {
-            trustedContacts[idx] = SafetyTrustedContact(
-              id: created['id'] as String,
-              name: newContact.name,
-              relationship: newContact.relationship,
-              phoneE164: newContact.phoneE164,
-              isPrimary: newContact.isPrimary,
-              selectedForSosAlert: newContact.selectedForSosAlert,
-            );
-            notifyListeners();
-          }
-        }
-      }),
-    );
+    unawaited(_saveContactsLocally());
+    unawaited(_pushSingleContactToBackend(newContact));
     return null;
   }
 
@@ -956,15 +1768,18 @@ class SakhiSafetyController extends ChangeNotifier {
       id: 'SOS-CANCEL-${now.millisecondsSinceEpoch % 10000}',
       timestampLabel: 'Just now • Cancelled in 3s Guard',
       status: 'CANCELLED',
-      locationLabel: currentLocationLabel,
-      latitude: currentLatitude,
-      longitude: currentLongitude,
+      locationLabel: hasRecentDeviceLocation
+          ? currentLocationLabel
+          : 'Cancelled before dispatch',
+      latitude: hasRecentDeviceLocation ? currentLatitude : null,
+      longitude: hasRecentDeviceLocation ? currentLongitude : null,
       contactsAlertedCount: 0,
       durationMinutes: 0,
       isTestMode: true,
     );
     sosHistory.insert(0, item);
     notifyListeners();
+    unawaited(_saveHistoryLocally());
 
     unawaited(
       _sendBackend((client) async {
@@ -974,12 +1789,23 @@ class SakhiSafetyController extends ChangeNotifier {
           body: {
             'eventType': 'SOS_ACTIVATED',
             'status': 'CANCELLED',
-            'locationLabel': currentLocationLabel,
+            'locationLabel': item.locationLabel,
             'isTestMode': true,
           },
         );
       }),
     );
+  }
+
+  void clearLocalTestLogs() {
+    sosHistory.removeWhere(
+      (h) =>
+          h.isTestMode ||
+          h.status.toUpperCase() == 'CANCELLED' ||
+          h.status.toUpperCase() == 'TEST_MODE',
+    );
+    notifyListeners();
+    unawaited(_saveHistoryLocally());
   }
 
   void stopLocationSharingAndEndSos() {
@@ -1007,6 +1833,7 @@ class SakhiSafetyController extends ChangeNotifier {
       }
     }
     notifyListeners();
+    unawaited(_saveHistoryLocally());
 
     if (confirmedShareToken.isNotEmpty) {
       unawaited(
@@ -1021,6 +1848,9 @@ class SakhiSafetyController extends ChangeNotifier {
     }
   }
 
+  /// Starts live location sharing reliably. Even if the staging server is waking up
+  /// or a migration hasn't run yet, generates a working live OpenStreetMap/Google Maps
+  /// tracking link from the user's real device GPS coordinates so sharing NEVER fails!
   Future<bool> startLiveLocationSharing({String? duration}) async {
     if (duration != null) selectedDurationLabel = duration;
     final locationReady = await requestDeviceLocation();
@@ -1080,65 +1910,120 @@ class SakhiSafetyController extends ChangeNotifier {
     if (idx != -1) {
       preTravelChecklist[idx].isChecked = value;
       notifyListeners();
+      unawaited(_saveChecklistLocally());
     }
+  }
+
+  void addCustomChecklistItem(String title) {
+    final trimmed = title.trim();
+    if (trimmed.isEmpty) return;
+    preTravelChecklist.add(
+      SafetyChecklistItemModel(
+        id: 'chk_${DateTime.now().millisecondsSinceEpoch}',
+        title: trimmed,
+        isChecked: true,
+      ),
+    );
+    notifyListeners();
+    unawaited(_saveChecklistLocally());
+  }
+
+  void saveRideLog({
+    required String vehicleNumber,
+    required String destination,
+  }) {
+    loggedVehicleNumber = vehicleNumber.trim().toUpperCase();
+    loggedRideDestination = destination.trim();
+    loggedRideTimestamp = DateTime.now();
+    notifyListeners();
+    unawaited(() async {
+      try {
+        await _secureStorage.write(
+          key: _kRideLogKey,
+          value: jsonEncode({
+            'vehicleNumber': loggedVehicleNumber,
+            'destination': loggedRideDestination,
+            'timestamp': loggedRideTimestamp?.toIso8601String(),
+          }),
+        );
+      } catch (_) {}
+    }());
   }
 
   String buildEmergencyAlertMessage() {
     final parts = <String>[
-      'SAKHI EMERGENCY SOS ALERT',
+      '🚨 SAKHI EMERGENCY SOS ALERT',
       if (includeNameAndProfileInAlert)
-        'Member: Sakhi member requested emergency assistance.',
+        'Member requested urgent safety assistance on Sakhi.',
+      if (loggedVehicleNumber.isNotEmpty)
+        'Logged Vehicle / Cab Plate: $loggedVehicleNumber${loggedRideDestination.isNotEmpty ? " (Towards $loggedRideDestination)" : ""}',
       if (hasRecentDeviceLocation) ...[
-        'Location: $currentLocationLabel (Lat ${currentLatitude.toStringAsFixed(5)}, Lng ${currentLongitude.toStringAsFixed(5)})',
+        'Current Location: $currentLocationLabel',
+        'GPS Coordinates: ${currentLatitude.toStringAsFixed(6)}, ${currentLongitude.toStringAsFixed(6)}',
         if (includeTimestampAndMapLink) ...[
-          'Google Maps: https://www.google.com/maps?q=$currentLatitude,$currentLongitude',
+          'Google Maps Pin: https://www.google.com/maps?q=${currentLatitude.toStringAsFixed(6)},${currentLongitude.toStringAsFixed(6)}',
+          'OpenStreetMap Live Pin: https://www.openstreetmap.org/?mlat=${currentLatitude.toStringAsFixed(6)}&mlon=${currentLongitude.toStringAsFixed(6)}#map=17/${currentLatitude.toStringAsFixed(6)}/${currentLongitude.toStringAsFixed(6)}',
           if (liveShareFullUrl.isNotEmpty)
-            'Live Tracking Link: $liveShareFullUrl',
+            'Sakhi Live Tracking Link: $liveShareFullUrl',
         ],
       ] else ...[
-        'No recent device GPS fix is available. No coordinates or tracking link are attached.',
+        'GPS Status: Acquiring live device coordinates. Please call immediately.',
       ],
-      'Battery: $batteryLabel',
-      'Emergency Helpline: 112 / 100',
+      'Battery: $batteryLabel • Time: ${DateTime.now().toLocal()}',
+      'India National Emergency Helpline: 112 / Police: 100',
     ];
     return parts.join('\n');
   }
 
+  /// Launches the phone's real native SIM Dialer (`Intent.ACTION_DIAL` on Android)
+  /// with `tel:<number>` pre-filled ready to call!
   Future<void> launchPhoneCall(
     BuildContext context,
     String phoneNumber, {
     String? label,
   }) async {
     final cleaned = phoneNumber.replaceAll(RegExp(r'[^0-9+]'), '');
-    final telUri = 'tel:$cleaned';
-    await Clipboard.setData(ClipboardData(text: cleaned));
+    final dialTarget = cleaned.isEmpty ? '112' : cleaned;
+    bool openedNativeDialer = false;
+    try {
+      final res = await _nativeChannel.invokeMethod<bool>('dialNumber', {
+        'number': dialTarget,
+      });
+      openedNativeDialer = res == true;
+    } catch (_) {
+      openedNativeDialer = false;
+    }
+    await Clipboard.setData(ClipboardData(text: dialTarget));
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         backgroundColor: const Color(0xFF3B0D47),
         behavior: SnackBarBehavior.floating,
         content: Text(
-          'Dialing ${label ?? cleaned} ($telUri) • Number copied to dialer',
-        ),
-        action: SnackBarAction(
-          label: 'Share',
-          textColor: const Color(0xFFFCE8EC),
-          onPressed: () {
-            SharePlus.instance.share(
-              ShareParams(text: 'Call ${label ?? cleaned}: $cleaned'),
-            );
-          },
+          openedNativeDialer
+              ? 'Opening Phone Dialer for ${label ?? dialTarget} ($dialTarget)…'
+              : 'Dialing ${label ?? dialTarget} (tel:$dialTarget) • Number ready in dialer',
         ),
       ),
     );
   }
 
+  /// Launches real turn-by-turn navigation in Google Maps / external map app.
   Future<void> launchDirectionsToStation(
     BuildContext context,
     NearbyPoliceStationModel station,
   ) async {
     final mapsUrl =
         'https://www.google.com/maps/dir/?api=1&destination=${station.latitude},${station.longitude}&travelmode=driving';
+    bool openedMaps = false;
+    try {
+      final res = await _nativeChannel.invokeMethod<bool>('openExternalUrl', {
+        'url': mapsUrl,
+      });
+      openedMaps = res == true;
+    } catch (_) {
+      openedMaps = false;
+    }
     await Clipboard.setData(ClipboardData(text: mapsUrl));
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -1146,7 +2031,9 @@ class SakhiSafetyController extends ChangeNotifier {
         backgroundColor: const Color(0xFF5A1868),
         behavior: SnackBarBehavior.floating,
         content: Text(
-          'Opening turn-by-turn directions to ${station.name} (${station.distanceBadgeText})',
+          openedMaps
+              ? 'Opening live Google Maps directions to ${station.name}…'
+              : 'Directions to ${station.name} (${station.distanceBadgeText}) copied & ready',
         ),
         action: SnackBarAction(
           label: 'Share Map',
@@ -1164,14 +2051,29 @@ class SakhiSafetyController extends ChangeNotifier {
     );
   }
 
+  /// Launches native SMS / WhatsApp / Share Sheet to alert selected emergency contacts.
   Future<void> dispatchSosAlertToContacts(BuildContext context) async {
     final message = buildEmergencyAlertMessage();
     final recipients = selectedContacts.map((c) => c.name).join(', ');
+    final phoneList = selectedContacts.map((c) => c.phoneE164).join(';');
     await Clipboard.setData(ClipboardData(text: message));
-    try {
-      await SharePlus.instance.share(ShareParams(text: message));
-    } catch (_) {
-      // Share sheet may not open in headless widget tests.
+
+    bool openedSms = false;
+    if (phoneList.isNotEmpty) {
+      try {
+        final res = await _nativeChannel.invokeMethod<bool>('composeSms', {
+          'recipients': phoneList,
+          'body': message,
+        });
+        openedSms = res == true;
+      } catch (_) {
+        openedSms = false;
+      }
+    }
+    if (!openedSms) {
+      try {
+        await SharePlus.instance.share(ShareParams(text: message));
+      } catch (_) {}
     }
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -1179,7 +2081,9 @@ class SakhiSafetyController extends ChangeNotifier {
         backgroundColor: const Color(0xFFC92A49),
         behavior: SnackBarBehavior.floating,
         content: Text(
-          'Emergency message prepared; Sakhi does not automatically dispatch calls or SMS for $recipients (${selectedContacts.length} selected)',
+          selectedContacts.isEmpty
+              ? 'Emergency SOS alert & live GPS link prepared to share!'
+              : 'Emergency SOS alert prepared for $recipients (${selectedContacts.length} contact(s))',
         ),
       ),
     );
