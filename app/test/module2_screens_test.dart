@@ -36,11 +36,16 @@ void main() {
         find.text('Step 1 — Initiate Decentro DigiLocker Session'),
         findsOneWidget,
       );
-      expect(
-        find.byKey(const Key('decentro-initiate-session-button')),
-        findsOneWidget,
+      final initiateButton = find.byKey(
+        const Key('decentro-initiate-session-button'),
       );
-      await tester.pageBack();
+      expect(initiateButton, findsOneWidget);
+      // Drain secure-storage timeouts from the screen's initial status checks.
+      for (var attempt = 0; attempt < 4; attempt++) {
+        await tester.pump(const Duration(seconds: 4));
+        await tester.pump();
+      }
+      Navigator.of(tester.element(initiateButton)).pop();
       await tester.pumpAndSettle();
 
       // Tap Explore tab (Screen 2)

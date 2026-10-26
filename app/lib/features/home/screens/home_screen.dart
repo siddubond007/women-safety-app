@@ -78,16 +78,13 @@ class _HomeScreenState extends State<HomeScreen> {
       animation: state,
       builder: (context, _) {
         final displayName = state.currentUser.displayName.trim();
-        final userName =
-            displayName.isEmpty || displayName == 'Sakhi Member'
+        final userName = displayName.isEmpty || displayName == 'Sakhi Member'
             ? 'Ananya'
             : displayName.split(RegExp(r'\s+')).first;
         final postsCount = state.communityPosts.isNotEmpty
             ? state.communityPosts.length
             : 14;
-        final circlesCount = state.groups.isNotEmpty
-            ? state.groups.length
-            : 6;
+        final circlesCount = state.groups.isNotEmpty ? state.groups.length : 6;
 
         return SafeArea(
           bottom: false,
@@ -204,8 +201,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         iconColor: AppColors.primaryPurple,
                         iconBgColor: AppColors.pastelLavender,
                         title: 'Female Eligibility Verification',
-                        subtitle:
-                            'Open Decentro DigiLocker verification or run the staging demo',
+                        subtitle: 'Open Decentro DigiLocker verification or run the staging demo',
                         badgeText: 'Verify',
                         flowerType: SakhiFlowerType.roseClassic,
                         onTap: _openEligibilityVerification,
@@ -252,8 +248,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         iconColor: const Color(0xFFD63E85),
                         iconBgColor: AppColors.pastelPink,
                         title: 'Safety & Helpline Directory',
-                        subtitle:
-                            '24/7 verified support & emergency contacts',
+                        subtitle: '24/7 verified support & emergency contacts',
                         flowerType: SakhiFlowerType.roseClassic,
                         onTap: () => _openRoute(AppRoutes.safety),
                       ),
@@ -337,9 +332,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                     width: 30,
                                     height: 30,
                                     decoration: BoxDecoration(
-                                      color: const Color(
-                                        0xFF5D196A,
-                                      ).withValues(alpha: 0.88),
+                                      color: const Color(0xFF5D196A)
+                                          .withValues(alpha: 0.88),
                                       shape: BoxShape.circle,
                                       border: Border.all(
                                         color: Colors.white,

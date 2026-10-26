@@ -625,8 +625,7 @@ void main() {
           ..developmentBackend = true
           ..createResult = const AccountCreationResult(
             accountState: AuthAccountState.existingAccount,
-            message:
-                'Staging test profile saved. This test session enables app navigation only; phone ownership and eligibility remain unverified.',
+            message: 'Staging test profile saved. This test session enables app navigation only; phone ownership and eligibility remain unverified.',
           );
 
         await tester.pumpWidget(
@@ -672,6 +671,12 @@ void main() {
           find.byKey(const Key('decentro-initiate-session-button')),
           findsOneWidget,
         );
+        // Drain the screen's initial backend status checks. The test binding
+        // does not implement secure-storage reads, so they resolve by timeout.
+        for (var attempt = 0; attempt < 4; attempt++) {
+          await tester.pump(const Duration(seconds: 4));
+          await tester.pump();
+        }
         expect(
           find.byKey(const Key('home-eligibility-verification-card')),
           findsNothing,
