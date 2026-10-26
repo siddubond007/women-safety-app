@@ -426,7 +426,7 @@ export function ComplaintsManagementPage() {
   }, [statusFilter, modeFilter, searchQuery, viewerRole, selectedRef]);
 
   useEffect(() => {
-    void loadDashboard();
+    void Promise.resolve().then(() => loadDashboard());
   }, [loadDashboard]);
 
   const selectedComplaint = useMemo(

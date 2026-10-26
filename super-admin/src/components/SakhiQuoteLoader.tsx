@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 
-export interface WomenQuoteEntry {
+interface WomenQuoteEntry {
   id: number;
   quote: string;
   author: string;
   category: string;
 }
 
-export const SAKHI_ADMIN_WOMEN_QUOTES: WomenQuoteEntry[] = [
+const SAKHI_ADMIN_WOMEN_QUOTES: WomenQuoteEntry[] = [
   { id: 1, quote: "Awake, arise, and educate. Smash traditions—liberate!", author: "Savitribai Phule", category: "Trailblazers & Courage" },
   { id: 2, quote: "We want deeper sincerity of motive, a greater courage in speech and earnestness in action.", author: "Sarojini Naidu", category: "Voice & Leadership" },
   { id: 3, quote: "The path from dreams to success does exist. May you have the vision to find it, the courage to get on to it, and the perseverance to follow it.", author: "Kalpana Chawla", category: "Dreams & Perseverance" },

@@ -126,7 +126,7 @@ export function EligibilityReviewPage() {
   }, [navigate]);
 
   useEffect(() => {
-    void load();
+    void Promise.resolve().then(() => load());
   }, [load]);
 
   function beginDecision(account: ReviewAccount, nextDecision: ReviewDecision) {

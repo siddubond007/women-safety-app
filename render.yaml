@@ -1,7 +1,7 @@
 services:
   - type: web
     name: sakhi-staging-api
-    branch: feat/module1-redesign-identity-provider
+    branch: feat/sakhi-ui-modules-1-to-3
     autoDeployTrigger: commit
     runtime: node
     plan: free
@@ -79,7 +79,7 @@ services:
 
   - type: web
     name: sakhi-staging-admin
-    branch: feat/module1-redesign-identity-provider
+    branch: feat/sakhi-ui-modules-1-to-3
     autoDeployTrigger: commit
     runtime: static
     rootDir: super-admin

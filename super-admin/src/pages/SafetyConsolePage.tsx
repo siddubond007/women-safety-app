@@ -167,7 +167,7 @@ export function SafetyConsolePage() {
   }, []);
 
   useEffect(() => {
-    void loadConsole();
+    void Promise.resolve().then(() => loadConsole());
   }, [loadConsole]);
 
   async function handleAddStation(e: React.FormEvent) {
