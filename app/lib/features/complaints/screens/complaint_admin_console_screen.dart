@@ -32,7 +32,7 @@ class _ComplaintAdminConsoleScreenState
       SakhiComplaintController.instance;
 
   String _modeFilter = 'ALL'; // ALL, ANONYMOUS, CONFIDENTIAL
-  String _statusFilter = 'ALL';
+  final String _statusFilter = 'ALL';
   String _selectedComplaintId = 'cmp-8492';
   int _activeWorkspaceTab = 0; // 0: Queue & Case Detail, 1: Audit Trail, 2: Categories & DPDP Retention
 
@@ -64,7 +64,7 @@ class _ComplaintAdminConsoleScreenState
           ),
           title: Text(
             'Assign Reviewer & Priority (${item.referenceNumber})',
-            style: AppTypography.editorialSection.copyWith(fontSize: 18),
+            style: AppTypography.sectionTitle.copyWith(fontSize: 18),
           ),
           content: SingleChildScrollView(
             child: Column(
@@ -247,7 +247,7 @@ class _ComplaintAdminConsoleScreenState
               children: [
                 Text(
                   'Update Status & Add Separated Notes (${item.referenceNumber})',
-                  style: AppTypography.editorialSection.copyWith(fontSize: 18),
+                  style: AppTypography.sectionTitle.copyWith(fontSize: 18),
                 ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<ComplaintStatus>(
@@ -257,10 +257,8 @@ class _ComplaintAdminConsoleScreenState
                   ),
                   items: ComplaintStatus.values
                       .map(
-                        (st) => DropdownMenuItem(
-                          value: st,
-                          child: Text(st.label),
-                        ),
+                        (st) =>
+                            DropdownMenuItem(value: st, child: Text(st.label)),
                       )
                       .toList(),
                   onChanged: (v) {
@@ -274,10 +272,8 @@ class _ComplaintAdminConsoleScreenState
                   minLines: 2,
                   maxLines: 3,
                   decoration: const InputDecoration(
-                    labelText:
-                        'PRIVATE INTERNAL REVIEWER NOTE (Hidden from Complainant & Public)',
-                    hintText:
-                        'Internal investigation findings, cluster IDs, or legal notes...',
+                    labelText: 'PRIVATE INTERNAL REVIEWER NOTE (Hidden from Complainant & Public)',
+                    hintText: 'Internal investigation findings, cluster IDs, or legal notes...',
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -289,8 +285,7 @@ class _ComplaintAdminConsoleScreenState
                   decoration: const InputDecoration(
                     labelText:
                         'Message Visible to Complainant in Tracker (Optional)',
-                    hintText:
-                        'Compassionate status update or follow-up question for complainant...',
+                    hintText: 'Compassionate status update or follow-up question for complainant...',
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -367,7 +362,7 @@ class _ComplaintAdminConsoleScreenState
           ),
           title: Text(
             'Duplicate Cluster Merge & Anti-Abuse Guard',
-            style: AppTypography.editorialSection.copyWith(fontSize: 18),
+            style: AppTypography.sectionTitle.copyWith(fontSize: 18),
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -452,7 +447,7 @@ class _ComplaintAdminConsoleScreenState
               children: [
                 Text(
                   'Admin Complaint Console',
-                  style: AppTypography.editorialSection.copyWith(fontSize: 19),
+                  style: AppTypography.sectionTitle.copyWith(fontSize: 19),
                 ),
                 Text(
                   'Role: ${_controller.activeAdminRole} • RBAC & Audit Active',
@@ -492,28 +487,30 @@ class _ComplaintAdminConsoleScreenState
                       const SizedBox(height: 6),
                       Wrap(
                         spacing: 8,
-                        children: <String>[
-                          'SENIOR_SAFETY_REVIEWER',
-                          'SUPER_ADMIN',
-                          'STANDARD_MODERATOR',
-                        ].map((role) {
-                          final active = _controller.activeAdminRole == role;
-                          return ChoiceChip(
-                            key: Key('m5-admin-role-chip-$role'),
-                            label: Text(role.replaceAll('_', ' ')),
-                            selected: active,
-                            selectedColor: AppColors.primaryPurple,
-                            labelStyle: TextStyle(
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w800,
-                              color: active
-                                  ? Colors.white
-                                  : AppColors.textPrimary,
-                            ),
-                            onSelected: (_) =>
-                                _controller.setActiveAdminRole(role),
-                          );
-                        }).toList(),
+                        children:
+                            <String>[
+                              'SENIOR_SAFETY_REVIEWER',
+                              'SUPER_ADMIN',
+                              'STANDARD_MODERATOR',
+                            ].map((role) {
+                              final active =
+                                  _controller.activeAdminRole == role;
+                              return ChoiceChip(
+                                key: Key('m5-admin-role-chip-$role'),
+                                label: Text(role.replaceAll('_', ' ')),
+                                selected: active,
+                                selectedColor: AppColors.primaryPurple,
+                                labelStyle: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w800,
+                                  color: active
+                                      ? Colors.white
+                                      : AppColors.textPrimary,
+                                ),
+                                onSelected: (_) =>
+                                    _controller.setActiveAdminRole(role),
+                              );
+                            }).toList(),
                       ),
                     ],
                   ),
@@ -623,10 +620,7 @@ class _ComplaintAdminConsoleScreenState
               onTap: () => setState(() => _selectedComplaintId = item.id),
               title: Row(
                 children: [
-                  Text(
-                    item.referenceNumber,
-                    style: AppTypography.technicalToken,
-                  ),
+                  Text(item.referenceNumber, style: AppTypography.monoToken),
                   const SizedBox(width: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -678,7 +672,7 @@ class _ComplaintAdminConsoleScreenState
                   ),
                   Text(
                     'SLA: ${selected.slaTargetHours}h',
-                    style: AppTypography.technicalToken,
+                    style: AppTypography.monoToken,
                   ),
                 ],
               ),
@@ -748,10 +742,7 @@ class _ComplaintAdminConsoleScreenState
                   OutlinedButton.icon(
                     key: const Key('m5-admin-assign-reviewer-button'),
                     onPressed: () => _openAssignmentAndSeverityModal(selected),
-                    icon: const Icon(
-                      Icons.assignment_ind_rounded,
-                      size: 17,
-                    ),
+                    icon: const Icon(Icons.assignment_ind_rounded, size: 17),
                     label: const Text('Assign & Priority'),
                   ),
                   OutlinedButton.icon(
@@ -790,7 +781,7 @@ class _ComplaintAdminConsoleScreenState
                           Expanded(
                             child: Text(
                               '${ev.sanitizedFileName} (${ev.formattedSize})',
-                              style: AppTypography.technicalToken,
+                              style: AppTypography.monoToken,
                             ),
                           ),
                           TextButton.icon(
@@ -831,7 +822,7 @@ class _ComplaintAdminConsoleScreenState
                               height: 90,
                               width: double.infinity,
                               child: Image.asset(
-                                AppAssets.m5EvidenceVaultExif,
+                                AppAssets.module5EvidenceVaultScrubber,
                                 fit: BoxFit.cover,
                               ),
                             ),
@@ -950,7 +941,7 @@ class _ComplaintAdminConsoleScreenState
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(entry.action, style: AppTypography.technicalToken),
+                      Text(entry.action, style: AppTypography.monoToken),
                       Text(entry.timestampLabel, style: AppTypography.caption),
                     ],
                   ),
@@ -965,7 +956,7 @@ class _ComplaintAdminConsoleScreenState
                   const SizedBox(height: 2),
                   Text(entry.detail, style: AppTypography.bodyRegular),
                   const SizedBox(height: 4),
-                  Text(entry.integrityHash, style: AppTypography.technicalHash),
+                  Text(entry.integrityHash, style: AppTypography.monoToken),
                 ],
               ),
             ),

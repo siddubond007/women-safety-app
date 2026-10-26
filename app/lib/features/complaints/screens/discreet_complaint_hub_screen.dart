@@ -16,7 +16,7 @@ import 'complaint_tracking_screens.dart';
 
 /// Screen 02 — Discreet & Anonymous Complaint Hub Landing Dashboard
 /// Includes:
-/// - Bespoke illustration `AppAssets.m5HeroSafeVoice` (`01_hero_woman_lotus_safe_voice.jpg`)
+/// - Bespoke illustration `AppAssets.module5HeroSafeVoice` (`01_hero_woman_lotus_safe_voice.jpg`)
 /// - Reusable hand-drawn `SakhiBotanicalFlower` accents
 /// - Top-Right "Quick Exit" (Camouflage to Evening Chamomile Journal — Screen 22)
 /// - Mandatory Legal / Police Non-FIR Notice Banner + Modal 03 Bottom Sheet
@@ -144,7 +144,7 @@ class _DiscreetComplaintHubScreenState
                           children: [
                             Text(
                               'Discreet Complaint Hub',
-                              style: AppTypography.editorialSection.copyWith(
+                              style: AppTypography.sectionTitle.copyWith(
                                 fontSize: 20,
                               ),
                             ),
@@ -299,7 +299,8 @@ class _DiscreetComplaintHubScreenState
                                                 Icon(
                                                   Icons.verified_user_rounded,
                                                   size: 14,
-                                                  color: AppColors.primaryPurple,
+                                                  color:
+                                                      AppColors.primaryPurple,
                                                 ),
                                                 SizedBox(width: 5),
                                                 Text(
@@ -318,8 +319,7 @@ class _DiscreetComplaintHubScreenState
                                           const SizedBox(height: 10),
                                           Text(
                                             'Speak Up Safely, On Your Own Terms',
-                                            style: AppTypography
-                                                .editorialHeadline
+                                            style: AppTypography.heroTitle
                                                 .copyWith(fontSize: 22),
                                           ),
                                           const SizedBox(height: 6),
@@ -342,7 +342,7 @@ class _DiscreetComplaintHubScreenState
                                         width: 108,
                                         height: 128,
                                         child: Image.asset(
-                                          AppAssets.m5HeroSafeVoice,
+                                          AppAssets.module5HeroSafeVoice,
                                           fit: BoxFit.cover,
                                           errorBuilder: (_, _, _) => Container(
                                             color: AppColors.pastelLavender,
@@ -499,9 +499,7 @@ class _DiscreetComplaintHubScreenState
                   // Two Side-by-Side Reporting Mode Cards (Anonymous vs Confidential)
                   Text(
                     'Choose How You Want to Report',
-                    style: AppTypography.editorialSection.copyWith(
-                      fontSize: 18,
-                    ),
+                    style: AppTypography.sectionTitle.copyWith(fontSize: 18),
                   ),
                   const SizedBox(height: 10),
                   Row(
@@ -512,9 +510,9 @@ class _DiscreetComplaintHubScreenState
                           key: const Key('m5-hub-anonymous-mode-card'),
                           badge: 'ZERO IDENTITY',
                           title: 'Anonymous Mode',
-                          subtitle:
-                              'No account ID, name, or phone linked. Track via #SKH-ANON token.',
-                          illustrationAsset: AppAssets.m5AnonymousShield,
+                          subtitle: 'No account ID, name, or phone linked. Track via #SKH-ANON token.',
+                          illustrationAsset:
+                              AppAssets.module5AnonymousShieldEnvelope,
                           accentColor: AppColors.primaryPurple,
                           buttonLabel: 'File Anonymous',
                           onTap: () => _openSubmissionWizard(
@@ -528,9 +526,9 @@ class _DiscreetComplaintHubScreenState
                           key: const Key('m5-hub-confidential-mode-card'),
                           badge: 'SENIOR TEAM ONLY',
                           title: 'Confidential Mode',
-                          subtitle:
-                              'Hidden from reported user & public; Senior Female Reviewer can follow up.',
-                          illustrationAsset: AppAssets.m5CompassionateTeam,
+                          subtitle: 'Hidden from reported user & public; Senior Female Reviewer can follow up.',
+                          illustrationAsset:
+                              AppAssets.module5CompassionateReviewCounselors,
                           accentColor: const Color(0xFFB8296B),
                           buttonLabel: 'File Confidential',
                           onTap: () => _openSubmissionWizard(
@@ -568,7 +566,7 @@ class _DiscreetComplaintHubScreenState
                                 width: 58,
                                 height: 58,
                                 child: Image.asset(
-                                  AppAssets.m5ReferenceTokenCard,
+                                  AppAssets.module5ReferenceTokenCard,
                                   fit: BoxFit.cover,
                                   errorBuilder: (_, _, _) => Container(
                                     color: AppColors.pastelLavender,
@@ -666,8 +664,7 @@ class _DiscreetComplaintHubScreenState
                     iconBg: const Color(0xFFE6F5EE),
                     iconColor: const Color(0xFF1F6E50),
                     title: 'How Sakhi Protects Your Identity (SRS 7.4)',
-                    subtitle:
-                        'View our clear explanation of what is hidden, what minimal anti-abuse bucket logs exist, and EXIF scrubbing.',
+                    subtitle: 'View our clear explanation of what is hidden, what minimal anti-abuse bucket logs exist, and EXIF scrubbing.',
                     trailingLabel: 'Inspect',
                     onTap: () {
                       showModalBottomSheet<void>(
@@ -689,8 +686,7 @@ class _DiscreetComplaintHubScreenState
                     iconBg: const Color(0xFFF3E4F8),
                     iconColor: AppColors.primaryPurple,
                     title: 'Admin Complaint Console (Role-Restricted)',
-                    subtitle:
-                        'Senior Safety Reviewer & Super Admin queue: PII masking, blurred evidence vault, internal notes, audit log & category config.',
+                    subtitle: 'Senior Safety Reviewer & Super Admin queue: PII masking, blurred evidence vault, internal notes, audit log & category config.',
                     trailingLabel: 'Open Console',
                     onTap: _openAdminConsole,
                   ),
@@ -698,8 +694,7 @@ class _DiscreetComplaintHubScreenState
 
                   // Daily Sakhi Inspiration Banner
                   SakhiQuoteLoader.banner(
-                    statusLabel:
-                        'Your voice matters • Every report is handled with dignity',
+                    statusLabel: 'Your voice matters • Every report is handled with dignity',
                   ),
                 ],
               ),
@@ -1044,7 +1039,7 @@ class LegalEmergencyDisclaimerSheet extends StatelessWidget {
                     children: [
                       Text(
                         'Official Police, Legal & Emergency Channels',
-                        style: AppTypography.editorialSection.copyWith(
+                        style: AppTypography.sectionTitle.copyWith(
                           fontSize: 18,
                         ),
                       ),
@@ -1221,9 +1216,7 @@ class AnonymityTransparencyBottomSheet extends StatelessWidget {
                 Expanded(
                   child: Text(
                     'Sakhi Anonymity & Technical Log Transparency',
-                    style: AppTypography.editorialSection.copyWith(
-                      fontSize: 18,
-                    ),
+                    style: AppTypography.sectionTitle.copyWith(fontSize: 18),
                   ),
                 ),
                 IconButton(
@@ -1363,8 +1356,7 @@ class QuickExitWellnessCamouflageScreen extends StatefulWidget {
 class _QuickExitWellnessCamouflageScreenState
     extends State<QuickExitWellnessCamouflageScreen> {
   final TextEditingController _gratitudeCtrl = TextEditingController(
-    text:
-        '1. Warm cup of chamomile tea after a long afternoon\n2. Taking five slow mindful breaths\n3. Peaceful evening walk',
+    text: '1. Warm cup of chamomile tea after a long afternoon\n2. Taking five slow mindful breaths\n3. Peaceful evening walk',
   );
   int _waterGlasses = 6;
 
@@ -1437,7 +1429,7 @@ class _QuickExitWellnessCamouflageScreenState
                 height: 190,
                 width: double.infinity,
                 child: Image.asset(
-                  AppAssets.m5QuickExitChamomile,
+                  AppAssets.module5QuickExitChamomileJournal,
                   fit: BoxFit.cover,
                   errorBuilder: (_, _, _) => Container(
                     color: const Color(0xFFE0F2E8),

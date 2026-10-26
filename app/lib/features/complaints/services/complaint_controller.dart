@@ -21,7 +21,8 @@ class SakhiComplaintController extends ChangeNotifier {
   bool _isSyncing = false;
   bool get isSyncing => _isSyncing;
 
-  String _activeAdminRole = 'SENIOR_SAFETY_REVIEWER'; // or STANDARD_MODERATOR / SUPER_ADMIN
+  String _activeAdminRole =
+      'SENIOR_SAFETY_REVIEWER'; // or STANDARD_MODERATOR / SUPER_ADMIN
   String get activeAdminRole => _activeAdminRole;
 
   bool get canViewConfidentialContact =>
@@ -41,8 +42,7 @@ class SakhiComplaintController extends ChangeNotifier {
         autoPurgeRawMediaAfterDays: 45,
         scrubIpLogsAfterHours: 24,
         allowUserImmediateMediaPurge: true,
-        dpdpComplianceNote:
-            'Compliant with India DPDP Act 2023 • Zero Aadhaar retention • Coarse blinded rate-limit bucket • Encrypted evidence vault.',
+        dpdpComplianceNote: 'Compliant with India DPDP Act 2023 • Zero Aadhaar retention • Coarse blinded rate-limit bucket • Encrypted evidence vault.',
       );
   ComplaintRetentionPolicyModel get retentionPolicy => _retentionPolicy;
 
@@ -52,9 +52,9 @@ class SakhiComplaintController extends ChangeNotifier {
       code: 'HARASSMENT',
       label: 'Harassment',
       shortLabel: 'Harassment',
-      subtitle: 'Unwanted messages, repeated comments, intimidation or hostility',
-      safetyGuidance:
-          'Save screenshots before blocking if safe to do so. Sakhi strips all EXIF GPS & camera metadata automatically.',
+      subtitle:
+          'Unwanted messages, repeated comments, intimidation or hostility',
+      safetyGuidance: 'Save screenshots before blocking if safe to do so. Sakhi strips all EXIF GPS & camera metadata automatically.',
       defaultSeverity: 'HIGH_P2',
       icon: Icons.record_voice_over_rounded,
       flowerType: SakhiFlowerType.roseClassic,
@@ -65,20 +65,19 @@ class SakhiComplaintController extends ChangeNotifier {
       label: 'Stalking',
       shortLabel: 'Stalking',
       subtitle: 'Offline or online tracking, unwanted following, or location watching',
-      safetyGuidance:
-          'Never share live location publicly. If you are in immediate physical danger, use the SOS button or dial 112 / 1091 immediately.',
+      safetyGuidance: 'Never share live location publicly. If you are in immediate physical danger, use the SOS button or dial 112 / 1091 immediately.',
       defaultSeverity: 'CRITICAL_P1',
       icon: Icons.visibility_off_rounded,
-      flowerType: SakhiFlowerType.wildflowerCluster,
+      flowerType: SakhiFlowerType.cosmosViolet,
     ),
     const ComplaintCategoryInfo(
       id: 'cat-3',
       code: 'CYBERBULLYING',
       label: 'Cyberbullying',
       shortLabel: 'Cyberbullying',
-      subtitle: 'Coordinated shaming, dogpiling, derogatory threads or body-shaming',
-      safetyGuidance:
-          'Link the offending Sakhi post or comment ID so moderators can freeze the thread even if the author edits it.',
+      subtitle:
+          'Coordinated shaming, dogpiling, derogatory threads or body-shaming',
+      safetyGuidance: 'Link the offending Sakhi post or comment ID so moderators can freeze the thread even if the author edits it.',
       defaultSeverity: 'MEDIUM_P3',
       icon: Icons.shield_moon_rounded,
       flowerType: SakhiFlowerType.cherryBlossom,
@@ -89,11 +88,10 @@ class SakhiComplaintController extends ChangeNotifier {
       label: 'Blackmail / Extortion',
       shortLabel: 'Blackmail / Extortion',
       subtitle: 'Coercion, threats to leak private photos/chats, or financial extortion',
-      safetyGuidance:
-          'Do not pay or delete raw chat logs on your phone if you plan to file a Cybercrime report (1930). Our Evidence Vault stores a SHA-256 hash.',
+      safetyGuidance: 'Do not pay or delete raw chat logs on your phone if you plan to file a Cybercrime report (1930). Our Evidence Vault stores a SHA-256 hash.',
       defaultSeverity: 'CRITICAL_P1',
       icon: Icons.lock_person_rounded,
-      flowerType: SakhiFlowerType.daisyCluster,
+      flowerType: SakhiFlowerType.babysBreath,
     ),
     const ComplaintCategoryInfo(
       id: 'cat-5',
@@ -101,8 +99,7 @@ class SakhiComplaintController extends ChangeNotifier {
       label: 'Domestic or Family Concern',
       shortLabel: 'Domestic / Family',
       subtitle: 'Coercive control, domestic safety concern, or family pressure',
-      safetyGuidance:
-          'Use Anonymous Mode + Discreet In-App Vault Only (Zero Push Notifications) if family members have access to your phone lock screen.',
+      safetyGuidance: 'Use Anonymous Mode + Discreet In-App Vault Only (Zero Push Notifications) if family members have access to your phone lock screen.',
       defaultSeverity: 'CRITICAL_P1',
       icon: Icons.home_work_rounded,
       flowerType: SakhiFlowerType.eucalyptusSage,
@@ -113,8 +110,7 @@ class SakhiComplaintController extends ChangeNotifier {
       label: 'Workplace Harassment',
       shortLabel: 'Workplace (POSH)',
       subtitle: 'POSH Act workplace misconduct, quid-pro-quo, or professional retaliation',
-      safetyGuidance:
-          'Note approximate dates and witnesses if applicable. Under India\'s POSH Act 2013, you can also request Internal Committee (IC) guidance.',
+      safetyGuidance: 'Note approximate dates and witnesses if applicable. Under India\'s POSH Act 2013, you can also request Internal Committee (IC) guidance.',
       defaultSeverity: 'HIGH_P2',
       icon: Icons.business_center_rounded,
       flowerType: SakhiFlowerType.babysBreath,
@@ -125,8 +121,7 @@ class SakhiComplaintController extends ChangeNotifier {
       label: 'Impersonation / Fake Account',
       shortLabel: 'Impersonation / Fake',
       subtitle: 'Stolen photos, fake female identity, or unauthorized profile cloning',
-      safetyGuidance:
-          'Provide the @handle of the suspected account. Our verification team can trigger a mandatory re-verification lock.',
+      safetyGuidance: 'Provide the @handle of the suspected account. Our verification team can trigger a mandatory re-verification lock.',
       defaultSeverity: 'HIGH_P2',
       icon: Icons.person_off_rounded,
       flowerType: SakhiFlowerType.roseClassic,
@@ -137,8 +132,7 @@ class SakhiComplaintController extends ChangeNotifier {
       label: 'Unsafe Community Behaviour',
       shortLabel: 'Unsafe Behaviour',
       subtitle: 'Predatory DMs, boundary violations, doxxing, or unsafe meetup pressure',
-      safetyGuidance:
-          'Your report helps protect every woman on Sakhi. Duplicate reports against the same account automatically raise severity.',
+      safetyGuidance: 'Your report helps protect every woman on Sakhi. Duplicate reports against the same account automatically raise severity.',
       defaultSeverity: 'HIGH_P2',
       icon: Icons.health_and_safety_rounded,
       flowerType: SakhiFlowerType.cherryBlossom,
@@ -149,20 +143,19 @@ class SakhiComplaintController extends ChangeNotifier {
       label: 'Business-Related Complaint',
       shortLabel: 'Business Complaint',
       subtitle: 'Fraudulent Sakhi business page, unsafe service provider, or scam enquiry',
-      safetyGuidance:
-          'Attach the Sakhi Business Page reference or booking screenshot so our commerce trust team can suspend unverified listings.',
+      safetyGuidance: 'Attach the Sakhi Business Page reference or booking screenshot so our commerce trust team can suspend unverified listings.',
       defaultSeverity: 'MEDIUM_P3',
       icon: Icons.storefront_rounded,
-      flowerType: SakhiFlowerType.daisyCluster,
+      flowerType: SakhiFlowerType.babysBreath,
     ),
     const ComplaintCategoryInfo(
       id: 'cat-10',
       code: 'OTHER',
       label: 'Other Safety or Privacy Concern',
       shortLabel: 'Other Concern',
-      subtitle: 'Any other sensitive community, privacy, or personal safety issue',
-      safetyGuidance:
-          'Describe the concern in your own words. Our PII guard will alert you if you accidentally type your own phone number or email.',
+      subtitle:
+          'Any other sensitive community, privacy, or personal safety issue',
+      safetyGuidance: 'Describe the concern in your own words. Our PII guard will alert you if you accidentally type your own phone number or email.',
       defaultSeverity: 'MEDIUM_P3',
       icon: Icons.spa_rounded,
       flowerType: SakhiFlowerType.eucalyptusSage,
@@ -206,8 +199,7 @@ class SakhiComplaintController extends ChangeNotifier {
         urgencyLevel: 'HIGH',
         status: ComplaintStatus.additionalInfoRequired,
         severityPriority: 'HIGH_P2',
-        description:
-            'Repeated intimidating comments and unsolicited messages from a fake handle after I shared a workplace safety post in the Bengaluru Career Circle. They referenced my office building near Indiranagar.',
+        description: 'Repeated intimidating comments and unsolicited messages from a fake handle after I shared a workplace safety post in the Bengaluru Career Circle. They referenced my office building near Indiranagar.',
         incidentDateWindow: 'Yesterday • Evening (6 PM – 10 PM)',
         generalAreaText: 'Indiranagar, Bengaluru (~5 km coarse zone)',
         supportingLinks: const <String>[
@@ -260,8 +252,7 @@ class SakhiComplaintController extends ChangeNotifier {
             id: 'msg-8492-1',
             senderRole: 'REVIEWER',
             senderBadge: 'Senior Safety Reviewer #SR-04 (Anjali M.)',
-            body:
-                'Thank you for speaking up safely. We have temporarily restricted @anon_watch_99 from commenting in your circle. Could you share whether they contacted you on any second handle so we can link the accounts?',
+            body: 'Thank you for speaking up safely. We have temporarily restricted @anon_watch_99 from commenting in your circle. Could you share whether they contacted you on any second handle so we can link the accounts?',
             createdAtLabel: '26 Oct 2026 • 10:15 AM',
           ),
         ],
@@ -270,8 +261,7 @@ class SakhiComplaintController extends ChangeNotifier {
             id: 'note-8492-1',
             authorRole: 'SENIOR_SAFETY_REVIEWER',
             authorLabel: 'Anjali M. (Trust & Safety Lead)',
-            note:
-                'INTERNAL ONLY: Verified EXIF-scrubbed screenshot matches device fingerprint of repeat offender cluster #CL-19. Waiting for complainant confirmation before permanent device ban.',
+            note: 'INTERNAL ONLY: Verified EXIF-scrubbed screenshot matches device fingerprint of repeat offender cluster #CL-19. Waiting for complainant confirmation before permanent device ban.',
             visibilityScope: 'INTERNAL_ADMIN_ONLY',
             createdAtLabel: '26 Oct 2026 • 10:12 AM',
           ),
@@ -281,8 +271,7 @@ class SakhiComplaintController extends ChangeNotifier {
             id: 'aud-8492-1',
             action: 'COMPLAINT_SUBMITTED_ANONYMOUS',
             actorBadge: 'System Zero-PII Gate',
-            detail:
-                '2 evidence files scrubbed of 8 EXIF tags; blinded rate-limit token verified.',
+            detail: '2 evidence files scrubbed of 8 EXIF tags; blinded rate-limit token verified.',
             integrityHash: 'SHA256:7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730',
             timestampLabel: '25 Oct 2026 • 09:15 PM',
           ),
@@ -290,7 +279,8 @@ class SakhiComplaintController extends ChangeNotifier {
             id: 'aud-8492-2',
             action: 'ASSIGNED_TO_REVIEWER',
             actorBadge: 'Super Admin Queue Router',
-            detail: 'Assigned to Senior Safety Reviewer #SR-04 • Priority HIGH_P2',
+            detail:
+                'Assigned to Senior Safety Reviewer #SR-04 • Priority HIGH_P2',
             integrityHash: 'SHA256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae',
             timestampLabel: '25 Oct 2026 • 09:42 PM',
           ),
@@ -317,12 +307,12 @@ class SakhiComplaintController extends ChangeNotifier {
         disguisedSerialTag: 'SKH-WELLNESS-2026-8489-71C8',
         reportingMode: ComplaintReportingMode.confidential,
         categoryCode: 'WORKPLACE_HARASSMENT',
-        customCategoryNote: 'POSH committee guidance & unsafe recruiter listing',
+        customCategoryNote:
+            'POSH committee guidance & unsafe recruiter listing',
         urgencyLevel: 'HIGH',
         status: ComplaintStatus.escalated,
         severityPriority: 'CRITICAL_P1',
-        description:
-            'A verified recruiter business page on Sakhi asked for personal evening video calls outside official interview hours and pressured candidates to share private social media profiles.',
+        description: 'A verified recruiter business page on Sakhi asked for personal evening video calls outside official interview hours and pressured candidates to share private social media profiles.',
         incidentDateWindow: 'This Week • Afternoon (12 PM – 5 PM)',
         generalAreaText: 'HITEC City, Hyderabad (~5 km coarse zone)',
         supportingLinks: const <String>[
@@ -352,8 +342,7 @@ class SakhiComplaintController extends ChangeNotifier {
             id: 'msg-8489-1',
             senderRole: 'REVIEWER',
             senderBadge: 'POSH & Legal Escalation Desk (#LP-02)',
-            body:
-                'Your case has been escalated to our POSH & Commerce Safety Panel. The business page has been frozen pending final review.',
+            body: 'Your case has been escalated to our POSH & Commerce Safety Panel. The business page has been frozen pending final review.',
             createdAtLabel: '25 Oct 2026 • 02:30 PM',
           ),
         ],
@@ -362,8 +351,7 @@ class SakhiComplaintController extends ChangeNotifier {
             id: 'note-8489-1',
             authorRole: 'SUPER_ADMIN',
             authorLabel: 'Dr. Kavitha R. (Head of Safety)',
-            note:
-                'INTERNAL ONLY: Confidential reporter identity verified by Senior Reviewer only. Business listing suspended under Section 9.6.',
+            note: 'INTERNAL ONLY: Confidential reporter identity verified by Senior Reviewer only. Business listing suspended under Section 9.6.',
             visibilityScope: 'INTERNAL_ADMIN_ONLY',
             createdAtLabel: '25 Oct 2026 • 02:25 PM',
           ),
@@ -391,8 +379,7 @@ class SakhiComplaintController extends ChangeNotifier {
         slaTargetHours: 4,
         createdAtLabel: '24 Oct 2026 • 04:22 PM',
         updatedAtLabel: '25 Oct 2026 • 02:30 PM',
-        maskedConfidentialContact:
-            'Priya S. • +91 ••••• ••418 (Visible only to Senior Safety Reviewer)',
+        maskedConfidentialContact: 'Priya S. • +91 ••••• ••418 (Visible only to Senior Safety Reviewer)',
       ),
       DiscreetComplaintModel(
         id: 'cmp-8471',
@@ -405,8 +392,7 @@ class SakhiComplaintController extends ChangeNotifier {
         urgencyLevel: 'STANDARD',
         status: ComplaintStatus.actionTaken,
         severityPriority: 'HIGH_P2',
-        description:
-            'An account was using stolen photos from a wedding photographer portfolio to impersonate a member in the Chennai Entrepreneurs group.',
+        description: 'An account was using stolen photos from a wedding photographer portfolio to impersonate a member in the Chennai Entrepreneurs group.',
         incidentDateWindow: 'Last Week • Morning (8 AM – 12 PM)',
         generalAreaText: 'Adyar, Chennai (~5 km coarse zone)',
         supportingLinks: const <String>['sakhi://profile/@fake_studio_chennai'],
@@ -434,8 +420,7 @@ class SakhiComplaintController extends ChangeNotifier {
             id: 'msg-8471-1',
             senderRole: 'REVIEWER',
             senderBadge: 'Senior Safety Reviewer #SR-02 (Meera K.)',
-            body:
-                'Action Taken: We verified the impersonation, permanently removed @fake_studio_chennai, and revoked its session tokens.',
+            body: 'Action Taken: We verified the impersonation, permanently removed @fake_studio_chennai, and revoked its session tokens.',
             createdAtLabel: '21 Oct 2026 • 03:40 PM',
           ),
         ],
@@ -455,8 +440,7 @@ class SakhiComplaintController extends ChangeNotifier {
         slaTargetHours: 24,
         createdAtLabel: '20 Oct 2026 • 11:05 AM',
         updatedAtLabel: '21 Oct 2026 • 03:40 PM',
-        publicResolutionNote:
-            'The reported impersonating profile has been permanently removed and its device signature blocked.',
+        publicResolutionNote: 'The reported impersonating profile has been permanently removed and its device signature blocked.',
       ),
       DiscreetComplaintModel(
         id: 'cmp-8465',
@@ -469,8 +453,7 @@ class SakhiComplaintController extends ChangeNotifier {
         urgencyLevel: 'LOW',
         status: ComplaintStatus.rejectedWithReason,
         severityPriority: 'LOW_P4',
-        description:
-            'My handloom saree order arrived 3 days later than estimated by the seller.',
+        description: 'My handloom saree order arrived 3 days later than estimated by the seller.',
         incidentDateWindow: 'Earlier this month',
         generalAreaText: 'Pune (~5 km coarse zone)',
         supportingLinks: const <String>[],
@@ -487,8 +470,7 @@ class SakhiComplaintController extends ChangeNotifier {
             id: 'aud-8465-1',
             action: 'REJECTED_WITH_TRANSPARENT_REASON',
             actorBadge: 'Senior Safety Reviewer #SR-04',
-            detail:
-                'Closed as non-safety shipping delay; guided user to Business Enquiry resolution.',
+            detail: 'Closed as non-safety shipping delay; guided user to Business Enquiry resolution.',
             integrityHash: 'SHA256:4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a',
             timestampLabel: '19 Oct 2026 • 05:10 PM',
           ),
@@ -499,8 +481,7 @@ class SakhiComplaintController extends ChangeNotifier {
         createdAtLabel: '18 Oct 2026 • 01:20 PM',
         updatedAtLabel: '19 Oct 2026 • 05:10 PM',
         rejectionReasonTitle: 'Shipping Delay Outside Safety Mandate',
-        rejectionReasonDetail:
-            'No harassment, scam, or safety policy violation was found. If the seller threatened you or refused a refund fraudulently, tap "Submit Appeal / Request Re-Open" below with screenshots.',
+        rejectionReasonDetail: 'No harassment, scam, or safety policy violation was found. If the seller threatened you or refused a refund fraudulently, tap "Submit Appeal / Request Re-Open" below with screenshots.',
       ),
     ]);
     _lastSubmittedComplaint = _complaints.first;
@@ -609,9 +590,9 @@ class SakhiComplaintController extends ChangeNotifier {
     final hashChars = '0123456789abcdef';
     final hash = List<String>.generate(
       64,
-      (i) => hashChars[(originalFileName.hashCode + i * 17 + sizeBytes)
-              .abs() %
-          hashChars.length],
+      (i) =>
+          hashChars[(originalFileName.hashCode + i * 17 + sizeBytes).abs() %
+              hashChars.length],
     ).join();
 
     return SanitizedEvidenceFileModel(
@@ -828,8 +809,7 @@ class SakhiComplaintController extends ChangeNotifier {
       ...newEvidence,
     ];
 
-    final nextStatus =
-        current.status == ComplaintStatus.additionalInfoRequired
+    final nextStatus = current.status == ComplaintStatus.additionalInfoRequired
         ? ComplaintStatus.underReview
         : current.status;
 
@@ -897,8 +877,7 @@ class SakhiComplaintController extends ChangeNotifier {
         id: 'aud-appeal-${DateTime.now().millisecondsSinceEpoch}',
         action: 'CASE_APPEAL_SUBMITTED',
         actorBadge: 'Complainant Token Verification',
-        detail:
-            'Complainant requested re-open & independent review by Ombudsperson.',
+        detail: 'Complainant requested re-open & independent review by Ombudsperson.',
         integrityHash: 'SHA256:9b871512327c09ce91dd649b3f96a63b7408ef267c8cc571be524e1a1b2e072f',
         timestampLabel: 'Just now',
       ),
@@ -954,8 +933,7 @@ class SakhiComplaintController extends ChangeNotifier {
           id: 'aud-purge',
           action: 'USER_PURGED_EVIDENCE_MEDIA',
           actorBadge: 'Complainant DPDP Right-to-Erasure',
-          detail:
-              'All binary evidence attachments permanently zero-wiped from object storage.',
+          detail: 'All binary evidence attachments permanently zero-wiped from object storage.',
           integrityHash: 'SHA256:0000000000000000000000000000000000000000000000000000000000000000',
           timestampLabel: 'Just now',
         ),
@@ -1034,8 +1012,7 @@ class SakhiComplaintController extends ChangeNotifier {
             'Status: ${current.status.label} → ${newStatus.label}',
           if (severityPriority != null) 'Priority: $severityPriority',
           if (assignedReviewerName != null) 'Assigned: $assignedReviewerName',
-          if (duplicateOfReference != null)
-            'Merged into $duplicateOfReference',
+          if (duplicateOfReference != null) 'Merged into $duplicateOfReference',
           if (maliciousAbuseFlagged == true)
             'Blinded bucket rate-limit throttle applied',
           if (internalPrivateNote != null &&
@@ -1055,12 +1032,9 @@ class SakhiComplaintController extends ChangeNotifier {
           authenticated: true,
           body: <String, Object?>{
             'status': newStatus.code,
-            if (publicMessageToComplainant != null)
-              'complainantVisibleMessage': publicMessageToComplainant,
-            if (publicResolutionNote != null)
-              'resolutionSummary': publicResolutionNote,
-            if (rejectionReasonDetail != null)
-              'rejectionReason': rejectionReasonDetail,
+            'complainantVisibleMessage': ?publicMessageToComplainant,
+            'resolutionSummary': ?publicResolutionNote,
+            'rejectionReason': ?rejectionReasonDetail,
           },
         );
       }

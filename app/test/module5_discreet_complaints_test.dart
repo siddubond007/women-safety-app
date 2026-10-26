@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sakhi_app/core/navigation/app_routes.dart';
-import 'package:sakhi_app/core/theme/app_theme.dart';
-import 'package:sakhi_app/features/complaints/models/complaint_models.dart';
-import 'package:sakhi_app/features/complaints/screens/complaint_admin_console_screen.dart';
-import 'package:sakhi_app/features/complaints/screens/complaint_submission_wizard_screen.dart';
-import 'package:sakhi_app/features/complaints/screens/complaint_tracking_screens.dart';
-import 'package:sakhi_app/features/complaints/screens/discreet_complaint_hub_screen.dart';
-import 'package:sakhi_app/features/complaints/services/complaint_controller.dart';
+import 'package:women_safety_app/core/navigation/app_routes.dart';
+import 'package:women_safety_app/core/theme/app_theme.dart';
+import 'package:women_safety_app/features/complaints/models/complaint_models.dart';
+import 'package:women_safety_app/features/complaints/screens/complaint_admin_console_screen.dart';
+import 'package:women_safety_app/features/complaints/screens/complaint_submission_wizard_screen.dart';
+import 'package:women_safety_app/features/complaints/screens/complaint_tracking_screens.dart';
+import 'package:women_safety_app/features/complaints/screens/discreet_complaint_hub_screen.dart';
+import 'package:women_safety_app/features/complaints/services/complaint_controller.dart';
 
 Widget _wrapWithMaterialApp(Widget home) {
   return MaterialApp(
@@ -65,58 +65,55 @@ void main() {
       expect(ev.sha256Hash.length, 64);
     });
 
-    test(
-      'supports full lifecycle: submit, lookup, two-way reply, appeal, and DPDP media purge',
-      () async {
-        final created = await controller.submitComplaint(
-          reportingMode: ComplaintReportingMode.anonymous,
-          categoryCode: 'CYBERBULLYING',
-          urgencyLevel: 'HIGH',
-          description: 'Coordinated harassment thread in community group.',
-          incidentDateWindow: 'Today • Evening',
-          generalAreaText: 'Online Only',
-          supportingLinks: const <String>['sakhi://post/test-99'],
-          wantsFollowUp: true,
-          discreetNotificationMode: 'SILENT_VAULT_ONLY',
-          evidenceFiles: <SanitizedEvidenceFileModel>[
-            controller.scrubAndCreateEvidence(
-              originalFileName: 'Proof.png',
-              mimeType: 'image/png',
-              sizeBytes: 204800,
-            ),
-          ],
-        );
+    test('supports full lifecycle: submit, lookup, two-way reply, appeal, and DPDP media purge', () async {
+      final created = await controller.submitComplaint(
+        reportingMode: ComplaintReportingMode.anonymous,
+        categoryCode: 'CYBERBULLYING',
+        urgencyLevel: 'HIGH',
+        description: 'Coordinated harassment thread in community group.',
+        incidentDateWindow: 'Today • Evening',
+        generalAreaText: 'Online Only',
+        supportingLinks: const <String>['sakhi://post/test-99'],
+        wantsFollowUp: true,
+        discreetNotificationMode: 'SILENT_VAULT_ONLY',
+        evidenceFiles: <SanitizedEvidenceFileModel>[
+          controller.scrubAndCreateEvidence(
+            originalFileName: 'Proof.png',
+            mimeType: 'image/png',
+            sizeBytes: 204800,
+          ),
+        ],
+      );
 
-        expect(created.referenceNumber, startsWith('#SKH-ANON-'));
-        expect(
-          controller.lookupByReferenceOrSerial(created.referenceNumber)?.id,
-          created.id,
-        );
-        expect(
-          controller.lookupByReferenceOrSerial(created.disguisedSerialTag)?.id,
-          created.id,
-        );
+      expect(created.referenceNumber, startsWith('#SKH-ANON-'));
+      expect(
+        controller.lookupByReferenceOrSerial(created.referenceNumber)?.id,
+        created.id,
+      );
+      expect(
+        controller.lookupByReferenceOrSerial(created.disguisedSerialTag)?.id,
+        created.id,
+      );
 
-        final afterReply = await controller.sendComplainantReply(
-          referenceNumber: created.referenceNumber,
-          messageBody: 'Adding second screenshot context.',
-        );
-        expect(afterReply, isNotNull);
-        expect(afterReply!.complainantMessages.length, greaterThanOrEqualTo(2));
+      final afterReply = await controller.sendComplainantReply(
+        referenceNumber: created.referenceNumber,
+        messageBody: 'Adding second screenshot context.',
+      );
+      expect(afterReply, isNotNull);
+      expect(afterReply!.complainantMessages.length, greaterThanOrEqualTo(2));
 
-        final afterAppeal = await controller.submitCaseAppeal(
-          referenceNumber: created.referenceNumber,
-          appealReason: 'Escalating threat requires independent review.',
-        );
-        expect(afterAppeal?.appealSubmitted, isTrue);
+      final afterAppeal = await controller.submitCaseAppeal(
+        referenceNumber: created.referenceNumber,
+        appealReason: 'Escalating threat requires independent review.',
+      );
+      expect(afterAppeal?.appealSubmitted, isTrue);
 
-        final afterPurge = await controller.purgeEvidenceVaultMedia(
-          referenceNumber: created.referenceNumber,
-        );
-        expect(afterPurge?.mediaPurgedByUser, isTrue);
-        expect(afterPurge?.evidenceFiles, isEmpty);
-      },
-    );
+      final afterPurge = await controller.purgeEvidenceVaultMedia(
+        referenceNumber: created.referenceNumber,
+      );
+      expect(afterPurge?.mediaPurgedByUser, isTrue);
+      expect(afterPurge?.evidenceFiles, isEmpty);
+    });
   });
 
   group('Module 5 — Live Flutter UI Screens & Navigation', () {
@@ -129,10 +126,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 250));
 
         expect(find.text('Discreet Complaint Hub'), findsOneWidget);
-        expect(
-          find.text('Speak Up Safely, On Your Own Terms'),
-          findsOneWidget,
-        );
+        expect(find.text('Speak Up Safely, On Your Own Terms'), findsOneWidget);
         expect(
           find.byKey(const Key('m5-start-discreet-report-button')),
           findsOneWidget,

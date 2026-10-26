@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/assets/app_assets.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../models/complaint_models.dart';
@@ -11,10 +10,7 @@ import 'discreet_complaint_hub_screen.dart';
 /// Status Views, Two-Way Encrypted Reply Modal (Modal 27), Appeal Modal (Modal 32),
 /// and Immediate User Evidence Purge (SRS 13.14).
 class ComplaintTrackingLookupScreen extends StatefulWidget {
-  const ComplaintTrackingLookupScreen({
-    super.key,
-    this.initialReferenceNumber,
-  });
+  const ComplaintTrackingLookupScreen({super.key, this.initialReferenceNumber});
 
   final String? initialReferenceNumber;
 
@@ -104,7 +100,7 @@ class _ComplaintTrackingLookupScreenState
               children: [
                 Text(
                   'Encrypted Two-Way Reply (${item.referenceNumber})',
-                  style: AppTypography.editorialSection.copyWith(fontSize: 18),
+                  style: AppTypography.sectionTitle.copyWith(fontSize: 18),
                 ),
                 const SizedBox(height: 4),
                 const Text(
@@ -119,8 +115,7 @@ class _ComplaintTrackingLookupScreenState
                   maxLines: 5,
                   decoration: const InputDecoration(
                     labelText: 'Your Encrypted Reply to Safety Reviewer *',
-                    hintText:
-                        'Provide the requested clarification or additional context safely...',
+                    hintText: 'Provide the requested clarification or additional context safely...',
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -209,7 +204,7 @@ class _ComplaintTrackingLookupScreenState
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: Text(
           'Appeal Decision & Request Independent Re-Open',
-          style: AppTypography.editorialSection.copyWith(fontSize: 18),
+          style: AppTypography.sectionTitle.copyWith(fontSize: 18),
         ),
         content: SingleChildScrollView(
           child: Column(
@@ -228,8 +223,7 @@ class _ComplaintTrackingLookupScreenState
                 maxLines: 5,
                 decoration: const InputDecoration(
                   labelText: 'Why should this complaint be re-opened? *',
-                  hintText:
-                      'Explain new evidence, escalating threats, or policy context...',
+                  hintText: 'Explain new evidence, escalating threats, or policy context...',
                 ),
               ),
             ],
@@ -315,7 +309,7 @@ class _ComplaintTrackingLookupScreenState
                           children: [
                             Text(
                               'Track Complaint Status',
-                              style: AppTypography.editorialSection.copyWith(
+                              style: AppTypography.sectionTitle.copyWith(
                                 fontSize: 20,
                               ),
                             ),
@@ -357,8 +351,7 @@ class _ComplaintTrackingLookupScreenState
                                 key: const Key('m5-tracker-reference-input'),
                                 controller: _referenceCtrl,
                                 decoration: const InputDecoration(
-                                  labelText:
-                                      'Reference # (#SKH-ANON-...) or Quote Serial',
+                                  labelText: 'Reference # (#SKH-ANON-...) or Quote Serial',
                                   prefixIcon: Icon(
                                     Icons.confirmation_number_outlined,
                                   ),
@@ -439,9 +432,8 @@ class _ComplaintTrackingLookupScreenState
                                     ? Colors.white
                                     : AppColors.textPrimary,
                               ),
-                              onSelected: (_) => setState(
-                                () => _previewStatusOverride = st,
-                              ),
+                              onSelected: (_) =>
+                                  setState(() => _previewStatusOverride = st),
                             ),
                           );
                         }).toList(),
@@ -507,14 +499,14 @@ class _ComplaintTrackingLookupScreenState
                               const Spacer(),
                               Text(
                                 item.severityPriority,
-                                style: AppTypography.technicalToken,
+                                style: AppTypography.monoToken,
                               ),
                             ],
                           ),
                           const SizedBox(height: 10),
                           SelectableText(
                             item.referenceNumber,
-                            style: AppTypography.referenceToken.copyWith(
+                            style: AppTypography.monoToken.copyWith(
                               fontSize: 18,
                             ),
                           ),
@@ -566,8 +558,7 @@ class _ComplaintTrackingLookupScreenState
                             ),
                           ],
 
-                          if (displayedStatus ==
-                                  ComplaintStatus.actionTaken &&
+                          if (displayedStatus == ComplaintStatus.actionTaken &&
                               item.publicResolutionNote != null) ...[
                             const SizedBox(height: 12),
                             Container(
@@ -609,8 +600,7 @@ class _ComplaintTrackingLookupScreenState
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    item.rejectionReasonDetail ??
-                                        'Insufficient actionable safety violation evidence in initial submission. You may submit an Appeal with additional screenshots.',
+                                    item.rejectionReasonDetail ?? 'Insufficient actionable safety violation evidence in initial submission. You may submit an Appeal with additional screenshots.',
                                     style: const TextStyle(
                                       fontSize: 12,
                                       color: Color(0xFF6E1833),
@@ -655,10 +645,7 @@ class _ComplaintTrackingLookupScreenState
                               ),
                               OutlinedButton.icon(
                                 onPressed: () => _openAppealModal(item),
-                                icon: const Icon(
-                                  Icons.gavel_rounded,
-                                  size: 16,
-                                ),
+                                icon: const Icon(Icons.gavel_rounded, size: 16),
                                 label: const Text('Appeal / Escalate'),
                               ),
                               if (!item.mediaPurgedByUser &&
@@ -673,20 +660,18 @@ class _ComplaintTrackingLookupScreenState
                                   onPressed: () async {
                                     final updated = await _controller
                                         .purgeEvidenceVaultMedia(
-                                          referenceNumber:
-                                              item.referenceNumber,
+                                          referenceNumber: item.referenceNumber,
                                         );
-                                    if (updated != null && mounted) {
+                                    if (updated != null && context.mounted) {
                                       setState(() => _activeCase = updated);
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        const SnackBar(
-                                          content: Text(
-                                            'All uploaded evidence media purged from storage (DPDP Right-to-Erasure).',
-                                          ),
-                                        ),
-                                      );
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                'All uploaded evidence media purged from storage (DPDP Right-to-Erasure).',
+                                              ),
+                                            ),
+                                          );
                                     }
                                   },
                                   icon: const Icon(

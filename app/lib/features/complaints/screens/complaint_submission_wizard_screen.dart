@@ -70,8 +70,7 @@ class _ComplaintSubmissionWizardScreenState
     super.initState();
     _reportingMode = widget.initialMode;
     _selectedCategoryCode =
-        widget.initialCategoryCode ??
-        _controller.enabledCategories.first.code;
+        widget.initialCategoryCode ?? _controller.enabledCategories.first.code;
     if (widget.initialLinkedProfileHandle != null) {
       _linkedProfileCtrl.text = widget.initialLinkedProfileHandle!;
       _supportingLinks.add(
@@ -89,8 +88,7 @@ class _ComplaintSubmissionWizardScreenState
       );
     }
     // Pre-populate sample description so user can test immediately or edit freely
-    _descriptionCtrl.text =
-        'Repeated intimidating messages and unwelcome comments from a suspicious account after I participated in a community safety thread.';
+    _descriptionCtrl.text = 'Repeated intimidating messages and unwelcome comments from a suspicious account after I participated in a community safety thread.';
     // Pre-populate 1 scrubbed sample evidence file so user can inspect Sheet 16 immediately
     _evidenceFiles.add(
       _controller.scrubAndCreateEvidence(
@@ -209,7 +207,7 @@ class _ComplaintSubmissionWizardScreenState
             Expanded(
               child: Text(
                 'Self-Identifying Info Detected',
-                style: AppTypography.editorialSection.copyWith(fontSize: 18),
+                style: AppTypography.sectionTitle.copyWith(fontSize: 18),
               ),
             ),
           ],
@@ -288,7 +286,7 @@ class _ComplaintSubmissionWizardScreenState
             Expanded(
               child: Text(
                 'Seal & Submit ${_reportingMode == ComplaintReportingMode.anonymous ? 'Anonymous' : 'Confidential'} Report?',
-                style: AppTypography.editorialSection.copyWith(fontSize: 18),
+                style: AppTypography.sectionTitle.copyWith(fontSize: 18),
               ),
             ),
           ],
@@ -530,7 +528,7 @@ class _ComplaintSubmissionWizardScreenState
       children: [
         Text(
           'Select Your Privacy & Protection Mode',
-          style: AppTypography.editorialHeadline.copyWith(fontSize: 22),
+          style: AppTypography.heroTitle.copyWith(fontSize: 22),
         ),
         const SizedBox(height: 6),
         const Text(
@@ -542,7 +540,7 @@ class _ComplaintSubmissionWizardScreenState
         // Anonymous Mode Option Card (Screen 04)
         _buildModeChoiceTile(
           mode: ComplaintReportingMode.anonymous,
-          illustration: AppAssets.m5AnonymousShield,
+          illustration: AppAssets.module5AnonymousShieldEnvelope,
           highlights: const <String>[
             'Zero account ID, phone number, or profile name stored on complaint record',
             'Assigned a cryptographic Reference Token (#SKH-ANON-...) for two-way updates',
@@ -554,7 +552,7 @@ class _ComplaintSubmissionWizardScreenState
         // Confidential Mode Option Card (Screen 05)
         _buildModeChoiceTile(
           mode: ComplaintReportingMode.confidential,
-          illustration: AppAssets.m5CompassionateTeam,
+          illustration: AppAssets.module5CompassionateReviewCounselors,
           highlights: const <String>[
             'Completely hidden from the reported member, public feed, and standard moderators',
             'Authorised Senior Female Safety Reviewer can view sealed contact for follow-up',
@@ -714,7 +712,7 @@ class _ComplaintSubmissionWizardScreenState
       children: [
         Text(
           'What Kind of Concern Are You Reporting?',
-          style: AppTypography.editorialHeadline.copyWith(fontSize: 21),
+          style: AppTypography.heroTitle.copyWith(fontSize: 21),
         ),
         const SizedBox(height: 4),
         const Text(
@@ -892,25 +890,26 @@ class _ComplaintSubmissionWizardScreenState
               const SizedBox(height: 6),
               Wrap(
                 spacing: 8,
-                children: <Map<String, String>>[
-                  {'code': 'LOW', 'label': 'Standard (24h)'},
-                  {'code': 'HIGH', 'label': 'High Priority (12h)'},
-                  {'code': 'CRITICAL', 'label': 'Critical Safety (4h SLA)'},
-                ].map((u) {
-                  final active = _urgencyLevel == u['code'];
-                  return ChoiceChip(
-                    label: Text(u['label']!),
-                    selected: active,
-                    selectedColor: AppColors.primaryPurple,
-                    labelStyle: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: active ? Colors.white : AppColors.textPrimary,
-                    ),
-                    onSelected: (_) =>
-                        setState(() => _urgencyLevel = u['code']!),
-                  );
-                }).toList(),
+                children:
+                    <Map<String, String>>[
+                      {'code': 'LOW', 'label': 'Standard (24h)'},
+                      {'code': 'HIGH', 'label': 'High Priority (12h)'},
+                      {'code': 'CRITICAL', 'label': 'Critical Safety (4h SLA)'},
+                    ].map((u) {
+                      final active = _urgencyLevel == u['code'];
+                      return ChoiceChip(
+                        label: Text(u['label']!),
+                        selected: active,
+                        selectedColor: AppColors.primaryPurple,
+                        labelStyle: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: active ? Colors.white : AppColors.textPrimary,
+                        ),
+                        onSelected: (_) =>
+                            setState(() => _urgencyLevel = u['code']!),
+                      );
+                    }).toList(),
               ),
             ],
           ),
@@ -933,7 +932,7 @@ class _ComplaintSubmissionWizardScreenState
             Expanded(
               child: Text(
                 '${cat.label} • Safety Guidance',
-                style: AppTypography.editorialSection.copyWith(fontSize: 18),
+                style: AppTypography.sectionTitle.copyWith(fontSize: 18),
               ),
             ),
           ],
@@ -962,7 +961,7 @@ class _ComplaintSubmissionWizardScreenState
             const SizedBox(height: 10),
             Text(
               'Default Admin Queue Priority: ${cat.defaultSeverity}',
-              style: AppTypography.technicalToken,
+              style: AppTypography.monoToken,
             ),
           ],
         ),
@@ -994,7 +993,7 @@ class _ComplaintSubmissionWizardScreenState
       children: [
         Text(
           'Describe What Happened Safely',
-          style: AppTypography.editorialHeadline.copyWith(fontSize: 21),
+          style: AppTypography.heroTitle.copyWith(fontSize: 21),
         ),
         const SizedBox(height: 4),
         const Text(
@@ -1011,8 +1010,7 @@ class _ComplaintSubmissionWizardScreenState
           onChanged: (_) => setState(() {}),
           decoration: const InputDecoration(
             labelText: 'Incident Description *',
-            hintText:
-                'Describe the messages, behaviour, or safety concern without typing your own phone number or flat number...',
+            hintText: 'Describe the messages, behaviour, or safety concern without typing your own phone number or flat number...',
           ),
         ),
         const SizedBox(height: 10),
@@ -1119,7 +1117,7 @@ class _ComplaintSubmissionWizardScreenState
             children: [
               Text(
                 'Select Approximate Incident Window',
-                style: AppTypography.editorialSection.copyWith(fontSize: 18),
+                style: AppTypography.sectionTitle.copyWith(fontSize: 18),
               ),
               const SizedBox(height: 4),
               const Text(
@@ -1168,7 +1166,7 @@ class _ComplaintSubmissionWizardScreenState
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: Text(
           'Coarse 5 km Area (Zero Home GPS)',
-          style: AppTypography.editorialSection.copyWith(fontSize: 18),
+          style: AppTypography.sectionTitle.copyWith(fontSize: 18),
         ),
         content: SingleChildScrollView(
           child: Column(
@@ -1244,7 +1242,7 @@ class _ComplaintSubmissionWizardScreenState
                   width: 78,
                   height: 78,
                   child: Image.asset(
-                    AppAssets.m5EvidenceVaultExif,
+                    AppAssets.module5EvidenceVaultScrubber,
                     fit: BoxFit.cover,
                     errorBuilder: (_, _, _) => Container(
                       color: AppColors.pastelLavender,
@@ -1379,12 +1377,14 @@ class _ComplaintSubmissionWizardScreenState
                       children: [
                         Text(
                           ev.sanitizedFileName,
-                          style: AppTypography.technicalToken,
+                          style: AppTypography.monoToken,
                         ),
                         const SizedBox(height: 2),
                         Text(
                           'Original: ${ev.originalLabel} (${ev.formattedSize}) • ${ev.removedTags.length} EXIF tags stripped',
-                          style: AppTypography.subtitle.copyWith(fontSize: 11.5),
+                          style: AppTypography.subtitle.copyWith(
+                            fontSize: 11.5,
+                          ),
                         ),
                       ],
                     ),
@@ -1483,7 +1483,7 @@ class _ComplaintSubmissionWizardScreenState
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: Text(
           'Evidence Preservation & Safety Guide',
-          style: AppTypography.editorialSection.copyWith(fontSize: 18),
+          style: AppTypography.sectionTitle.copyWith(fontSize: 18),
         ),
         content: const Column(
           mainAxisSize: MainAxisSize.min,
@@ -1526,17 +1526,17 @@ class _ComplaintSubmissionWizardScreenState
             children: [
               Text(
                 'EXIF Metadata Scrubber Verification',
-                style: AppTypography.editorialSection.copyWith(fontSize: 18),
+                style: AppTypography.sectionTitle.copyWith(fontSize: 18),
               ),
               const SizedBox(height: 6),
               Text(
                 'Sanitized Vault Name: ${ev.sanitizedFileName}',
-                style: AppTypography.technicalToken,
+                style: AppTypography.monoToken,
               ),
               const SizedBox(height: 4),
               Text(
                 'SHA-256 Integrity Hash: ${ev.sha256Hash.substring(0, 28)}…',
-                style: AppTypography.technicalHash,
+                style: AppTypography.monoToken,
               ),
               const SizedBox(height: 12),
               const Text(
@@ -1591,7 +1591,7 @@ class _ComplaintSubmissionWizardScreenState
         backgroundColor: const Color(0xFFFFF9FC),
         title: Text(
           'Add Supporting Link or In-App Reference',
-          style: AppTypography.editorialSection.copyWith(fontSize: 18),
+          style: AppTypography.sectionTitle.copyWith(fontSize: 18),
         ),
         content: TextField(
           controller: linkCtrl,
@@ -1626,7 +1626,7 @@ class _ComplaintSubmissionWizardScreenState
       children: [
         Text(
           'Discreet Updates & Final Review',
-          style: AppTypography.editorialHeadline.copyWith(fontSize: 21),
+          style: AppTypography.heroTitle.copyWith(fontSize: 21),
         ),
         const SizedBox(height: 4),
         const Text(
@@ -1666,39 +1666,39 @@ class _ComplaintSubmissionWizardScreenState
                 style: AppTypography.bodyMedium,
               ),
               const SizedBox(height: 6),
-              RadioListTile<String>(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                value: 'SILENT_VAULT_ONLY',
+              RadioGroup<String>(
                 groupValue: _discreetNotificationMode,
-                title: const Text(
-                  'Silent In-App Vault Only (Zero Push Notifications)',
-                ),
-                subtitle: const Text(
-                  'Safest option: nothing ever appears on your phone lock screen',
-                ),
-                onChanged: (v) {
-                  if (v != null) {
-                    setState(() => _discreetNotificationMode = v);
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() => _discreetNotificationMode = value);
                   }
                 },
-              ),
-              RadioListTile<String>(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                value: 'DISCREET_GENERIC_WELLNESS_ALERT',
-                groupValue: _discreetNotificationMode,
-                title: const Text(
-                  'Disguised Wellness Reminder ("New Sakhi Daily Quote")',
+                child: Column(
+                  children: <Widget>[
+                    RadioListTile<String>(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      value: 'SILENT_VAULT_ONLY',
+                      title: const Text(
+                        'Silent In-App Vault Only (Zero Push Notifications)',
+                      ),
+                      subtitle: const Text(
+                        'Safest option: nothing ever appears on your phone lock screen',
+                      ),
+                    ),
+                    RadioListTile<String>(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      value: 'DISCREET_GENERIC_WELLNESS_ALERT',
+                      title: const Text(
+                        'Disguised Wellness Reminder ("New Sakhi Daily Quote")',
+                      ),
+                      subtitle: const Text(
+                        'Never mentions the word "Complaint" or "Report" on lock screen',
+                      ),
+                    ),
+                  ],
                 ),
-                subtitle: const Text(
-                  'Never mentions the word "Complaint" or "Report" on lock screen',
-                ),
-                onChanged: (v) {
-                  if (v != null) {
-                    setState(() => _discreetNotificationMode = v);
-                  }
-                },
               ),
             ],
           ),
@@ -1793,9 +1793,7 @@ class _ComplaintSubmissionWizardScreenState
                 children: [
                   Text(
                     'Complaint Sealed & Submitted',
-                    style: AppTypography.editorialSection.copyWith(
-                      fontSize: 19,
-                    ),
+                    style: AppTypography.sectionTitle.copyWith(fontSize: 19),
                   ),
                   FilledButton.icon(
                     style: FilledButton.styleFrom(
@@ -1817,7 +1815,7 @@ class _ComplaintSubmissionWizardScreenState
                   height: 170,
                   width: double.infinity,
                   child: Image.asset(
-                    AppAssets.m5ReferenceTokenCard,
+                    AppAssets.module5ReferenceTokenCard,
                     fit: BoxFit.cover,
                     errorBuilder: (_, _, _) => Container(
                       color: AppColors.pastelLavender,
@@ -1879,12 +1877,12 @@ class _ComplaintSubmissionWizardScreenState
                     SelectableText(
                       receipt.referenceNumber,
                       key: const Key('m5-receipt-reference-number'),
-                      style: AppTypography.referenceToken,
+                      style: AppTypography.monoToken,
                     ),
                     const SizedBox(height: 6),
                     Text(
                       'Two-Way Reply Passkey: ${receipt.passkey}',
-                      style: AppTypography.technicalToken,
+                      style: AppTypography.monoToken,
                     ),
                     const SizedBox(height: 14),
                     Row(
@@ -1918,10 +1916,7 @@ class _ComplaintSubmissionWizardScreenState
                             ),
                             onPressed: () =>
                                 _showDisguisedWellnessBackupModal(receipt),
-                            icon: const Icon(
-                              Icons.style_rounded,
-                              size: 16,
-                            ),
+                            icon: const Icon(Icons.style_rounded, size: 16),
                             label: const Text('Save Disguised Card'),
                           ),
                         ),
@@ -1978,7 +1973,7 @@ class _ComplaintSubmissionWizardScreenState
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: Text(
           'Camouflaged Wellness Quote Backup Card',
-          style: AppTypography.editorialSection.copyWith(fontSize: 18),
+          style: AppTypography.sectionTitle.copyWith(fontSize: 18),
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -2013,7 +2008,7 @@ class _ComplaintSubmissionWizardScreenState
                   const SizedBox(height: 10),
                   Text(
                     'Daily Reflection Edition • ${receipt.disguisedSerialTag}',
-                    style: AppTypography.technicalHash.copyWith(fontSize: 10.5),
+                    style: AppTypography.monoToken.copyWith(fontSize: 10.5),
                   ),
                 ],
               ),
