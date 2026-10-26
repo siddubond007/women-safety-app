@@ -160,7 +160,7 @@ export class DecentroKycService {
           ? ("local_simulator" as const)
           : ("development_preview" as const),
       message: config
-        ? "Staging credentials, signed-callback secret, and the explicit policy gate are configured. A member is marked verified only after a signature-validated provider result."
+        ? "Decentro staging credentials and the explicit verification policy gate are configured. A member is marked verified only after Sakhi retrieves a successful, correlated e-Aadhaar result directly from Decentro."
         : simulatorEnabled
           ? "The local eligibility simulator is enabled for the loopback development backend only. It is not identity verification."
           : "Provider verification is not enabled. Configure staging secrets and explicitly approve the verification policy; no client-supplied demographic result can mark an account verified.",
@@ -194,7 +194,7 @@ export class DecentroKycService {
       throw new ServiceUnavailableException({
         code: "decentro_not_configured",
         message:
-          "Decentro staging initiation is disabled until staging credentials, the webhook-signature secret, the verification policy gate, and the HTTPS callback URL are configured.",
+          "Decentro staging initiation is disabled until staging client credentials, explicit verification-policy approval, and the HTTPS callback URL are configured.",
       });
     }
 
