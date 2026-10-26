@@ -103,16 +103,20 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
         AuthAccountState.newAccount =>
           '${restoredPrefix}Your local development OTP was accepted. Complete the profile and policy acknowledgement to finish registration.',
         AuthAccountState.pendingVerification =>
-          '${restoredPrefix}Home access is locked until verified. Your account is registered in PostgreSQL as Pending Verification. Open the Super Admin panel (http://127.0.0.1:5173), approve verification for your number, and then tap "Check account state again" below.',
+          '${restoredPrefix}Home access is locked until verified. Complete instant female eligibility verification via Decentro DigiLocker KYC below, or approve your account in the Super Admin panel and tap "Check account state again".',
         AuthAccountState.restricted =>
           '${restoredPrefix}The backend reports this account as restricted. Update its state in Super Admin to restore access.',
       };
     }
     return switch (_accountState) {
-      AuthAccountState.existingAccount => 'The login route has been previewed, but no authenticated session exists. Protected Home remains locked until a configured authentication backend confirms the account.',
-      AuthAccountState.newAccount => 'Continue through the registration steps to complete the profile and required consent.',
-      AuthAccountState.pendingVerification => 'This account state requires follow-up from a configured authentication service before access can be granted.',
-      AuthAccountState.restricted => 'This account state must be resolved by the configured account service.',
+      AuthAccountState.existingAccount =>
+        'The login route has been previewed, but no authenticated session exists. Protected Home remains locked until a configured authentication backend confirms the account.',
+      AuthAccountState.newAccount =>
+        'Continue through the registration steps to complete the profile and required consent.',
+      AuthAccountState.pendingVerification =>
+        'This account state requires follow-up from a configured authentication service before access can be granted.',
+      AuthAccountState.restricted =>
+        'This account state must be resolved by the configured account service.',
     };
   }
 
@@ -140,7 +144,8 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
         );
       } else {
         setState(() {
-          _statusFeedback = 'Still pending verification in PostgreSQL. Verify this member in Super Admin (http://127.0.0.1:5173/verifications), then tap Check again.';
+          _statusFeedback =
+              'Still pending verification in PostgreSQL. Verify via Decentro DigiLocker KYC below or approve this member in the Super Admin portal, then tap Check again.';
         });
       }
     } on AuthServiceException catch (error) {
@@ -176,6 +181,18 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
     );
   }
 
+  Future<void> _openDecentroVerification() async {
+    final verified = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => const DecentroDigilockerVerificationScreen(),
+      ),
+    );
+    if (!mounted) return;
+    if (verified == true) {
+      await _recheckAccountState();
+    }
+  }
+
   Future<void> _signOut() async {
     if (_isSigningOut) return;
     setState(() => _isSigningOut = true);
@@ -184,9 +201,11 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
     try {
       await widget.authService.logout();
     } on AuthServiceException {
-      warning = 'Signed out on this device, but the backend could not confirm server-session revocation.';
+      warning =
+          'Signed out on this device, but the backend could not confirm server-session revocation.';
     } catch (_) {
-      warning = 'Signed out on this device, but the backend could not confirm server-session revocation.';
+      warning =
+          'Signed out on this device, but the backend could not confirm server-session revocation.';
     }
 
     if (!mounted) return;
@@ -199,8 +218,9 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
             final message = warning;
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (loginContext.mounted) {
-                ScaffoldMessenger.maybeOf(loginContext)
-                    ?.showSnackBar(SnackBar(content: Text(message)));
+                ScaffoldMessenger.maybeOf(
+                  loginContext,
+                )?.showSnackBar(SnackBar(content: Text(message)));
               }
             });
           }
@@ -269,6 +289,26 @@ class _SakhiAuthStatusScreenState extends State<SakhiAuthStatusScreen> {
             ),
           ] else ...[
             const SizedBox(height: SakhiSpacing.lg),
+            if (widget.authService.isDevelopmentBackend &&
+                _accountState == AuthAccountState.pendingVerification) ...[
+              FilledButton.icon(
+                key: const Key('auth-status-decentro-kyc-button'),
+                onPressed: _isSigningOut ? null : _openDecentroVerification,
+                icon: const Icon(Icons.verified_user_rounded),
+                label: const Text(
+                  'Verify Female Eligibility (Decentro DigiLocker)',
+                ),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF1E7E55),
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size.fromHeight(52),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(SakhiRadii.control),
+                  ),
+                ),
+              ),
+              const SizedBox(height: SakhiSpacing.sm),
+            ],
             FilledButton.icon(
               key: const Key('auth-status-recheck-button'),
               onPressed: _isCheckingState || _isSigningOut

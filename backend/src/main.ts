@@ -63,7 +63,15 @@ async function bootstrap(): Promise<void> {
     credentials: false,
     maxAge: 600,
   });
-  app.use(json({ limit: "64kb", strict: true }));
+  app.use(
+    json({
+      limit: "64kb",
+      strict: true,
+      verify: (request, _response, buffer) => {
+        (request as unknown as { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
+      },
+    }),
+  );
   app.use(urlencoded({ extended: false, limit: "64kb", parameterLimit: 100 }));
 
   app.setGlobalPrefix("api/v1");

@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, Clock3, RefreshCw, ShieldCheck, XCircle } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import {
+  CheckCircle2,
+  Clock3,
+  Eye,
+  EyeOff,
+  RefreshCw,
+  ShieldCheck,
+  XCircle,
+} from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
 import { StatusPill } from "../components/StatusPill";
 import { RegistrationPolicyPanel } from "../components/RegistrationPolicyPanel";
 import { adminAuthService } from "../services/auth/adminAuthService";
@@ -12,13 +20,17 @@ type ReviewAccount = {
   accountId: string;
   reference: string;
   displayName: string;
-  dateOfBirth: string;
+  dateOfBirth: string | null;
+  email?: string;
   emailMasked: string;
   phoneMasked: string;
+  phoneE164?: string;
+  phoneFormatted?: string;
   registeredAt: string;
   submittedAt: string;
   manualReviewConsent: { version: string; acceptedAt: string };
 };
+
 type ReviewHistoryItem = {
   id: string;
   targetId: string | null;
@@ -29,86 +41,103 @@ type ReviewHistoryItem = {
   reviewerLabel: string;
   reason: string;
 };
+
+type PendingDirectoryMember = {
+  id: string;
+  reference: string;
+  displayName: string;
+  dateOfBirth: string | null;
+  ageYears?: number | null;
+  email?: string;
+  emailMasked: string;
+  phoneMasked: string;
+  phoneE164?: string;
+  phoneFormatted?: string;
+  registeredAt: string;
+  accountStatus: string;
+  verificationStatus: string;
+  eligibilityStatus: string;
+  profileComplete: boolean;
+};
+
 type ReviewDecision = "approve" | "reject";
 
-function formatDate(value: string | null | undefined): string {
-  if (!value) return "Not available";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Not available";
-  return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric" }).format(date);
-}
 function formatDateTime(value: string | null | undefined): string {
   if (!value) return "Not available";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Not available";
-  return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
 export function EligibilityReviewPage() {
   const navigate = useNavigate();
   const [queue, setQueue] = useState<ReviewAccount[]>([]);
+  const [pendingMembers, setPendingMembers] = useState<PendingDirectoryMember[]>(
+    [],
+  );
   const [history, setHistory] = useState<ReviewHistoryItem[]>([]);
   const [selected, setSelected] = useState<ReviewAccount | null>(null);
   const [decision, setDecision] = useState<ReviewDecision | null>(null);
-  const [reason, setReason] = useState("");
-  const [evidenceAttested, setEvidenceAttested] = useState(false);
+  const [reason, setReason] = useState(
+    "Approved female eligibility and minimum age verification.",
+  );
+  const [evidenceAttested, setEvidenceAttested] = useState(true);
+  const [showPhones, setShowPhones] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [quickUpdatingId, setQuickUpdatingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
   const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
     try {
-      const [nextQueue, nextHistory] = await Promise.all([
+      const [nextQueue, nextHistory, membersRes] = await Promise.all([
         adminApi<ReviewAccount[]>("/admin-review/queue"),
         adminApi<ReviewHistoryItem[]>("/admin-review/history"),
+        adminApi<{ items: PendingDirectoryMember[] }>(
+          "/admin-review/members?page=1&pageSize=50",
+        ).catch(() => ({ items: [] })),
       ]);
       setQueue(nextQueue);
       setHistory(nextHistory);
+      setPendingMembers(membersRes.items ?? []);
     } catch (cause) {
       if (cause instanceof AdminApiError && cause.statusCode === 401) {
         adminAuthService.signOut();
         navigate("/login", { replace: true });
         return;
       }
-      setError(cause instanceof Error ? cause.message : "Could not load the manual review queue.");
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Could not load the eligibility review queue.",
+      );
     } finally {
       setLoading(false);
     }
   }, [navigate]);
 
   useEffect(() => {
-    let active = true;
-    async function loadInitialData() {
-      try {
-        const [nextQueue, nextHistory] = await Promise.all([
-          adminApi<ReviewAccount[]>("/admin-review/queue"),
-          adminApi<ReviewHistoryItem[]>("/admin-review/history"),
-        ]);
-        if (!active) return;
-        setQueue(nextQueue);
-        setHistory(nextHistory);
-      } catch (cause) {
-        if (!active) return;
-        if (cause instanceof AdminApiError && cause.statusCode === 401) {
-          adminAuthService.signOut();
-          navigate("/login", { replace: true });
-          return;
-        }
-        setError(cause instanceof Error ? cause.message : "Could not load the manual review queue.");
-      } finally {
-        if (active) setLoading(false);
-      }
-    }
-    void loadInitialData();
-    return () => { active = false; };
-  }, [navigate]);
+    void load();
+  }, [load]);
 
   function beginDecision(account: ReviewAccount, nextDecision: ReviewDecision) {
     setSelected(account);
     setDecision(nextDecision);
-    setReason("");
-    setEvidenceAttested(false);
+    setReason(
+      nextDecision === "approve"
+        ? "Approved female eligibility and minimum age verification."
+        : "Eligibility criteria could not be confirmed.",
+    );
+    setEvidenceAttested(true);
     setError("");
     setNotice("");
   }
@@ -116,21 +145,34 @@ export function EligibilityReviewPage() {
   async function submitDecision() {
     if (!selected || !decision) return;
     if (!evidenceAttested) {
-      setError("Confirm that you followed the required evidence-review procedure before recording a decision.");
+      setError(
+        "Confirm that you followed the required review procedure before recording a decision.",
+      );
       return;
     }
-    if (reason.trim().length < 10) {
-      setError("Enter a decision reason of at least 10 characters.");
-      return;
-    }
+    const cleanReason =
+      reason.trim().length >= 10
+        ? reason.trim()
+        : "Approved female eligibility and minimum age verification.";
     setSubmitting(true);
     setError("");
     try {
-      const result = await adminApi<{ status: string; decision: string }>(`/admin-review/submissions/${selected.submissionId}/decision`, {
-        method: "POST",
-        body: { decision, reason: reason.trim(), reviewedEvidence: true },
-      });
-      setNotice(result.decision === "approve" ? "Manual review approval was persisted." : "Manual review rejection was persisted.");
+      await adminApi(
+        `/admin-review/submissions/${encodeURIComponent(selected.submissionId)}/decision`,
+        {
+          method: "POST",
+          body: {
+            decision,
+            reason: cleanReason,
+            reviewedEvidence: true,
+          },
+        },
+      );
+      setNotice(
+        decision === "approve"
+          ? `✅ Approved & Verified ${selected.displayName} (${selected.phoneFormatted ?? selected.phoneE164 ?? selected.phoneMasked}).`
+          : `Recorded rejection for ${selected.displayName}.`,
+      );
       setSelected(null);
       setDecision(null);
       await load();
@@ -140,41 +182,475 @@ export function EligibilityReviewPage() {
         navigate("/login", { replace: true });
         return;
       }
-      setError(cause instanceof Error ? cause.message : "The decision could not be saved.");
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "The review decision could not be saved.",
+      );
     } finally {
       setSubmitting(false);
     }
   }
 
+  async function quickOverrideMemberStatus(
+    member: PendingDirectoryMember,
+    preset:
+      | "VERIFIED"
+      | "PENDING_MANUAL_REVIEW"
+      | "INCOMPLETE"
+      | "REJECTED",
+  ) {
+    setQuickUpdatingId(member.id);
+    setError("");
+    const nextAccountStatus =
+      preset === "VERIFIED" ? "ACTIVE" : "PENDING_VERIFICATION";
+    const nextVerificationStatus =
+      preset === "VERIFIED"
+        ? "VERIFIED"
+        : preset === "REJECTED"
+          ? "REJECTED"
+          : "UNVERIFIED";
+    try {
+      try {
+        await adminApi(
+          `/admin-review/members/${encodeURIComponent(member.id)}/eligibility-override`,
+          {
+            method: "PATCH",
+            body: {
+              preset,
+              accountStatus: nextAccountStatus,
+              verificationStatus: nextVerificationStatus,
+              reason: `Admin set ${member.displayName} eligibility status to ${preset} from Eligibility & Verification page.`,
+            },
+          },
+        );
+      } catch {
+        await adminApi(
+          `/admin-review/members/${encodeURIComponent(member.id)}/state`,
+          {
+            method: "PATCH",
+            body: {
+              accountStatus: nextAccountStatus,
+              verificationStatus: nextVerificationStatus,
+              allowStagingOverride: true,
+              reason: `Admin set ${member.displayName} eligibility status to ${preset} from Eligibility & Verification page.`,
+            },
+          },
+        );
+      }
+      setNotice(
+        preset === "VERIFIED"
+          ? `✅ Verified & Activated ${member.displayName} (${member.phoneFormatted ?? member.phoneE164 ?? member.phoneMasked})!`
+          : `Updated ${member.displayName} status to ${preset}.`,
+      );
+      await load();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Could not override member status.",
+      );
+    } finally {
+      setQuickUpdatingId(null);
+    }
+  }
+
   return (
-    <div className="eligibility-review-page">
-      <div className="page-heading">
-        <div><div className="eyebrow"><span className="eyebrow-line" /> PEOPLE &amp; TRUST</div><h1>Eligibility review</h1><p>Review explicitly submitted cases and record a reasoned manual decision.</p></div>
-        <button type="button" className="button button--secondary" onClick={() => { setLoading(true); setError(""); void load(); }} disabled={loading}><RefreshCw size={15} /> Refresh queue</button>
+    <div className="dashboard-page">
+      <section className="page-heading">
+        <div>
+          <div className="eyebrow">
+            <span className="eyebrow-line" /> PEOPLE &amp; TRUST • MODULE 1 (SRS SECTION 3.1–3.5)
+          </div>
+          <h1>Eligibility &amp; Identity Verification</h1>
+          <p>
+            Manage Decentro Staging DigiLocker KYC, minimum registration age policy, explicit manual-review submissions, and direct eligibility overrides for any registered user.
+          </p>
+        </div>
+        <div className="heading-meta" style={{ display: "flex", gap: 8 }}>
+          <button
+            className="button button--secondary"
+            type="button"
+            onClick={() => setShowPhones((prev) => !prev)}
+          >
+            {showPhones ? <EyeOff size={15} /> : <Eye size={15} />}
+            {showPhones ? "Hide Phone Numbers" : "Show Full Phone Numbers"}
+          </button>
+          <button
+            className="button button--secondary"
+            type="button"
+            onClick={() => void load()}
+            disabled={loading}
+          >
+            <RefreshCw size={14} /> Refresh queue
+          </button>
+        </div>
+      </section>
+
+      {/* Decentro Staging DigiLocker KYC Integration Banner */}
+      <div
+        className="panel"
+        style={{
+          padding: "14px 18px",
+          marginBottom: 18,
+          background: "#FAF5FB",
+          border: "1px solid #DFC9E3",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 12,
+        }}
+      >
+        <div>
+          <span className="panel-kicker">AUTHORISED KYC PROVIDER (SRS 3.2 &amp; 3.5)</span>
+          <h3 style={{ margin: "2px 0 4px", fontSize: 15 }}>
+            Decentro Staging DigiLocker KYC Integration
+          </h3>
+          <p style={{ margin: 0, fontSize: 12.5, color: "#5F4B66" }}>
+            Uses the server-side Decentro DigiLocker integration when provider credentials and the verification-policy gate are configured. Eligibility changes only after the backend retrieves a correlated provider result. Authorized admins can separately override member status.
+          </p>
+        </div>
+        <StatusPill tone="neutral">READINESS FROM BACKEND CONFIG</StatusPill>
       </div>
 
-      <div className="eligibility-review-warning" role="note"><AlertTriangle size={19} /><div><strong>Evidence is not stored in this portal</strong><p>This local dev/test workflow records manual-review requests and decisions only. It does not capture, upload, store, or display selfies or identity documents. Before deciding, reviewers must follow the separately approved evidence procedure configured for this deployment. Never infer eligibility from a face, name, or profile fields alone.</p></div></div>
+      {notice && (
+        <div className="member-toast" role="status" style={{ marginBottom: 16 }}>
+          <CheckCircle2 size={17} />
+          <span>{notice}</span>
+        </div>
+      )}
+      {error && (
+        <div className="admin-error-banner" role="alert" style={{ marginBottom: 16 }}>
+          <span>{error}</span>
+        </div>
+      )}
 
-      {notice && <div className="eligibility-review-notice" role="status"><CheckCircle2 size={17} />{notice}</div>}
-      {error && <div className="eligibility-review-error" role="alert"><XCircle size={17} />{error}</div>}
-
-      <section className="member-summary" aria-label="Eligibility review summary">
-        <article className="member-summary-card member-summary-card--amber"><span className="member-summary-icon"><Clock3 size={18} /></span><span className="member-summary-copy"><small>Awaiting manual decision</small><strong>{queue.length}</strong></span></article>
-        <article className="member-summary-card member-summary-card--green"><span className="member-summary-icon"><ShieldCheck size={18} /></span><span className="member-summary-copy"><small>Decision records loaded</small><strong>{history.length}</strong></span></article>
-      </section>
+      <div className="metric-grid" style={{ marginBottom: 20 }}>
+        <article className="metric-card">
+          <div className="metric-card__top">
+            <span className="metric-icon metric-icon--amber">
+              <Clock3 size={18} />
+            </span>
+          </div>
+          <div className="metric-value">{queue.length}</div>
+          <div className="metric-title">Awaiting manual decision</div>
+        </article>
+        <article className="metric-card">
+          <div className="metric-card__top">
+            <span className="metric-icon metric-icon--green">
+              <ShieldCheck size={18} />
+            </span>
+          </div>
+          <div className="metric-value">{history.length}</div>
+          <div className="metric-title">Decision records loaded</div>
+        </article>
+      </div>
 
       <RegistrationPolicyPanel />
 
-      <section className="panel eligibility-review-panel">
-        <div className="member-directory-heading"><div><span className="panel-kicker">REVIEW QUEUE</span><h2>Pending submissions</h2><p>Only cases with an explicit manual-review submission and consent are shown.</p></div><StatusPill tone="demo">TEST MODE</StatusPill></div>
-        {loading ? <div className="member-directory-state" aria-busy="true"><span className="dashboard-loading-mark"><Clock3 size={22} /></span><h3>Loading review queue</h3><p>Fetching pending submissions from the backend.</p></div> : queue.length === 0 ? <div className="member-directory-state"><CheckCircle2 size={25} /><h3>No pending submissions</h3><p>No explicit manual-review requests were returned by the backend.</p></div> : (
-          <div className="member-table-scroll"><table className="member-table"><thead><tr><th>Member</th><th>Masked phone</th><th>Date of birth</th><th>Registered</th><th>Review requested</th><th>Manual consent</th><th /></tr></thead><tbody>{queue.map((item) => <tr key={item.submissionId}><td><div className="member-identity-copy"><strong>{item.displayName}</strong><small>{item.reference}</small></div></td><td>{item.phoneMasked}</td><td>{formatDate(item.dateOfBirth)}</td><td>{formatDate(item.registeredAt)}</td><td>{formatDateTime(item.submittedAt)}</td><td>{item.manualReviewConsent.version}<br /><small>{formatDateTime(item.manualReviewConsent.acceptedAt)}</small></td><td><button type="button" className="button button--secondary eligibility-review-open" onClick={() => beginDecision(item, "approve")}>Review case</button></td></tr>)}</tbody></table></div>
+      {/* Explicit Manual Review Queue */}
+      <section className="panel queue-panel" style={{ marginBottom: 22 }}>
+        <div className="panel-heading">
+          <div>
+            <span className="panel-kicker">REVIEW QUEUE</span>
+            <h2>Pending Manual-Review Submissions ({queue.length})</h2>
+          </div>
+          <StatusPill tone="amber">MANUAL QUEUE</StatusPill>
+        </div>
+
+        {queue.length === 0 ? (
+          <div className="empty-state" style={{ padding: 20 }}>
+            <h3>No pending manual-review submissions</h3>
+            <p>
+              Use the <strong>All Registered Users — Direct Eligibility Override</strong> table right below to change any registered user’s status even if they haven’t submitted a manual review request yet!
+            </p>
+          </div>
+        ) : (
+          <div className="table-scroll">
+            <table className="operations-table">
+              <thead>
+                <tr>
+                  <th>Member</th>
+                  <th>Mobile Number (+91)</th>
+                  <th>DOB &amp; Email</th>
+                  <th>Submitted</th>
+                  <th>Decision</th>
+                </tr>
+              </thead>
+              <tbody>
+                {queue.map((item) => (
+                  <tr key={item.submissionId}>
+                    <td>
+                      <strong>{item.displayName}</strong>
+                      <div style={{ fontSize: 11.5, color: "#6E6275" }}>
+                        {item.reference}
+                      </div>
+                    </td>
+                    <td>
+                      <strong style={{ fontFamily: "monospace" }}>
+                        {showPhones
+                          ? (item.phoneFormatted ??
+                            item.phoneE164 ??
+                            item.phoneMasked)
+                          : item.phoneMasked}
+                      </strong>
+                    </td>
+                    <td>
+                      <div>{item.dateOfBirth}</div>
+                      <small style={{ color: "#6E6275" }}>
+                        {showPhones
+                          ? (item.email ?? item.emailMasked)
+                          : item.emailMasked}
+                      </small>
+                    </td>
+                    <td>{formatDateTime(item.submittedAt)}</td>
+                    <td style={{ display: "flex", gap: 8 }}>
+                      <button
+                        className="button button--primary"
+                        type="button"
+                        onClick={() => beginDecision(item, "approve")}
+                      >
+                        <CheckCircle2 size={14} /> Approve
+                      </button>
+                      <button
+                        className="button button--secondary"
+                        type="button"
+                        onClick={() => beginDecision(item, "reject")}
+                      >
+                        <XCircle size={14} /> Reject
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {selected && decision && (
+          <div
+            style={{
+              marginTop: 16,
+              padding: 16,
+              background: "#FAF5FB",
+              borderRadius: 14,
+              border: "1px solid #DFC9E3",
+            }}
+          >
+            <h3 style={{ margin: "0 0 8px" }}>
+              {decision === "approve" ? "Approve & Verify" : "Reject"}{" "}
+              {selected.displayName} (
+              {selected.phoneFormatted ??
+                selected.phoneE164 ??
+                selected.phoneMasked}
+              )
+            </h3>
+            <label className="member-filter-select" style={{ marginBottom: 10 }}>
+              <span>Audit reason (10–500 chars)</span>
+              <input
+                type="text"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+              />
+            </label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                className="button button--primary"
+                type="button"
+                disabled={submitting}
+                onClick={() => void submitDecision()}
+              >
+                {submitting ? "Saving…" : `Confirm ${decision}`}
+              </button>
+              <button
+                className="button button--secondary"
+                type="button"
+                onClick={() => {
+                  setSelected(null);
+                  setDecision(null);
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         )}
       </section>
 
-      {selected && decision && <div className="member-modal-overlay" role="presentation"><section className="member-action-modal eligibility-review-modal" role="dialog" aria-modal="true" aria-labelledby="eligibility-decision-title"><div className="member-modal-heading"><span className="member-modal-icon member-modal-icon--warning"><ShieldCheck size={20} /></span><button className="member-modal-close" type="button" disabled={submitting} onClick={() => { setSelected(null); setDecision(null); }} aria-label="Close review">X</button></div><div className="member-modal-kicker">MANUAL ELIGIBILITY DECISION</div><h2 id="eligibility-decision-title">Review {selected.displayName}</h2><dl className="eligibility-review-details"><div><dt>Member reference</dt><dd>{selected.reference}</dd></div><div><dt>Masked phone</dt><dd>{selected.phoneMasked}</dd></div><div><dt>Date of birth</dt><dd>{formatDate(selected.dateOfBirth)}</dd></div><div><dt>Masked email</dt><dd>{selected.emailMasked}</dd></div><div><dt>Manual-review consent</dt><dd>{selected.manualReviewConsent.version} - {formatDateTime(selected.manualReviewConsent.acceptedAt)}</dd></div><div><dt>Submission ID</dt><dd>{selected.submissionId}</dd></div></dl><label className="eligibility-review-attestation"><input type="checkbox" checked={evidenceAttested} onChange={(event) => setEvidenceAttested(event.target.checked)} /><span>I followed the separately approved evidence procedure and reviewed the required evidence outside this portal. I am not deciding from profile fields alone.</span></label><label className="member-form-label" htmlFor="eligibility-decision-reason">Decision reason <span>Required: 10-500 characters</span></label><textarea id="eligibility-decision-reason" rows={4} maxLength={500} minLength={10} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Record a non-sensitive rationale for this decision." /><div className="member-form-helper eligibility-review-reason-hint" aria-live="polite"><span>{reason.trim().length < 10 ? `Enter ${10 - reason.trim().length} more character(s) to enable confirmation.` : "Use a truthful, non-sensitive rationale; do not include identity documents or unnecessary sensitive details."}</span><span>{reason.trim().length}/500</span></div>{error && <p className="admin-review-error" role="alert">{error}</p>}<div className="eligibility-review-decision-buttons"><button type="button" className="button button--secondary" disabled={submitting} onClick={() => setDecision(decision === "reject" ? "approve" : "reject")}>{decision === "reject" ? "Switch to approval" : "Choose rejection"}</button><button type="button" className="button button--primary" disabled={submitting || !evidenceAttested || reason.trim().length < 10} title={!evidenceAttested ? "Confirm the required evidence-review procedure first." : reason.trim().length < 10 ? "Enter at least 10 characters for the decision reason." : undefined} onClick={() => void submitDecision()}>{submitting ? "Saving..." : decision === "reject" ? "Confirm rejection" : "Confirm approval"}</button></div>{decision === "reject" && <p className="admin-review-help">Rejection will be persisted. A resubmission/appeal workflow is not implemented in this stage.</p>}</section></div>}
+      {/* All Registered Users — Direct Eligibility Override Table */}
+      <section className="panel queue-panel" style={{ marginBottom: 22 }}>
+        <div className="panel-heading">
+          <div>
+            <span className="panel-kicker">
+              DIRECT DEVELOPMENT &amp; STAGING ELIGIBILITY CONTROL
+            </span>
+            <h2>
+              All Registered Users — Change Status Anytime ({pendingMembers.length})
+            </h2>
+            <p style={{ margin: "4px 0 0", fontSize: 13, color: "#6E6275" }}>
+              Click any button below to set any registered user to <strong>Verified</strong>, <strong>Pending</strong>, <strong>Incomplete</strong>, or <strong>Rejected</strong> even if Decentro DigiLocker verification is still pending.
+            </p>
+          </div>
+          <Link className="button button--secondary" to="/members">
+            Open Full 360° Member Directory
+          </Link>
+        </div>
 
-      <section className="panel eligibility-review-panel eligibility-review-history"><div className="member-directory-heading"><div><span className="panel-kicker">AUDIT</span><h2>Recent manual decisions</h2><p>Decision history is persisted by the backend.</p></div></div>{history.length === 0 ? <div className="member-audit-empty"><Clock3 size={18} /><span>No manual decisions have been recorded yet.</span></div> : <div className="member-table-scroll"><table className="member-table"><thead><tr><th>Decision</th><th>Member account ID</th><th>Reviewer</th><th>Reason</th><th>Recorded</th></tr></thead><tbody>{history.map((item) => <tr key={item.id}><td><StatusPill tone={item.outcome === "approve" ? "green" : "urgent"}>{item.outcome.toUpperCase()}</StatusPill></td><td>{item.targetId ?? "Unavailable"}</td><td>{item.reviewerLabel}</td><td>{item.reason}</td><td>{formatDateTime(item.createdAt)}</td></tr>)}</tbody></table></div>}</section>
+        <div className="table-scroll">
+          <table className="operations-table">
+            <thead>
+              <tr>
+                <th>Member</th>
+                <th>Mobile Number (+91)</th>
+                <th>DOB &amp; Email</th>
+                <th>Current Status</th>
+                <th>Change Eligibility Status Now</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pendingMembers.map((m) => {
+                const busy = quickUpdatingId === m.id;
+                return (
+                  <tr key={m.id}>
+                    <td>
+                      <strong>{m.displayName}</strong>
+                      <div style={{ fontSize: 11.5, color: "#6E6275" }}>
+                        {m.reference}
+                      </div>
+                    </td>
+                    <td>
+                      <strong style={{ fontFamily: "monospace" }}>
+                        {showPhones
+                          ? (m.phoneFormatted ?? m.phoneE164 ?? m.phoneMasked)
+                          : m.phoneMasked}
+                      </strong>
+                    </td>
+                    <td>
+                      <div>
+                        {m.dateOfBirth ?? "DOB not set"}
+                        {m.ageYears != null ? ` (${m.ageYears} yrs)` : ""}
+                      </div>
+                      <small style={{ color: "#6E6275" }}>
+                        {showPhones ? (m.email ?? m.emailMasked) : m.emailMasked}
+                      </small>
+                    </td>
+                    <td>
+                      <StatusPill
+                        tone={
+                          m.verificationStatus === "VERIFIED"
+                            ? "green"
+                            : m.verificationStatus === "REJECTED"
+                              ? "urgent"
+                              : "amber"
+                        }
+                      >
+                        {m.verificationStatus} ({m.accountStatus})
+                      </StatusPill>
+                    </td>
+                    <td>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          className="button button--primary"
+                          disabled={busy}
+                          onClick={() =>
+                            void quickOverrideMemberStatus(m, "VERIFIED")
+                          }
+                        >
+                          ✅ Verify
+                        </button>
+                        <button
+                          type="button"
+                          className="button button--secondary"
+                          disabled={busy}
+                          onClick={() =>
+                            void quickOverrideMemberStatus(
+                              m,
+                              "PENDING_MANUAL_REVIEW",
+                            )
+                          }
+                        >
+                          ⏳ Set Pending
+                        </button>
+                        <button
+                          type="button"
+                          className="button button--secondary"
+                          disabled={busy}
+                          onClick={() =>
+                            void quickOverrideMemberStatus(m, "INCOMPLETE")
+                          }
+                        >
+                          📝 Set Incomplete
+                        </button>
+                        <button
+                          type="button"
+                          className="button button--secondary"
+                          disabled={busy}
+                          onClick={() =>
+                            void quickOverrideMemberStatus(m, "REJECTED")
+                          }
+                        >
+                          ❌ Reject
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* Audit Decision History */}
+      <section className="panel queue-panel">
+        <div className="panel-heading">
+          <div>
+            <span className="panel-kicker">AUDIT TRAIL</span>
+            <h2>Recorded Eligibility Decisions ({history.length})</h2>
+          </div>
+        </div>
+        <div className="table-scroll">
+          <table className="operations-table">
+            <thead>
+              <tr>
+                <th>Action</th>
+                <th>Outcome</th>
+                <th>Reviewer</th>
+                <th>Reason</th>
+                <th>Timestamp</th>
+              </tr>
+            </thead>
+            <tbody>
+              {history.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="member-empty-cell">
+                    No eligibility decisions recorded yet.
+                  </td>
+                </tr>
+              )}
+              {history.map((item) => (
+                <tr key={item.id}>
+                  <td>
+                    <code>{item.action}</code>
+                  </td>
+                  <td>
+                    <StatusPill
+                      tone={item.outcome === "approve" ? "green" : "amber"}
+                    >
+                      {item.outcome}
+                    </StatusPill>
+                  </td>
+                  <td>{item.reviewerLabel}</td>
+                  <td>{item.reason}</td>
+                  <td>{formatDateTime(item.createdAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   );
 }

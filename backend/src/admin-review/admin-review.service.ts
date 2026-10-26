@@ -468,6 +468,7 @@ export class AdminReviewService {
         phone.length <= 4
           ? "****"
           : `${"*".repeat(Math.max(0, phone.length - 4))}${phone.slice(-4)}`;
+      const revealFullPii = this.canRevealFullMemberPii(token);
       return [
         {
           id: submission.id,
@@ -475,12 +476,13 @@ export class AdminReviewService {
           accountId: account.id,
           reference: `SK-${account.id.slice(0, 8).toUpperCase()}`,
           displayName: account.profile.displayName,
-          dateOfBirth: account.profile.dateOfBirth.toISOString().slice(0, 10),
+          dateOfBirth: revealFullPii ? account.profile.dateOfBirth.toISOString().slice(0, 10) : null,
           emailMasked: account.profile.email
             ? this.maskEmail(account.profile.email)
             : "Not provided",
+          email: revealFullPii ? account.profile.email : undefined,
           phoneMasked,
-          phoneE164: phone,
+          phoneE164: revealFullPii ? phone : phoneMasked,
           registeredAt: account.createdAt.toISOString(),
           submittedAt: submission.submittedAt.toISOString(),
           manualReviewConsent: {
@@ -550,6 +552,42 @@ export class AdminReviewService {
     });
   }
 
+  private assertFullAdminMemberControl(token?: string): string {
+    const reviewerLabel = this.assertReviewer(token);
+    if (
+      process.env.NODE_ENV === "production" &&
+      process.env.SAKHI_ENV === "staging"
+    ) {
+      if (!this.stagingFullAdminEnabled()) {
+        throw new ForbiddenException(
+          "Member PII visibility and eligibility overrides require an explicitly enabled staging full-admin session.",
+        );
+      }
+      return StagingTestAdminService.assertFullAdminSessionToken(token);
+    }
+    this.assertDevelopmentMemberOverrides();
+    return reviewerLabel;
+  }
+
+  private canRevealFullMemberPii(token?: string): boolean {
+    if (
+      process.env.NODE_ENV === "production" &&
+      process.env.SAKHI_ENV === "staging"
+    ) {
+      if (!this.stagingFullAdminEnabled()) return false;
+      try {
+        StagingTestAdminService.assertFullAdminSessionToken(token);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return (
+      process.env.NODE_ENV !== "production" &&
+      ["dev", "test"].includes(process.env.SAKHI_ENV ?? "dev") &&
+      (process.env.HOST ?? "127.0.0.1") === "127.0.0.1"
+    );
+  }
   private assertMemberDirectoryAccess(): void {
     if (this.stagingAdminReviewEnabled() || this.stagingFullAdminEnabled()) {
       return;
@@ -707,11 +745,13 @@ export class AdminReviewService {
           id: account.id,
           reference: `SK-${account.id.slice(0, 8).toUpperCase()}`,
           displayName: account.profile?.displayName ?? "Profile incomplete",
-          dateOfBirth:
-            account.profile?.dateOfBirth.toISOString().slice(0, 10) ?? null,
+          dateOfBirth: this.canRevealFullMemberPii(token)
+            ? (account.profile?.dateOfBirth.toISOString().slice(0, 10) ?? null)
+            : null,
           emailMasked: this.maskedMemberEmail(account.profile?.email ?? null),
           phoneMasked: this.maskedPhone(account.phoneE164),
-          phoneE164: account.phoneE164,
+          phoneE164: this.canRevealFullMemberPii(token) ? account.phoneE164 : this.maskedPhone(account.phoneE164),
+          email: this.canRevealFullMemberPii(token) ? (account.profile?.email ?? null) : undefined,
           registeredAt: account.createdAt.toISOString(),
           lastActiveAt: account.sessions[0]?.lastSeenAt?.toISOString() ?? null,
           accountStatus: account.status,
@@ -2129,5 +2169,296 @@ export class AdminReviewService {
       },
     });
     return updated;
+  }
+  async getMember360Detail(accountId: string, token?: string) {
+    this.assertFullAdminMemberControl(token);
+    const account = await this.prisma.memberAccount.findUnique({
+      where: { id: accountId },
+      include: {
+        profile: true,
+        consents: { orderBy: { acceptedAt: "desc" }, include: { termsVersion: { select: { version: true } }, privacyVersion: { select: { version: true } } } },
+        eligibilitySubmissions: { orderBy: { submittedAt: "desc" } },
+        sessions: { orderBy: { createdAt: "desc" }, take: 5 },
+        communicationPreference: true,
+      },
+    });
+    if (!account) {
+      throw new NotFoundException("Member account was not found.");
+    }
+    const [postsCount, commentsCount, contactsCount, sosCount, auditEvents] =
+      await Promise.all([
+        this.prisma.communityPost
+          .count({ where: { authorAccountId: accountId } })
+          .catch(() => 0),
+        this.prisma.communityPostComment
+          .count({ where: { accountId } })
+          .catch(() => 0),
+        this.prisma.safetyEmergencyContact
+          .count({ where: { accountId } })
+          .catch(() => 0),
+        this.prisma.safetySosEvent
+          .count({ where: { accountId } })
+          .catch(() => 0),
+        this.prisma.auditEvent
+          .findMany({
+            where: {
+              OR: [{ actorId: accountId }, { targetId: accountId }],
+            },
+            orderBy: { createdAt: "desc" },
+            take: 15,
+          })
+          .catch(() => []),
+      ]);
+
+    const phone = account.phoneE164;
+    const phoneFormatted =
+      phone.startsWith("+91") && phone.length === 13
+        ? `+91 ${phone.slice(3, 8)} ${phone.slice(8)}`
+        : phone;
+    const dobIso = account.profile?.dateOfBirth
+      ? account.profile.dateOfBirth.toISOString().slice(0, 10)
+      : null;
+    const ageYears = account.profile?.dateOfBirth
+      ? Math.floor(
+          (Date.now() - account.profile.dateOfBirth.getTime()) /
+            (365.25 * 24 * 3600 * 1000),
+        )
+      : null;
+    const latestSubmission = account.eligibilitySubmissions[0] ?? null;
+
+    return {
+      id: account.id,
+      reference: `SK-${account.id.slice(0, 8).toUpperCase()}`,
+      phoneE164: phone,
+      phoneFormatted,
+      phoneMasked: this.maskedPhone(phone),
+      email: account.profile?.email ?? "Not provided",
+      emailMasked: this.maskedMemberEmail(account.profile?.email ?? null),
+      displayName: account.profile?.displayName ?? "Profile incomplete",
+      username: account.profile?.username ?? null,
+      dateOfBirth: dobIso,
+      ageYears,
+      bio: account.profile?.bio ?? null,
+      locationCity: account.profile?.location ?? null,
+      interests: account.profile?.interests ?? [],
+      avatarAsset: account.profile?.avatarAsset ?? null,
+      twoFactorEnabled: account.profile?.twoFactorEnabled ?? false,
+      accountStatus: account.status,
+      verificationStatus: account.verificationStatus,
+      eligibilityStatus: latestSubmission?.status ?? account.verificationStatus,
+      profileComplete: Boolean(account.profile),
+      registeredAt: account.createdAt.toISOString(),
+      updatedAt: account.updatedAt.toISOString(),
+      consents: account.consents.map((c) => ({
+        id: c.id,
+        termsVersion: c.termsVersion?.version ?? null,
+        privacyVersion: c.privacyVersion?.version ?? null,
+        optionalUpdatesAccepted: account.communicationPreference?.productUpdatesAccepted ?? false,
+        acceptedAt: c.acceptedAt.toISOString(),
+      })),
+      eligibilitySubmissions: account.eligibilitySubmissions.map((s) => ({
+        id: s.id,
+        status: s.status,
+        consentVersion: s.consentVersion,
+        submittedAt: s.submittedAt.toISOString(),
+        reviewedAt: s.reviewedAt?.toISOString() ?? null,
+        reviewerLabel: s.reviewerLabel ?? null,
+        decisionReason: s.decisionReason ?? null,
+      })),
+      sessions: account.sessions.map((sess) => ({
+        id: sess.id,
+        createdAt: sess.createdAt.toISOString(),
+        lastSeenAt: sess.lastSeenAt?.toISOString() ?? null,
+        revokedAt: sess.revokedAt?.toISOString() ?? null,
+      })),
+      counts: {
+        postsCount,
+        commentsCount,
+        emergencyContactsCount: contactsCount,
+        sosEventsCount: sosCount,
+      },
+      auditEvents: auditEvents.map((ev) => ({
+        id: ev.id,
+        actorType: ev.actorType,
+        action: ev.action,
+        targetType: ev.targetType,
+        outcome: ev.outcome,
+        createdAt: ev.createdAt.toISOString(),
+      })),
+    };
+  }
+
+  async overrideMemberEligibilityAndState(
+    accountId: string,
+    body: Record<string, unknown>,
+    token?: string,
+  ) {
+    const reviewerLabel = this.assertFullAdminMemberControl(token);
+
+    const preset = String(body.preset ?? body.eligibilityStatus ?? "").trim().toUpperCase();
+    const rawAccountStatus = String(body.accountStatus ?? "").trim().toUpperCase();
+    const rawVerificationStatus = String(body.verificationStatus ?? "").trim().toUpperCase();
+    const rawReason = String(
+      body.reason ?? "Admin eligibility and account status override from Super Admin portal.",
+    ).trim();
+    const reason =
+      rawReason.length >= 10
+        ? rawReason.slice(0, 500)
+        : "Admin eligibility and account status override from Super Admin portal.";
+
+    let nextAccountStatus: "PENDING_VERIFICATION" | "ACTIVE" | "RESTRICTED" | "SUSPENDED" | "DELETED" =
+      "ACTIVE";
+    let nextVerificationStatus: "UNVERIFIED" | "VERIFIED" | "REJECTED" = "VERIFIED";
+    let nextSubmissionStatus: "APPROVED" | "PENDING_MANUAL_REVIEW" | "REJECTED" =
+      "APPROVED";
+
+    if (preset === "VERIFIED" || preset === "APPROVED") {
+      nextAccountStatus = "ACTIVE";
+      nextVerificationStatus = "VERIFIED";
+      nextSubmissionStatus = "APPROVED";
+    } else if (
+      preset === "PENDING" ||
+      preset === "PENDING_MANUAL_REVIEW" ||
+      preset === "VERIFICATION_IN_PROGRESS"
+    ) {
+      nextAccountStatus = "PENDING_VERIFICATION";
+      nextVerificationStatus = "UNVERIFIED";
+      nextSubmissionStatus = "PENDING_MANUAL_REVIEW";
+    } else if (
+      preset === "INCOMPLETE" ||
+      preset === "UNVERIFIED" ||
+      preset === "NOT_VERIFIED" ||
+      preset === "REVERIFICATION_REQUIRED"
+    ) {
+      nextAccountStatus = "PENDING_VERIFICATION";
+      nextVerificationStatus = "UNVERIFIED";
+      nextSubmissionStatus = "PENDING_MANUAL_REVIEW";
+    } else if (preset === "RESTRICTED" || preset === "TEMPORARILY_RESTRICTED") {
+      nextAccountStatus = "RESTRICTED";
+      nextVerificationStatus = "UNVERIFIED";
+      nextSubmissionStatus = "PENDING_MANUAL_REVIEW";
+    } else if (preset === "SUSPENDED") {
+      nextAccountStatus = "SUSPENDED";
+      nextVerificationStatus = "REJECTED";
+      nextSubmissionStatus = "REJECTED";
+    } else if (preset === "REJECTED" || preset === "VERIFICATION_FAILED") {
+      nextAccountStatus = "PENDING_VERIFICATION";
+      nextVerificationStatus = "REJECTED";
+      nextSubmissionStatus = "REJECTED";
+    } else {
+      if (
+        ["PENDING_VERIFICATION", "ACTIVE", "RESTRICTED", "SUSPENDED", "DELETED"].includes(
+          rawAccountStatus,
+        )
+      ) {
+        nextAccountStatus = rawAccountStatus as typeof nextAccountStatus;
+      }
+      if (["UNVERIFIED", "VERIFIED", "REJECTED"].includes(rawVerificationStatus)) {
+        nextVerificationStatus = rawVerificationStatus as typeof nextVerificationStatus;
+      }
+      nextSubmissionStatus =
+        nextVerificationStatus === "VERIFIED"
+          ? "APPROVED"
+          : nextVerificationStatus === "REJECTED"
+            ? "REJECTED"
+            : "PENDING_MANUAL_REVIEW";
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const account = await tx.memberAccount.findUnique({
+        where: { id: accountId },
+        include: {
+          eligibilitySubmissions: {
+            orderBy: { submittedAt: "desc" },
+            take: 1,
+          },
+        },
+      });
+      if (!account) {
+        throw new NotFoundException("Member account was not found.");
+      }
+
+      const now = new Date();
+      const latestSubmission = account.eligibilitySubmissions[0] ?? null;
+      if (latestSubmission) {
+        await tx.eligibilitySubmission.update({
+          where: { id: latestSubmission.id },
+          data: {
+            status: nextSubmissionStatus,
+            reviewedAt:
+              nextSubmissionStatus === "PENDING_MANUAL_REVIEW" ? null : now,
+            reviewerLabel:
+              nextSubmissionStatus === "PENDING_MANUAL_REVIEW"
+                ? null
+                : reviewerLabel,
+            decisionReason: reason,
+          },
+        });
+      } else {
+        await tx.eligibilitySubmission.create({
+          data: {
+            accountId,
+            status: nextSubmissionStatus,
+            consentVersion: "admin-override-v1",
+            consentAcceptedAt: now,
+            reviewedAt:
+              nextSubmissionStatus === "PENDING_MANUAL_REVIEW" ? null : now,
+            reviewerLabel:
+              nextSubmissionStatus === "PENDING_MANUAL_REVIEW"
+                ? null
+                : reviewerLabel,
+            decisionReason: reason,
+          },
+        });
+      }
+
+      const updated = await tx.memberAccount.update({
+        where: { id: accountId },
+        data: {
+          status: nextAccountStatus,
+          verificationStatus: nextVerificationStatus,
+        },
+      });
+
+      await tx.auditEvent.create({
+        data: {
+          actorType: "ADMIN",
+          action:
+            nextVerificationStatus === "VERIFIED"
+              ? "eligibility.manual_review.approved"
+              : nextVerificationStatus === "REJECTED"
+                ? "eligibility.manual_review.rejected"
+                : "admin.member_eligibility.overridden",
+          targetType: "member_account",
+          targetId: accountId,
+          outcome:
+            nextVerificationStatus === "VERIFIED"
+              ? "approve"
+              : nextVerificationStatus === "REJECTED"
+                ? "reject"
+                : nextVerificationStatus.toLowerCase(),
+          requestId: randomUUID(),
+          redactedMetadata: {
+            accountId,
+            reviewerLabel,
+            reason,
+            preset: preset || "CUSTOM",
+            accountStatus: updated.status,
+            verificationStatus: updated.verificationStatus,
+            eligibilitySubmissionStatus: nextSubmissionStatus,
+          },
+        },
+      });
+
+      return {
+        accountId: updated.id,
+        accountStatus: updated.status,
+        verificationStatus: updated.verificationStatus,
+        eligibilityStatus: nextSubmissionStatus,
+        reviewerLabel,
+        reason,
+        updatedAt: updated.updatedAt.toISOString(),
+      };
+    });
   }
 }

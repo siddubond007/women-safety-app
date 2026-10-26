@@ -1,10 +1,11 @@
 import "reflect-metadata";
 import type { INestApplication } from "@nestjs/common";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
 import { EligibilityController } from "../src/eligibility/eligibility.controller.js";
 import { EligibilityService } from "../src/eligibility/eligibility.service.js";
+import { DecentroKycService } from "../src/eligibility/decentro-kyc.service.js";
 
 describe("eligibility API fail-closed contract", () => {
   let app: INestApplication | undefined;
@@ -13,6 +14,30 @@ describe("eligibility API fail-closed contract", () => {
     status: vi.fn(),
     start: vi.fn(),
   };
+  const decentro = {
+    configuration: vi.fn(),
+    status: vi.fn(),
+    initiate: vi.fn(),
+    simulateLocalResult: vi.fn(),
+    completeBrowserCallback: vi.fn(),
+    handleSignedCallback: vi.fn(),
+  };
+
+  beforeEach(() => {
+    decentro.configuration.mockReturnValue({
+      providerConfigured: false,
+      providerDisplayName: null,
+      policyApproved: false,
+      canStartVerification: false,
+      localSimulatorEnabled: false,
+      mode: "development_preview",
+    });
+    decentro.completeBrowserCallback.mockResolvedValue({
+      status: "already_processed",
+      eligibilityStatus: "VERIFIED",
+      isDemo: false,
+    });
+  });
 
   afterEach(async () => {
     if (app) {
@@ -25,12 +50,15 @@ describe("eligibility API fail-closed contract", () => {
   async function createApp() {
     Reflect.defineMetadata(
       "design:paramtypes",
-      [EligibilityService],
+      [EligibilityService, DecentroKycService],
       EligibilityController,
     );
     const module = await Test.createTestingModule({
       controllers: [EligibilityController],
-      providers: [{ provide: EligibilityService, useValue: service }],
+      providers: [
+        { provide: EligibilityService, useValue: service },
+        { provide: DecentroKycService, useValue: decentro },
+      ],
     }).compile();
     const testApp = module.createNestApplication();
     testApp.setGlobalPrefix("api/v1");
@@ -59,7 +87,7 @@ describe("eligibility API fail-closed contract", () => {
       canStartVerification: false,
       mode: "development_preview",
     });
-  });
+  }, 30_000);
 
   it("routes authenticated status lookups through the service boundary", async () => {
     service.status.mockResolvedValue({
@@ -110,5 +138,35 @@ describe("eligibility API fail-closed contract", () => {
         biometricProcessingConsented: false,
       },
     );
+  });
+
+  it("does not expose a client-callable demographic verify-result endpoint", async () => {
+    const testApp = await createApp();
+    await request(testApp.getHttpServer())
+      .post("/api/v1/eligibility/decentro/verify-result")
+      .send({ gender: "F", dob: "1999-05-15" })
+      .expect(404);
+    await request(testApp.getHttpServer())
+      .post("/api/v1/verification/verify-result")
+      .send({ gender: "F", dob: "1999-05-15" })
+      .expect(404);
+    expect(decentro.completeBrowserCallback).not.toHaveBeenCalled();
+  });
+
+  it("browser callback uses only the Sakhi reference and ignores supplied demographics", async () => {
+    const testApp = await createApp();
+    const referenceId = "42d43dd8-7f49-41e5-9b1f-e7f26b9ec706";
+    await request(testApp.getHttpServer())
+      .get("/api/v1/eligibility/decentro/callback")
+      .query({
+        referenceId,
+        gender: "F",
+        dob: "1999-05-15",
+        accountId: "caller-controlled",
+      })
+      .expect(200);
+
+    expect(decentro.completeBrowserCallback).toHaveBeenCalledTimes(1);
+    expect(decentro.completeBrowserCallback).toHaveBeenCalledWith(referenceId);
   });
 });

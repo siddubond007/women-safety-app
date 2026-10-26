@@ -10,6 +10,8 @@ const originalNodeEnvironment = process.env.NODE_ENV;
 const originalHost = process.env.HOST;
 const originalStagingAdminReviewEnabled = process.env.SAKHI_STAGING_ADMIN_REVIEW_ENABLED;
 const originalOtpMode = process.env.SAKHI_OTP_MODE;
+const originalStagingFullAdminEnabled = process.env.SAKHI_STAGING_FULL_ADMIN_ENABLED;
+const originalStagingFullAdminToken = process.env.SAKHI_STAGING_FULL_ADMIN_TOKEN;
 const reviewerToken = "a".repeat(64);
 
 function configureLocalReviewer() {
@@ -45,6 +47,10 @@ describe("AdminReviewService reviewer-token boundary", () => {
     else process.env.SAKHI_STAGING_ADMIN_REVIEW_ENABLED = originalStagingAdminReviewEnabled;
     if (originalOtpMode === undefined) delete process.env.SAKHI_OTP_MODE;
     else process.env.SAKHI_OTP_MODE = originalOtpMode;
+    if (originalStagingFullAdminEnabled === undefined) delete process.env.SAKHI_STAGING_FULL_ADMIN_ENABLED;
+    else process.env.SAKHI_STAGING_FULL_ADMIN_ENABLED = originalStagingFullAdminEnabled;
+    if (originalStagingFullAdminToken === undefined) delete process.env.SAKHI_STAGING_FULL_ADMIN_TOKEN;
+    else process.env.SAKHI_STAGING_FULL_ADMIN_TOKEN = originalStagingFullAdminToken;
     vi.restoreAllMocks();
   });
 
@@ -117,6 +123,46 @@ describe("AdminReviewService reviewer-token boundary", () => {
         pendingManualReviews: 0,
       },
     });
+  });
+
+  it("masks member DOB, email, and phone from ordinary staging reviewers even when full-admin mode is enabled", async () => {
+    configureStagingReviewer();
+    process.env.SAKHI_STAGING_FULL_ADMIN_ENABLED = "true";
+    process.env.SAKHI_STAGING_FULL_ADMIN_TOKEN = "b".repeat(64);
+    const account = {
+      id: "8b1cae61-1111-4111-8111-111111111111",
+      phoneE164: "+15551234567",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      status: "PENDING_VERIFICATION",
+      verificationStatus: "UNVERIFIED",
+      profile: {
+        displayName: "Test Member",
+        dateOfBirth: new Date("1990-01-02T00:00:00.000Z"),
+        email: "member.private@example.com",
+      },
+      eligibilitySubmissions: [],
+      sessions: [],
+    };
+    const prisma = {
+      memberAccount: {
+        findMany: vi.fn().mockResolvedValue([account]),
+        count: vi.fn().mockResolvedValue(1),
+      },
+      eligibilitySubmission: {
+        count: vi.fn().mockResolvedValue(0),
+      },
+    } as unknown as PrismaService;
+    const service = new AdminReviewService(prisma);
+
+    const result = await service.members(reviewerToken, "1", "1");
+
+    expect(result.items[0]).toMatchObject({
+      dateOfBirth: null,
+      phoneMasked: "********4567",
+      phoneE164: "********4567",
+      emailMasked: "m********@example.com",
+    });
+    expect(result.items[0].email).toBeUndefined();
   });
 
   it("blocks direct member-state overrides and demo-data seeding in staging", async () => {

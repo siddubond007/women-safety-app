@@ -125,6 +125,19 @@ export class AdminReviewController {
     );
   }
 
+  @Get("members/:accountId")
+  memberDetail(
+    @Param("accountId", new ParseUUIDPipe()) accountId: string,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.getMember360Detail(
+      accountId,
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
   @Patch("members/:accountId/state")
   updateMemberState(
     @Param("accountId", new ParseUUIDPipe()) accountId: string,
@@ -136,6 +149,53 @@ export class AdminReviewController {
     return this.adminReview.updateMemberState(
       accountId,
       dto,
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
+  @Post("members/:accountId/state")
+  @HttpCode(201)
+  updateMemberStatePost(
+    @Param("accountId", new ParseUUIDPipe()) accountId: string,
+    @Body() dto: DevelopmentMemberStateDto,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.updateMemberState(
+      accountId,
+      dto,
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
+  @Patch("members/:accountId/eligibility-override")
+  overrideMemberEligibility(
+    @Param("accountId", new ParseUUIDPipe()) accountId: string,
+    @Body() body: Record<string, unknown>,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.overrideMemberEligibilityAndState(
+      accountId,
+      body,
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
+  @Post("members/:accountId/eligibility-override")
+  @HttpCode(200)
+  overrideMemberEligibilityPost(
+    @Param("accountId", new ParseUUIDPipe()) accountId: string,
+    @Body() body: Record<string, unknown>,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.overrideMemberEligibilityAndState(
+      accountId,
+      body,
       pickAdminToken(token, altToken, stagingSessionToken),
     );
   }
