@@ -1,13 +1,13 @@
 services:
   - type: web
     name: sakhi-staging-api
-    branch: feat/sakhi-ui-modules-1-to-3
+    branch: feat/module1-redesign-identity-provider
     autoDeployTrigger: commit
     runtime: node
     plan: free
     region: singapore
     rootDir: backend
-    buildCommand: SAKHI_ENV=dev npm ci --include=dev && SAKHI_ENV=dev npm run build
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /api/v1/health/ready
     envVars:
@@ -51,10 +51,29 @@ services:
         sync: false
       - key: SAKHI_GOOGLE_DRIVE_ROOT_FOLDER_NAME
         value: Sakhi Staging Media
+      # Decentro DigiLocker staging. The provider gate intentionally remains closed until
+      # credentials and the required consent/privacy/data-retention approval are confirmed.
+      - key: DECENTRO_BASE_URL
+        value: https://in.staging.decentro.tech
+      - key: APP_VERIFICATION_CALLBACK_URL
+        value: https://sakhi-staging-api.onrender.com/api/v1/eligibility/decentro/callback
+      - key: SAKHI_DECENTRO_POLICY_APPROVED
+        value: "false"
+      - key: SAKHI_ENABLE_LOCAL_ELIGIBILITY_SIMULATOR
+        value: "false"
+      - key: DECENTRO_CLIENT_ID
+        sync: false
+      - key: DECENTRO_CLIENT_SECRET
+        sync: false
+      - key: DECENTRO_KYC_MODULE_SECRET
+        sync: false
+      # Only populate DECENTRO_WEBHOOK_SECRET if a separate HMAC callback adapter is confirmed.
+      - key: DECENTRO_WEBHOOK_SECRET
+        sync: false
 
   - type: web
     name: sakhi-staging-admin
-    branch: feat/sakhi-ui-modules-1-to-3
+    branch: feat/module1-redesign-identity-provider
     autoDeployTrigger: commit
     runtime: static
     rootDir: super-admin
