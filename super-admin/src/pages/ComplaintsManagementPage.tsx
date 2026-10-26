@@ -3,9 +3,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Eye,
-  FileCheck2,
   FileClock,
-  Filter,
   GitMerge,
   Lock,
   MessageSquareWarning,
@@ -13,10 +11,7 @@ import {
   RefreshCw,
   Search,
   Settings2,
-  Shield,
   ShieldAlert,
-  ShieldCheck,
-  Sparkles,
   UserCheck,
 } from "lucide-react";
 import { StatusPill } from "../components/StatusPill";
