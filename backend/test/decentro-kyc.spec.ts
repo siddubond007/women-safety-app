@@ -11,6 +11,7 @@ describe("Decentro KYC fail-closed contract", () => {
     "SAKHI_ENV",
     "HOST",
     "SAKHI_ENABLE_LOCAL_ELIGIBILITY_SIMULATOR",
+    "SAKHI_ENABLE_STAGING_ELIGIBILITY_DEMO",
     "DECENTRO_BASE_URL",
     "DECENTRO_CLIENT_ID",
     "DECENTRO_CLIENT_SECRET",
@@ -99,6 +100,103 @@ describe("Decentro KYC fail-closed contract", () => {
         gender: "F",
         dob: "1999-05-15",
       }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(auth.authenticateAuthorization).not.toHaveBeenCalled();
+  });
+
+  it("enables the synthetic staging demo only behind the dedicated staging flag and still keeps provider readiness false without credentials", () => {
+    process.env.NODE_ENV = "production";
+    process.env.SAKHI_ENV = "staging";
+    process.env.HOST = "0.0.0.0";
+    process.env.SAKHI_ENABLE_STAGING_ELIGIBILITY_DEMO = "true";
+    process.env.SAKHI_DECENTRO_POLICY_APPROVED = "false";
+    process.env.APP_VERIFICATION_CALLBACK_URL =
+      "https://sakhi-staging-api.onrender.com/api/v1/eligibility/decentro/callback";
+    process.env.DECENTRO_CLIENT_ID = "";
+    process.env.DECENTRO_CLIENT_SECRET = "";
+
+    expect(service.configuration()).toMatchObject({
+      providerConfigured: false,
+      policyApproved: false,
+      canStartVerification: false,
+      localSimulatorEnabled: false,
+      stagingDemoEnabled: true,
+      canStartStagingDemoSession: true,
+      mode: "staging_demo",
+    });
+  });
+
+  it("starts a staging demo session for an authenticated member without persistence or identity verification", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.SAKHI_ENV = "staging";
+    process.env.HOST = "0.0.0.0";
+    process.env.SAKHI_ENABLE_STAGING_ELIGIBILITY_DEMO = "true";
+    process.env.SAKHI_DECENTRO_POLICY_APPROVED = "false";
+    process.env.APP_VERIFICATION_CALLBACK_URL =
+      "https://sakhi-staging-api.onrender.com/api/v1/eligibility/decentro/callback";
+
+    const result = await service.startStagingDemoSession(
+      "Bearer staging-member-token",
+    );
+
+    expect(result).toMatchObject({
+      status: "STAGING_DEMO_SESSION_STARTED",
+      sessionMode: "STAGING_DEMO_ONLY",
+      persisted: false,
+      identityVerified: false,
+      verificationStatusChanged: false,
+      isDemo: true,
+    });
+    expect(result.referenceId).toMatch(
+      /^[0-9a-f-]{36}$/i,
+    );
+    expect(auth.authenticateAuthorization).toHaveBeenCalledTimes(1);
+    expect(prisma).toEqual({});
+  });
+
+  it("returns synthetic staging demo outcomes without writing or changing the member account", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.SAKHI_ENV = "staging";
+    process.env.HOST = "0.0.0.0";
+    process.env.SAKHI_ENABLE_STAGING_ELIGIBILITY_DEMO = "true";
+    process.env.SAKHI_DECENTRO_POLICY_APPROVED = "false";
+    process.env.APP_VERIFICATION_CALLBACK_URL =
+      "https://sakhi-staging-api.onrender.com/api/v1/eligibility/decentro/callback";
+
+    const result = await service.simulateStagingDemoResult(
+      "Bearer staging-member-token",
+      {
+        referenceId: "42d43dd8-7f49-41e5-9b1f-e7f26b9ec706",
+        gender: "F",
+        dob: "1999-05-15",
+      },
+    );
+
+    expect(result).toMatchObject({
+      status: "SIMULATION_ONLY",
+      sessionMode: "STAGING_DEMO_ONLY",
+      referenceId: "42d43dd8-7f49-41e5-9b1f-e7f26b9ec706",
+      eligibilityStatus: "SIMULATION_PASSED",
+      persisted: false,
+      identityVerified: false,
+      verificationStatusChanged: false,
+      isDemo: true,
+    });
+    expect(auth.authenticateAuthorization).toHaveBeenCalledTimes(1);
+    expect(prisma).toEqual({});
+  });
+
+  it("keeps the staging demo disabled unless the exact staging environment and callback are configured", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.SAKHI_ENV = "production";
+    process.env.HOST = "0.0.0.0";
+    process.env.SAKHI_ENABLE_STAGING_ELIGIBILITY_DEMO = "true";
+    process.env.SAKHI_DECENTRO_POLICY_APPROVED = "true";
+    process.env.APP_VERIFICATION_CALLBACK_URL =
+      "https://sakhi-staging-api.onrender.com/api/v1/eligibility/decentro/callback";
+
+    await expect(
+      service.startStagingDemoSession("Bearer non-staging-token"),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(auth.authenticateAuthorization).not.toHaveBeenCalled();
   });

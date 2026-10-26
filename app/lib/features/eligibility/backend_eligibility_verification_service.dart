@@ -36,6 +36,8 @@ class BackendEligibilityVerificationService
         biometricProcessingRequired:
             data['biometricProcessingRequired'] == true,
         mobileHandoffSupported: mobileHandoffSupported,
+        localSimulatorEnabled: data['localSimulatorEnabled'] == true,
+        stagingDemoEnabled: data['stagingDemoEnabled'] == true,
         providerDisplayName: _optionalString(data, 'providerDisplayName'),
         methodDescription: _optionalString(data, 'methodDescription'),
         attributesCheckedDescription: _optionalString(
@@ -46,7 +48,10 @@ class BackendEligibilityVerificationService
           data,
           'selfieOrLivenessDescription',
         ),
-        dataHandlingDescription: _optionalString(data, 'dataHandlingDescription'),
+        dataHandlingDescription: _optionalString(
+          data,
+          'dataHandlingDescription',
+        ),
         retentionAndDeletionDescription: _optionalString(
           data,
           'retentionAndDeletionDescription',
@@ -166,7 +171,8 @@ class BackendEligibilityVerificationService
         'reverification_required',
         'REVERIFICATION_REQUIRED',
       };
-      final hasCanonicalStatus = rawEligibilityStatus is String &&
+      final hasCanonicalStatus =
+          rawEligibilityStatus is String &&
           canonicalStatuses.contains(rawEligibilityStatus);
       return EligibilityStatusResult(
         // Provider readiness is not an eligibility decision. Keep the account's

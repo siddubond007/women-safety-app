@@ -12,6 +12,7 @@ import { PrismaService } from "../database/prisma.service.js";
 import type {
   InitiateDecentroVerificationDto,
   LocalEligibilitySimulationDto,
+  StagingDemoResultDto,
 } from "./eligibility.dto.js";
 
 type JsonRecord = Record<string, unknown>;
@@ -94,6 +95,31 @@ export class DecentroKycService {
     );
   }
 
+  private stagingDemoEnabled(): boolean {
+    if (
+      process.env.SAKHI_ENABLE_STAGING_ELIGIBILITY_DEMO !== "true" ||
+      process.env.SAKHI_ENV !== "staging" ||
+      process.env.NODE_ENV !== "production"
+    ) {
+      return false;
+    }
+    try {
+      const callback = new URL(
+        process.env.APP_VERIFICATION_CALLBACK_URL?.trim() ?? "",
+      );
+      return (
+        callback.protocol === "https:" &&
+        callback.hostname === "sakhi-staging-api.onrender.com" &&
+        callback.pathname === "/api/v1/eligibility/decentro/callback" &&
+        !callback.username &&
+        !callback.password &&
+        !callback.hash
+      );
+    } catch {
+      return false;
+    }
+  }
+
   private readProviderConfig(): DecentroConfig | null {
     const baseUrl = (
       process.env.DECENTRO_BASE_URL ?? "https://in.staging.decentro.tech"
@@ -145,6 +171,7 @@ export class DecentroKycService {
   configuration() {
     const config = this.readProviderConfig();
     const simulatorEnabled = this.localSimulatorEnabled();
+    const stagingDemoEnabled = this.stagingDemoEnabled();
     return {
       providerConfigured: config !== null,
       providerDisplayName: config ? "Decentro DigiLocker (Staging)" : null,
@@ -154,16 +181,22 @@ export class DecentroKycService {
       policyApproved: process.env.SAKHI_DECENTRO_POLICY_APPROVED === "true",
       canStartVerification: config !== null,
       localSimulatorEnabled: simulatorEnabled,
+      stagingDemoEnabled,
+      canStartStagingDemoSession: stagingDemoEnabled,
       mode: config
         ? ("decentro_staging" as const)
-        : simulatorEnabled
-          ? ("local_simulator" as const)
-          : ("development_preview" as const),
+        : stagingDemoEnabled
+          ? ("staging_demo" as const)
+          : simulatorEnabled
+            ? ("local_simulator" as const)
+            : ("development_preview" as const),
       message: config
         ? "Decentro staging credentials and the explicit verification policy gate are configured. A member is marked verified only after Sakhi retrieves a successful, correlated e-Aadhaar result directly from Decentro."
-        : simulatorEnabled
-          ? "The local eligibility simulator is enabled for the loopback development backend only. It is not identity verification."
-          : "Provider verification is not enabled. Configure staging secrets and explicitly approve the verification policy; no client-supplied demographic result can mark an account verified.",
+        : stagingDemoEnabled
+          ? "Staging demo sessions are enabled. They use synthetic data, do not contact Decentro, do not persist results, and never mark an account verified."
+          : simulatorEnabled
+            ? "The local eligibility simulator is enabled for the loopback development backend only. It is not identity verification."
+            : "Provider verification is not enabled. Configure staging secrets and explicitly approve the verification policy; no client-supplied demographic result can mark an account verified.",
     };
   }
 
@@ -703,6 +736,48 @@ export class DecentroKycService {
     return result;
   }
 
+  async startStagingDemoSession(authorization: string | undefined) {
+    if (!this.stagingDemoEnabled()) {
+      throw new ForbiddenException(
+        "Staging demo sessions are disabled outside the explicitly configured Sakhi staging environment.",
+      );
+    }
+    await this.auth.authenticateAuthorization(authorization);
+    return {
+      status: "STAGING_DEMO_SESSION_STARTED",
+      sessionMode: "STAGING_DEMO_ONLY",
+      referenceId: randomUUID(),
+      persisted: false,
+      identityVerified: false,
+      verificationStatusChanged: false,
+      isDemo: true,
+      message:
+        "Staging demo session started. This tests Sakhi's session flow only; no request was sent to Decentro and no identity was verified.",
+    };
+  }
+
+  async simulateStagingDemoResult(
+    authorization: string | undefined,
+    dto: StagingDemoResultDto,
+  ) {
+    if (!this.stagingDemoEnabled()) {
+      throw new ForbiddenException(
+        "Staging demo results are disabled outside the explicitly configured Sakhi staging environment.",
+      );
+    }
+    if (!dto?.referenceId || !/^[0-9a-f-]{36}$/i.test(dto.referenceId)) {
+      throw new BadRequestException(
+        "Start a staging demo session before submitting a demo result.",
+      );
+    }
+    return this.buildSyntheticDemographicResult(
+      authorization,
+      dto,
+      "STAGING DEMO",
+      dto.referenceId,
+    );
+  }
+
   async simulateLocalResult(
     authorization: string | undefined,
     dto: LocalEligibilitySimulationDto,
@@ -712,15 +787,27 @@ export class DecentroKycService {
         "The eligibility simulator is available only on an explicitly enabled loopback development backend.",
       );
     }
+    return this.buildSyntheticDemographicResult(
+      authorization,
+      dto,
+      "Local simulator",
+    );
+  }
+
+  private async buildSyntheticDemographicResult(
+    authorization: string | undefined,
+    dto: LocalEligibilitySimulationDto,
+    context: "Local simulator" | "STAGING DEMO",
+    referenceId?: string,
+  ) {
     await this.auth.authenticateAuthorization(authorization);
     if (!dto?.gender?.trim() || !dto?.dob?.trim()) {
       throw new BadRequestException(
-        "Provide test demographic values for the local simulation.",
+        "Provide synthetic test demographic values for the simulation.",
       );
     }
 
-    // This path is a UI/test fixture only. It must not change account,
-    // submission, or verification status and can never establish real identity.
+    // Synthetic fixture only: never change account, submission, or status.
     const dob = parseDateOfBirth(dto.dob);
     const policy = await this.auth.getRegistrationPolicy();
     const minimumAge = policy.minimumAgeYears;
@@ -737,13 +824,12 @@ export class DecentroKycService {
     const genderEligible = ["F", "FEMALE", "WOMAN"].includes(gender);
     const ageYears = calculateAgeYears(dob);
     const ageEligible = ageYears >= minimumAge;
+    const passed = genderEligible && ageEligible;
 
     return {
       status: "SIMULATION_ONLY",
-      eligibilityStatus:
-        genderEligible && ageEligible
-          ? "SIMULATION_PASSED"
-          : "SIMULATION_REJECTED",
+      ...(referenceId ? { referenceId, sessionMode: "STAGING_DEMO_ONLY" } : {}),
+      eligibilityStatus: passed ? "SIMULATION_PASSED" : "SIMULATION_REJECTED",
       genderMatchedFemale: genderEligible,
       ageEligible,
       ageYears,
@@ -752,10 +838,9 @@ export class DecentroKycService {
       identityVerified: false,
       verificationStatusChanged: false,
       isDemo: true,
-      message:
-        genderEligible && ageEligible
-          ? "Local simulator passed the synthetic demographic test. No identity was verified and no account status was changed."
-          : "Local simulator rejected the synthetic demographic test. No identity was verified and no account status was changed.",
+      message: passed
+        ? `${context} passed the synthetic demographic test. No provider was contacted, no identity was verified, and no account status was changed.`
+        : `${context} rejected the synthetic demographic test. No provider was contacted, no identity was verified, and no account status was changed.`,
     };
   }
   private async recordCallbackReceipt(

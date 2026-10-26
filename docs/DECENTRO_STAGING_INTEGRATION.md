@@ -29,6 +29,15 @@ Provider reference pages:
 
 SAKHI_ENABLE_LOCAL_ELIGIBILITY_SIMULATOR=true is honored only when NODE_ENV=development, SAKHI_ENV=dev, and HOST=127.0.0.1. It returns a simulation result without persisting an account status or marking the member verified. Keep it disabled for staging and production.
 
+## Staging demo session (synthetic only)
+
+SAKHI_ENABLE_STAGING_ELIGIBILITY_DEMO=true is a separate synthetic test path for the dedicated Sakhi staging API. It is accepted only when NODE_ENV=production, SAKHI_ENV=staging, and APP_VERIFICATION_CALLBACK_URL exactly matches the HTTPS Sakhi staging callback. This demo flag does not require or imply SAKHI_DECENTRO_POLICY_APPROVED=true; keep the real identity-provider policy gate false until its separate policy review is approved.
+
+1. The authenticated staging app calls POST /api/v1/eligibility/decentro/staging-demo/start to obtain a synthetic session reference.
+2. After the session starts, the app can call POST /api/v1/eligibility/decentro/staging-demo/result with that reference and synthetic gender/date-of-birth values to exercise the pass/fail UI.
+3. Results are marked SIMULATION_ONLY with isDemo=true, persisted=false, identityVerified=false, and verificationStatusChanged=false. These endpoints do not call Decentro or write account, eligibility-submission, or audit records.
+4. Keep SAKHI_ENABLE_LOCAL_ELIGIBILITY_SIMULATOR=false in staging; it remains loopback-only. The staging demo flag must never be copied to production.
+
 ## Validation boundary
 
-Offline source validation includes automated typecheck and focused unit/API tests. No live Decentro request, staging API, real identity-result retrieval, device journey, database migration, seed, or deployment is performed by offline checks. Staging must be configured and verified separately before enabling SAKHI_DECENTRO_POLICY_APPROVED.
+Automated validation includes backend typecheck and focused API/unit tests, Flutter analysis/full tests, live staging health/configuration checks, and a staging APK build. The synthetic staging demo does not prove that Decentro credentials work or that a real provider transaction can complete. Verify those separately after the API reports providerConfigured=true. Database migrations, seeds, and permissions remain unchanged.

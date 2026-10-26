@@ -123,6 +123,32 @@ void main() {
       expect(configuration.mobileHandoffSupported, isFalse);
       expect(configuration.canStartVerification, isFalse);
     });
+
+    test('maps staging demo availability without enabling real provider verification', () async {
+      final api = _FakeEligibilityApiClient(
+        getResponses: {
+          'eligibility/configuration': <String, dynamic>{
+            'providerConfigured': false,
+            'policyApproved': true,
+            'localSimulatorEnabled': false,
+            'stagingDemoEnabled': true,
+            'canStartStagingDemoSession': true,
+            'canStartVerification': false,
+            'mode': 'staging_demo',
+          },
+        },
+      );
+      final service = BackendEligibilityVerificationService(apiClient: api);
+
+      final configuration = await service.loadConfiguration();
+
+      expect(configuration.providerConfigured, isFalse);
+      expect(configuration.policyApproved, isTrue);
+      expect(configuration.stagingDemoEnabled, isTrue);
+      expect(configuration.localSimulatorEnabled, isFalse);
+      expect(configuration.canStartVerification, isFalse);
+      expect(configuration.hasApprovedConfiguration, isFalse);
+    });
   });
 
   group('backend eligibility status', () {
@@ -152,30 +178,29 @@ void main() {
       expect(result.message, contains('No approved eligibility provider'));
     });
 
-    test(
-      'maps pending, verified and rejected account states when provider is unavailable',
-      () async {
-        for (final entry in <String, EligibilityStatus>{
-          'PENDING_MANUAL_REVIEW': EligibilityStatus.pendingManualReview,
-          'VERIFIED': EligibilityStatus.verified,
-          'REJECTED': EligibilityStatus.rejected,
-        }.entries) {
-          final api = _FakeEligibilityApiClient(
-            getResponses: {
-              'eligibility/status': <String, dynamic>{
-                'status': 'providerUnavailable',
-                'eligibilityStatus': entry.key,
-                'canStartVerification': false,
-                'message': 'Provider handoff is unavailable.',
-                'isDemo': true,
-              },
+    test('maps pending, verified and rejected account states when provider is unavailable', () async {
+      for (final entry in <String, EligibilityStatus>{
+        'PENDING_MANUAL_REVIEW': EligibilityStatus.pendingManualReview,
+        'VERIFIED': EligibilityStatus.verified,
+        'REJECTED': EligibilityStatus.rejected,
+      }.entries) {
+        final api = _FakeEligibilityApiClient(
+          getResponses: {
+            'eligibility/status': <String, dynamic>{
+              'status': 'providerUnavailable',
+              'eligibilityStatus': entry.key,
+              'canStartVerification': false,
+              'message': 'Provider handoff is unavailable.',
+              'isDemo': true,
             },
-          );
-          final result = await BackendEligibilityVerificationService(apiClient: api).readStatus();
-          expect(result.status, entry.value);
-        }
-      },
-    );
+          },
+        );
+        final result = await BackendEligibilityVerificationService(
+          apiClient: api,
+        ).readStatus();
+        expect(result.status, entry.value);
+      }
+    });
 
     test(
       'maps the canonical persisted status separately from provider readiness',
@@ -203,57 +228,78 @@ void main() {
     );
   });
 
-
   group('backend manual-review submission contract', () {
-    test('requires server-enabled manual-review policy before POSTing', () async {
-      final api = _FakeEligibilityApiClient(
-        getResponses: {
-          'eligibility/configuration': <String, dynamic>{
-            'manualReviewEnabled': false,
-            'manualReviewConsentVersion': null,
-            'manualReviewConsentText': null,
-            'manualReviewDescription': 'Manual review is not enabled.',
-            'manualReviewDataHandlingDescription': null,
-            'manualReviewRetentionDescription': null,
+    test(
+      'requires server-enabled manual-review policy before POSTing',
+      () async {
+        final api = _FakeEligibilityApiClient(
+          getResponses: {
+            'eligibility/configuration': <String, dynamic>{
+              'manualReviewEnabled': false,
+              'manualReviewConsentVersion': null,
+              'manualReviewConsentText': null,
+              'manualReviewDescription': 'Manual review is not enabled.',
+              'manualReviewDataHandlingDescription': null,
+              'manualReviewRetentionDescription': null,
+            },
           },
-        },
-      );
-      final result = await BackendEligibilityVerificationService(apiClient: api).submitManualReview(
-        consent: EligibilityConsentRecord(consentVersion: 'test-not-approved', acceptedAt: DateTime.utc(2026, 10, 17)),
-      );
-      expect(api.postRequests, isEmpty);
-      expect(result.status, EligibilityStatus.providerUnavailable);
-    });
+        );
+        final result =
+            await BackendEligibilityVerificationService(apiClient: api)
+                .submitManualReview(
+                  consent: EligibilityConsentRecord(
+                    consentVersion: 'test-not-approved',
+                    acceptedAt: DateTime.utc(2026, 10, 17),
+                  ),
+                );
+        expect(api.postRequests, isEmpty);
+        expect(result.status, EligibilityStatus.providerUnavailable);
+      },
+    );
 
-    test('posts the exact server-provided manual-review consent contract', () async {
-      final api = _FakeEligibilityApiClient(
-        getResponses: {
-          'eligibility/configuration': <String, dynamic>{
-            'manualReviewEnabled': true,
-            'manualReviewConsentVersion': 'manual-test-v1',
-            'manualReviewConsentText': 'I agree to request a manual review.',
-            'manualReviewDescription': 'Synthetic test manual-review process.',
-            'manualReviewDataHandlingDescription': 'Only request metadata is used.',
-            'manualReviewRetentionDescription': 'Synthetic test records are removed.',
+    test(
+      'posts the exact server-provided manual-review consent contract',
+      () async {
+        final api = _FakeEligibilityApiClient(
+          getResponses: {
+            'eligibility/configuration': <String, dynamic>{
+              'manualReviewEnabled': true,
+              'manualReviewConsentVersion': 'manual-test-v1',
+              'manualReviewConsentText': 'I agree to request a manual review.',
+              'manualReviewDescription':
+                  'Synthetic test manual-review process.',
+              'manualReviewDataHandlingDescription':
+                  'Only request metadata is used.',
+              'manualReviewRetentionDescription':
+                  'Synthetic test records are removed.',
+            },
           },
-        },
-        postResponse: const <String, dynamic>{
-          'status': 'pendingManualReview',
-          'eligibilityStatus': 'PENDING_MANUAL_REVIEW',
-          'message': 'Manual-review request recorded.',
-          'isDemo': true,
-        },
-      );
-      final result = await BackendEligibilityVerificationService(apiClient: api).submitManualReview(
-        consent: EligibilityConsentRecord(consentVersion: 'manual-test-v1', acceptedAt: DateTime.utc(2026, 10, 17)),
-      );
-      expect(api.postRequests, hasLength(1));
-      expect(api.postRequests.single.path, 'eligibility/start');
-      expect(api.postRequests.single.authenticated, isTrue);
-      expect(api.postRequests.single.body, {'consentAccepted': true, 'consentVersion': 'manual-test-v1'});
-      expect(result.status, EligibilityStatus.pendingManualReview);
-      expect(result.isDemo, isTrue);
-    });
+          postResponse: const <String, dynamic>{
+            'status': 'pendingManualReview',
+            'eligibilityStatus': 'PENDING_MANUAL_REVIEW',
+            'message': 'Manual-review request recorded.',
+            'isDemo': true,
+          },
+        );
+        final result =
+            await BackendEligibilityVerificationService(apiClient: api)
+                .submitManualReview(
+                  consent: EligibilityConsentRecord(
+                    consentVersion: 'manual-test-v1',
+                    acceptedAt: DateTime.utc(2026, 10, 17),
+                  ),
+                );
+        expect(api.postRequests, hasLength(1));
+        expect(api.postRequests.single.path, 'eligibility/start');
+        expect(api.postRequests.single.authenticated, isTrue);
+        expect(api.postRequests.single.body, {
+          'consentAccepted': true,
+          'consentVersion': 'manual-test-v1',
+        });
+        expect(result.status, EligibilityStatus.pendingManualReview);
+        expect(result.isDemo, isTrue);
+      },
+    );
   });
 
   group('backend eligibility start contract', () {

@@ -63,6 +63,8 @@ class _EligibilityIntroScreenState extends State<EligibilityIntroScreen> {
         ? 'Could not load provider readiness. Try refreshing this screen or check the connection; no provider request was sent.'
         : _configuration.providerConfigured && _configuration.policyApproved
         ? '${_configuration.providerDisplayName ?? 'The staging identity provider'} is configured. Review the disclosures and give explicit consent before starting verification.'
+        : _configuration.stagingDemoEnabled
+        ? 'STAGING DEMO AVAILABLE — you can test the session and synthetic pass/fail screens. No request will be sent to Decentro and no account will be marked verified.'
         : _configuration.policyApproved
         ? 'STAGING TEST — the verification gate is enabled, but the provider runtime configuration is incomplete. No identity request can start until the required credentials and callback settings are available.'
         : 'DEVELOPMENT PREVIEW — no approved verification provider and policy are configured. This screen does not verify identity or eligibility.';
@@ -229,6 +231,8 @@ class _DecentroDigilockerVerificationScreenState
   bool _isDemoResult = false;
   bool _providerConfigured = false;
   bool _localSimulatorEnabled = false;
+  bool _stagingDemoEnabled = false;
+  bool _stagingDemoSessionStarted = false;
   bool _manualReviewEnabled = false;
   bool _manualReviewConsentAccepted = false;
   bool _testAccessApproved = false;
@@ -264,6 +268,7 @@ class _DecentroDigilockerVerificationScreenState
       setState(() {
         _providerConfigured = configuration['providerConfigured'] == true;
         _localSimulatorEnabled = configuration['localSimulatorEnabled'] == true;
+        _stagingDemoEnabled = configuration['stagingDemoEnabled'] == true;
         _manualReviewEnabled = configuration['manualReviewEnabled'] == true;
         _manualReviewConsentVersion =
             (configuration['manualReviewConsentVersion'] ?? '').toString();
@@ -292,6 +297,7 @@ class _DecentroDigilockerVerificationScreenState
           _providerConfigured = configuration['providerConfigured'] == true;
           _localSimulatorEnabled =
               configuration['localSimulatorEnabled'] == true;
+          _stagingDemoEnabled = configuration['stagingDemoEnabled'] == true;
           _manualReviewEnabled = configuration['manualReviewEnabled'] == true;
           _manualReviewConsentVersion =
               (configuration['manualReviewConsentVersion'] ?? '').toString();
@@ -381,6 +387,59 @@ class _DecentroDigilockerVerificationScreenState
     }
   }
 
+  Future<void> _startStagingDemoSession() async {
+    if (!_stagingDemoEnabled) {
+      setState(() {
+        _statusMessage =
+            'Staging demo sessions are not enabled by the backend.';
+      });
+      return;
+    }
+    setState(() {
+      _isInitiatingSession = true;
+      _statusMessage = null;
+    });
+
+    try {
+      final res = await _client.post(
+        'eligibility/decentro/staging-demo/start',
+        authenticated: true,
+      );
+      if (!mounted) return;
+      final referenceId = res['referenceId']?.toString() ?? '';
+      if (referenceId.isEmpty ||
+          res['sessionMode'] != 'STAGING_DEMO_ONLY' ||
+          res['isDemo'] != true) {
+        setState(() {
+          _statusMessage = 'The staging demo did not return a valid demo session. No real provider session was started.';
+        });
+        return;
+      }
+      setState(() {
+        _referenceId = referenceId;
+        _authorizationUrl = null;
+        _externalDecentroUrl = null;
+        _stagingDemoSessionStarted = true;
+        _currentStatus = 'STAGING_DEMO_SESSION_STARTED';
+        _isDemoResult = false;
+        _isVerifiedSuccess = false;
+        _statusMessage =
+            res['message']?.toString() ??
+            'Staging demo session started. No provider request was sent.';
+      });
+    } on BackendApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _statusMessage = e.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _statusMessage = 'Could not start the staging demo session. No identity verification was attempted.';
+      });
+    } finally {
+      if (mounted) setState(() => _isInitiatingSession = false);
+    }
+  }
+
   Future<void> _openDecentroPortalInBrowser() async {
     final urlToOpen = _externalDecentroUrl?.isNotEmpty == true
         ? _externalDecentroUrl!
@@ -428,9 +487,12 @@ class _DecentroDigilockerVerificationScreenState
         });
         return;
       }
-    } else if (!_localSimulatorEnabled) {
+    } else if (!_localSimulatorEnabled &&
+        !(_stagingDemoEnabled && _stagingDemoSessionStarted)) {
       setState(() {
-        _statusMessage = 'Synthetic demographics cannot verify a real account. The local simulator is disabled; complete the provider flow or ask an authorized administrator to grant staging test access.';
+        _statusMessage = _stagingDemoEnabled
+            ? 'Start a staging demo session first. Demo results are synthetic and never verify an identity.'
+            : 'Synthetic demographics cannot verify a real account. The local simulator is disabled; complete the provider flow or ask an authorized administrator to grant staging test access.';
       });
       return;
     }
@@ -451,6 +513,12 @@ class _DecentroDigilockerVerificationScreenState
             'consentVersion': _manualReviewConsentVersion,
             'biometricProcessingConsented': false,
           },
+        );
+      } else if (_stagingDemoEnabled) {
+        res = await _client.post(
+          'eligibility/decentro/staging-demo/result',
+          authenticated: true,
+          body: {'referenceId': _referenceId, 'gender': gender, 'dob': dob},
         );
       } else {
         res = await _client.post(
@@ -625,8 +693,10 @@ class _DecentroDigilockerVerificationScreenState
                       size: 30,
                     ),
                     const SizedBox(height: 6),
-                    const Text(
-                      'LOCAL SIMULATION ONLY — NOT VERIFIED',
+                    Text(
+                      _stagingDemoEnabled
+                          ? 'STAGING DEMO ONLY — NOT VERIFIED'
+                          : 'LOCAL SIMULATION ONLY — NOT VERIFIED',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontWeight: FontWeight.w800,
@@ -769,34 +839,42 @@ class _DecentroDigilockerVerificationScreenState
                     ),
                   ),
                   const Divider(height: 18),
-                  CheckboxListTile(
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                    activeColor: SakhiColors.purple,
-                    value: _identityConsentAccepted,
-                    onChanged: (val) =>
-                        setState(() => _identityConsentAccepted = val ?? false),
-                    title: const Text(
-                      'I explicitly consent to female eligibility & age verification via Decentro DigiLocker KYC.',
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700,
-                        color: SakhiColors.plum,
+                  Material(
+                    color: Colors.white,
+                    child: CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      activeColor: SakhiColors.purple,
+                      value: _identityConsentAccepted,
+                      onChanged: (val) => setState(
+                        () => _identityConsentAccepted = val ?? false,
+                      ),
+                      title: const Text(
+                        'I explicitly consent to female eligibility & age verification via Decentro DigiLocker KYC.',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          color: SakhiColors.plum,
+                        ),
                       ),
                     ),
                   ),
-                  CheckboxListTile(
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                    activeColor: SakhiColors.purple,
-                    value: _livenessConsentAccepted,
-                    onChanged: (val) =>
-                        setState(() => _livenessConsentAccepted = val ?? false),
-                    title: const Text(
-                      'Optional: I consent to liveness checks only if enabled by the provider. This screen does not upload a selfie.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: SakhiColors.mutedPlum,
+                  Material(
+                    color: Colors.white,
+                    child: CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      activeColor: SakhiColors.purple,
+                      value: _livenessConsentAccepted,
+                      onChanged: (val) => setState(
+                        () => _livenessConsentAccepted = val ?? false,
+                      ),
+                      title: const Text(
+                        'Optional: I consent to liveness checks only if enabled by the provider. This screen does not upload a selfie.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: SakhiColors.mutedPlum,
+                        ),
                       ),
                     ),
                   ),
@@ -844,7 +922,7 @@ class _DecentroDigilockerVerificationScreenState
                         borderRadius: BorderRadius.circular(999),
                       ),
                     ),
-                    onPressed: _isInitiatingSession
+                    onPressed: _isInitiatingSession || !_providerConfigured
                         ? null
                         : _initiateDecentroSession,
                     icon: _isInitiatingSession
@@ -860,12 +938,46 @@ class _DecentroDigilockerVerificationScreenState
                     label: Text(
                       _isInitiatingSession
                           ? 'Connecting to Decentro Staging…'
-                          : _referenceId != null
+                          : !_providerConfigured
+                          ? 'Real Decentro session unavailable'
+                          : _referenceId != null && !_stagingDemoSessionStarted
                           ? 'Refresh Decentro DigiLocker Session'
                           : 'Start Decentro DigiLocker Verification',
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                   ),
+                  if (_stagingDemoEnabled) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF2F8F4),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFB8D9C4)),
+                      ),
+                      child: const Text(
+                        'STAGING DEMO ONLY — uses synthetic test outcomes. It does not contact Decentro, process real identity data, persist a result, or mark your account verified.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          height: 1.4,
+                          color: Color(0xFF245B3B),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      key: const Key('decentro-start-staging-demo-button'),
+                      onPressed: _isInitiatingSession
+                          ? null
+                          : _startStagingDemoSession,
+                      icon: const Icon(Icons.science_outlined),
+                      label: Text(
+                        _stagingDemoSessionStarted
+                            ? 'Start Another Staging Demo Session'
+                            : 'Start Staging Demo Session',
+                      ),
+                    ),
+                  ],
                   if (_referenceId != null) ...[
                     const SizedBox(height: 10),
                     Container(
@@ -878,7 +990,9 @@ class _DecentroDigilockerVerificationScreenState
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Session Reference: $_referenceId',
+                            _stagingDemoSessionStarted
+                                ? 'Staging Demo Reference: $_referenceId'
+                                : 'Session Reference: $_referenceId',
                             style: const TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w800,
@@ -887,27 +1001,31 @@ class _DecentroDigilockerVerificationScreenState
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            'Provider transaction details remain on the server.',
+                            _stagingDemoSessionStarted
+                                ? 'Synthetic session only. No Decentro request or identity decision was made.'
+                                : 'Provider transaction details remain on the server.',
                             style: const TextStyle(
                               fontSize: 11.5,
                               color: SakhiColors.mutedPlum,
                             ),
                           ),
-                          const SizedBox(height: 8),
-                          OutlinedButton.icon(
-                            onPressed: _openDecentroPortalInBrowser,
-                            icon: const Icon(
-                              Icons.open_in_browser_rounded,
-                              size: 17,
-                            ),
-                            label: const Text(
-                              'Open Decentro DigiLocker Session in Browser',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w800,
+                          if (!_stagingDemoSessionStarted) ...[
+                            const SizedBox(height: 8),
+                            OutlinedButton.icon(
+                              onPressed: _openDecentroPortalInBrowser,
+                              icon: const Icon(
+                                Icons.open_in_browser_rounded,
+                                size: 17,
+                              ),
+                              label: const Text(
+                                'Open Decentro DigiLocker Session in Browser',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                ),
                               ),
                             ),
-                          ),
+                          ],
                         ],
                       ),
                     ),
@@ -936,15 +1054,18 @@ class _DecentroDigilockerVerificationScreenState
                     ),
                   ),
                   const SizedBox(height: 4),
-                  const Text(
-                    'A real account can be marked verified only from a confirmed provider result. Synthetic values below are available only in the loopback development simulator and never update verification status.',
-                    style: TextStyle(
+                  Text(
+                    _stagingDemoEnabled
+                        ? 'STAGING DEMO ONLY — these synthetic outcomes test the UI and backend response contract. They never contact Decentro, persist a result, or update verificationStatus.'
+                        : 'A real account can be marked verified only from a confirmed provider result. Synthetic values below are available only in the loopback development simulator and never update verification status.',
+                    style: const TextStyle(
                       fontSize: 12,
                       color: SakhiColors.mutedPlum,
                     ),
                   ),
                   const SizedBox(height: 12),
-                  if (_localSimulatorEnabled) ...[
+                  if (_localSimulatorEnabled ||
+                      (_stagingDemoEnabled && _stagingDemoSessionStarted)) ...[
                     FilledButton.icon(
                       key: const Key('decentro-verify-female-18-button'),
                       onPressed: _isVerifyingResult
@@ -955,8 +1076,10 @@ class _DecentroDigilockerVerificationScreenState
                               outcomeOverride: 'VERIFIED',
                             ),
                       icon: const Icon(Icons.science_outlined),
-                      label: const Text(
-                        'Run Local Eligible-Demographic Simulation',
+                      label: Text(
+                        _stagingDemoEnabled
+                            ? 'Run Staging Demo: Eligible Synthetic Result'
+                            : 'Run Local Eligible-Demographic Simulation',
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -969,14 +1092,18 @@ class _DecentroDigilockerVerificationScreenState
                               outcomeOverride: 'REJECTED',
                             ),
                       icon: const Icon(Icons.science_outlined),
-                      label: const Text(
-                        'Run Local Ineligible-Demographic Simulation',
+                      label: Text(
+                        _stagingDemoEnabled
+                            ? 'Run Staging Demo: Ineligible Synthetic Result'
+                            : 'Run Local Ineligible-Demographic Simulation',
                       ),
                     ),
                   ] else ...[
-                    const Text(
-                      'Local simulation is disabled on this backend. For friend testing, complete the real provider flow when configured or ask an authorized administrator for staging test access. Staging test access does not change verificationStatus.',
-                      style: TextStyle(
+                    Text(
+                      _stagingDemoEnabled
+                          ? 'Start a staging demo session in Step 1 to run synthetic pass/fail outcomes. No provider request is made and no account verification status changes.'
+                          : 'Local simulation is disabled on this backend. For friend testing, complete the real provider flow when configured or ask an authorized administrator for staging test access. Staging test access does not change verificationStatus.',
+                      style: const TextStyle(
                         fontSize: 12,
                         color: SakhiColors.mutedPlum,
                       ),

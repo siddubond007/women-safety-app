@@ -51,8 +51,8 @@ services:
         sync: false
       - key: SAKHI_GOOGLE_DRIVE_ROOT_FOLDER_NAME
         value: Sakhi Staging Media
-      # Decentro DigiLocker staging. The provider gate intentionally remains closed until
-      # credentials and the required consent/privacy/data-retention approval are confirmed.
+      # Decentro DigiLocker staging. Real provider sessions still require server-side credentials.
+      # The independent demo path uses synthetic outcomes only and never verifies/persists identity.
       - key: DECENTRO_BASE_URL
         value: https://in.staging.decentro.tech
       - key: APP_VERIFICATION_CALLBACK_URL
@@ -61,6 +61,8 @@ services:
         value: "false"
       - key: SAKHI_ENABLE_LOCAL_ELIGIBILITY_SIMULATOR
         value: "false"
+      - key: SAKHI_ENABLE_STAGING_ELIGIBILITY_DEMO
+        value: "true"
       - key: DECENTRO_CLIENT_ID
         sync: false
       - key: DECENTRO_CLIENT_SECRET

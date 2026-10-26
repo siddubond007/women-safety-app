@@ -30,6 +30,8 @@ class EligibilityConfiguration {
     this.biometricProcessingSupported = false,
     this.biometricProcessingRequired = false,
     this.mobileHandoffSupported = false,
+    this.localSimulatorEnabled = false,
+    this.stagingDemoEnabled = false,
     this.providerDisplayName,
     this.methodDescription,
     this.attributesCheckedDescription,
@@ -52,6 +54,8 @@ class EligibilityConfiguration {
       biometricProcessingSupported = false,
       biometricProcessingRequired = false,
       mobileHandoffSupported = false,
+      localSimulatorEnabled = false,
+      stagingDemoEnabled = false,
       providerDisplayName = null,
       methodDescription = null,
       attributesCheckedDescription = null,
@@ -74,6 +78,12 @@ class EligibilityConfiguration {
 
   /// False until this client can safely launch the hosted provider and handle return.
   final bool mobileHandoffSupported;
+
+  /// Loopback-only simulator available for local development.
+  final bool localSimulatorEnabled;
+
+  /// Synthetic session flow enabled only on the explicitly configured staging API.
+  final bool stagingDemoEnabled;
 
   final String? providerDisplayName;
   final String? methodDescription;

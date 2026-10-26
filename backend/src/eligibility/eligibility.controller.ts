@@ -21,6 +21,7 @@ import { DecentroKycService } from "./decentro-kyc.service.js";
 import {
   InitiateDecentroVerificationDto,
   LocalEligibilitySimulationDto,
+  StagingDemoResultDto,
   StartManualReviewDto,
 } from "./eligibility.dto.js";
 
@@ -84,6 +85,25 @@ export class EligibilityController {
   @ApiBearerAuth()
   decentroStatus(@Headers("authorization") authorization?: string) {
     return this.decentro.status(authorization);
+  }
+
+  @Post("decentro/staging-demo/start")
+  @HttpCode(200)
+  @ApiBearerAuth()
+  startStagingDemoSession(
+    @Headers("authorization") authorization: string | undefined,
+  ) {
+    return this.decentro.startStagingDemoSession(authorization);
+  }
+
+  @Post("decentro/staging-demo/result")
+  @HttpCode(200)
+  @ApiBearerAuth()
+  stagingDemoResult(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: StagingDemoResultDto,
+  ) {
+    return this.decentro.simulateStagingDemoResult(authorization, dto);
   }
 
   @Post("decentro/local-simulator")

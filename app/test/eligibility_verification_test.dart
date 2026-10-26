@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:women_safety_app/features/auth/auth_service.dart';
+import 'package:women_safety_app/features/auth/backend_api_client.dart';
 import 'package:women_safety_app/features/auth/sakhi_consent_screen.dart';
 import 'package:women_safety_app/features/auth/widgets/auth_widgets.dart';
 import 'package:women_safety_app/features/eligibility/eligibility_consent_screen.dart';
@@ -406,6 +407,62 @@ void main() {
       },
     );
 
+    testWidgets(
+      'staging demo creates a synthetic session and never marks the account verified',
+      (tester) async {
+        const demoReference = '42d43dd8-7f49-41e5-9b1f-e7f26b9ec706';
+        final api = _FakeDecentroDemoApiClient();
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: DecentroDigilockerVerificationScreen(apiClient: api),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('decentro-start-staging-demo-button')),
+          findsOneWidget,
+        );
+        expect(find.text('Real Decentro session unavailable'), findsOneWidget);
+
+        final startDemo = find.byKey(
+          const Key('decentro-start-staging-demo-button'),
+        );
+        await tester.ensureVisible(startDemo);
+        await tester.tap(startDemo);
+        await tester.pumpAndSettle();
+
+        expect(find.text('STAGING DEMO SESSION STARTED'), findsOneWidget);
+        expect(
+          find.textContaining('Staging Demo Reference: $demoReference'),
+          findsOneWidget,
+        );
+        expect(
+          api.postRequests.map((request) => request.path),
+          contains('eligibility/decentro/staging-demo/start'),
+        );
+        expect(api.postRequests.first.authenticated, isTrue);
+
+        final eligibleResult = find.byKey(
+          const Key('decentro-verify-female-18-button'),
+        );
+        await tester.ensureVisible(eligibleResult);
+        await tester.tap(eligibleResult);
+        await tester.pumpAndSettle();
+
+        expect(find.text('SIMULATION PASSED'), findsOneWidget);
+        expect(find.text('STAGING DEMO ONLY — NOT VERIFIED'), findsOneWidget);
+        final resultRequest = api.postRequests.last;
+        expect(resultRequest.path, 'eligibility/decentro/staging-demo/result');
+        expect(resultRequest.authenticated, isTrue);
+        expect(resultRequest.body['referenceId'], demoReference);
+        expect(resultRequest.body['gender'], 'F');
+        expect(resultRequest.body['dob'], '1999-05-15');
+        expect(tester.takeException(), isNull);
+      },
+    );
+
     testWidgets('eligibility introduction fits a narrow phone viewport', (
       tester,
     ) async {
@@ -446,6 +503,79 @@ const _approvedTestConfiguration = EligibilityConfiguration(
   manualReviewDescription: 'No manual review is implemented in this test.',
   consentVersion: 'test-approved-v1',
 );
+
+class _FakeDecentroDemoApiClient extends BackendApiClient {
+  _FakeDecentroDemoApiClient()
+    : super(baseUrl: 'https://sakhi-staging-api.onrender.com/api/v1');
+
+  final postRequests =
+      <({String path, bool authenticated, Map<String, Object?> body})>[];
+
+  @override
+  Future<Map<String, dynamic>> get(
+    String path, {
+    bool authenticated = false,
+  }) async {
+    if (path == 'eligibility/configuration') {
+      return <String, dynamic>{
+        'providerConfigured': false,
+        'policyApproved': true,
+        'localSimulatorEnabled': false,
+        'stagingDemoEnabled': true,
+        'canStartStagingDemoSession': true,
+        'canStartVerification': false,
+        'mode': 'staging_demo',
+      };
+    }
+    if (path == 'eligibility/decentro/status') {
+      return <String, dynamic>{
+        'verificationStatus': 'UNVERIFIED',
+        'testAccessApproved': false,
+        'isDemo': false,
+        'message': 'No completed provider verification is recorded.',
+      };
+    }
+    return const <String, dynamic>{};
+  }
+
+  @override
+  Future<Map<String, dynamic>> post(
+    String path, {
+    Map<String, Object?> body = const <String, Object?>{},
+    bool authenticated = false,
+  }) async {
+    postRequests.add((
+      path: path,
+      authenticated: authenticated,
+      body: Map<String, Object?>.from(body),
+    ));
+    if (path == 'eligibility/decentro/staging-demo/start') {
+      return <String, dynamic>{
+        'status': 'STAGING_DEMO_SESSION_STARTED',
+        'sessionMode': 'STAGING_DEMO_ONLY',
+        'referenceId': '42d43dd8-7f49-41e5-9b1f-e7f26b9ec706',
+        'persisted': false,
+        'identityVerified': false,
+        'verificationStatusChanged': false,
+        'isDemo': true,
+        'message':
+            'Staging demo session started. No request was sent to Decentro.',
+      };
+    }
+    if (path == 'eligibility/decentro/staging-demo/result') {
+      return <String, dynamic>{
+        'status': 'SIMULATION_ONLY',
+        'eligibilityStatus': 'SIMULATION_PASSED',
+        'persisted': false,
+        'identityVerified': false,
+        'verificationStatusChanged': false,
+        'isDemo': true,
+        'message': 'Staging demo passed the synthetic demographic test. No identity was verified and no account status changed.',
+      };
+    }
+    return const <String, dynamic>{};
+  }
+}
 
 class _FakeEligibilityService implements EligibilityVerificationService {
   _FakeEligibilityService({required this.configuration, required this.result});

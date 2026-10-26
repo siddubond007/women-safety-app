@@ -3,6 +3,7 @@ import {
   IsDateString,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
   MinLength,
 } from "class-validator";
@@ -60,4 +61,9 @@ export class LocalEligibilitySimulationDto {
 
   @IsDateString()
   dob!: string;
+}
+
+export class StagingDemoResultDto extends LocalEligibilitySimulationDto {
+  @IsUUID()
+  referenceId!: string;
 }
