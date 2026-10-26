@@ -24,6 +24,25 @@ void main() {
       expect(find.text('Community posts unavailable'), findsOneWidget);
       expect(find.textContaining('LIVE POSTGRESQL DB'), findsNothing);
 
+      // The eligibility verification entry must remain reachable from Home.
+      final verificationCard = find.byKey(
+        const Key('home-eligibility-verification-card'),
+      );
+      expect(verificationCard, findsOneWidget);
+      await tester.ensureVisible(verificationCard);
+      await tester.tap(verificationCard);
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Step 1 — Initiate Decentro DigiLocker Session'),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('decentro-initiate-session-button')),
+        findsOneWidget,
+      );
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
       // Tap Explore tab (Screen 2)
       await tester.tap(find.text('Explore').last);
       await tester.pumpAndSettle();

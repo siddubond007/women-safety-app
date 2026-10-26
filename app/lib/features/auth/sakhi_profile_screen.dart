@@ -6,6 +6,7 @@ import '../../core/assets/app_assets.dart';
 import '../../core/navigation/app_navigation_shell.dart';
 import '../../core/theme/sakhi_design_system.dart';
 import '../../core/widgets/sakhi_avatar.dart';
+import '../eligibility/eligibility_intro_screen.dart';
 import 'auth_policy.dart';
 import 'auth_service.dart';
 import 'sakhi_auth_status_screen.dart';
@@ -459,7 +460,19 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
         ),
       );
       if (!mounted) return;
-      if (widget.authService.isDevelopmentBackend &&
+      final stagingProfileSaved =
+          SakhiAuthPolicy.isStagingTestBuild ||
+          result.message?.startsWith('Staging test profile saved.') == true;
+      if (widget.authService.isDevelopmentBackend && stagingProfileSaved) {
+        // Staging test access unlocks navigation only; it does not verify
+        // eligibility. Show the verification/demo screen before Home.
+        await Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute<void>(
+            builder: (_) => const DecentroDigilockerVerificationScreen(),
+          ),
+          (_) => false,
+        );
+      } else if (widget.authService.isDevelopmentBackend &&
           result.accountState == AuthAccountState.existingAccount) {
         await Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute<void>(builder: (_) => const AppNavigationShell()),

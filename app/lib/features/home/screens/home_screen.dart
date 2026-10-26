@@ -13,6 +13,7 @@ import '../../../core/widgets/sakhi_dialogs.dart';
 import '../../../core/widgets/sakhi_search_field.dart';
 import '../../../core/widgets/sakhi_section_header.dart';
 import '../../explore/screens/explore_discovery_screens.dart';
+import '../../eligibility/eligibility_intro_screen.dart';
 import '../widgets/for_you_item_card.dart';
 import '../widgets/greeting_banner_card.dart';
 import '../widgets/quick_action_button.dart';
@@ -51,6 +52,14 @@ class _HomeScreenState extends State<HomeScreen> {
     } else {
       Navigator.of(context).pushNamed(routeName);
     }
+  }
+
+  void _openEligibilityVerification() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const DecentroDigilockerVerificationScreen(),
+      ),
+    );
   }
 
   void _openSearchResults() {
@@ -187,6 +196,19 @@ class _HomeScreenState extends State<HomeScreen> {
                             onTap: () => _openRoute(AppRoutes.safety),
                           ),
                         ],
+                      ),
+                      const SizedBox(height: 18),
+                      ForYouItemCard(
+                        key: const Key('home-eligibility-verification-card'),
+                        icon: Icons.verified_user_outlined,
+                        iconColor: AppColors.primaryPurple,
+                        iconBgColor: AppColors.pastelLavender,
+                        title: 'Female Eligibility Verification',
+                        subtitle:
+                            'Open Decentro DigiLocker verification or run the staging demo',
+                        badgeText: 'Verify',
+                        flowerType: SakhiFlowerType.roseClassic,
+                        onTap: _openEligibilityVerification,
                       ),
                       const SizedBox(height: 22),
                       SakhiSectionHeader(

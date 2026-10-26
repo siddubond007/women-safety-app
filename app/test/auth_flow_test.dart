@@ -619,6 +619,68 @@ void main() {
     );
 
     testWidgets(
+      'staging-test signup opens eligibility verification before the Home screen',
+      (tester) async {
+        final service = _FakeAuthService()
+          ..developmentBackend = true
+          ..createResult = const AccountCreationResult(
+            accountState: AuthAccountState.existingAccount,
+            message:
+                'Staging test profile saved. This test session enables app navigation only; phone ownership and eligibility remain unverified.',
+          );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: SakhiProfileScreen(
+              authService: service,
+              countryCode: '+91',
+              phoneNumber: '9876543210',
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const Key('auth-profile-name-field')),
+          'Asha Rao',
+        );
+        await tester.tap(find.byKey(const Key('auth-profile-dob-picker')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Confirm date'));
+        await tester.pumpAndSettle();
+
+        final skipPhoto = find.byKey(
+          const Key('auth-profile-skip-photo-button'),
+        );
+        await tester.ensureVisible(skipPhoto);
+        await tester.tap(skipPhoto);
+        await tester.pumpAndSettle();
+
+        final continueButton = find.byKey(
+          const Key('auth-profile-continue-button'),
+        );
+        await tester.ensureVisible(continueButton);
+        await tester.tap(continueButton);
+        await tester.pumpAndSettle();
+
+        expect(service.createCalls, 1);
+        expect(
+          find.text('Step 1 — Initiate Decentro DigiLocker Session'),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('decentro-initiate-session-button')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('home-eligibility-verification-card')),
+          findsNothing,
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
       'terms consent is required and age-policy absence blocks creation',
       (tester) async {
         final profile = MemberProfileDraft(
