@@ -9,20 +9,68 @@ import '../../core/theme/sakhi_design_system.dart';
 import '../auth/backend_api_client.dart';
 import '../auth/widgets/auth_widgets.dart';
 import 'eligibility_information_screen.dart';
+import 'eligibility_verification_models.dart';
 import 'eligibility_verification_service.dart';
 import 'eligibility_widgets.dart';
 
-class EligibilityIntroScreen extends StatelessWidget {
+class EligibilityIntroScreen extends StatefulWidget {
   const EligibilityIntroScreen({super.key, required this.service});
 
   final EligibilityVerificationService service;
 
   @override
+  State<EligibilityIntroScreen> createState() => _EligibilityIntroScreenState();
+}
+
+class _EligibilityIntroScreenState extends State<EligibilityIntroScreen> {
+  bool _configurationLoading = true;
+  EligibilityConfiguration _configuration =
+      const EligibilityConfiguration.previewUnavailable();
+  bool _configurationLoadFailed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadConfiguration());
+  }
+
+  Future<void> _loadConfiguration() async {
+    try {
+      final configuration = await widget.service.loadConfiguration();
+      if (!mounted) return;
+      setState(() {
+        _configuration = configuration;
+        _configurationLoading = false;
+        _configurationLoadFailed = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _configuration = const EligibilityConfiguration.previewUnavailable();
+        _configurationLoading = false;
+        _configurationLoadFailed = true;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final readinessMessage = !widget.service.isDevelopmentBackend
+        ? 'DEMO PREVIEW — no approved verification provider is configured for this build. This screen does not verify identity or eligibility, and no provider request will be sent.'
+        : _configurationLoading
+        ? 'Checking staging identity-verification readiness. No provider request starts automatically.'
+        : _configurationLoadFailed
+        ? 'Could not load provider readiness. Try refreshing this screen or check the connection; no provider request was sent.'
+        : _configuration.providerConfigured && _configuration.policyApproved
+        ? '${_configuration.providerDisplayName ?? 'The staging identity provider'} is configured. Review the disclosures and give explicit consent before starting verification.'
+        : _configuration.policyApproved
+        ? 'STAGING TEST — the verification gate is enabled, but the provider runtime configuration is incomplete. No identity request can start until the required credentials and callback settings are available.'
+        : 'DEVELOPMENT PREVIEW — no approved verification provider and policy are configured. This screen does not verify identity or eligibility.';
+
     return SakhiAuthScaffold(
       botanicalAsset: AppAssets.authBotanicalConsent,
-      authIsDemo: false,
-      authIsDevelopmentBackend: service.isDevelopmentBackend,
+      authIsDemo: !widget.service.isDevelopmentBackend,
+      authIsDevelopmentBackend: widget.service.isDevelopmentBackend,
       botanicalHeight: 68,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -51,14 +99,12 @@ class EligibilityIntroScreen extends StatelessWidget {
           ),
           const SizedBox(height: SakhiSpacing.sm),
           const Text(
-            'Sakhi plans a separate eligibility check for community features reserved for verified members. It is different from confirming control of a mobile number.',
+            'Sakhi uses a separate eligibility check for community features reserved for verified members. It is different from confirming control of a mobile number.',
             textAlign: TextAlign.center,
             style: SakhiTypography.body,
           ),
           const SizedBox(height: SakhiSpacing.md),
-          const SakhiAuthStatusMessage(
-            message: 'DEVELOPMENT PREVIEW — no approved verification provider or production eligibility policy is configured. This screen does not verify identity or eligibility.',
-          ),
+          SakhiAuthStatusMessage(message: readinessMessage),
           const SizedBox(height: SakhiSpacing.md),
           const EligibilityPrincipleCard(
             icon: Icons.menu_book_outlined,
@@ -85,7 +131,7 @@ class EligibilityIntroScreen extends StatelessWidget {
             text: 'A phone OTP or Aadhaar OTP alone does not establish eligibility.',
           ),
           const SizedBox(height: SakhiSpacing.md),
-          if (service.isDevelopmentBackend) ...[
+          if (widget.service.isDevelopmentBackend) ...[
             FilledButton.icon(
               key: const Key('eligibility-intro-decentro-button'),
               style: FilledButton.styleFrom(
@@ -102,7 +148,7 @@ class EligibilityIntroScreen extends StatelessWidget {
                 ),
               ),
               icon: const Icon(Icons.verified_user_rounded),
-              label: const Text('Verify Instantly via Decentro DigiLocker KYC'),
+              label: const Text('Continue to Decentro DigiLocker KYC'),
             ),
             const SizedBox(height: SakhiSpacing.xs),
           ],
@@ -111,7 +157,8 @@ class EligibilityIntroScreen extends StatelessWidget {
             label: 'Review verification details',
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) => EligibilityInformationScreen(service: service),
+                builder: (_) =>
+                    EligibilityInformationScreen(service: widget.service),
               ),
             ),
           ),
@@ -126,7 +173,7 @@ class EligibilityIntroScreen extends StatelessWidget {
             ),
             child: const Text('Read the current draft Privacy Policy'),
           ),
-          if (service.isDevelopmentBackend) ...[
+          if (widget.service.isDevelopmentBackend) ...[
             const SizedBox(height: SakhiSpacing.xs),
             OutlinedButton.icon(
               key: const Key('eligibility-home-access-button'),
