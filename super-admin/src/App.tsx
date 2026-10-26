@@ -9,6 +9,7 @@ import { MemberManagementPage } from "./pages/MemberManagementPage";
 import { EligibilityReviewPage } from "./pages/EligibilityReviewPage";
 import { CommunityManagementPage } from "./pages/CommunityManagementPage";
 import { ModerationPage } from "./pages/ModerationPage";
+import { ComplaintsManagementPage } from "./pages/ComplaintsManagementPage";
 import { SafetyConsolePage } from "./pages/SafetyConsolePage";
 import { StagingTestAccessPage } from "./pages/StagingTestAccessPage";
 import { RegistrationPolicyPage } from "./pages/RegistrationPolicyPage";
@@ -82,6 +83,7 @@ function AppRoutes() {
         <Route path="/community" element={canAccessFullWorkspace ? <CommunityManagementPage /> : <Navigate to="/test-access" replace />} />
         <Route path="/wellness" element={canAccessFullWorkspace ? <CommunityManagementPage /> : <Navigate to="/test-access" replace />} />
         <Route path="/moderation" element={canAccessFullWorkspace ? <ModerationPage section="moderation" /> : <Navigate to="/test-access" replace />} />
+        <Route path="/complaints" element={canAccessFullWorkspace ? <ComplaintsManagementPage /> : <Navigate to="/test-access" replace />} />
         <Route path="/emergency" element={canAccessFullWorkspace ? <SafetyConsolePage /> : <Navigate to="/test-access" replace />} />
         <Route path="/audit-security" element={canAccessFullWorkspace ? <ModerationPage section="audit" /> : <Navigate to="/test-access" replace />} />
         <Route path="/integrations" element={canAccessFullWorkspace ? <ModerationPage section="integrations" /> : <Navigate to="/test-access" replace />} />

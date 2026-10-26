@@ -9,6 +9,7 @@ enum SakhiCreateAction {
   textPost,
   communityQuestion,
   usefulResource,
+  discreetComplaint,
 }
 
 Future<SakhiCreateAction?> showSakhiCreateHub(BuildContext context) {
@@ -130,6 +131,16 @@ Future<SakhiCreateAction?> showSakhiCreateHub(BuildContext context) {
               iconBg: const Color(0xFFC5E6D6),
               onTap: () => Navigator.of(sheetContext)
                   .pop(SakhiCreateAction.usefulResource),
+            ),
+            _CreateHubOption(
+              icon: Icons.shield_moon_rounded,
+              title: 'File a Discreet Complaint',
+              description:
+                  'Anonymous or Confidential report with EXIF scrubber & #SKH token',
+              gradientColors: const [Color(0xFFFCEEF5), Color(0xFFF2E2F8)],
+              iconBg: const Color(0xFFE5C5F0),
+              onTap: () => Navigator.of(sheetContext)
+                  .pop(SakhiCreateAction.discreetComplaint),
             ),
             const SizedBox(height: 6),
             SizedBox(

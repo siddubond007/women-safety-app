@@ -9,6 +9,7 @@ import { EligibilityModule } from "./eligibility/eligibility.module.js";
 import { AdminReviewModule } from "./admin-review/admin-review.module.js";
 import { StagingTestAdminModule } from "./staging-test-admin/staging-test-admin.module.js";
 import { Module2Module } from "./module2/module2.module.js";
+import { ComplaintsModule } from "./complaints/complaints.module.js";
 import { PrismaModule } from "./database/prisma.module.js";
 import { HealthController } from "./health/health.controller.js";
 import { HealthService } from "./health/health.service.js";
@@ -50,6 +51,10 @@ import { ApiExceptionFilter } from "./common/filters/api-exception.filter.js";
             "req.body.emergencyContacts",
             "req.body.cycleData",
             "req.body.healthNotes",
+            "req.body.passkey",
+            "req.body.description",
+            "req.body.appealDescription",
+            "req.body.evidenceFiles",
           ],
           censor: "[REDACTED]",
         },
@@ -71,6 +76,7 @@ import { ApiExceptionFilter } from "./common/filters/api-exception.filter.js";
     AdminReviewModule,
     StagingTestAdminModule,
     Module2Module,
+    ComplaintsModule,
   ],
   controllers: [HealthController],
   providers: [HealthService, ApiExceptionFilter],

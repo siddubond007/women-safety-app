@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../branding/app_brand.dart';
+import 'app_typography.dart';
 
 abstract final class SakhiColors {
   static const plum = AppBrand.darkTextColor;
@@ -32,21 +33,27 @@ abstract final class SakhiRadii {
 
 abstract final class SakhiTypography {
   static const onboardingTitle = TextStyle(
+    fontFamily: AppTypography.editorialSerifFamily,
+    fontFamilyFallback: AppTypography.editorialSerifFallbacks,
     color: SakhiColors.plum,
     fontSize: 28,
     fontWeight: FontWeight.w800,
-    height: 1.12,
-    letterSpacing: -0.55,
+    height: 1.14,
+    letterSpacing: -0.45,
   );
 
   static const body = TextStyle(
+    fontFamily: AppTypography.uiSansFamily,
+    fontFamilyFallback: AppTypography.uiSansFallbacks,
     color: SakhiColors.mutedPlum,
     fontSize: 14.5,
     fontWeight: FontWeight.w500,
-    height: 1.42,
+    height: 1.44,
   );
 
   static const categoryLabel = TextStyle(
+    fontFamily: AppTypography.uiSansFamily,
+    fontFamilyFallback: AppTypography.uiSansFallbacks,
     color: SakhiColors.plum,
     fontSize: 11,
     fontWeight: FontWeight.w800,

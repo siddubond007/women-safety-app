@@ -16,6 +16,7 @@ import '../../../core/widgets/sakhi_buttons.dart';
 import '../../../core/widgets/sakhi_card.dart';
 import '../../../core/widgets/sakhi_chip.dart';
 import '../../../core/widgets/sakhi_create_hub_sheet.dart';
+import '../../complaints/screens/discreet_complaint_hub_screen.dart';
 
 const Map<String, String> sakhiPostCategories = {
   'community': 'Community',
@@ -65,6 +66,9 @@ Future<void> openSakhiCreateAction(
         onPublished: onPublished,
         initialCategory: initialCategory ?? 'safety_awareness',
       ),
+    ),
+    SakhiCreateAction.discreetComplaint => MaterialPageRoute<void>(
+      builder: (_) => const DiscreetComplaintHubScreen(),
     ),
   };
   await Navigator.of(context).push(route);

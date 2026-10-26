@@ -26,6 +26,30 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>tel</string>
+		<string>telprompt</string>
+		<string>sms</string>
+		<string>smsto</string>
+		<string>https</string>
+		<string>http</string>
+		<string>maps</string>
+		<string>comgooglemaps</string>
+		<string>whatsapp</string>
+	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Sakhi uses your location while the app is open to share your position with people you choose during a safety event or identify nearby verified police stations.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Sakhi uses your location when you activate live safety sharing or SOS so your trusted contacts can track your route safely.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Sakhi lets you select photos or documents from your library for profile avatars, community posts, and EXIF-scrubbed complaint evidence.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Sakhi lets you save disguised wellness quote backup cards and safety resources to your photo library.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Sakhi uses your camera when you choose to capture a profile photo, community post, or safety evidence.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Sakhi uses your microphone when you record a video post or attach audio evidence to a safety report.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -53,8 +77,6 @@
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Sakhi uses your location while the app is open to share your position with people you choose during a safety event.</string>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

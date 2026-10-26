@@ -13,6 +13,7 @@ import '../../../core/widgets/sakhi_card.dart';
 import '../../../core/widgets/sakhi_dialogs.dart';
 import '../../../core/widgets/sakhi_remote_media_image.dart';
 import '../../../core/widgets/sakhi_remote_media_video.dart';
+import '../../complaints/screens/discreet_complaint_hub_screen.dart';
 import '../../explore/screens/explore_discovery_screens.dart';
 import 'breathing_exercise_banner.dart';
 
@@ -1149,6 +1150,27 @@ class FeedPostCard extends StatelessWidget {
                   onTap: () {
                     Navigator.pop(ctx);
                     _showReportDialog(context);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(
+                    Icons.shield_moon_rounded,
+                    color: AppColors.primaryPurple,
+                  ),
+                  title: const Text('Report Discreetly (Anonymous / Confidential)'),
+                  subtitle: const Text(
+                    'Open Module 5 Discreet Complaint Hub with EXIF scrubber & #SKH token',
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => DiscreetComplaintHubScreen(
+                          initialLinkedPostId: post.id,
+                          initialLinkedProfileHandle: post.authorUsername,
+                        ),
+                      ),
+                    );
                   },
                 ),
                 ListTile(

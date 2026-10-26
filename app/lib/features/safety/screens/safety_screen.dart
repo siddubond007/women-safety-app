@@ -4,7 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../../core/widgets/sakhi_botanical_flower.dart';
 import '../../../core/widgets/sakhi_quote_loader.dart';
+import '../../complaints/screens/complaint_admin_console_screen.dart';
+import '../../complaints/screens/complaint_tracking_screens.dart';
+import '../../complaints/screens/discreet_complaint_hub_screen.dart';
 import '../models/safety_models.dart';
 import '../theme/sakhi_module4_theme.dart';
 import '../widgets/sakhi_live_osm_map.dart';
@@ -445,6 +449,128 @@ class _SafetyScreenState extends State<SafetyScreen>
                         : 'Real live GPS map, verified directory, directions & Call 112',
                     onTap: () =>
                         _openScreen(const NearestPoliceStationsScreen()),
+                  ),
+                  const SizedBox(height: 14),
+                  // Screen 01 — Module 5 Discreet & Anonymous Complaint Hub Entry Card
+                  Container(
+                    key: const Key('safety-module5-discreet-complaint-card'),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Color(0xFFFFF1F6), Color(0xFFF4E4FA)],
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0xFFDCC0E8), width: 1.3),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x125A1868),
+                          blurRadius: 14,
+                          offset: Offset(0, 6),
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: Stack(
+                        children: [
+                          const Positioned(
+                            right: -12,
+                            top: -12,
+                            child: SakhiBotanicalFlower(
+                              type: SakhiFlowerType.roseClassic,
+                              width: 72,
+                              height: 84,
+                              opacity: 0.30,
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.all(15),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      width: 44,
+                                      height: 44,
+                                      decoration: const BoxDecoration(
+                                        color: Color(0xFF5A1868),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(
+                                        Icons.shield_moon_rounded,
+                                        color: Colors.white,
+                                        size: 22,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    const Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Discreet & Anonymous Complaints',
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w800,
+                                              color: SakhiModule4Colors.textPrimary,
+                                            ),
+                                          ),
+                                          SizedBox(height: 2),
+                                          Text(
+                                            'Module 5 • Report harassment, stalking, POSH or fake accounts with 100% anonymity & EXIF scrubbing',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: SakhiModule4Colors.textSecondary,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    FilledButton.icon(
+                                      key: const Key('safety-open-discreet-complaint-hub-button'),
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: SakhiModule4Colors.primaryPlum,
+                                        foregroundColor: Colors.white,
+                                      ),
+                                      onPressed: () => _openScreen(
+                                        const DiscreetComplaintHubScreen(),
+                                      ),
+                                      icon: const Icon(Icons.lock_outline_rounded, size: 16),
+                                      label: const Text('File Discreet Report'),
+                                    ),
+                                    OutlinedButton.icon(
+                                      key: const Key('safety-open-complaint-tracker-button'),
+                                      onPressed: () => _openScreen(
+                                        const ComplaintTrackingLookupScreen(),
+                                      ),
+                                      icon: const Icon(Icons.manage_search_rounded, size: 16),
+                                      label: const Text('Track by #SKH Token'),
+                                    ),
+                                    TextButton.icon(
+                                      key: const Key('safety-open-complaint-admin-button'),
+                                      onPressed: () => _openScreen(
+                                        const ComplaintAdminConsoleScreen(),
+                                      ),
+                                      icon: const Icon(Icons.admin_panel_settings_outlined, size: 16),
+                                      label: const Text('Admin Console'),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
 
                   const SizedBox(height: 16),

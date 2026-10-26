@@ -7,8 +7,17 @@ class AppTheme {
   AppTheme._();
 
   static ThemeData get lightTheme {
+    final baseTextTheme = ThemeData.light().textTheme.apply(
+      fontFamily: AppTypography.uiSansFamily,
+      fontFamilyFallback: AppTypography.uiSansFallbacks,
+      bodyColor: AppColors.textPrimary,
+      displayColor: AppColors.textPrimary,
+    );
+
     return ThemeData(
       useMaterial3: true,
+      fontFamily: AppTypography.uiSansFamily,
+      fontFamilyFallback: AppTypography.uiSansFallbacks,
       scaffoldBackgroundColor: AppColors.scaffoldBackground,
       primaryColor: AppColors.primaryPurple,
       colorScheme: ColorScheme.fromSeed(
@@ -17,6 +26,17 @@ class AppTheme {
         secondary: AppColors.primaryPurpleLight,
         surface: AppColors.cardSurface,
         error: AppColors.sosRed,
+      ),
+      textTheme: baseTextTheme.copyWith(
+        headlineLarge: AppTypography.heroTitle.copyWith(fontSize: 26),
+        headlineMedium: AppTypography.heroTitle,
+        titleLarge: AppTypography.appBarTitle,
+        titleMedium: AppTypography.sectionTitle,
+        titleSmall: AppTypography.cardTitle,
+        bodyLarge: AppTypography.bodyMedium,
+        bodyMedium: AppTypography.bodyRegular,
+        bodySmall: AppTypography.subtitle,
+        labelSmall: AppTypography.caption,
       ),
       appBarTheme: const AppBarTheme(
         backgroundColor: AppColors.scaffoldBackground,

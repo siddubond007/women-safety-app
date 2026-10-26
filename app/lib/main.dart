@@ -14,6 +14,10 @@ import 'features/auth/sakhi_auth_status_screen.dart';
 import 'features/auth/sakhi_login_screen.dart';
 import 'features/auth/sakhi_registration_screen.dart';
 import 'features/community/screens/community_screen.dart';
+import 'features/complaints/screens/complaint_admin_console_screen.dart';
+import 'features/complaints/screens/complaint_submission_wizard_screen.dart';
+import 'features/complaints/screens/complaint_tracking_screens.dart';
+import 'features/complaints/screens/discreet_complaint_hub_screen.dart';
 import 'features/explore/screens/explore_screen.dart';
 import 'features/followers/screens/followers_following_screen.dart';
 import 'features/notifications/screens/notification_preferences_screen.dart';
@@ -96,6 +100,15 @@ class SakhiApp extends StatelessWidget {
       title: AppBrand.appName,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
+      builder: (context, child) {
+        final mq = MediaQuery.of(context);
+        return MediaQuery(
+          data: mq.copyWith(
+            textScaler: mq.textScaler.clamp(minScaleFactor: 0.85, maxScaleFactor: 1.2),
+          ),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       routes: {
         '/home': (_) => SakhiProtectedHomeGate(authService: authService),
         '/dashboard': (_) => const AppNavigationShell(),
@@ -111,6 +124,11 @@ class SakhiApp extends StatelessWidget {
         AppRoutes.followers: (_) => const FollowersFollowingScreen(),
         AppRoutes.accountSecurity: (_) => const AccountSecurityScreen(),
         AppRoutes.moreOptions: (_) => const MoreOptionsMenuScreen(),
+        AppRoutes.discreetComplaintHub: (_) => const DiscreetComplaintHubScreen(),
+        AppRoutes.complaintWizard: (_) => const ComplaintSubmissionWizardScreen(),
+        AppRoutes.complaintTracker: (_) => const ComplaintTrackingLookupScreen(),
+        AppRoutes.complaintAdmin: (_) => const ComplaintAdminConsoleScreen(),
+        AppRoutes.quickExitJournal: (_) => const QuickExitWellnessCamouflageScreen(),
       },
       home: SakhiStartupRouter(authService: authService),
     );

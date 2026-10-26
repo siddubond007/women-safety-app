@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/constants/mock_data.dart';
+import '../complaints/screens/discreet_complaint_hub_screen.dart';
 
 /// Shared moderation/ownership actions for posts across Community, Explore,
 /// and the signed-in member's Profile. Visibility and ownership are confirmed
@@ -28,6 +29,11 @@ Future<void> showModule2PostActions(
               leading: const Icon(Icons.flag_outlined),
               title: const Text('Report this post'),
               onTap: () => Navigator.pop(sheetContext, 'report'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.shield_moon_rounded),
+              title: const Text('File Discreet / Anonymous Complaint'),
+              onTap: () => Navigator.pop(sheetContext, 'discreet_complaint'),
             ),
             ListTile(
               leading: const Icon(Icons.block_rounded),
@@ -79,6 +85,17 @@ Future<void> showModule2PostActions(
     return;
   }
 
+  if (result == 'discreet_complaint') {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => DiscreetComplaintHubScreen(
+          initialLinkedPostId: post.id,
+          initialLinkedProfileHandle: post.authorUsername,
+        ),
+      ),
+    );
+    return;
+  }
   if (post.isOwnPost || post.authorAccountId.isEmpty) return;
   if (result == 'report') {
     final success = await state.reportMember(

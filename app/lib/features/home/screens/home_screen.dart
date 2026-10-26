@@ -206,6 +206,18 @@ class _HomeScreenState extends State<HomeScreen> {
                         flowerType: SakhiFlowerType.roseClassic,
                         onTap: _openEligibilityVerification,
                       ),
+                      const SizedBox(height: 10),
+                      ForYouItemCard(
+                        key: const Key('home-discreet-complaint-card'),
+                        icon: Icons.shield_moon_rounded,
+                        iconColor: AppColors.primaryPurple,
+                        iconBgColor: AppColors.pastelPink,
+                        title: 'Discreet & Anonymous Complaint Hub',
+                        subtitle: 'File an anonymous/confidential report or track by #SKH reference token',
+                        badgeText: 'Safe Voice',
+                        flowerType: SakhiFlowerType.cherryBlossom,
+                        onTap: () => _openRoute(AppRoutes.discreetComplaintHub),
+                      ),
                       const SizedBox(height: 22),
                       SakhiSectionHeader(
                         title: 'For You Today',

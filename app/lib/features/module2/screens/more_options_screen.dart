@@ -69,6 +69,13 @@ class MoreOptionsScreen extends StatelessWidget {
             ),
             const SizedBox(height: 9),
             SakhiSettingsRow(
+              icon: Icons.shield_moon_rounded,
+              title: 'Discreet & Anonymous Complaint Hub',
+              subtitle: 'File anonymous or confidential reports & track status',
+              onTap: () => _navigate(context, AppRoutes.discreetComplaintHub),
+            ),
+            const SizedBox(height: 9),
+            SakhiSettingsRow(
               icon: Icons.flag_outlined,
               title: 'Report a User',
               subtitle: 'Send a report for moderation review',

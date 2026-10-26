@@ -1,4 +1,4 @@
-/// Reusable asset locations across Onboarding, Auth, Eligibility, Module 2, Module 3, and Module 4 screens.
+/// Reusable asset locations across Onboarding, Auth, Eligibility, Module 2, Module 3, Module 4, and Module 5 screens.
 abstract final class AppAssets {
   // Stage 1 Onboarding & Auth illustrations
   static const String onboardingWelcome =
@@ -160,6 +160,20 @@ abstract final class AppAssets {
   static const String module4WomenQuotesJson =
       'assets/module4/sakhi_women_quotes.json';
 
+  // Module 5: Discreet & Anonymous Complaint System Bespoke Illustrations
+  static const String module5HeroSafeVoice =
+      'assets/module5/illustrations/01_hero_woman_lotus_safe_voice.jpg';
+  static const String module5AnonymousShieldEnvelope =
+      'assets/module5/illustrations/02_anonymous_lotus_shield_envelope.jpg';
+  static const String module5EvidenceVaultScrubber =
+      'assets/module5/illustrations/03_evidence_vault_exif_scrubber.jpg';
+  static const String module5CompassionateReviewCounselors =
+      'assets/module5/illustrations/04_compassionate_female_review_counselors.jpg';
+  static const String module5QuickExitChamomileJournal =
+      'assets/module5/illustrations/05_quick_exit_chamomile_wellness_journal.jpg';
+  static const String module5ReferenceTokenCard =
+      'assets/module5/illustrations/06_anonymous_reference_token_card.jpg';
+
   // 12 Diverse Original Fictional Women Default Avatars
   static const String avatarSiddhu = 'assets/images/profile/avatar_siddhu.webp';
   static const String avatarAnanya = 'assets/images/profile/avatar_ananya.webp';
@@ -205,8 +219,6 @@ abstract final class AppAssets {
     {'label': 'Nisha', 'asset': avatarNisha},
   ];
 
-  /// Deterministically maps an accountId, username, or display name to one of
-  /// the 12 distinct illustrated women avatars when no uploaded photo is set.
   static String forKey(String? key) {
     final cleaned = (key ?? '').trim();
     if (cleaned.startsWith('assets/images/profile/') &&
@@ -223,8 +235,6 @@ abstract final class AppAssets {
     return allDefaultWomenAvatars[hash % allDefaultWomenAvatars.length];
   }
 
-  /// Resolves relative `/api/v1/module2/media/object/...` paths against the
-  /// configured backend API base URL.
   static String resolveRemoteMediaUrl(String rawUrl) {
     final trimmed = rawUrl.trim();
     if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {

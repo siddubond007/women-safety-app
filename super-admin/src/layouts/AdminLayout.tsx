@@ -53,7 +53,7 @@ const navigationItems: NavigationItem[] = [
   { label: "Members & accounts", path: "/members", icon: Users, group: "People & trust" },
   { label: "Eligibility & verification", path: "/verification", icon: UserRoundCheck, group: "People & trust" },
   { label: "Trust & safety", path: "/moderation", icon: ShieldAlert, group: "People & trust" },
-  { label: "Complaints & cases", path: "/complaints", icon: MessageSquareWarning, group: "People & trust", planned: true },
+  { label: "Complaints & cases", path: "/complaints", icon: MessageSquareWarning, group: "People & trust" },
   { label: "SOS & emergency", path: "/emergency", icon: Siren, group: "People & trust" },
   { label: "Community content", path: "/community", icon: BookOpenText, group: "Platform operations" },
   { label: "Business management", path: "/businesses", icon: Building2, group: "Platform operations", planned: true },

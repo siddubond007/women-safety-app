@@ -613,3 +613,95 @@ model PlatformRegistrationPolicy {
 
   @@map("platform_registration_policies")
 }
+
+
+// ============================================================================
+// Module 5: Discreet and Anonymous Complaint System (SRS Sections 7.1–7.6)
+// ============================================================================
+
+model DiscreetComplaint {
+  id                               String    @id @default(uuid()) @db.Uuid
+  referenceNumber                  String    @unique(map: "discreet_complaints_reference_number_key") @map("reference_number") @db.VarChar(40)
+  passkeyDigest                    String    @map("passkey_digest") @db.VarChar(128)
+  disguisedBackupSerial            String    @map("disguised_backup_serial") @db.VarChar(64)
+  reportingMode                    String    @default("ANONYMOUS") @map("reporting_mode") @db.VarChar(24)
+  /// Strictly null when reportingMode is ANONYMOUS (SRS 7.4). Populated only in CONFIDENTIAL mode and hidden from target/ordinary moderators.
+  confidentialAccountId            String?   @map("confidential_account_id") @db.Uuid
+  /// Blinded cryptographic rate-limit bucket hash for anti-abuse protection without unmasking identity (SRS 7.4 & 7.6).
+  blindedRateLimitBucket           String?   @map("blinded_rate_limit_bucket") @db.VarChar(64)
+  categorySlug                     String    @map("category_slug") @db.VarChar(64)
+  categoryTitle                    String    @map("category_title") @db.VarChar(120)
+  customCategoryLabel              String?   @map("custom_category_label") @db.VarChar(120)
+  urgency                          String    @default("PAST_INCIDENT") @db.VarChar(32)
+  description                      String    @db.Text
+  piiGuardRedacted                 Boolean   @default(false) @map("pii_guard_redacted")
+  approximateDateLabel             String    @map("approximate_date_label") @db.VarChar(80)
+  approximateTimeWindow            String    @map("approximate_time_window") @db.VarChar(80)
+  locationType                     String    @default("COARSE_AREA") @map("location_type") @db.VarChar(32)
+  generalLocationLabel             String?   @map("general_location_label") @db.VarChar(180)
+  linkedTargetType                 String?   @map("linked_target_type") @db.VarChar(32)
+  linkedTargetHandle               String?   @map("linked_target_handle") @db.VarChar(120)
+  linkedPostId                     String?   @map("linked_post_id") @db.VarChar(80)
+  linkedBusinessId                 String?   @map("linked_business_id") @db.VarChar(80)
+  evidenceFiles                    Json      @default("[]") @map("evidence_files") @db.JsonB
+  supportingLinks                  Json      @default("[]") @map("supporting_links") @db.JsonB
+  wantsUpdates                     Boolean   @default(true) @map("wants_updates")
+  submitAnonymouslyToReviewTeam    Boolean   @default(true) @map("submit_anonymously_to_review_team")
+  acknowledgedNonPoliceLegalNotice Boolean   @default(true) @map("acknowledged_non_police_legal_notice")
+  status                           String    @default("SUBMITTED") @db.VarChar(40)
+  severity                         String    @default("S2_HIGH") @db.VarChar(24)
+  priority                         String    @default("P1_URGENT") @db.VarChar(24)
+  assignedReviewerId               String?   @map("assigned_reviewer_id") @db.VarChar(64)
+  assignedReviewerName             String?   @map("assigned_reviewer_name") @db.VarChar(120)
+  duplicateClusterId               String?   @map("duplicate_cluster_id") @db.VarChar(64)
+  mergedIntoReference              String?   @map("merged_into_reference") @db.VarChar(40)
+  isFlaggedMaliciousAbuse          Boolean   @default(false) @map("is_flagged_malicious_abuse")
+  maliciousAbuseReason             String?   @map("malicious_abuse_reason") @db.VarChar(500)
+  rejectionReasonCode              String?   @map("rejection_reason_code") @db.VarChar(80)
+  publicResolutionSummary          String?   @map("public_resolution_summary") @db.Text
+  enforcementActions               Json      @default("[]") @map("enforcement_actions") @db.JsonB
+  complainantMessages              Json      @default("[]") @map("complainant_messages") @db.JsonB
+  internalNotes                    Json      @default("[]") @map("internal_notes") @db.JsonB
+  auditHistory                     Json      @default("[]") @map("audit_history") @db.JsonB
+  mediaPurgedAt                    DateTime? @map("media_purged_at") @db.Timestamptz(6)
+  retentionExpiresAt               DateTime? @map("retention_expires_at") @db.Timestamptz(6)
+  createdAt                        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, priority, createdAt], map: "discreet_complaints_status_priority_created_idx")
+  @@index([categorySlug, createdAt], map: "discreet_complaints_category_created_idx")
+  @@index([linkedTargetHandle], map: "discreet_complaints_target_handle_idx")
+  @@index([duplicateClusterId], map: "discreet_complaints_duplicate_cluster_idx")
+  @@map("discreet_complaints")
+}
+
+model ComplaintCategoryConfig {
+  slug               String   @id @db.VarChar(64)
+  name               String   @db.VarChar(120)
+  description        String   @db.VarChar(300)
+  iconKey            String   @default("shield") @map("icon_key") @db.VarChar(40)
+  flowerType         String   @default("peonySoft") @map("flower_type") @db.VarChar(40)
+  defaultPriority    String   @default("P2_HIGH") @map("default_priority") @db.VarChar(24)
+  defaultSeverity    String   @default("S2_HIGH") @map("default_severity") @db.VarChar(24)
+  safetyGuidanceText String   @map("safety_guidance_text") @db.Text
+  legalHelplineNote  String   @map("legal_helpline_note") @db.VarChar(500)
+  isEnabled          Boolean  @default(true) @map("is_enabled")
+  displayOrder       Int      @default(1) @map("display_order")
+  updatedBy          String?  @map("updated_by") @db.VarChar(120)
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([isEnabled, displayOrder], map: "complaint_category_configs_enabled_order_idx")
+  @@map("complaint_category_configs")
+}
+
+model ComplaintRetentionPolicy {
+  policyKey                   String   @id @default("default") @map("policy_key") @db.VarChar(40)
+  closedEvidenceRetentionDays Int      @default(90) @map("closed_evidence_retention_days")
+  rejectedReportRetentionDays Int      @default(30) @map("rejected_report_retention_days")
+  technicalRateLimitLogDays   Int      @default(14) @map("technical_rate_limit_log_days")
+  updatedBy                   String?  @map("updated_by") @db.VarChar(120)
+  updatedAt                   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("complaint_retention_policies")
+}

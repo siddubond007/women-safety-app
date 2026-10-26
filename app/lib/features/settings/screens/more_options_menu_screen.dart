@@ -125,6 +125,15 @@ class MoreOptionsMenuScreen extends StatelessWidget {
                       const Divider(indent: 68, endIndent: 14),
                       SakhiSettingsRow(
                         useCardContainer: false,
+                        icon: Icons.shield_moon_rounded,
+                        title: 'Discreet & Anonymous Complaint Hub',
+                        subtitle: 'File anonymous/confidential reports or track by #SKH token',
+                        onTap: () => Navigator.of(context)
+                            .pushNamed(AppRoutes.discreetComplaintHub),
+                      ),
+                      const Divider(indent: 68, endIndent: 14),
+                      SakhiSettingsRow(
+                        useCardContainer: false,
                         icon: Icons.warning_amber_rounded,
                         title: 'Report a User',
                         onTap: () => SakhiDialogs.showConfirmationDialog(
