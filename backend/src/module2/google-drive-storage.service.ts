@@ -26,6 +26,10 @@ type GoogleDriveFile = {
   parents?: string[];
 };
 
+export type GoogleDriveAuthorizationCompletion =
+  | { persistence: "local_dpapi" }
+  | { persistence: "render_environment"; refreshToken: string };
+
 @Injectable()
 export class GoogleDriveStorageService {
   private readonly pendingStates = new Map<string, number>();
@@ -120,7 +124,10 @@ export class GoogleDriveStorageService {
     return url.toString();
   }
 
-  async completeAuthorization(code: string, state: string): Promise<void> {
+  async completeAuthorization(
+    code: string,
+    state: string,
+  ): Promise<GoogleDriveAuthorizationCompletion> {
     this.assertClientConfigured();
     const expiry = this.pendingStates.get(state);
     this.pendingStates.delete(state);
@@ -149,10 +156,43 @@ export class GoogleDriveStorageService {
       );
     }
 
+    // Render containers cannot use the local Windows DPAPI credential store.
+    // In an explicitly enabled staging deployment, return the refresh token to
+    // the administrator's no-store callback page so it can be saved directly
+    // as a Render environment variable. Never log or persist it in the app DB.
+    if (this.isRenderStagingEnvironmentSetupEnabled()) {
+      this.rootFolderId = null;
+      this.folderCache.clear();
+      return {
+        persistence: "render_environment",
+        refreshToken: token.refresh_token,
+      };
+    }
+
     await this.persistRefreshToken(token.refresh_token);
     process.env.SAKHI_GOOGLE_DRIVE_REFRESH_TOKEN = token.refresh_token;
     this.rootFolderId = null;
     this.folderCache.clear();
+    return { persistence: "local_dpapi" };
+  }
+
+  private isRenderStagingEnvironmentSetupEnabled(): boolean {
+    let callback: URL;
+    try {
+      callback = new URL(this.redirectUri());
+    } catch {
+      return false;
+    }
+    return (
+      process.env.SAKHI_GOOGLE_DRIVE_CLOUD_SETUP_ENABLED?.trim().toLowerCase() ===
+        "true" &&
+      process.env.NODE_ENV === "production" &&
+      process.env.SAKHI_ENV === "staging" &&
+      Boolean(process.env.RENDER_SERVICE_ID?.trim()) &&
+      callback.protocol === "https:" &&
+      callback.hostname.endsWith(".onrender.com") &&
+      callback.pathname === "/api/v1/integrations/google-drive/callback"
+    );
   }
 
   async uploadImage(input: {

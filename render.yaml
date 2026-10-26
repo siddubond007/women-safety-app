@@ -49,6 +49,10 @@ services:
         sync: false
       - key: SAKHI_GOOGLE_DRIVE_REFRESH_TOKEN
         sync: false
+      - key: SAKHI_GOOGLE_DRIVE_REDIRECT_URI
+        value: https://sakhi-staging-api.onrender.com/api/v1/integrations/google-drive/callback
+      - key: SAKHI_GOOGLE_DRIVE_CLOUD_SETUP_ENABLED
+        value: "true"
       - key: SAKHI_GOOGLE_DRIVE_ROOT_FOLDER_NAME
         value: Sakhi Staging Media
       # Decentro DigiLocker staging. Real provider sessions still require server-side credentials.
