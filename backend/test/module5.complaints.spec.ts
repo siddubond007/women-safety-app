@@ -1,4 +1,4 @@
-import { ForbiddenException } from "@nestjs/common";
+import { UnauthorizedException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import { AuthenticationService } from "../src/auth/auth.service.js";
 import { ComplaintsService } from "../src/complaints/complaints.service.js";
@@ -185,6 +185,6 @@ describe("Module 5: Discreet & Anonymous Complaint System (SRS 7.1–7.6)", () =
 
     await expect(
       service.adminDashboardAndQueue("INVALID_TOKEN"),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });

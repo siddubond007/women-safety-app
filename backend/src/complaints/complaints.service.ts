@@ -790,7 +790,7 @@ export class ComplaintsService {
       return null;
     }
     try {
-      const status = await this.auth.getCurrentAccountStatus(authorization);
+      const status = await this.auth.getCurrentAccount(authorization);
       return status.accountId ?? null;
     } catch {
       return null;
@@ -1135,6 +1135,10 @@ export class ComplaintsService {
       this.categoriesMap.get(dto.categorySlug) ??
       this.categoriesMap.get("other") ??
       DEFAULT_COMPLAINT_CATEGORIES[0];
+
+    if (!category) {
+      throw new ServiceUnavailableException("Complaint category configuration is unavailable.");
+    }
 
     // Generate Reference Number & Private Passkey
     const numSuffix = Math.floor(1000 + Math.random() * 9000);
@@ -1997,7 +2001,7 @@ export class ComplaintsService {
             targetId: slug,
             outcome: updated.isEnabled ? "ENABLED" : "DISABLED",
             requestId: randomUUID(),
-            redactedMetadata: { reviewer: reviewer.reviewerLabel, category: updated },
+            redactedMetadata: JSON.parse(JSON.stringify({ reviewer: reviewer.reviewerLabel, category: updated })),
           },
         })
         .catch(() => null);
