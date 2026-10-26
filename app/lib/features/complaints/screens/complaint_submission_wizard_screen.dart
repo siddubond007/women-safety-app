@@ -1419,11 +1419,12 @@ class _ComplaintSubmissionWizardScreenState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'Linked Sakhi Profile, Post or Business',
-                    style: AppTypography.cardTitle,
+                  const Expanded(
+                    child: Text(
+                      'Linked Sakhi Profile, Post or Business',
+                      style: AppTypography.cardTitle,
+                    ),
                   ),
                   TextButton.icon(
                     key: const Key('m5-open-supporting-links-modal-button'),
@@ -1646,19 +1647,22 @@ class _ComplaintSubmissionWizardScreenState
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text(
-                  'Enable Two-Way Status Updates & Reviewer Replies',
-                  style: AppTypography.bodyMedium,
+              Material(
+                color: Colors.transparent,
+                child: SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(
+                    'Enable Two-Way Status Updates & Reviewer Replies',
+                    style: AppTypography.bodyMedium,
+                  ),
+                  subtitle: const Text(
+                    'Allows you to read reviewer responses and reply using your Reference #',
+                    style: AppTypography.subtitle,
+                  ),
+                  value: _wantsFollowUp,
+                  activeThumbColor: AppColors.primaryPurple,
+                  onChanged: (val) => setState(() => _wantsFollowUp = val),
                 ),
-                subtitle: const Text(
-                  'Allows you to read reviewer responses and reply using your Reference #',
-                  style: AppTypography.subtitle,
-                ),
-                value: _wantsFollowUp,
-                activeThumbColor: AppColors.primaryPurple,
-                onChanged: (val) => setState(() => _wantsFollowUp = val),
               ),
               const Divider(),
               const Text(
@@ -1675,26 +1679,32 @@ class _ComplaintSubmissionWizardScreenState
                 },
                 child: Column(
                   children: <Widget>[
-                    RadioListTile<String>(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      value: 'SILENT_VAULT_ONLY',
-                      title: const Text(
-                        'Silent In-App Vault Only (Zero Push Notifications)',
-                      ),
-                      subtitle: const Text(
-                        'Safest option: nothing ever appears on your phone lock screen',
+                    Material(
+                      color: Colors.transparent,
+                      child: RadioListTile<String>(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        value: 'SILENT_VAULT_ONLY',
+                        title: const Text(
+                          'Silent In-App Vault Only (Zero Push Notifications)',
+                        ),
+                        subtitle: const Text(
+                          'Safest option: nothing ever appears on your phone lock screen',
+                        ),
                       ),
                     ),
-                    RadioListTile<String>(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      value: 'DISCREET_GENERIC_WELLNESS_ALERT',
-                      title: const Text(
-                        'Disguised Wellness Reminder ("New Sakhi Daily Quote")',
-                      ),
-                      subtitle: const Text(
-                        'Never mentions the word "Complaint" or "Report" on lock screen',
+                    Material(
+                      color: Colors.transparent,
+                      child: RadioListTile<String>(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        value: 'DISCREET_GENERIC_WELLNESS_ALERT',
+                        title: const Text(
+                          'Disguised Wellness Reminder ("New Sakhi Daily Quote")',
+                        ),
+                        subtitle: const Text(
+                          'Never mentions the word "Complaint" or "Report" on lock screen',
+                        ),
                       ),
                     ),
                   ],

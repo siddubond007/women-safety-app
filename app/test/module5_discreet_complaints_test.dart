@@ -12,7 +12,8 @@ import 'package:women_safety_app/features/complaints/services/complaint_controll
 Widget _wrapWithMaterialApp(Widget home) {
   return MaterialApp(
     theme: AppTheme.lightTheme,
-    routes: AppRoutes.routes,
+    routes: Map<String, WidgetBuilder>.from(AppRoutes.routes)
+      ..remove(AppRoutes.root),
     home: home,
   );
 }

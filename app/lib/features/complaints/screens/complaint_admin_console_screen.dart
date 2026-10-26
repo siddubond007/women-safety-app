@@ -616,37 +616,42 @@ class _ComplaintAdminConsoleScreenState
                 width: isSelected ? 1.8 : 1.0,
               ),
             ),
-            child: ListTile(
-              onTap: () => setState(() => _selectedComplaintId = item.id),
-              title: Row(
-                children: [
-                  Text(item.referenceNumber, style: AppTypography.monoToken),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: item.status.badgeBg,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      item.status.label,
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
-                        color: item.status.badgeText,
+            child: Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(16),
+              clipBehavior: Clip.antiAlias,
+              child: ListTile(
+                onTap: () => setState(() => _selectedComplaintId = item.id),
+                title: Row(
+                  children: [
+                    Text(item.referenceNumber, style: AppTypography.monoToken),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: item.status.badgeBg,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        item.status.label,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: item.status.badgeText,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
+                subtitle: Text(
+                  '${_controller.categoryByCode(item.categoryCode).label} • ${item.reportingMode.badgeLabel} • ${item.severityPriority}',
+                  style: const TextStyle(fontSize: 11.5),
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded),
               ),
-              subtitle: Text(
-                '${_controller.categoryByCode(item.categoryCode).label} • ${item.reportingMode.badgeLabel} • ${item.severityPriority}',
-                style: const TextStyle(fontSize: 11.5),
-              ),
-              trailing: const Icon(Icons.chevron_right_rounded),
             ),
           );
         }),
@@ -995,15 +1000,18 @@ class _ComplaintAdminConsoleScreenState
                 style: AppTypography.bodyRegular.copyWith(height: 1.45),
               ),
               const SizedBox(height: 8),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text(
-                  'Allow Complainant Immediate Media Purge',
-                  style: AppTypography.bodyMedium,
-                ),
-                value: policy.allowUserImmediateMediaPurge,
-                onChanged: (val) => _controller.updateRetentionPolicy(
-                  policy.copyWith(allowUserImmediateMediaPurge: val),
+              Material(
+                color: Colors.transparent,
+                child: SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(
+                    'Allow Complainant Immediate Media Purge',
+                    style: AppTypography.bodyMedium,
+                  ),
+                  value: policy.allowUserImmediateMediaPurge,
+                  onChanged: (val) => _controller.updateRetentionPolicy(
+                    policy.copyWith(allowUserImmediateMediaPurge: val),
+                  ),
                 ),
               ),
             ],
@@ -1023,14 +1031,20 @@ class _ComplaintAdminConsoleScreenState
               borderRadius: BorderRadius.circular(14),
               border: Border.all(color: AppColors.borderSubtle),
             ),
-            child: SwitchListTile(
-              title: Text(
-                '${cat.label} (${cat.defaultSeverity})',
-                style: AppTypography.bodyMedium,
+            child: Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(14),
+              clipBehavior: Clip.antiAlias,
+              child: SwitchListTile(
+                title: Text(
+                  '${cat.label} (${cat.defaultSeverity})',
+                  style: AppTypography.bodyMedium,
+                ),
+                subtitle: Text(cat.subtitle, style: AppTypography.subtitle),
+                value: cat.enabled,
+                onChanged: (v) =>
+                    _controller.toggleCategoryEnabled(cat.code, v),
               ),
-              subtitle: Text(cat.subtitle, style: AppTypography.subtitle),
-              value: cat.enabled,
-              onChanged: (v) => _controller.toggleCategoryEnabled(cat.code, v),
             ),
           ),
         ),
