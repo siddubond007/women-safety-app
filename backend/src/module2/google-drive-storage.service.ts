@@ -350,7 +350,7 @@ export class GoogleDriveStorageService {
     const refreshToken = process.env.SAKHI_GOOGLE_DRIVE_REFRESH_TOKEN?.trim();
     if (!refreshToken) {
       throw new ServiceUnavailableException(
-        "Google Drive is not connected. Open the local Google Drive connect URL and authorize the Sakhi media app.",
+        "Google Drive is not connected. Open this deployment's Google Drive connect URL and authorize the Sakhi media app.",
       );
     }
 
@@ -368,7 +368,7 @@ export class GoogleDriveStorageService {
     const token = (await response.json().catch(() => ({}))) as GoogleTokenResponse;
     if (!response.ok || !token.access_token) {
       throw new ServiceUnavailableException(
-        "Google Drive authorization is unavailable. Reconnect the Google account from this local development backend.",
+        "Google Drive authorization is unavailable. Reconnect through this deployment's Google Drive connect URL, then update its refresh-token environment variable if prompted.",
       );
     }
     return token.access_token;
