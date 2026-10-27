@@ -880,97 +880,103 @@ export class ComplaintsService {
     actorType: "MEMBER" | "ADMIN" | "ANONYMOUS_REPORTER",
     outcome: string,
   ): Promise<void> {
-    this.complaintsMap.set(record.referenceNumber.toUpperCase(), record);
+    const complaintKey = record.referenceNumber.toUpperCase();
     const anyPrisma = this.prisma as unknown as Record<string, any>;
 
-    if (anyPrisma.discreetComplaint?.upsert) {
-      await anyPrisma.discreetComplaint
-        .upsert({
-          where: { referenceNumber: record.referenceNumber },
-          update: {
-            status: record.status,
-            severity: record.severity,
-            priority: record.priority,
-            assignedReviewerId: record.assignedReviewerId,
-            assignedReviewerName: record.assignedReviewerName,
-            duplicateClusterId: record.duplicateClusterId,
-            mergedIntoReference: record.mergedIntoReference,
-            isFlaggedMaliciousAbuse: record.isFlaggedMaliciousAbuse,
-            maliciousAbuseReason: record.maliciousAbuseReason,
-            rejectionReasonCode: record.rejectionReasonCode,
-            publicResolutionSummary: record.publicResolutionSummary,
-            enforcementActions: record.enforcementActions,
-            evidenceFiles: record.evidenceFiles,
-            complainantMessages: record.complainantMessages,
-            internalNotes: record.internalNotes,
-            auditHistory: record.auditHistory,
-            mediaPurgedAt: record.mediaPurgedAt
-              ? new Date(record.mediaPurgedAt)
-              : null,
-            updatedAt: new Date(record.updatedAt),
-          },
-          create: {
-            id: record.id,
-            referenceNumber: record.referenceNumber,
-            passkeyDigest: record.passkeyDigest,
-            disguisedBackupSerial: record.disguisedBackupSerial,
-            reportingMode: record.reportingMode,
-            confidentialAccountId: record.confidentialAccountId,
-            blindedRateLimitBucket: record.blindedRateLimitBucket,
-            categorySlug: record.categorySlug,
-            categoryTitle: record.categoryTitle,
-            customCategoryLabel: record.customCategoryLabel,
-            urgency: record.urgency,
-            description: record.description,
-            piiGuardRedacted: record.piiGuardRedacted,
-            approximateDateLabel: record.approximateDateLabel,
-            approximateTimeWindow: record.approximateTimeWindow,
-            locationType: record.locationType,
-            generalLocationLabel: record.generalLocationLabel,
-            linkedTargetType: record.linkedTargetType,
-            linkedTargetHandle: record.linkedTargetHandle,
-            linkedPostId: record.linkedPostId,
-            linkedBusinessId: record.linkedBusinessId,
-            evidenceFiles: record.evidenceFiles,
-            supportingLinks: record.supportingLinks,
-            wantsUpdates: record.wantsUpdates,
-            submitAnonymouslyToReviewTeam: record.submitAnonymouslyToReviewTeam,
-            acknowledgedNonPoliceLegalNotice:
-              record.acknowledgedNonPoliceLegalNotice,
-            status: record.status,
-            severity: record.severity,
-            priority: record.priority,
-            assignedReviewerId: record.assignedReviewerId,
-            assignedReviewerName: record.assignedReviewerName,
-            duplicateClusterId: record.duplicateClusterId,
-            mergedIntoReference: record.mergedIntoReference,
-            isFlaggedMaliciousAbuse: record.isFlaggedMaliciousAbuse,
-            maliciousAbuseReason: record.maliciousAbuseReason,
-            rejectionReasonCode: record.rejectionReasonCode,
-            publicResolutionSummary: record.publicResolutionSummary,
-            enforcementActions: record.enforcementActions,
-            complainantMessages: record.complainantMessages,
-            internalNotes: record.internalNotes,
-            auditHistory: record.auditHistory,
-            retentionExpiresAt: new Date(record.retentionExpiresAt),
-            createdAt: new Date(record.createdAt),
-            updatedAt: new Date(record.updatedAt),
-          },
-        })
-        .catch(() => null);
-    }
+    const persistSnapshot = async (
+      anyPrisma: Record<string, any>,
+    ): Promise<void> => {
+      if (!anyPrisma.discreetComplaint?.upsert) {
+        throw new ServiceUnavailableException(
+          "Persistent complaint storage is unavailable; submission was not confirmed.",
+        );
+      }
 
-    // Write tamper-evident audit event without exposing confidentialAccountId or passkey
-    if (this.prisma.auditEvent?.create) {
-      const safeAuditMetadata = {
-        ...record,
-        confidentialAccountId: null,
-      };
-      await this.prisma.auditEvent
-        .create({
+      await anyPrisma.discreetComplaint.upsert({
+        where: { referenceNumber: record.referenceNumber },
+        update: {
+          status: record.status,
+          severity: record.severity,
+          priority: record.priority,
+          assignedReviewerId: record.assignedReviewerId,
+          assignedReviewerName: record.assignedReviewerName,
+          duplicateClusterId: record.duplicateClusterId,
+          mergedIntoReference: record.mergedIntoReference,
+          isFlaggedMaliciousAbuse: record.isFlaggedMaliciousAbuse,
+          maliciousAbuseReason: record.maliciousAbuseReason,
+          rejectionReasonCode: record.rejectionReasonCode,
+          publicResolutionSummary: record.publicResolutionSummary,
+          enforcementActions: record.enforcementActions,
+          evidenceFiles: record.evidenceFiles,
+          complainantMessages: record.complainantMessages,
+          internalNotes: record.internalNotes,
+          auditHistory: record.auditHistory,
+          mediaPurgedAt: record.mediaPurgedAt
+            ? new Date(record.mediaPurgedAt)
+            : null,
+          updatedAt: new Date(record.updatedAt),
+        },
+        create: {
+          id: record.id,
+          referenceNumber: record.referenceNumber,
+          passkeyDigest: record.passkeyDigest,
+          disguisedBackupSerial: record.disguisedBackupSerial,
+          reportingMode: record.reportingMode,
+          confidentialAccountId: record.confidentialAccountId,
+          blindedRateLimitBucket: record.blindedRateLimitBucket,
+          categorySlug: record.categorySlug,
+          categoryTitle: record.categoryTitle,
+          customCategoryLabel: record.customCategoryLabel,
+          urgency: record.urgency,
+          description: record.description,
+          piiGuardRedacted: record.piiGuardRedacted,
+          approximateDateLabel: record.approximateDateLabel,
+          approximateTimeWindow: record.approximateTimeWindow,
+          locationType: record.locationType,
+          generalLocationLabel: record.generalLocationLabel,
+          linkedTargetType: record.linkedTargetType,
+          linkedTargetHandle: record.linkedTargetHandle,
+          linkedPostId: record.linkedPostId,
+          linkedBusinessId: record.linkedBusinessId,
+          evidenceFiles: record.evidenceFiles,
+          supportingLinks: record.supportingLinks,
+          wantsUpdates: record.wantsUpdates,
+          submitAnonymouslyToReviewTeam: record.submitAnonymouslyToReviewTeam,
+          acknowledgedNonPoliceLegalNotice:
+            record.acknowledgedNonPoliceLegalNotice,
+          status: record.status,
+          severity: record.severity,
+          priority: record.priority,
+          assignedReviewerId: record.assignedReviewerId,
+          assignedReviewerName: record.assignedReviewerName,
+          duplicateClusterId: record.duplicateClusterId,
+          mergedIntoReference: record.mergedIntoReference,
+          isFlaggedMaliciousAbuse: record.isFlaggedMaliciousAbuse,
+          maliciousAbuseReason: record.maliciousAbuseReason,
+          rejectionReasonCode: record.rejectionReasonCode,
+          publicResolutionSummary: record.publicResolutionSummary,
+          enforcementActions: record.enforcementActions,
+          complainantMessages: record.complainantMessages,
+          internalNotes: record.internalNotes,
+          auditHistory: record.auditHistory,
+          retentionExpiresAt: new Date(record.retentionExpiresAt),
+          createdAt: new Date(record.createdAt),
+          updatedAt: new Date(record.updatedAt),
+        },
+      });
+
+      // Write the audit record in the same database transaction when the
+      // Prisma client supports interactive transactions. A failed audit write
+      // must prevent a successful submission response.
+      if (anyPrisma.auditEvent?.create) {
+        const safeAuditMetadata = {
+          ...record,
+          confidentialAccountId: null,
+        };
+        await anyPrisma.auditEvent.create({
           data: {
             actorType,
-            actorId: null, // Never attach reporter accountId to audit log
+            actorId: null,
             action: "module5.complaint.snapshot",
             targetType: "module5_complaint",
             targetId: record.referenceNumber,
@@ -978,9 +984,25 @@ export class ComplaintsService {
             requestId: randomUUID(),
             redactedMetadata: JSON.parse(JSON.stringify(safeAuditMetadata)),
           },
-        })
-        .catch(() => null);
+        });
+      }
+    };
+
+    try {
+      if (typeof anyPrisma.$transaction === "function") {
+        await anyPrisma.$transaction((tx: unknown) =>
+          persistSnapshot(tx as Record<string, any>),
+        );
+      } else {
+        await persistSnapshot(anyPrisma);
+      }
+    } catch {
+      throw new ServiceUnavailableException(
+        "Complaint storage could not confirm durable persistence; submission was not confirmed.",
+      );
     }
+
+    this.complaintsMap.set(complaintKey, record);
   }
 
   // ---------------------------------------------------------------------------

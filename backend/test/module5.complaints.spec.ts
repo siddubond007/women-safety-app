@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
@@ -258,6 +259,26 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
           "Repeated threatening messages sent in the community group.",
       }),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it("does not report a complaint as submitted when durable persistence fails", async () => {
+    const { service, prisma, persistedComplaints } = createTestService();
+    prisma.discreetComplaint.upsert.mockRejectedValueOnce(
+      new Error("synthetic database write failure"),
+    );
+
+    await expect(
+      service.submitComplaint(undefined, {
+        reportingMode: "ANONYMOUS",
+        categorySlug: "harassment",
+        description:
+          "Synthetic persistence failure regression test, no real incident.",
+        acknowledgedNonPoliceLegalNotice: true,
+      }),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+
+    expect(prisma.auditEvent.create).not.toHaveBeenCalled();
+    expect(persistedComplaints.size).toBe(0);
   });
 
   it("enforces passkey verification, valid status transitions, RBAC masking, and full complaint lifecycle", async () => {
