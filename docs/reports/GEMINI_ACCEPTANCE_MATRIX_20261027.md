@@ -128,3 +128,25 @@ The original `GEMINI_MODULE4_REPAIR_PROMPT_20261025.txt` remains a release accep
 - `backend/test/admin-review.spec.ts`: make an optional array-index assertion type-safe.
 
 The source changes above were committed as `8d0d67170c6466f44495cababa7c586d275a81e5` and pushed to `feat/module5-and-rbac-admin-panels-20261027` after explicit user approval. The remote branch was verified at that SHA and the working tree was clean after push. Render's Admin static-site deploy `dep-dbgeon15efls73dn2qhg` is live for that commit; API build `bld-dbgeon15efls73dn2q1g` succeeded, the new API instance started, health returned HTTP 200 with database `ok`, categories returned HTTP 200 with 10 entries, and CORS preflight returned HTTP 204 for the Admin origin. Render subsequently reported API deploy `dep-dbgeon15efls73dn2q10` as `live`; a `deploy_ended` event recorded `succeeded`. The later commit `bcc94439261c3bf95836f75d765373df8ccdb284` changes only this acceptance report, and no service deployment for that documentation-only change was listed at the last poll. No main merge or production deployment occurred.
+
+## 9. Backend dependency security follow-up - 2026-10-28
+
+The earlier build warning of 3 dependency vulnerabilities (1 moderate, 2 critical) has been remediated in the backend dependency manifest and lockfile.
+
+- Updated `vitest` from 3.2.7 to the exact patched version 4.1.12.
+- Added an exact `vite` 7.3.7 dev dependency because Vitest 4 declares Vite as a peer dependency. This preserves the existing Vite 7 line instead of letting a fresh install silently select Vite 8.
+- The previous findings were in the test-only dependency chain (`vitest`, `@vitest/mocker`, and `tinypool`). The patched lock no longer installs the vulnerable `tinypool` dependency.
+
+Verification on 2026-10-28, after pinning the final dependency versions:
+
+- `npm audit`: PASS, 0 vulnerabilities.
+- `npm audit --omit=dev`: PASS, 0 vulnerabilities.
+- `npm run prisma:validate`: PASS.
+- `npm run typecheck`: PASS.
+- Backend tests: PASS, 102 passed and 3 skipped across 21 files. The three skipped database integration tests are not counted as passes.
+- `npm run build`: PASS with the staging build environment set and no migrator database URL supplied.
+- `git diff --check`: PASS before commit.
+
+The local remote shell reported Node.js v22.20.0 while the backend package declares `node >=24.15.0`; npm therefore emitted an engine warning during installation. The validations and tests passed on that local runtime, but this is not a substitute for checking the staging deployment and the CI result under the project's supported Node runtime.
+
+No schema migration, database permission change, marketplace database operation, main-branch merge, or production deployment was performed. This security remediation still requires commit/push and confirmation that the automatic staging API deployment succeeds.
