@@ -174,6 +174,15 @@ abstract final class AppAssets {
   static const String module5ReferenceTokenCard =
       'assets/module5/illustrations/06_anonymous_reference_token_card.jpg';
 
+  // Backwards-compatible names used by the repaired Module 5 screen files.
+  static const String m5HeroSafeVoice = module5HeroSafeVoice;
+  static const String m5AnonymousShield = module5AnonymousShieldEnvelope;
+  static const String m5EvidenceVaultExif = module5EvidenceVaultScrubber;
+  static const String m5CompassionateTeam =
+      module5CompassionateReviewCounselors;
+  static const String m5QuickExitChamomile = module5QuickExitChamomileJournal;
+  static const String m5ReferenceTokenCard = module5ReferenceTokenCard;
+
   // 12 Diverse Original Fictional Women Default Avatars
   static const String avatarSiddhu = 'assets/images/profile/avatar_siddhu.webp';
   static const String avatarAnanya = 'assets/images/profile/avatar_ananya.webp';

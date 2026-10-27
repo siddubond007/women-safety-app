@@ -1,22 +1,23 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../../core/assets/app_assets.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/sakhi_botanical_flower.dart';
+import '../../auth/backend_api_client.dart';
 import '../models/complaint_models.dart';
 import '../services/complaint_controller.dart';
 import 'complaint_tracking_screens.dart';
 import 'discreet_complaint_hub_screen.dart';
 
 /// Complete 5-Step Discreet & Anonymous Complaint Submission Wizard
-/// Covers UI Reference Screens 04 through 21:
-/// - Step 1 (Screens 04, 05, Sheet 06): Mode Selection (Anonymous vs Confidential)
-/// - Step 2 (Screens 07, 08, Modal 09): Category Grid (10 categories), Other/Business inline fields, Category Safety Guidance Modal
-/// - Step 3 (Screens 10, Modal 11, Sheet 12, Modal 13): Incident Description, Real-Time Identity-Reveal Warning & Auto-Redaction, Approximate Date/Time Window Picker, Coarse 5 km General Location Picker
-/// - Step 4 (Screens 14, Modal 15, Sheet 16, Modal 17): Evidence Vault Upload, Evidence Safety Guidance, Automatic EXIF Scrubber & Blur Inspection Sheet, Supporting Links & Post/Profile Linker
-/// - Step 5 (Screens 18, Dialog 19, Screen 20, Modal 21): Updates Preference & Pre-Submission Review, Final Confirmation Dialog, Anonymous Reference Receipt (`#SKH-ANON-...`), Disguised Wellness Quote Card Backup Modal
+/// - Enforces strict step-by-step validation (cannot skip ahead past incomplete steps).
+/// - Starts with clean, empty user inputs (zero pre-filled fake descriptions or fake attachments).
+/// - Uploads and scrubs real picked file bytes via the backend EXIF scrubber.
+/// - Submits to `POST /api/v1/complaints` and only displays a receipt when the server confirms creation.
 class ComplaintSubmissionWizardScreen extends StatefulWidget {
   const ComplaintSubmissionWizardScreen({
     super.key,
@@ -42,11 +43,19 @@ class _ComplaintSubmissionWizardScreenState
     extends State<ComplaintSubmissionWizardScreen> {
   final SakhiComplaintController _controller =
       SakhiComplaintController.instance;
+  final ImagePicker _imagePicker = ImagePicker();
 
   int _currentStep = 0; // 0..4 for steps 1..5
+  int _highestCompletedStep = 0;
+  String? _validationError;
+  bool _isUploadingEvidence = false;
+  bool _isSubmitting = false;
+
   late ComplaintReportingMode _reportingMode;
   late String _selectedCategoryCode;
-  String _urgencyLevel = 'HIGH';
+  String _urgencyLevel = 'PAST_INCIDENT';
+  bool _acknowledgedLegalNotice = true;
+  bool _piiGuardRedacted = false;
 
   final TextEditingController _customCategoryCtrl = TextEditingController();
   final TextEditingController _descriptionCtrl = TextEditingController();
@@ -54,8 +63,10 @@ class _ComplaintSubmissionWizardScreenState
   final TextEditingController _linkedPostCtrl = TextEditingController();
   final TextEditingController _linkedBusinessCtrl = TextEditingController();
 
-  String _incidentDateWindow = 'Yesterday • Evening (6 PM – 10 PM)';
-  String _generalAreaText = 'Indiranagar, Bengaluru (~5 km coarse zone)';
+  String _approximateDateLabel = 'Today / Within the last 24 hours';
+  String _approximateTimeWindow = 'Evening (5 PM – 9 PM)';
+  String _locationType = 'COARSE_AREA';
+  String _generalAreaText = 'Online / Inside Sakhi App';
   bool _wantsFollowUp = true;
   String _discreetNotificationMode = 'SILENT_VAULT_ONLY';
 
@@ -69,34 +80,33 @@ class _ComplaintSubmissionWizardScreenState
   void initState() {
     super.initState();
     _reportingMode = widget.initialMode;
-    _selectedCategoryCode =
-        widget.initialCategoryCode ?? _controller.enabledCategories.first.code;
-    if (widget.initialLinkedProfileHandle != null) {
-      _linkedProfileCtrl.text = widget.initialLinkedProfileHandle!;
+    final initialCat = widget.initialCategoryCode != null
+        ? _controller.categoryByCode(widget.initialCategoryCode!).code
+        : _controller.enabledCategories.first.code;
+    _selectedCategoryCode = initialCat;
+
+    if (widget.initialLinkedProfileHandle != null &&
+        widget.initialLinkedProfileHandle!.trim().isNotEmpty) {
+      _linkedProfileCtrl.text = widget.initialLinkedProfileHandle!.trim();
       _supportingLinks.add(
-        'sakhi://profile/${widget.initialLinkedProfileHandle}',
+        'sakhi://profile/${widget.initialLinkedProfileHandle!.trim()}',
       );
     }
-    if (widget.initialLinkedPostId != null) {
-      _linkedPostCtrl.text = widget.initialLinkedPostId!;
-      _supportingLinks.add('sakhi://post/${widget.initialLinkedPostId}');
-    }
-    if (widget.initialLinkedBusinessId != null) {
-      _linkedBusinessCtrl.text = widget.initialLinkedBusinessId!;
+    if (widget.initialLinkedPostId != null &&
+        widget.initialLinkedPostId!.trim().isNotEmpty) {
+      _linkedPostCtrl.text = widget.initialLinkedPostId!.trim();
       _supportingLinks.add(
-        'sakhi://business/${widget.initialLinkedBusinessId}',
+        'sakhi://post/${widget.initialLinkedPostId!.trim()}',
       );
     }
-    // Pre-populate sample description so user can test immediately or edit freely
-    _descriptionCtrl.text = 'Repeated intimidating messages and unwelcome comments from a suspicious account after I participated in a community safety thread.';
-    // Pre-populate 1 scrubbed sample evidence file so user can inspect Sheet 16 immediately
-    _evidenceFiles.add(
-      _controller.scrubAndCreateEvidence(
-        originalFileName: 'Screenshot_Harassment_Chat.png',
-        mimeType: 'image/png',
-        sizeBytes: 394240,
-      ),
-    );
+    if (widget.initialLinkedBusinessId != null &&
+        widget.initialLinkedBusinessId!.trim().isNotEmpty) {
+      _linkedBusinessCtrl.text = widget.initialLinkedBusinessId!.trim();
+      _supportingLinks.add(
+        'sakhi://business/${widget.initialLinkedBusinessId!.trim()}',
+      );
+    }
+    unawaited(_controller.syncCategoriesFromServer());
   }
 
   @override
@@ -117,7 +127,77 @@ class _ComplaintSubmissionWizardScreenState
     );
   }
 
+  /// Validates the fields of `[step]` and returns `null` if valid, or a user-facing error message.
+  String? _validateStep(int step) {
+    if (step == 0) {
+      if (!_acknowledgedLegalNotice) {
+        return 'Please acknowledge the non-police / emergency channels legal notice before continuing.';
+      }
+      return null;
+    }
+    if (step == 1) {
+      final cat = _controller.categoryByCode(_selectedCategoryCode);
+      if (!cat.enabled) {
+        return 'Please select an enabled complaint category.';
+      }
+      if (cat.code == 'other' && _customCategoryCtrl.text.trim().length < 3) {
+        return 'Please enter a custom category description (at least 3 characters) when selecting "Other".';
+      }
+      return null;
+    }
+    if (step == 2) {
+      final cleanDesc = _descriptionCtrl.text.trim();
+      if (cleanDesc.isEmpty) {
+        return 'Incident description is required and cannot be blank or whitespace-only.';
+      }
+      if (cleanDesc.length < 20) {
+        return 'Please provide at least 20 characters describing what happened (${cleanDesc.length}/20 typed).';
+      }
+      if (cleanDesc.length > 4000) {
+        return 'Incident description cannot exceed 4,000 characters.';
+      }
+      return null;
+    }
+    if (step == 3) {
+      if (_evidenceFiles.length > kMaxComplaintEvidenceFiles) {
+        return 'You can attach a maximum of $kMaxComplaintEvidenceFiles evidence files.';
+      }
+      for (final link in _supportingLinks) {
+        final err = SakhiComplaintController.validateSupportingLinkUrl(link);
+        if (err != null) return err;
+      }
+      return null;
+    }
+    return null;
+  }
+
+  void _handleStepChipTap(int targetStep) {
+    setState(() => _validationError = null);
+    if (targetStep <= _currentStep) {
+      setState(() => _currentStep = targetStep);
+      return;
+    }
+    // Validate every step from _currentStep up to targetStep - 1
+    for (var s = _currentStep; s < targetStep; s++) {
+      final err = _validateStep(s);
+      if (err != null) {
+        setState(() {
+          _currentStep = s;
+          _validationError = err;
+        });
+        return;
+      }
+    }
+    setState(() {
+      _currentStep = targetStep;
+      if (targetStep > _highestCompletedStep) {
+        _highestCompletedStep = targetStep;
+      }
+    });
+  }
+
   void _handleBackStep() {
+    setState(() => _validationError = null);
     if (_submittedReceipt != null) {
       Navigator.of(context).pop();
       return;
@@ -130,8 +210,14 @@ class _ComplaintSubmissionWizardScreenState
   }
 
   Future<void> _handleNextStep() async {
+    setState(() => _validationError = null);
+    final err = _validateStep(_currentStep);
+    if (err != null) {
+      setState(() => _validationError = err);
+      return;
+    }
+
     if (_currentStep == 2) {
-      // Check for accidental self-identifying PII in description (Modal 11)
       final piiCheck = _controller.analyzeTextForSelfIdentifyingClues(
         _descriptionCtrl.text,
       );
@@ -142,51 +228,272 @@ class _ComplaintSubmissionWizardScreenState
         if (action == 'REDACT') {
           setState(() {
             _descriptionCtrl.text = piiCheck.redactedText;
+            _piiGuardRedacted = true;
           });
         }
       }
     }
 
     if (_currentStep < 4) {
-      setState(() => _currentStep++);
+      setState(() {
+        _currentStep++;
+        if (_currentStep > _highestCompletedStep) {
+          _highestCompletedStep = _currentStep;
+        }
+      });
       return;
     }
 
-    // Step 5 -> Show Final Confirmation Dialog (Dialog 19)
+    // Validate all steps 0..3 before final submission
+    for (var s = 0; s < 4; s++) {
+      final stepErr = _validateStep(s);
+      if (stepErr != null) {
+        setState(() {
+          _currentStep = s;
+          _validationError = stepErr;
+        });
+        return;
+      }
+    }
+
     final confirmed = await _showFinalSubmissionConfirmDialog();
     if (!mounted || confirmed != true) return;
 
-    final created = await _controller.submitComplaint(
-      reportingMode: _reportingMode,
-      categoryCode: _selectedCategoryCode,
-      customCategoryNote: _customCategoryCtrl.text.trim().isEmpty
-          ? null
-          : _customCategoryCtrl.text.trim(),
-      urgencyLevel: _urgencyLevel,
-      description: _descriptionCtrl.text.trim().isEmpty
-          ? 'Discreet safety concern reported via Sakhi Module 5.'
-          : _descriptionCtrl.text.trim(),
-      incidentDateWindow: _incidentDateWindow,
-      generalAreaText: _generalAreaText,
-      supportingLinks: List<String>.from(_supportingLinks),
-      linkedPostId: _linkedPostCtrl.text.trim().isEmpty
-          ? null
-          : _linkedPostCtrl.text.trim(),
-      linkedProfileHandle: _linkedProfileCtrl.text.trim().isEmpty
-          ? null
-          : _linkedProfileCtrl.text.trim(),
-      linkedBusinessId: _linkedBusinessCtrl.text.trim().isEmpty
-          ? null
-          : _linkedBusinessCtrl.text.trim(),
-      wantsFollowUp: _wantsFollowUp,
-      discreetNotificationMode: _discreetNotificationMode,
-      evidenceFiles: List<SanitizedEvidenceFileModel>.from(_evidenceFiles),
+    setState(() {
+      _isSubmitting = true;
+      _validationError = null;
+    });
+
+    try {
+      final created = await _controller.submitComplaint(
+        reportingMode: _reportingMode,
+        categoryCode: _selectedCategoryCode,
+        customCategoryNote: _customCategoryCtrl.text.trim().isEmpty
+            ? null
+            : _customCategoryCtrl.text.trim(),
+        urgencyLevel: _urgencyLevel,
+        description: _descriptionCtrl.text.trim(),
+        approximateDateLabel: _approximateDateLabel,
+        approximateTimeWindow: _approximateTimeWindow,
+        locationType: _locationType,
+        generalAreaText: _locationType == 'PREFER_NOT_TO_SAY'
+            ? null
+            : _generalAreaText,
+        supportingLinks: List<String>.from(_supportingLinks),
+        linkedPostId: _linkedPostCtrl.text.trim().isEmpty
+            ? null
+            : _linkedPostCtrl.text.trim(),
+        linkedProfileHandle: _linkedProfileCtrl.text.trim().isEmpty
+            ? null
+            : _linkedProfileCtrl.text.trim(),
+        linkedBusinessId: _linkedBusinessCtrl.text.trim().isEmpty
+            ? null
+            : _linkedBusinessCtrl.text.trim(),
+        wantsFollowUp: _wantsFollowUp,
+        discreetNotificationMode: _discreetNotificationMode,
+        acknowledgedNonPoliceLegalNotice: _acknowledgedLegalNotice,
+        evidenceFiles: List<SanitizedEvidenceFileModel>.from(_evidenceFiles),
+        piiGuardRedacted: _piiGuardRedacted,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _submittedReceipt = created;
+      });
+    } on BackendApiException catch (apiErr) {
+      if (!mounted) return;
+      setState(() {
+        _validationError = apiErr.message;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _validationError =
+            'Could not submit complaint to backend server. Check your connection and try again.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
+    }
+  }
+
+  /// Picks a real image/screenshot via ImagePicker and sends its bytes to the backend EXIF scrubber.
+  Future<void> _pickAndUploadImageEvidence(ImageSource source) async {
+    if (_evidenceFiles.length >= kMaxComplaintEvidenceFiles) {
+      setState(() {
+        _validationError =
+            'Maximum of $kMaxComplaintEvidenceFiles evidence files reached.';
+      });
+      return;
+    }
+    setState(() => _validationError = null);
+    try {
+      final picked = await _imagePicker.pickImage(
+        source: source,
+        maxWidth: 2048,
+        maxHeight: 2048,
+        imageQuality: 90,
+      );
+      if (picked == null) return;
+      final bytes = await picked.readAsBytes();
+      final name = picked.name.isNotEmpty ? picked.name : 'evidence_photo.jpg';
+      final ext = name.split('.').last.toLowerCase();
+      final mime = ext == 'png'
+          ? 'image/png'
+          : ext == 'webp'
+          ? 'image/webp'
+          : 'image/jpeg';
+
+      setState(() => _isUploadingEvidence = true);
+      final scrubbed = await _controller.uploadAndScrubEvidenceOnServer(
+        originalFileName: name,
+        mimeType: mime,
+        fileBytes: bytes,
+      );
+      if (!mounted) return;
+      setState(() {
+        _evidenceFiles.add(scrubbed);
+      });
+    } on BackendApiException catch (err) {
+      if (!mounted) return;
+      setState(() => _validationError = err.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _validationError =
+            'Could not pick or scrub the selected image. Verify permissions and backend connectivity.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isUploadingEvidence = false);
+      }
+    }
+  }
+
+  /// Allows attaching a real text/PDF/audio evidence payload or custom file for scrubbing on the backend.
+  Future<void> _openDocumentOrAudioUploadDialog() async {
+    if (_evidenceFiles.length >= kMaxComplaintEvidenceFiles) {
+      setState(() {
+        _validationError =
+            'Maximum of $kMaxComplaintEvidenceFiles evidence files reached.';
+      });
+      return;
+    }
+    final fileNameCtrl = TextEditingController(text: 'incident_statement.pdf');
+    final contentCtrl = TextEditingController();
+    String selectedMime = 'application/pdf';
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) => AlertDialog(
+          backgroundColor: const Color(0xFFFFF9FC),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          title: Text(
+            'Attach Document / Transcript for Server Scrubbing',
+            style: AppTypography.editorialSection.copyWith(fontSize: 18),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: fileNameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'File Name *',
+                    hintText: 'chat_log.pdf or voice_note.m4a',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  initialValue: selectedMime,
+                  decoration: const InputDecoration(labelText: 'File Type'),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'application/pdf',
+                      child: Text('PDF Document (application/pdf)'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'image/png',
+                      child: Text('PNG Screenshot (image/png)'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'image/jpeg',
+                      child: Text('JPEG Photo (image/jpeg)'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'audio/mp4',
+                      child: Text('Audio Recording (audio/mp4)'),
+                    ),
+                  ],
+                  onChanged: (v) {
+                    if (v != null) setModalState(() => selectedMime = v);
+                  },
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: contentCtrl,
+                  minLines: 2,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'Transcript / Document Excerpt Bytes *',
+                    hintText:
+                        'Paste chat transcript or document content to hash & scrub on backend...',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Upload & Scrub on Server'),
+            ),
+          ],
+        ),
+      ),
     );
 
-    if (!mounted) return;
-    setState(() {
-      _submittedReceipt = created;
-    });
+    if (confirmed == true && mounted) {
+      final rawName = fileNameCtrl.text.trim();
+      final rawContent = contentCtrl.text.trim();
+      if (rawName.isEmpty || rawContent.isEmpty) {
+        setState(() {
+          _validationError =
+              'Both a file name and non-empty content are required to upload evidence.';
+        });
+      } else {
+        setState(() {
+          _isUploadingEvidence = true;
+          _validationError = null;
+        });
+        try {
+          final bytes = Uint8List.fromList(rawContent.codeUnits);
+          final scrubbed = await _controller.uploadAndScrubEvidenceOnServer(
+            originalFileName: rawName,
+            mimeType: selectedMime,
+            fileBytes: bytes,
+          );
+          if (mounted) {
+            setState(() => _evidenceFiles.add(scrubbed));
+          }
+        } on BackendApiException catch (err) {
+          if (mounted) setState(() => _validationError = err.message);
+        } finally {
+          if (mounted) setState(() => _isUploadingEvidence = false);
+        }
+      }
+    }
+    fileNameCtrl.dispose();
+    contentCtrl.dispose();
   }
 
   /// Modal 11 — Real-Time Identity-Reveal Warning & One-Tap Auto-Redaction Modal
@@ -207,7 +514,7 @@ class _ComplaintSubmissionWizardScreenState
             Expanded(
               child: Text(
                 'Self-Identifying Info Detected',
-                style: AppTypography.sectionTitle.copyWith(fontSize: 18),
+                style: AppTypography.editorialSection.copyWith(fontSize: 18),
               ),
             ),
           ],
@@ -286,7 +593,7 @@ class _ComplaintSubmissionWizardScreenState
             Expanded(
               child: Text(
                 'Seal & Submit ${_reportingMode == ComplaintReportingMode.anonymous ? 'Anonymous' : 'Confidential'} Report?',
-                style: AppTypography.sectionTitle.copyWith(fontSize: 18),
+                style: AppTypography.editorialSection.copyWith(fontSize: 18),
               ),
             ),
           ],
@@ -299,7 +606,7 @@ class _ComplaintSubmissionWizardScreenState
               '• Mode: ${_reportingMode.title}\n'
               '• Category: ${cat.label}\n'
               '• Evidence Files: ${_evidenceFiles.length} (EXIF & GPS stripped)\n'
-              '• Reported Party Visibility: 0% (Never disclosed)',
+              '• Reported Party Visibility: Hidden (Never disclosed)',
               style: AppTypography.bodyRegular.copyWith(height: 1.45),
             ),
             const SizedBox(height: 10),
@@ -310,7 +617,7 @@ class _ComplaintSubmissionWizardScreenState
                 borderRadius: BorderRadius.circular(12),
               ),
               child: const Text(
-                'You will receive a unique Reference Number (#SKH-...) on the next screen to track status and reply safely.',
+                'The server will issue a unique Reference Number (#SKH-...) and Passkey once your report is saved to the database.',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
@@ -420,7 +727,7 @@ class _ComplaintSubmissionWizardScreenState
               ),
             ),
 
-            // Step Selector Pills (Allows jumping directly to any step for easy review)
+            // Validated Step Selector Pills
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -446,12 +753,55 @@ class _ComplaintSubmissionWizardScreenState
                         fontWeight: FontWeight.w700,
                         color: active ? Colors.white : AppColors.textPrimary,
                       ),
-                      onSelected: (_) => setState(() => _currentStep = index),
+                      onSelected: (_) => _handleStepChipTap(index),
                     ),
                   );
                 }),
               ),
             ),
+
+            // Validation / API Error Banner
+            if (_validationError != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
+                child: Container(
+                  key: const Key('m5-wizard-validation-error-banner'),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFDE8EC),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFF3B4C0)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.error_outline_rounded,
+                        color: AppColors.sosRed,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          _validationError!,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF8C1D35),
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        icon: const Icon(Icons.close_rounded, size: 18),
+                        onPressed: () =>
+                            setState(() => _validationError = null),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
 
             // Main Step Content
             Expanded(
@@ -478,7 +828,7 @@ class _ComplaintSubmissionWizardScreenState
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: _handleBackStep,
+                      onPressed: _isSubmitting ? null : _handleBackStep,
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 13),
                       ),
@@ -497,15 +847,26 @@ class _ComplaintSubmissionWizardScreenState
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 13),
                       ),
-                      onPressed: _handleNextStep,
-                      icon: Icon(
-                        _currentStep == 4
-                            ? Icons.lock_rounded
-                            : Icons.arrow_forward_rounded,
-                        size: 18,
-                      ),
+                      onPressed: _isSubmitting ? null : _handleNextStep,
+                      icon: _isSubmitting
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Icon(
+                              _currentStep == 4
+                                  ? Icons.lock_rounded
+                                  : Icons.arrow_forward_rounded,
+                              size: 18,
+                            ),
                       label: Text(
-                        _currentStep == 4
+                        _isSubmitting
+                            ? 'Submitting to Server...'
+                            : _currentStep == 4
                             ? 'Submit Discreet Complaint'
                             : 'Continue to Step ${_currentStep + 2}',
                         style: const TextStyle(fontWeight: FontWeight.w800),
@@ -528,40 +889,51 @@ class _ComplaintSubmissionWizardScreenState
       children: [
         Text(
           'Select Your Privacy & Protection Mode',
-          style: AppTypography.heroTitle.copyWith(fontSize: 22),
+          style: AppTypography.editorialHeadline.copyWith(fontSize: 22),
         ),
         const SizedBox(height: 6),
         const Text(
-          'Both modes guarantee your identity is NEVER shown to the reported user, business, or public community.',
+          'Both modes guarantee your identity is never disclosed to the reported user, business, or public community.',
           style: AppTypography.subtitle,
         ),
         const SizedBox(height: 14),
 
-        // Anonymous Mode Option Card (Screen 04)
         _buildModeChoiceTile(
           mode: ComplaintReportingMode.anonymous,
-          illustration: AppAssets.module5AnonymousShieldEnvelope,
+          illustration: AppAssets.m5AnonymousShield,
           highlights: const <String>[
-            'Zero account ID, phone number, or profile name stored on complaint record',
-            'Assigned a cryptographic Reference Token (#SKH-ANON-...) for two-way updates',
-            'Ideal when you want complete detachment from your Sakhi profile',
+            'No account ID, phone number, or profile name stored on the complaint record',
+            'Server issues a Reference Token (#SKH-ANON-...) and Passkey for two-way updates',
+            'Note: Minimal blinded rate-limit bucket logs exist for anti-spam protection (SRS 7.4)',
           ],
         ),
         const SizedBox(height: 12),
 
-        // Confidential Mode Option Card (Screen 05)
         _buildModeChoiceTile(
           mode: ComplaintReportingMode.confidential,
-          illustration: AppAssets.module5CompassionateReviewCounselors,
+          illustration: AppAssets.m5CompassionateTeam,
           highlights: const <String>[
-            'Completely hidden from the reported member, public feed, and standard moderators',
-            'Authorised Senior Female Safety Reviewer can view sealed contact for follow-up',
-            'Ideal for workplace POSH guidance, legal escalation, or account recovery',
+            'Hidden from the reported member, public feed, and standard moderators',
+            'Authorised Senior Safety Reviewer can verify your session for direct follow-up',
+            'Requires an active signed-in Sakhi member session',
           ],
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 12),
 
-        // Button to open Sheet 06 (Anonymity & Technical Logs Transparency)
+        CheckboxListTile(
+          key: const Key('m5-ack-legal-notice-checkbox'),
+          contentPadding: EdgeInsets.zero,
+          value: _acknowledgedLegalNotice,
+          activeColor: AppColors.primaryPurple,
+          title: const Text(
+            'I understand that an in-app complaint is for Sakhi moderation/support and does not automatically register a Police FIR (Dial 112 / 1091 in emergencies).',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+          ),
+          onChanged: (v) =>
+              setState(() => _acknowledgedLegalNotice = v ?? false),
+        ),
+        const SizedBox(height: 8),
+
         OutlinedButton.icon(
           onPressed: () {
             showModalBottomSheet<void>(
@@ -712,11 +1084,11 @@ class _ComplaintSubmissionWizardScreenState
       children: [
         Text(
           'What Kind of Concern Are You Reporting?',
-          style: AppTypography.heroTitle.copyWith(fontSize: 21),
+          style: AppTypography.editorialHeadline.copyWith(fontSize: 21),
         ),
         const SizedBox(height: 4),
         const Text(
-          'Select one of the 10 SRS 7.3 categories below. Tap the ⓘ icon on any card for POSH / legal safety tips.',
+          'Select one of the 10 SRS 7.2 categories below. Tap the ⓘ icon on any card for safety & helpline guidance.',
           style: AppTypography.subtitle,
         ),
         const SizedBox(height: 14),
@@ -733,7 +1105,7 @@ class _ComplaintSubmissionWizardScreenState
           ),
           itemBuilder: (context, index) {
             final cat = categories[index];
-            final isSelected = cat.code == _selectedCategoryCode;
+            final isSelected = cat.code == selectedCat.code;
             return InkWell(
               key: Key('m5-cat-card-${cat.code}'),
               borderRadius: BorderRadius.circular(18),
@@ -833,7 +1205,6 @@ class _ComplaintSubmissionWizardScreenState
         ),
         const SizedBox(height: 14),
 
-        // Screen 08 — Inline Expansion for Selected Category, Custom Note & Urgency Selector
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
@@ -869,18 +1240,19 @@ class _ComplaintSubmissionWizardScreenState
               ),
               const SizedBox(height: 12),
               TextField(
+                key: const Key('m5-custom-category-input'),
                 controller: _customCategoryCtrl,
                 decoration: InputDecoration(
-                  labelText: _selectedCategoryCode == 'OTHER'
-                      ? 'Specify custom category details *'
+                  labelText: selectedCat.code == 'other'
+                      ? 'Specify custom category details (Required) *'
                       : 'Optional sub-category / POSH or business context',
                   hintText:
-                      'e.g., Unsolicited messages in Bengaluru Moms Circle',
+                      'e.g., Unsolicited messages in community circle',
                 ),
               ),
               const SizedBox(height: 12),
               const Text(
-                'Urgency Level',
+                'Incident Pattern / Urgency',
                 style: TextStyle(
                   fontSize: 12.5,
                   fontWeight: FontWeight.w800,
@@ -890,26 +1262,25 @@ class _ComplaintSubmissionWizardScreenState
               const SizedBox(height: 6),
               Wrap(
                 spacing: 8,
-                children:
-                    <Map<String, String>>[
-                      {'code': 'LOW', 'label': 'Standard (24h)'},
-                      {'code': 'HIGH', 'label': 'High Priority (12h)'},
-                      {'code': 'CRITICAL', 'label': 'Critical Safety (4h SLA)'},
-                    ].map((u) {
-                      final active = _urgencyLevel == u['code'];
-                      return ChoiceChip(
-                        label: Text(u['label']!),
-                        selected: active,
-                        selectedColor: AppColors.primaryPurple,
-                        labelStyle: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: active ? Colors.white : AppColors.textPrimary,
-                        ),
-                        onSelected: (_) =>
-                            setState(() => _urgencyLevel = u['code']!),
-                      );
-                    }).toList(),
+                children: <Map<String, String>>[
+                  {'code': 'PAST_INCIDENT', 'label': 'Past Incident'},
+                  {'code': 'REPEATED_PATTERN', 'label': 'Repeated Pattern'},
+                  {'code': 'HAPPENING_NOW', 'label': 'Happening Now (Urgent)'},
+                ].map((u) {
+                  final active = _urgencyLevel == u['code'];
+                  return ChoiceChip(
+                    label: Text(u['label']!),
+                    selected: active,
+                    selectedColor: AppColors.primaryPurple,
+                    labelStyle: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: active ? Colors.white : AppColors.textPrimary,
+                    ),
+                    onSelected: (_) =>
+                        setState(() => _urgencyLevel = u['code']!),
+                  );
+                }).toList(),
               ),
             ],
           ),
@@ -932,7 +1303,7 @@ class _ComplaintSubmissionWizardScreenState
             Expanded(
               child: Text(
                 '${cat.label} • Safety Guidance',
-                style: AppTypography.sectionTitle.copyWith(fontSize: 18),
+                style: AppTypography.editorialSection.copyWith(fontSize: 18),
               ),
             ),
           ],
@@ -958,10 +1329,10 @@ class _ComplaintSubmissionWizardScreenState
                 ),
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             Text(
-              'Default Admin Queue Priority: ${cat.defaultSeverity}',
-              style: AppTypography.monoToken,
+              cat.legalHelplineNote,
+              style: AppTypography.subtitle.copyWith(fontSize: 11.5),
             ),
           ],
         ),
@@ -987,17 +1358,18 @@ class _ComplaintSubmissionWizardScreenState
     final piiPreview = _controller.analyzeTextForSelfIdentifyingClues(
       _descriptionCtrl.text,
     );
+    final charCount = _descriptionCtrl.text.trim().length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'Describe What Happened Safely',
-          style: AppTypography.heroTitle.copyWith(fontSize: 21),
+          style: AppTypography.editorialHeadline.copyWith(fontSize: 21),
         ),
         const SizedBox(height: 4),
         const Text(
-          'Share what happened in your own words. Our live PII Guard watches for accidental self-identifying phone numbers, emails, or door numbers.',
+          'Enter at least 20 characters describing what happened. Our live PII Guard watches for accidental self-identifying phone numbers, emails, or door numbers.',
           style: AppTypography.subtitle,
         ),
         const SizedBox(height: 14),
@@ -1007,15 +1379,17 @@ class _ComplaintSubmissionWizardScreenState
           controller: _descriptionCtrl,
           minLines: 4,
           maxLines: 6,
+          maxLength: 4000,
           onChanged: (_) => setState(() {}),
-          decoration: const InputDecoration(
-            labelText: 'Incident Description *',
-            hintText: 'Describe the messages, behaviour, or safety concern without typing your own phone number or flat number...',
+          decoration: InputDecoration(
+            labelText: 'Incident Description (Required, min 20 chars) *',
+            helperText: '$charCount / 20 minimum characters',
+            hintText:
+                'Describe the messages, behaviour, or safety concern without typing your own phone number or flat number...',
           ),
         ),
         const SizedBox(height: 10),
 
-        // Real-Time Identity-Reveal Guard Status Banner (Modal 11 trigger)
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
@@ -1059,6 +1433,7 @@ class _ComplaintSubmissionWizardScreenState
                   onPressed: () {
                     setState(() {
                       _descriptionCtrl.text = piiPreview.redactedText;
+                      _piiGuardRedacted = true;
                     });
                   },
                   child: const Text('Auto-Redact'),
@@ -1072,8 +1447,8 @@ class _ComplaintSubmissionWizardScreenState
         _PickerSelectionCard(
           key: const Key('m5-open-date-window-sheet'),
           icon: Icons.calendar_today_rounded,
-          title: 'Incident Date / Time Window (Optional)',
-          valueText: _incidentDateWindow,
+          title: 'Incident Date & Approximate Time Window',
+          valueText: '$_approximateDateLabel • $_approximateTimeWindow',
           subtitle: 'Approximate window prevents exact timestamp correlation',
           onTap: _openDateWindowSheet,
         ),
@@ -1084,7 +1459,7 @@ class _ComplaintSubmissionWizardScreenState
           key: const Key('m5-open-coarse-location-modal'),
           icon: Icons.location_city_rounded,
           title: 'General Location / Neighbourhood (Optional)',
-          valueText: _generalAreaText,
+          valueText: '$_locationType • $_generalAreaText',
           subtitle: 'Coarse ~5 km area only • Never captures exact home GPS',
           onTap: _openCoarseLocationModal,
         ),
@@ -1094,129 +1469,182 @@ class _ComplaintSubmissionWizardScreenState
 
   /// Sheet 12 — Approximate Date & Time Window Picker Bottom Sheet
   Future<void> _openDateWindowSheet() async {
-    const presets = <String>[
-      'Today • Within the last few hours',
-      'Yesterday • Evening (6 PM – 10 PM)',
-      'Earlier This Week • Afternoon (12 PM – 5 PM)',
-      'Last Week • Ongoing Repeated Incidents',
-      'Earlier This Month • Approximate Window',
-      'Prefer Not to Share Timestamp',
+    const datePresets = <String>[
+      'Today / Within the last 24 hours',
+      'Yesterday',
+      'Earlier This Week',
+      'Last Week',
+      'Earlier This Month',
     ];
-    final chosen = await showModalBottomSheet<String>(
+    const windowPresets = <String>[
+      'Morning (6 AM – 12 PM)',
+      'Afternoon (12 PM – 5 PM)',
+      'Evening (5 PM – 9 PM)',
+      'Night (9 PM – 6 AM)',
+      'Prefer Not to Specify Window',
+    ];
+    var tempDate = _approximateDateLabel;
+    var tempWindow = _approximateTimeWindow;
+
+    final saved = await showModalBottomSheet<bool>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: const Color(0xFFFFF9FC),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Select Approximate Incident Window',
-                style: AppTypography.sectionTitle.copyWith(fontSize: 18),
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                'Using an approximate window protects your anonymity against timing correlation.',
-                style: AppTypography.subtitle,
-              ),
-              const SizedBox(height: 12),
-              ...presets.map(
-                (p) => ListTile(
-                  dense: true,
-                  leading: Icon(
-                    p == _incidentDateWindow
-                        ? Icons.check_circle_rounded
-                        : Icons.schedule_rounded,
-                    color: AppColors.primaryPurple,
-                  ),
-                  title: Text(p, style: AppTypography.bodyMedium),
-                  onTap: () => Navigator.of(ctx).pop(p),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Select Approximate Incident Date & Window',
+                  style: AppTypography.editorialSection.copyWith(fontSize: 18),
                 ),
-              ),
-            ],
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  initialValue: datePresets.contains(tempDate)
+                      ? tempDate
+                      : datePresets.first,
+                  decoration: const InputDecoration(
+                    labelText: 'Approximate Date (Past or Today only)',
+                  ),
+                  items: datePresets
+                      .map(
+                        (d) => DropdownMenuItem(value: d, child: Text(d)),
+                      )
+                      .toList(),
+                  onChanged: (v) {
+                    if (v != null) setModalState(() => tempDate = v);
+                  },
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  initialValue: windowPresets.contains(tempWindow)
+                      ? tempWindow
+                      : windowPresets[2],
+                  decoration: const InputDecoration(
+                    labelText: 'Approximate Time Window',
+                  ),
+                  items: windowPresets
+                      .map(
+                        (w) => DropdownMenuItem(value: w, child: Text(w)),
+                      )
+                      .toList(),
+                  onChanged: (v) {
+                    if (v != null) setModalState(() => tempWindow = v);
+                  },
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () => Navigator.of(ctx).pop(true),
+                    child: const Text('Save Date & Time Window'),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
-    if (chosen != null && mounted) {
-      setState(() => _incidentDateWindow = chosen);
+    if (saved == true && mounted) {
+      setState(() {
+        _approximateDateLabel = tempDate;
+        _approximateTimeWindow = tempWindow;
+      });
     }
   }
 
   /// Modal 13 — Coarse 5 km General Location Picker Modal
   Future<void> _openCoarseLocationModal() async {
     final customAreaCtrl = TextEditingController(text: _generalAreaText);
-    const coarseZones = <String>[
-      'Online / Inside Sakhi App Only (No Physical Location)',
-      'Indiranagar, Bengaluru (~5 km coarse zone)',
-      'HITEC City, Hyderabad (~5 km coarse zone)',
-      'Adyar, Chennai (~5 km coarse zone)',
-      'Bandra West, Mumbai (~5 km coarse zone)',
-      'Connaught Place, New Delhi (~5 km coarse zone)',
-    ];
-    final chosen = await showDialog<String>(
+    var tempLocType = _locationType;
+
+    final saved = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFFFFF9FC),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: Text(
-          'Coarse 5 km Area (Zero Home GPS)',
-          style: AppTypography.sectionTitle.copyWith(fontSize: 18),
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'For your privacy, Module 5 never records your precise home coordinates. Choose a general city/zone or select "Online Only":',
-                style: AppTypography.subtitle,
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: customAreaCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'General neighbourhood or city',
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) => AlertDialog(
+          backgroundColor: const Color(0xFFFFF9FC),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          title: Text(
+            'Coarse 5 km Area (Zero Home GPS)',
+            style: AppTypography.editorialSection.copyWith(fontSize: 18),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Module 5 never records your precise home coordinates. Choose how much location context to share:',
+                  style: AppTypography.subtitle,
                 ),
-              ),
-              const SizedBox(height: 10),
-              ...coarseZones.map(
-                (z) => ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(
-                    Icons.shield_outlined,
-                    size: 18,
-                    color: AppColors.primaryPurple,
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  initialValue: tempLocType,
+                  decoration: const InputDecoration(labelText: 'Location Scope'),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'ONLINE_IN_APP',
+                      child: Text('Online / Inside Sakhi App Only'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'COARSE_AREA',
+                      child: Text('Coarse 5 km Neighbourhood / City'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'PREFER_NOT_TO_SAY',
+                      child: Text('Prefer Not to Share Location'),
+                    ),
+                  ],
+                  onChanged: (v) {
+                    if (v != null) setModalState(() => tempLocType = v);
+                  },
+                ),
+                const SizedBox(height: 10),
+                if (tempLocType != 'PREFER_NOT_TO_SAY')
+                  TextField(
+                    controller: customAreaCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'General neighbourhood or city label',
+                      hintText: 'e.g., Indiranagar, Bengaluru (~5 km zone)',
+                    ),
                   ),
-                  title: Text(z, style: const TextStyle(fontSize: 12.5)),
-                  onTap: () => Navigator.of(ctx).pop(z),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Save Location Preference'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(customAreaCtrl.text.trim()),
-            child: const Text('Save General Area'),
-          ),
-        ],
       ),
     );
-    customAreaCtrl.dispose();
-    if (chosen != null && chosen.isNotEmpty && mounted) {
-      setState(() => _generalAreaText = chosen);
+    if (saved == true && mounted) {
+      setState(() {
+        _locationType = tempLocType;
+        _generalAreaText = tempLocType == 'PREFER_NOT_TO_SAY'
+            ? 'Prefer Not to Say'
+            : (customAreaCtrl.text.trim().isEmpty
+                  ? 'Online / Inside Sakhi App'
+                  : customAreaCtrl.text.trim());
+      });
     }
+    customAreaCtrl.dispose();
   }
 
   /// Screens 14, Modal 15, Sheet 16, Modal 17 — Step 4: Evidence Vault & EXIF Scrubber
@@ -1224,7 +1652,6 @@ class _ComplaintSubmissionWizardScreenState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Hero Banner with Bespoke Illustration 03 (`03_evidence_vault_exif_scrubber.jpg`)
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
@@ -1242,7 +1669,7 @@ class _ComplaintSubmissionWizardScreenState
                   width: 78,
                   height: 78,
                   child: Image.asset(
-                    AppAssets.module5EvidenceVaultScrubber,
+                    AppAssets.m5EvidenceVaultExif,
                     fit: BoxFit.cover,
                     errorBuilder: (_, _, _) => Container(
                       color: AppColors.pastelLavender,
@@ -1260,12 +1687,12 @@ class _ComplaintSubmissionWizardScreenState
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Encrypted Evidence Vault & Auto-EXIF Scrubber',
+                      'Encrypted Evidence Vault & Server EXIF Scrubber',
                       style: AppTypography.cardTitle.copyWith(fontSize: 15),
                     ),
                     const SizedBox(height: 4),
                     const Text(
-                      'Every screenshot, photo, audio clip, or PDF is stripped of GPS coordinates, camera serials, and owner metadata before upload.',
+                      'Every selected photo, screenshot, audio clip, or PDF is stripped of binary EXIF GPS/device metadata and SHA-256 hashed on the server.',
                       style: TextStyle(
                         fontSize: 11.5,
                         height: 1.35,
@@ -1280,7 +1707,6 @@ class _ComplaintSubmissionWizardScreenState
         ),
         const SizedBox(height: 12),
 
-        // Action Buttons to Add Scrubbed Evidence or Open Evidence Safety Guidance (Modal 15)
         Wrap(
           spacing: 8,
           runSpacing: 8,
@@ -1290,31 +1716,28 @@ class _ComplaintSubmissionWizardScreenState
               style: FilledButton.styleFrom(
                 backgroundColor: AppColors.primaryPurple,
               ),
-              onPressed: () {
-                final added = _controller.scrubAndCreateEvidence(
-                  originalFileName:
-                      'Chat_Evidence_${_evidenceFiles.length + 1}.png',
-                  mimeType: 'image/png',
-                  sizeBytes: 348120 + (_evidenceFiles.length * 42000),
-                );
-                setState(() => _evidenceFiles.add(added));
-              },
-              icon: const Icon(Icons.add_photo_alternate_rounded, size: 17),
-              label: const Text('Attach Screenshot / Photo'),
+              onPressed: _isUploadingEvidence
+                  ? null
+                  : () => _pickAndUploadImageEvidence(ImageSource.gallery),
+              icon: _isUploadingEvidence
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.add_photo_alternate_rounded, size: 17),
+              label: const Text('Pick Photo / Screenshot'),
             ),
             FilledButton.tonalIcon(
               key: const Key('m5-add-evidence-audio-pdf-button'),
-              onPressed: () {
-                final added = _controller.scrubAndCreateEvidence(
-                  originalFileName:
-                      'VoiceNote_Recording_${_evidenceFiles.length + 1}.m4a',
-                  mimeType: 'audio/mp4',
-                  sizeBytes: 612400,
-                );
-                setState(() => _evidenceFiles.add(added));
-              },
-              icon: const Icon(Icons.mic_rounded, size: 17),
-              label: const Text('Attach Audio / PDF'),
+              onPressed: _isUploadingEvidence
+                  ? null
+                  : _openDocumentOrAudioUploadDialog,
+              icon: const Icon(Icons.upload_file_rounded, size: 17),
+              label: const Text('Attach PDF / Transcript'),
             ),
             OutlinedButton.icon(
               key: const Key('m5-open-evidence-guidance-button'),
@@ -1326,9 +1749,8 @@ class _ComplaintSubmissionWizardScreenState
         ),
         const SizedBox(height: 14),
 
-        // Attached Scrubbed Evidence Files List (Tap to open Sheet 16 EXIF Inspection)
         Text(
-          'Sanitized Evidence Files (${_evidenceFiles.length})',
+          'Sanitized Evidence Files (${_evidenceFiles.length} / $kMaxComplaintEvidenceFiles)',
           style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 8),
@@ -1341,7 +1763,7 @@ class _ComplaintSubmissionWizardScreenState
               border: Border.all(color: AppColors.borderSubtle),
             ),
             child: const Text(
-              'No evidence files attached yet. You may submit a complaint with or without attachments.',
+              'No evidence files attached yet. Attachments are optional—pick a photo/screenshot or attach a transcript above if you have supporting proof.',
               style: AppTypography.subtitle,
             ),
           )
@@ -1377,11 +1799,11 @@ class _ComplaintSubmissionWizardScreenState
                       children: [
                         Text(
                           ev.sanitizedFileName,
-                          style: AppTypography.monoToken,
+                          style: AppTypography.technicalToken,
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Original: ${ev.originalLabel} (${ev.formattedSize}) • ${ev.removedTags.length} EXIF tags stripped',
+                          '${ev.formattedSize} • ${ev.removedTags.length} metadata tags stripped',
                           style: AppTypography.subtitle.copyWith(
                             fontSize: 11.5,
                           ),
@@ -1419,11 +1841,14 @@ class _ComplaintSubmissionWizardScreenState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Expanded(
                     child: Text(
                       'Linked Sakhi Profile, Post or Business',
                       style: AppTypography.cardTitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   TextButton.icon(
@@ -1484,7 +1909,7 @@ class _ComplaintSubmissionWizardScreenState
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: Text(
           'Evidence Preservation & Safety Guide',
-          style: AppTypography.sectionTitle.copyWith(fontSize: 18),
+          style: AppTypography.editorialSection.copyWith(fontSize: 18),
         ),
         content: const Column(
           mainAxisSize: MainAxisSize.min,
@@ -1492,9 +1917,9 @@ class _ComplaintSubmissionWizardScreenState
           children: [
             Text(
               '1. Capture Full Context: Include the @handle, date, and message thread in screenshots.\n'
-              '2. Automatic EXIF Scrubbing: Sakhi removes GPS coordinates, iPhone/Android device model, and owner tags automatically.\n'
-              '3. Blurred-by-Default Admin Vault: Even Senior Reviewers see a blurred preview first and must log an audited reason to unblur.\n'
-              '4. Cybercrime 1930 Preservation: Keep original files in a locked folder if you plan to file an official police FIR.',
+              '2. Automatic EXIF Scrubbing: Sakhi strips binary JPEG APP1/EXIF/GPS markers and PNG metadata chunks on upload.\n'
+              '3. Blurred-by-Default Admin Vault: Even Senior Reviewers see a blurred preview first and must log an audited justification to unblur.\n'
+              '4. Cybercrime 1930 Preservation: Keep original files on your device if you plan to file an official police FIR.',
               style: TextStyle(fontSize: 12.5, height: 1.45),
             ),
           ],
@@ -1527,17 +1952,17 @@ class _ComplaintSubmissionWizardScreenState
             children: [
               Text(
                 'EXIF Metadata Scrubber Verification',
-                style: AppTypography.sectionTitle.copyWith(fontSize: 18),
+                style: AppTypography.editorialSection.copyWith(fontSize: 18),
               ),
               const SizedBox(height: 6),
               Text(
                 'Sanitized Vault Name: ${ev.sanitizedFileName}',
-                style: AppTypography.monoToken,
+                style: AppTypography.technicalToken,
               ),
               const SizedBox(height: 4),
               Text(
-                'SHA-256 Integrity Hash: ${ev.sha256Hash.substring(0, 28)}…',
-                style: AppTypography.monoToken,
+                'SHA-256 Integrity Hash: ${ev.sha256Hash.length > 28 ? '${ev.sha256Hash.substring(0, 28)}…' : ev.sha256Hash}',
+                style: AppTypography.technicalHash,
               ),
               const SizedBox(height: 12),
               const Text(
@@ -1556,12 +1981,14 @@ class _ComplaintSubmissionWizardScreenState
                         color: Color(0xFF1F6E50),
                       ),
                       const SizedBox(width: 8),
-                      Text(
-                        '$t → REMOVED',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF1F6E50),
+                      Expanded(
+                        child: Text(
+                          t,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF1F6E50),
+                          ),
                         ),
                       ),
                     ],
@@ -1583,34 +2010,57 @@ class _ComplaintSubmissionWizardScreenState
     );
   }
 
-  /// Modal 17 — Supporting Links & In-App Reference Modal
+  /// Modal 17 — Supporting Links & In-App Reference Modal (Validates URL before adding!)
   Future<void> _openSupportingLinksModal() async {
     final linkCtrl = TextEditingController();
+    String? modalError;
+
     final added = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFFFFF9FC),
-        title: Text(
-          'Add Supporting Link or In-App Reference',
-          style: AppTypography.sectionTitle.copyWith(fontSize: 18),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) => AlertDialog(
+          backgroundColor: const Color(0xFFFFF9FC),
+          title: Text(
+            'Add Supporting Link or In-App Reference',
+            style: AppTypography.editorialSection.copyWith(fontSize: 18),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: linkCtrl,
+                decoration: InputDecoration(
+                  labelText:
+                      'https://, http://, or sakhi:// Reference Link *',
+                  hintText: 'https://... or sakhi://post/123',
+                  errorText: modalError,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final candidate = linkCtrl.text.trim();
+                final err =
+                    SakhiComplaintController.validateSupportingLinkUrl(
+                      candidate,
+                    );
+                if (err != null) {
+                  setModalState(() => modalError = err);
+                  return;
+                }
+                Navigator.of(ctx).pop(candidate);
+              },
+              child: const Text('Attach Link'),
+            ),
+          ],
         ),
-        content: TextField(
-          controller: linkCtrl,
-          decoration: const InputDecoration(
-            labelText: 'Post URL, Profile Handle, or External Evidence Link',
-            hintText: 'https://... or sakhi://post/123',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(linkCtrl.text.trim()),
-            child: const Text('Attach Link'),
-          ),
-        ],
       ),
     );
     linkCtrl.dispose();
@@ -1627,7 +2077,7 @@ class _ComplaintSubmissionWizardScreenState
       children: [
         Text(
           'Discreet Updates & Final Review',
-          style: AppTypography.heroTitle.copyWith(fontSize: 21),
+          style: AppTypography.editorialHeadline.copyWith(fontSize: 21),
         ),
         const SizedBox(height: 4),
         const Text(
@@ -1636,7 +2086,6 @@ class _ComplaintSubmissionWizardScreenState
         ),
         const SizedBox(height: 14),
 
-        // Updates & Notification Safety Card
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
@@ -1647,22 +2096,19 @@ class _ComplaintSubmissionWizardScreenState
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Material(
-                color: Colors.transparent,
-                child: SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text(
-                    'Enable Two-Way Status Updates & Reviewer Replies',
-                    style: AppTypography.bodyMedium,
-                  ),
-                  subtitle: const Text(
-                    'Allows you to read reviewer responses and reply using your Reference #',
-                    style: AppTypography.subtitle,
-                  ),
-                  value: _wantsFollowUp,
-                  activeThumbColor: AppColors.primaryPurple,
-                  onChanged: (val) => setState(() => _wantsFollowUp = val),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text(
+                  'Enable Two-Way Status Updates & Reviewer Replies',
+                  style: AppTypography.bodyMedium,
                 ),
+                subtitle: const Text(
+                  'Allows you to read reviewer responses and reply using your Reference # & Passkey',
+                  style: AppTypography.subtitle,
+                ),
+                value: _wantsFollowUp,
+                activeThumbColor: AppColors.primaryPurple,
+                onChanged: (val) => setState(() => _wantsFollowUp = val),
               ),
               const Divider(),
               const Text(
@@ -1672,39 +2118,33 @@ class _ComplaintSubmissionWizardScreenState
               const SizedBox(height: 6),
               RadioGroup<String>(
                 groupValue: _discreetNotificationMode,
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() => _discreetNotificationMode = value);
+                onChanged: (v) {
+                  if (v != null) {
+                    setState(() => _discreetNotificationMode = v);
                   }
                 },
                 child: Column(
-                  children: <Widget>[
-                    Material(
-                      color: Colors.transparent,
-                      child: RadioListTile<String>(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        value: 'SILENT_VAULT_ONLY',
-                        title: const Text(
-                          'Silent In-App Vault Only (Zero Push Notifications)',
-                        ),
-                        subtitle: const Text(
-                          'Safest option: nothing ever appears on your phone lock screen',
-                        ),
+                  children: [
+                    RadioListTile<String>(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      value: 'SILENT_VAULT_ONLY',
+                      title: const Text(
+                        'Silent In-App Vault Only (Zero Push Notifications)',
+                      ),
+                      subtitle: const Text(
+                        'Safest option: nothing ever appears on your phone lock screen',
                       ),
                     ),
-                    Material(
-                      color: Colors.transparent,
-                      child: RadioListTile<String>(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        value: 'DISCREET_GENERIC_WELLNESS_ALERT',
-                        title: const Text(
-                          'Disguised Wellness Reminder ("New Sakhi Daily Quote")',
-                        ),
-                        subtitle: const Text(
-                          'Never mentions the word "Complaint" or "Report" on lock screen',
-                        ),
+                    RadioListTile<String>(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      value: 'DISCREET_GENERIC_WELLNESS_ALERT',
+                      title: const Text(
+                        'Disguised Wellness Reminder ("New Sakhi Daily Quote")',
+                      ),
+                      subtitle: const Text(
+                        'Never mentions the word "Complaint" or "Report" on lock screen',
                       ),
                     ),
                   ],
@@ -1715,7 +2155,6 @@ class _ComplaintSubmissionWizardScreenState
         ),
         const SizedBox(height: 14),
 
-        // Pre-Submission Summary Card
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -1735,8 +2174,11 @@ class _ComplaintSubmissionWizardScreenState
               const SizedBox(height: 10),
               _buildSummaryLine('Reporting Mode', _reportingMode.title),
               _buildSummaryLine('Category', '${cat.label} ($_urgencyLevel)'),
-              _buildSummaryLine('Incident Window', _incidentDateWindow),
-              _buildSummaryLine('Coarse Location', _generalAreaText),
+              _buildSummaryLine(
+                'Incident Window',
+                '$_approximateDateLabel • $_approximateTimeWindow',
+              ),
+              _buildSummaryLine('Location Scope', '$_locationType ($_generalAreaText)'),
               _buildSummaryLine(
                 'Scrubbed Evidence',
                 '${_evidenceFiles.length} file(s) • EXIF GPS Removed',
@@ -1747,7 +2189,7 @@ class _ComplaintSubmissionWizardScreenState
               ),
               _buildSummaryLine(
                 'Reported User Visibility',
-                'HIDDEN FOREVER (SRS 7.4 Guaranteed)',
+                'Hidden (SRS 7.4 Enforced)',
               ),
             ],
           ),
@@ -1788,7 +2230,7 @@ class _ComplaintSubmissionWizardScreenState
     );
   }
 
-  /// Screen 20 & Modal 21 — Complaint Submitted Anonymous Reference Receipt Screen
+  /// Screen 20 & Modal 21 — Server-Confirmed Complaint Receipt Screen
   Widget _buildSubmittedReceiptScreen(DiscreetComplaintModel receipt) {
     return Scaffold(
       backgroundColor: const Color(0xFFFFF8FB),
@@ -1802,8 +2244,10 @@ class _ComplaintSubmissionWizardScreenState
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Complaint Sealed & Submitted',
-                    style: AppTypography.sectionTitle.copyWith(fontSize: 19),
+                    'Complaint Sealed & Saved',
+                    style: AppTypography.editorialSection.copyWith(
+                      fontSize: 19,
+                    ),
                   ),
                   FilledButton.icon(
                     style: FilledButton.styleFrom(
@@ -1818,14 +2262,13 @@ class _ComplaintSubmissionWizardScreenState
               ),
               const SizedBox(height: 16),
 
-              // Bespoke Illustration 06 (`06_anonymous_reference_token_card.jpg`)
               ClipRRect(
                 borderRadius: BorderRadius.circular(22),
                 child: SizedBox(
                   height: 170,
                   width: double.infinity,
                   child: Image.asset(
-                    AppAssets.module5ReferenceTokenCard,
+                    AppAssets.m5ReferenceTokenCard,
                     fit: BoxFit.cover,
                     errorBuilder: (_, _, _) => Container(
                       color: AppColors.pastelLavender,
@@ -1880,19 +2323,29 @@ class _ComplaintSubmissionWizardScreenState
                     ),
                     const SizedBox(height: 12),
                     const Text(
-                      'Your Encrypted Reference Number',
+                      'Server-Issued Reference Number',
                       style: AppTypography.subtitle,
                     ),
                     const SizedBox(height: 6),
                     SelectableText(
                       receipt.referenceNumber,
                       key: const Key('m5-receipt-reference-number'),
-                      style: AppTypography.monoToken,
+                      style: AppTypography.referenceToken,
                     ),
                     const SizedBox(height: 6),
-                    Text(
-                      'Two-Way Reply Passkey: ${receipt.passkey}',
-                      style: AppTypography.monoToken,
+                    SelectableText(
+                      'Check-In Passkey: ${receipt.passkey}',
+                      key: const Key('m5-receipt-passkey'),
+                      style: AppTypography.technicalToken,
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Save both your Reference Number and Passkey—they are required to check status updates or reply.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: AppColors.textSecondary,
+                      ),
                     ),
                     const SizedBox(height: 14),
                     Row(
@@ -1903,7 +2356,7 @@ class _ComplaintSubmissionWizardScreenState
                               Clipboard.setData(
                                 ClipboardData(
                                   text:
-                                      '${receipt.referenceNumber} (Passkey: ${receipt.passkey})',
+                                      'Reference: ${receipt.referenceNumber} | Passkey: ${receipt.passkey}',
                                 ),
                               );
                               ScaffoldMessenger.of(context).showSnackBar(
@@ -1951,6 +2404,7 @@ class _ComplaintSubmissionWizardScreenState
                       MaterialPageRoute<void>(
                         builder: (_) => ComplaintTrackingLookupScreen(
                           initialReferenceNumber: receipt.referenceNumber,
+                          initialPasskey: receipt.passkey,
                         ),
                       ),
                     );
@@ -1983,13 +2437,13 @@ class _ComplaintSubmissionWizardScreenState
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: Text(
           'Camouflaged Wellness Quote Backup Card',
-          style: AppTypography.sectionTitle.copyWith(fontSize: 18),
+          style: AppTypography.editorialSection.copyWith(fontSize: 18),
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             const Text(
-              'If someone checks your phone gallery, this card looks like a normal Sakhi Daily Botanical Quote—while quietly storing your lookup serial at the bottom:',
+              'If someone checks your phone, this card looks like a normal Sakhi Daily Botanical Quote while encoding your lookup serial at the bottom:',
               style: AppTypography.subtitle,
             ),
             const SizedBox(height: 12),
@@ -2011,14 +2465,14 @@ class _ComplaintSubmissionWizardScreenState
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '“She stood in the storm, and when the wind did not blow her way, she adjusted her sails.”',
+                    '“Peace begins the moment you choose to honour your own boundaries.”',
                     textAlign: TextAlign.center,
                     style: AppTypography.editorialQuote,
                   ),
                   const SizedBox(height: 10),
-                  Text(
-                    'Daily Reflection Edition • ${receipt.disguisedSerialTag}',
-                    style: AppTypography.monoToken.copyWith(fontSize: 10.5),
+                  SelectableText(
+                    receipt.disguisedSerialTag,
+                    style: AppTypography.technicalHash.copyWith(fontSize: 10.5),
                   ),
                 ],
               ),
@@ -2039,13 +2493,13 @@ class _ComplaintSubmissionWizardScreenState
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
                   content: Text(
-                    'Camouflaged Wellness Quote Card serial saved!',
+                    'Camouflaged Wellness Quote Card serial copied!',
                   ),
                 ),
               );
             },
             icon: const Icon(Icons.download_done_rounded, size: 16),
-            label: const Text('Save Disguised Card'),
+            label: const Text('Copy Disguised Serial'),
           ),
         ],
       ),

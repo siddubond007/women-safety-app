@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -10,7 +11,10 @@ import {
   Post,
   Put,
   Query,
+  UploadedFile,
+  UseInterceptors,
 } from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
 import {
   AccessComplaintEvidenceDto,
   AddComplainantReplyDto,
@@ -19,9 +23,11 @@ import {
   CheckDescriptionPiiDto,
   HandleMaliciousComplaintDto,
   MergeDuplicateComplaintsDto,
+  PurgeComplainantMediaDto,
   ScrubEvidenceMetadataDto,
   SubmitComplaintAppealDto,
   SubmitDiscreetComplaintDto,
+  TrackComplaintLookupDto,
   UpdateComplaintRetentionPolicyDto,
   UpdateComplaintStatusDto,
   UpsertComplaintCategoryConfigDto,
@@ -60,13 +66,52 @@ export class ComplaintsController {
     return this.service.checkDescriptionForIdentityClues(dto);
   }
 
-  @Post(["complaints/scrub-metadata", "module2/complaints/scrub-metadata"])
+  @Post([
+    "complaints/scrub-metadata",
+    "complaints/scrub-evidence",
+    "module2/complaints/scrub-metadata",
+  ])
   @HttpCode(200)
   scrubMetadata(@Body() dto: ScrubEvidenceMetadataDto) {
     return this.service.scrubEvidenceMetadata(dto);
   }
 
-  @Post(["complaints", "module2/complaints"])
+  @Post([
+    "complaints/evidence-upload",
+    "module2/complaints/evidence-upload",
+  ])
+  @HttpCode(201)
+  @UseInterceptors(
+    FileInterceptor("file", {
+      limits: { fileSize: 15 * 1024 * 1024, files: 1 },
+    }),
+  )
+  uploadAndScrubEvidenceFile(
+    @UploadedFile()
+    file?: {
+      originalname?: string;
+      mimetype?: string;
+      size?: number;
+      buffer?: Buffer;
+    },
+    @Body("visualBlurApplied") visualBlurApplied?: string,
+  ) {
+    if (!file || !file.buffer || file.buffer.length === 0) {
+      throw new BadRequestException("A non-empty evidence file is required.");
+    }
+    return this.service.scrubEvidenceBinaryFile({
+      originalFileName: file.originalname || "evidence_upload.png",
+      contentType: file.mimetype || "application/octet-stream",
+      buffer: file.buffer,
+      visualBlurApplied: visualBlurApplied !== "false",
+    });
+  }
+
+  @Post([
+    "complaints",
+    "complaints/submit",
+    "module2/complaints",
+  ])
   @HttpCode(201)
   submitComplaint(
     @Headers("authorization") authorization: string | undefined,
@@ -75,7 +120,16 @@ export class ComplaintsController {
     return this.service.submitComplaint(authorization, dto);
   }
 
-  @Get(["complaints/track/:referenceNumber", "module2/complaints/track/:referenceNumber"])
+  @Post(["complaints/track", "module2/complaints/track"])
+  @HttpCode(200)
+  trackByPostBody(@Body() dto: TrackComplaintLookupDto) {
+    return this.service.trackByReference(dto.referenceNumber, dto.passkey);
+  }
+
+  @Get([
+    "complaints/track/:referenceNumber",
+    "module2/complaints/track/:referenceNumber",
+  ])
   trackByReference(
     @Param("referenceNumber") referenceNumber: string,
     @Query("passkey") passkey?: string,
@@ -112,8 +166,27 @@ export class ComplaintsController {
     "module2/complaints/track/:referenceNumber/media",
   ])
   @HttpCode(200)
-  purgeMedia(@Param("referenceNumber") referenceNumber: string) {
-    return this.service.purgeComplainantMedia(referenceNumber);
+  purgeMedia(
+    @Param("referenceNumber") referenceNumber: string,
+    @Query("passkey") queryPasskey?: string,
+    @Body() body?: Partial<PurgeComplainantMediaDto>,
+  ) {
+    return this.service.purgeComplainantMedia(
+      referenceNumber,
+      body?.passkey ?? queryPasskey,
+    );
+  }
+
+  @Post([
+    "complaints/track/:referenceNumber/purge-media",
+    "module2/complaints/track/:referenceNumber/purge-media",
+  ])
+  @HttpCode(200)
+  purgeMediaPost(
+    @Param("referenceNumber") referenceNumber: string,
+    @Body() dto: PurgeComplainantMediaDto,
+  ) {
+    return this.service.purgeComplainantMedia(referenceNumber, dto.passkey);
   }
 
   // ===========================================================================
@@ -151,6 +224,24 @@ export class ComplaintsController {
     );
   }
 
+  @Get([
+    "admin-review/complaints/:referenceNumber",
+    "complaints/admin/:referenceNumber",
+  ])
+  adminGetComplaintDetail(
+    @Param("referenceNumber") referenceNumber: string,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+    @Query("viewerRole") viewerRole?: string,
+  ) {
+    return this.service.adminGetComplaintDetail(
+      pickAdminToken(token, altToken, stagingSessionToken),
+      referenceNumber,
+      viewerRole,
+    );
+  }
+
   @Patch([
     "admin-review/complaints/:referenceNumber/assign",
     "complaints/admin/:referenceNumber/assign",
@@ -175,6 +266,24 @@ export class ComplaintsController {
   ])
   @HttpCode(200)
   adminUpdateStatus(
+    @Param("referenceNumber") referenceNumber: string,
+    @Body() dto: UpdateComplaintStatusDto,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.service.adminUpdateStatusAndEscalate(
+      pickAdminToken(token, altToken, stagingSessionToken),
+      referenceNumber,
+      dto,
+    );
+  }
+
+  @Patch([
+    "admin-review/complaints/:referenceNumber/status",
+    "complaints/admin/:referenceNumber/status",
+  ])
+  adminPatchStatus(
     @Param("referenceNumber") referenceNumber: string,
     @Body() dto: UpdateComplaintStatusDto,
     @Headers("x-sakhi-admin-token") token?: string,
@@ -262,7 +371,11 @@ export class ComplaintsController {
     );
   }
 
-  @Put(["admin-review/complaints/categories", "complaints/admin/categories"])
+  @Put([
+    "admin-review/complaints/categories",
+    "admin-review/complaints/config/categories",
+    "complaints/admin/categories",
+  ])
   adminUpsertCategory(
     @Body() dto: UpsertComplaintCategoryConfigDto,
     @Headers("x-sakhi-admin-token") token?: string,
@@ -277,6 +390,7 @@ export class ComplaintsController {
 
   @Put([
     "admin-review/complaints/retention-policy",
+    "admin-review/complaints/config/retention",
     "complaints/admin/retention-policy",
   ])
   adminUpdateRetentionPolicy(

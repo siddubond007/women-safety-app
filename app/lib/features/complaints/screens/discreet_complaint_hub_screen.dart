@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -15,15 +17,6 @@ import 'complaint_submission_wizard_screen.dart';
 import 'complaint_tracking_screens.dart';
 
 /// Screen 02 — Discreet & Anonymous Complaint Hub Landing Dashboard
-/// Includes:
-/// - Bespoke illustration `AppAssets.module5HeroSafeVoice` (`01_hero_woman_lotus_safe_voice.jpg`)
-/// - Reusable hand-drawn `SakhiBotanicalFlower` accents
-/// - Top-Right "Quick Exit" (Camouflage to Evening Chamomile Journal — Screen 22)
-/// - Mandatory Legal / Police Non-FIR Notice Banner + Modal 03 Bottom Sheet
-/// - "Start Discreet Report Now" CTA -> Step 1 Wizard (Screens 04–21)
-/// - "Track Complaint by Reference #" Card -> Tracker (Screens 23–32)
-/// - "Sakhi Anonymity & Privacy Promise" Card -> Sheet 06
-/// - "Admin Complaint Console (Role-Restricted)" Card -> Screens 33–40
 class DiscreetComplaintHubScreen extends StatefulWidget {
   const DiscreetComplaintHubScreen({
     super.key,
@@ -47,6 +40,12 @@ class _DiscreetComplaintHubScreenState
     extends State<DiscreetComplaintHubScreen> {
   final SakhiComplaintController _controller =
       SakhiComplaintController.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_controller.syncCategoriesFromServer());
+  }
 
   void _triggerQuickExitCamouflage() {
     HapticFeedback.mediumImpact();
@@ -94,11 +93,12 @@ class _DiscreetComplaintHubScreenState
     );
   }
 
-  void _openTracker({String? initialReference}) {
+  void _openTracker({String? initialReference, String? initialPasskey}) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ComplaintTrackingLookupScreen(
           initialReferenceNumber: initialReference,
+          initialPasskey: initialPasskey,
         ),
       ),
     );
@@ -117,7 +117,7 @@ class _DiscreetComplaintHubScreenState
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, _) {
-        final recentCases = _controller.complaints;
+        final sessionCases = _controller.complaints;
         return Scaffold(
           backgroundColor: const Color(0xFFFFF8FB),
           body: SafeArea(
@@ -144,7 +144,7 @@ class _DiscreetComplaintHubScreenState
                           children: [
                             Text(
                               'Discreet Complaint Hub',
-                              style: AppTypography.sectionTitle.copyWith(
+                              style: AppTypography.editorialSection.copyWith(
                                 fontSize: 20,
                               ),
                             ),
@@ -185,7 +185,6 @@ class _DiscreetComplaintHubScreenState
                   ),
                   const SizedBox(height: 12),
 
-                  // If launched from a specific post, profile, or business, show context pill
                   if (widget.initialLinkedPostId != null ||
                       widget.initialLinkedProfileHandle != null ||
                       widget.initialLinkedBusinessId != null) ...[
@@ -319,12 +318,13 @@ class _DiscreetComplaintHubScreenState
                                           const SizedBox(height: 10),
                                           Text(
                                             'Speak Up Safely, On Your Own Terms',
-                                            style: AppTypography.heroTitle
+                                            style: AppTypography
+                                                .editorialHeadline
                                                 .copyWith(fontSize: 22),
                                           ),
                                           const SizedBox(height: 6),
                                           Text(
-                                            'Report harassment, stalking, cyberbullying, blackmail, POSH workplace issues, or fake accounts—either 100% Anonymously or Confidentially.',
+                                            'Report harassment, stalking, cyberbullying, fraud, POSH workplace concerns, or domestic safety issues—Anonymously or Confidentially.',
                                             style: AppTypography.bodyRegular
                                                 .copyWith(
                                                   fontSize: 13,
@@ -342,7 +342,7 @@ class _DiscreetComplaintHubScreenState
                                         width: 108,
                                         height: 128,
                                         child: Image.asset(
-                                          AppAssets.module5HeroSafeVoice,
+                                          AppAssets.m5HeroSafeVoice,
                                           fit: BoxFit.cover,
                                           errorBuilder: (_, _, _) => Container(
                                             color: AppColors.pastelLavender,
@@ -358,7 +358,6 @@ class _DiscreetComplaintHubScreenState
                                   ],
                                 ),
                                 const SizedBox(height: 14),
-                                // 3 Privacy & Security Pills
                                 const Wrap(
                                   spacing: 8,
                                   runSpacing: 8,
@@ -373,49 +372,45 @@ class _DiscreetComplaintHubScreenState
                                     ),
                                     _SanctuaryFeaturePill(
                                       icon: Icons.lock_clock_rounded,
-                                      label: 'Two-Way Encrypted Reference #',
+                                      label: 'Server-Issued #SKH Reference',
                                     ),
                                   ],
                                 ),
                                 const SizedBox(height: 16),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: FilledButton.icon(
-                                        key: const Key(
-                                          'm5-start-discreet-report-button',
-                                        ),
-                                        style: FilledButton.styleFrom(
-                                          backgroundColor:
-                                              AppColors.primaryPurple,
-                                          foregroundColor: Colors.white,
-                                          padding: const EdgeInsets.symmetric(
-                                            vertical: 14,
-                                          ),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              999,
-                                            ),
-                                          ),
-                                        ),
-                                        onPressed: () => _openSubmissionWizard(
-                                          initialMode:
-                                              ComplaintReportingMode.anonymous,
-                                        ),
-                                        icon: const Icon(
-                                          Icons.shield_outlined,
-                                          size: 18,
-                                        ),
-                                        label: const Text(
-                                          'Start Discreet Report Now',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w800,
-                                            fontSize: 14,
-                                          ),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: FilledButton.icon(
+                                    key: const Key(
+                                      'm5-start-discreet-report-button',
+                                    ),
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: AppColors.primaryPurple,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 14,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(
+                                          999,
                                         ),
                                       ),
                                     ),
-                                  ],
+                                    onPressed: () => _openSubmissionWizard(
+                                      initialMode:
+                                          ComplaintReportingMode.anonymous,
+                                    ),
+                                    icon: const Icon(
+                                      Icons.shield_outlined,
+                                      size: 18,
+                                    ),
+                                    label: const Text(
+                                      'Start Discreet Report Now',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ),
                                 ),
                               ],
                             ),
@@ -457,11 +452,11 @@ class _DiscreetComplaintHubScreenState
                             ),
                           ),
                           const SizedBox(width: 12),
-                          Expanded(
+                          const Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text(
+                                Text(
                                   'Important Legal & Emergency Notice (Tap for 112 / FIR Info)',
                                   style: TextStyle(
                                     fontSize: 13,
@@ -469,8 +464,8 @@ class _DiscreetComplaintHubScreenState
                                     color: Color(0xFF6B3800),
                                   ),
                                 ),
-                                const SizedBox(height: 4),
-                                const Text(
+                                SizedBox(height: 4),
+                                Text(
                                   'In-app complaints are for Sakhi platform moderation & safety support and do not replace an official Police FIR, 112 emergency call, or 1930 cybercrime complaint.',
                                   style: TextStyle(
                                     fontSize: 12,
@@ -478,7 +473,7 @@ class _DiscreetComplaintHubScreenState
                                     color: Color(0xFF7D480D),
                                   ),
                                 ),
-                                const SizedBox(height: 6),
+                                SizedBox(height: 6),
                                 Text(
                                   'View Official Helplines (112 • 1091 • 181 • 1930) & Legal Rights →',
                                   style: TextStyle(
@@ -499,7 +494,9 @@ class _DiscreetComplaintHubScreenState
                   // Two Side-by-Side Reporting Mode Cards (Anonymous vs Confidential)
                   Text(
                     'Choose How You Want to Report',
-                    style: AppTypography.sectionTitle.copyWith(fontSize: 18),
+                    style: AppTypography.editorialSection.copyWith(
+                      fontSize: 18,
+                    ),
                   ),
                   const SizedBox(height: 10),
                   Row(
@@ -508,11 +505,11 @@ class _DiscreetComplaintHubScreenState
                       Expanded(
                         child: _ModePreviewCard(
                           key: const Key('m5-hub-anonymous-mode-card'),
-                          badge: 'ZERO IDENTITY',
+                          badge: 'PROFILE DETACHED',
                           title: 'Anonymous Mode',
-                          subtitle: 'No account ID, name, or phone linked. Track via #SKH-ANON token.',
-                          illustrationAsset:
-                              AppAssets.module5AnonymousShieldEnvelope,
+                          subtitle:
+                              'No account ID, name, or phone stored on complaint. Track via server-issued #SKH-ANON token.',
+                          illustrationAsset: AppAssets.m5AnonymousShield,
                           accentColor: AppColors.primaryPurple,
                           buttonLabel: 'File Anonymous',
                           onTap: () => _openSubmissionWizard(
@@ -526,9 +523,9 @@ class _DiscreetComplaintHubScreenState
                           key: const Key('m5-hub-confidential-mode-card'),
                           badge: 'SENIOR TEAM ONLY',
                           title: 'Confidential Mode',
-                          subtitle: 'Hidden from reported user & public; Senior Female Reviewer can follow up.',
-                          illustrationAsset:
-                              AppAssets.module5CompassionateReviewCounselors,
+                          subtitle:
+                              'Hidden from reported user & public; Senior Safety Reviewer can follow up.',
+                          illustrationAsset: AppAssets.m5CompassionateTeam,
                           accentColor: const Color(0xFFB8296B),
                           buttonLabel: 'File Confidential',
                           onTap: () => _openSubmissionWizard(
@@ -566,7 +563,7 @@ class _DiscreetComplaintHubScreenState
                                 width: 58,
                                 height: 58,
                                 child: Image.asset(
-                                  AppAssets.module5ReferenceTokenCard,
+                                  AppAssets.m5ReferenceTokenCard,
                                   fit: BoxFit.cover,
                                   errorBuilder: (_, _, _) => Container(
                                     color: AppColors.pastelLavender,
@@ -579,17 +576,17 @@ class _DiscreetComplaintHubScreenState
                               ),
                             ),
                             const SizedBox(width: 12),
-                            Expanded(
+                            const Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text(
+                                  Text(
                                     'Track Complaint & Two-Way Reply',
                                     style: AppTypography.cardTitle,
                                   ),
-                                  const SizedBox(height: 3),
-                                  const Text(
-                                    'Check all 7 status stages, respond to reviewer questions, appeal decisions, or purge evidence.',
+                                  SizedBox(height: 3),
+                                  Text(
+                                    'Look up your server-issued #SKH Reference Number and Passkey to check status, reply, appeal, or purge media.',
                                     style: AppTypography.subtitle,
                                   ),
                                 ],
@@ -597,34 +594,45 @@ class _DiscreetComplaintHubScreenState
                             ),
                           ],
                         ),
-                        const SizedBox(height: 12),
-                        // Quick Reference Chips for immediate testing & navigation
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: recentCases.take(4).map((item) {
-                            return ActionChip(
-                              backgroundColor: item.status.badgeBg,
-                              side: BorderSide.none,
-                              avatar: Icon(
-                                Icons.lock_outline_rounded,
-                                size: 14,
-                                color: item.status.badgeText,
-                              ),
-                              label: Text(
-                                '${item.referenceNumber} • ${item.status.label}',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
+                        if (sessionCases.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          const Text(
+                            'Your Reports in This Session:',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.primaryPurple,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: sessionCases.take(4).map((item) {
+                              return ActionChip(
+                                backgroundColor: item.status.badgeBg,
+                                side: BorderSide.none,
+                                avatar: Icon(
+                                  Icons.lock_outline_rounded,
+                                  size: 14,
                                   color: item.status.badgeText,
                                 ),
-                              ),
-                              onPressed: () => _openTracker(
-                                initialReference: item.referenceNumber,
-                              ),
-                            );
-                          }).toList(),
-                        ),
+                                label: Text(
+                                  '${item.referenceNumber} • ${item.status.label}',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: item.status.badgeText,
+                                  ),
+                                ),
+                                onPressed: () => _openTracker(
+                                  initialReference: item.referenceNumber,
+                                  initialPasskey: item.passkey,
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ],
                         const SizedBox(height: 12),
                         SizedBox(
                           width: double.infinity,
@@ -647,7 +655,7 @@ class _DiscreetComplaintHubScreenState
                               size: 18,
                             ),
                             label: const Text(
-                              'Track by Reference Number or Quote Card',
+                              'Track by Reference Number & Passkey',
                               style: TextStyle(fontWeight: FontWeight.w800),
                             ),
                           ),
@@ -664,7 +672,8 @@ class _DiscreetComplaintHubScreenState
                     iconBg: const Color(0xFFE6F5EE),
                     iconColor: const Color(0xFF1F6E50),
                     title: 'How Sakhi Protects Your Identity (SRS 7.4)',
-                    subtitle: 'View our clear explanation of what is hidden, what minimal anti-abuse bucket logs exist, and EXIF scrubbing.',
+                    subtitle:
+                        'View our clear explanation of what is hidden, what minimal anti-abuse bucket logs exist, and EXIF scrubbing.',
                     trailingLabel: 'Inspect',
                     onTap: () {
                       showModalBottomSheet<void>(
@@ -685,16 +694,17 @@ class _DiscreetComplaintHubScreenState
                     icon: Icons.admin_panel_settings_rounded,
                     iconBg: const Color(0xFFF3E4F8),
                     iconColor: AppColors.primaryPurple,
-                    title: 'Admin Complaint Console (Role-Restricted)',
-                    subtitle: 'Senior Safety Reviewer & Super Admin queue: PII masking, blurred evidence vault, internal notes, audit log & category config.',
+                    title: 'Admin Complaint Console (Token-Authenticated)',
+                    subtitle:
+                        'Requires reviewer token: PII masking, blurred evidence vault, internal notes, audit log & category config.',
                     trailingLabel: 'Open Console',
                     onTap: _openAdminConsole,
                   ),
                   const SizedBox(height: 16),
 
-                  // Daily Sakhi Inspiration Banner
                   SakhiQuoteLoader.banner(
-                    statusLabel: 'Your voice matters • Every report is handled with dignity',
+                    statusLabel:
+                        'Your voice matters • Every report is handled with dignity',
                   ),
                 ],
               ),
@@ -1039,7 +1049,7 @@ class LegalEmergencyDisclaimerSheet extends StatelessWidget {
                     children: [
                       Text(
                         'Official Police, Legal & Emergency Channels',
-                        style: AppTypography.sectionTitle.copyWith(
+                        style: AppTypography.editorialSection.copyWith(
                           fontSize: 18,
                         ),
                       ),
@@ -1216,7 +1226,9 @@ class AnonymityTransparencyBottomSheet extends StatelessWidget {
                 Expanded(
                   child: Text(
                     'Sakhi Anonymity & Technical Log Transparency',
-                    style: AppTypography.sectionTitle.copyWith(fontSize: 18),
+                    style: AppTypography.editorialSection.copyWith(
+                      fontSize: 18,
+                    ),
                   ),
                 ),
                 IconButton(
@@ -1233,18 +1245,18 @@ class AnonymityTransparencyBottomSheet extends StatelessWidget {
             const SizedBox(height: 14),
             _buildRow(
               attribute: 'Visible to Reported User / Public',
-              anonVal: 'NEVER (0%)',
-              confVal: 'NEVER (0%)',
+              anonVal: 'Hidden (Never Disclosed)',
+              confVal: 'Hidden (Never Disclosed)',
             ),
             _buildRow(
               attribute: 'Visible to Standard Moderators',
-              anonVal: 'NEVER (Zero User ID)',
-              confVal: 'MASKED (Redacted)',
+              anonVal: 'Detached (No Account ID)',
+              confVal: 'Masked (Redacted)',
             ),
             _buildRow(
               attribute: 'Visible to Senior Safety Reviewer',
-              anonVal: 'NO (Only #SKH-ANON Token)',
-              confVal: 'YES (For Direct Follow-up)',
+              anonVal: 'No Account ID (Token Only)',
+              confVal: 'Yes (For Direct Follow-up)',
             ),
             _buildRow(
               attribute: 'Evidence EXIF / GPS / Camera Tags',
@@ -1253,8 +1265,8 @@ class AnonymityTransparencyBottomSheet extends StatelessWidget {
             ),
             _buildRow(
               attribute: 'Anti-Spam Technical Log',
-              anonVal: 'Ephemeral 24h Blinded Hash',
-              confVal: 'Encrypted Audit Record',
+              anonVal: 'Blinded Rate-Limit Bucket',
+              confVal: 'Authenticated Audit Record',
             ),
             const SizedBox(height: 14),
             Container(
@@ -1265,7 +1277,7 @@ class AnonymityTransparencyBottomSheet extends StatelessWidget {
                 border: Border.all(color: const Color(0xFFB7E1CB)),
               ),
               child: const Text(
-                'Honest Technical Disclosure: To prevent automated bot attacks without identifying you, our gateway computes a one-way daily rotating blinded bucket hash that expires after 24 hours. Raw IP addresses and phone numbers are never written to anonymous complaint rows.',
+                'Honest Technical Disclosure (SRS 7.4): While Anonymous Mode detaches your Sakhi account ID from the complaint record, standard server-level transport logs and a blinded anti-abuse bucket hash are retained temporarily for rate-limiting and security compliance, and specific details you write in your description or screenshots could still allow someone to infer context.',
                 style: TextStyle(
                   fontSize: 12,
                   height: 1.4,
@@ -1343,8 +1355,6 @@ class AnonymityTransparencyBottomSheet extends StatelessWidget {
 }
 
 /// Screen 22 — Quick-Exit Wellness Camouflage Screen
-/// ("Evening Chamomile & Gratitude Journal" — zero complaint keywords on screen;
-/// double-tap the subtle lotus icon in the header to return to Discreet Complaint Hub)
 class QuickExitWellnessCamouflageScreen extends StatefulWidget {
   const QuickExitWellnessCamouflageScreen({super.key});
 
@@ -1356,7 +1366,8 @@ class QuickExitWellnessCamouflageScreen extends StatefulWidget {
 class _QuickExitWellnessCamouflageScreenState
     extends State<QuickExitWellnessCamouflageScreen> {
   final TextEditingController _gratitudeCtrl = TextEditingController(
-    text: '1. Warm cup of chamomile tea after a long afternoon\n2. Taking five slow mindful breaths\n3. Peaceful evening walk',
+    text:
+        '1. Warm cup of chamomile tea after a long afternoon\n2. Taking five slow mindful breaths\n3. Peaceful evening walk',
   );
   int _waterGlasses = 6;
 
@@ -1429,7 +1440,7 @@ class _QuickExitWellnessCamouflageScreenState
                 height: 190,
                 width: double.infinity,
                 child: Image.asset(
-                  AppAssets.module5QuickExitChamomileJournal,
+                  AppAssets.m5QuickExitChamomile,
                   fit: BoxFit.cover,
                   errorBuilder: (_, _, _) => Container(
                     color: const Color(0xFFE0F2E8),

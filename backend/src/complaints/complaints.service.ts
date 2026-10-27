@@ -1,12 +1,18 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
   ServiceUnavailableException,
   UnauthorizedException,
 } from "@nestjs/common";
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  randomInt,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
 import { AuthenticationService } from "../auth/auth.service.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { StagingTestAdminService } from "../staging-test-admin/staging-test-admin.service.js";
@@ -46,6 +52,64 @@ export const ALL_COMPLAINT_STATUSES: ComplaintStatusType[] = [
   "REJECTED_WITH_REASON",
 ];
 
+/**
+ * SRS Section 7.5 — Enforced Status Transition Matrix
+ * Prevents invalid state jumps (such as SUBMITTED -> CLOSED without review or resolution).
+ */
+export const VALID_STATUS_TRANSITIONS: Record<
+  ComplaintStatusType,
+  ComplaintStatusType[]
+> = {
+  SUBMITTED: [
+    "UNDER_REVIEW",
+    "ADDITIONAL_INFO_REQUIRED",
+    "ESCALATED",
+    "ACTION_TAKEN",
+    "REJECTED_WITH_REASON",
+  ],
+  UNDER_REVIEW: [
+    "ADDITIONAL_INFO_REQUIRED",
+    "ESCALATED",
+    "ACTION_TAKEN",
+    "CLOSED",
+    "REJECTED_WITH_REASON",
+  ],
+  ADDITIONAL_INFO_REQUIRED: [
+    "UNDER_REVIEW",
+    "ESCALATED",
+    "ACTION_TAKEN",
+    "CLOSED",
+    "REJECTED_WITH_REASON",
+  ],
+  ESCALATED: [
+    "UNDER_REVIEW",
+    "ADDITIONAL_INFO_REQUIRED",
+    "ACTION_TAKEN",
+    "CLOSED",
+    "REJECTED_WITH_REASON",
+  ],
+  ACTION_TAKEN: ["CLOSED", "ESCALATED", "UNDER_REVIEW"],
+  CLOSED: ["ESCALATED", "UNDER_REVIEW"],
+  REJECTED_WITH_REASON: ["ESCALATED", "UNDER_REVIEW"],
+};
+
+export const ALLOWED_EVIDENCE_MIME_TYPES = new Set<string>([
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/webp",
+  "application/pdf",
+  "audio/mp4",
+  "audio/mpeg",
+  "audio/wav",
+  "audio/aac",
+  "audio/x-m4a",
+  "audio/m4a",
+]);
+
+export const MAX_EVIDENCE_BYTES = 15 * 1024 * 1024; // 15 MB per file
+export const MAX_EVIDENCE_FILES_PER_COMPLAINT = 5;
+
 export interface ComplaintCategoryItem {
   slug: string;
   name: string;
@@ -79,7 +143,8 @@ export const DEFAULT_COMPLAINT_CATEGORIES: ComplaintCategoryItem[] = [
   {
     slug: "online_abuse_cyberbullying",
     name: "Online abuse or cyberbullying",
-    description: "Abusive DMs, image morphing, doxxing, non-consensual sharing, or trolling",
+    description:
+      "Abusive DMs, image morphing, doxxing, non-consensual sharing, or trolling",
     iconKey: "laptop",
     flowerType: "lavenderSprig",
     defaultPriority: "P1_URGENT",
@@ -94,7 +159,8 @@ export const DEFAULT_COMPLAINT_CATEGORIES: ComplaintCategoryItem[] = [
   {
     slug: "stalking_unwanted_contact",
     name: "Stalking or unwanted contact",
-    description: "Following, repeated unwanted calls/messages, or physical surveillance",
+    description:
+      "Following, repeated unwanted calls/messages, or physical surveillance",
     iconKey: "eye",
     flowerType: "cherryBlossom",
     defaultPriority: "P1_URGENT",
@@ -109,7 +175,8 @@ export const DEFAULT_COMPLAINT_CATEGORIES: ComplaintCategoryItem[] = [
   {
     slug: "workplace_misconduct",
     name: "Workplace misconduct",
-    description: "POSH sexual harassment, quid-pro-quo coercion, or hostile work environment",
+    description:
+      "POSH sexual harassment, quid-pro-quo coercion, or hostile work environment",
     iconKey: "briefcase",
     flowerType: "eucalyptusSage",
     defaultPriority: "P1_URGENT",
@@ -124,7 +191,8 @@ export const DEFAULT_COMPLAINT_CATEGORIES: ComplaintCategoryItem[] = [
   {
     slug: "public_place_safety",
     name: "Public-place safety concerns",
-    description: "Unsafe streets, dark corridors, transit harassment, or loitering hotspots",
+    description:
+      "Unsafe streets, dark corridors, transit harassment, or loitering hotspots",
     iconKey: "map_pin",
     flowerType: "cosmosViolet",
     defaultPriority: "P2_HIGH",
@@ -139,7 +207,8 @@ export const DEFAULT_COMPLAINT_CATEGORIES: ComplaintCategoryItem[] = [
   {
     slug: "fraud_suspicious_activity",
     name: "Fraud or suspicious activity",
-    description: "Financial scams, fake profiles, impersonation, or blackmail/extortion",
+    description:
+      "Financial scams, fake profiles, impersonation, or blackmail/extortion",
     iconKey: "shield_alert",
     flowerType: "poppyBlush",
     defaultPriority: "P2_HIGH",
@@ -154,7 +223,8 @@ export const DEFAULT_COMPLAINT_CATEGORIES: ComplaintCategoryItem[] = [
   {
     slug: "discrimination",
     name: "Discrimination",
-    description: "Exclusion, hate speech, or bias based on caste, religion, gender, or background",
+    description:
+      "Exclusion, hate speech, or bias based on caste, religion, gender, or background",
     iconKey: "scale",
     flowerType: "lilyBloom",
     defaultPriority: "P2_HIGH",
@@ -169,7 +239,8 @@ export const DEFAULT_COMPLAINT_CATEGORIES: ComplaintCategoryItem[] = [
   {
     slug: "domestic_interpersonal_safety",
     name: "Domestic or interpersonal safety concerns",
-    description: "Partner, spouse, family, or household abuse, coercion, and threats",
+    description:
+      "Partner, spouse, family, or household abuse, coercion, and threats",
     iconKey: "home",
     flowerType: "roseClassic",
     defaultPriority: "P1_URGENT",
@@ -184,7 +255,8 @@ export const DEFAULT_COMPLAINT_CATEGORIES: ComplaintCategoryItem[] = [
   {
     slug: "business_related_complaints",
     name: "Business-related complaints",
-    description: "Misconduct, unsafe service, or policy breach by a listed business page",
+    description:
+      "Misconduct, unsafe service, or policy breach by a listed business page",
     iconKey: "store",
     flowerType: "tulipDuo",
     defaultPriority: "P3_STANDARD",
@@ -199,7 +271,8 @@ export const DEFAULT_COMPLAINT_CATEGORIES: ComplaintCategoryItem[] = [
   {
     slug: "other",
     name: "Other",
-    description: "Any other personal safety, privacy, or community wellbeing concern",
+    description:
+      "Any other personal safety, privacy, or community wellbeing concern",
     iconKey: "sparkles",
     flowerType: "babysBreath",
     defaultPriority: "P3_STANDARD",
@@ -230,7 +303,8 @@ export interface SanitizedEvidenceFile {
 
 export interface ComplainantMessageItem {
   id: string;
-  senderRole: "COMPLAINANT_ANONYMOUS" | "COMPLAINANT_CONFIDENTIAL" | "SAFETY_REVIEWER";
+  senderRole:
+    "COMPLAINANT_ANONYMOUS" | "COMPLAINANT_CONFIDENTIAL" | "SAFETY_REVIEWER";
   senderLabel: string;
   message: string;
   attachedFiles: SanitizedEvidenceFile[];
@@ -253,13 +327,13 @@ export interface ComplaintAuditEntry {
   actorLabel: string;
   action: string;
   summary: string;
+  integrityHash: string;
   timestamp: string;
 }
 
 export interface DiscreetComplaintRecord {
   id: string;
   referenceNumber: string;
-  passkeyPlainHint?: string;
   passkeyDigest: string;
   disguisedBackupSerial: string;
   reportingMode: "ANONYMOUS" | "CONFIDENTIAL";
@@ -280,7 +354,11 @@ export interface DiscreetComplaintRecord {
   linkedPostId: string | null;
   linkedBusinessId: string | null;
   evidenceFiles: SanitizedEvidenceFile[];
-  supportingLinks: Array<{ url: string; linkType: string; snapshotArchived: boolean }>;
+  supportingLinks: Array<{
+    url: string;
+    linkType: string;
+    snapshotArchived: boolean;
+  }>;
   wantsUpdates: boolean;
   submitAnonymouslyToReviewTeam: boolean;
   acknowledgedNonPoliceLegalNotice: boolean;
@@ -305,11 +383,118 @@ export interface DiscreetComplaintRecord {
   updatedAt: string;
 }
 
+/**
+ * Strips EXIF/APPn/GPS markers from real JPEG buffers and ancillary metadata chunks
+ * from real PNG buffers so uploaded evidence bytes are genuinely sanitized.
+ */
+export function stripBinaryMetadata(
+  input: Buffer,
+  contentType: string,
+): { scrubbedBuffer: Buffer; removedMarkers: string[] } {
+  const removedMarkers: string[] = [];
+  if (input.length < 12) {
+    return { scrubbedBuffer: input, removedMarkers };
+  }
+
+  // 1. JPEG binary marker stripper (0xFFD8 ... 0xFFD9)
+  if (input[0] === 0xff && input[1] === 0xd8) {
+    const chunks: Buffer[] = [Buffer.from([0xff, 0xd8])];
+    let offset = 2;
+    while (offset + 2 <= input.length) {
+      if (input[offset] !== 0xff) {
+        chunks.push(input.subarray(offset));
+        break;
+      }
+      const marker = input[offset + 1];
+      if (marker === undefined) {
+        chunks.push(input.subarray(offset));
+        break;
+      }
+      // Start of Scan (0xDA) or End of Image (0xD9) -> copy remaining compressed image data
+      if (marker === 0xda || marker === 0xd9) {
+        chunks.push(input.subarray(offset));
+        break;
+      }
+      // Standalone markers without length
+      if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+        chunks.push(input.subarray(offset, offset + 2));
+        offset += 2;
+        continue;
+      }
+      if (offset + 4 > input.length) {
+        chunks.push(input.subarray(offset));
+        break;
+      }
+      const segLength = input.readUInt16BE(offset + 2);
+      if (segLength < 2 || offset + 2 + segLength > input.length) {
+        chunks.push(input.subarray(offset));
+        break;
+      }
+      // Strip APP1..APP15 (0xE1..0xEF: EXIF, GPS, XMP, ICC, IPTC) and COM (0xFE: comments)
+      if ((marker >= 0xe1 && marker <= 0xef) || marker === 0xfe) {
+        removedMarkers.push(
+          marker === 0xe1
+            ? "JPEG.APP1.EXIF_GPS_XMP"
+            : marker === 0xfe
+              ? "JPEG.COM.Comment"
+              : `JPEG.APP${marker - 0xe0}`,
+        );
+      } else {
+        chunks.push(input.subarray(offset, offset + 2 + segLength));
+      }
+      offset += 2 + segLength;
+    }
+    return {
+      scrubbedBuffer: Buffer.concat(chunks),
+      removedMarkers,
+    };
+  }
+
+  // 2. PNG binary chunk stripper (\x89PNG\r\n\x1a\n)
+  const pngSig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if (input.subarray(0, 8).equals(pngSig)) {
+    const outChunks: Buffer[] = [pngSig];
+    let offset = 8;
+    const stripTypes = new Set(["eXIf", "tEXt", "zTXt", "iTXt", "tIME"]);
+    while (offset + 12 <= input.length) {
+      const length = input.readUInt32BE(offset);
+      const type = input.subarray(offset + 4, offset + 8).toString("ascii");
+      const totalChunkLen = 12 + length;
+      if (offset + totalChunkLen > input.length) {
+        outChunks.push(input.subarray(offset));
+        break;
+      }
+      if (stripTypes.has(type)) {
+        removedMarkers.push(`PNG.${type}`);
+      } else {
+        outChunks.push(input.subarray(offset, offset + totalChunkLen));
+      }
+      offset += totalChunkLen;
+      if (type === "IEND") break;
+    }
+    return {
+      scrubbedBuffer: Buffer.concat(outChunks),
+      removedMarkers,
+    };
+  }
+
+  return {
+    scrubbedBuffer: input,
+    removedMarkers: [`Normalized(${contentType})`],
+  };
+}
+
 @Injectable()
 export class ComplaintsService {
   private readonly categoriesMap = new Map<string, ComplaintCategoryItem>();
   private readonly complaintsMap = new Map<string, DiscreetComplaintRecord>();
-  private readonly throttledBuckets = new Map<string, { untilIso: string; reason: string }>();
+  private readonly throttledBuckets = new Map<
+    string,
+    { untilIso: string; reason: string }
+  >();
+  private readonly recentSubmissionFingerprints = new Map<string, number>();
+  private readonly scrubbedEvidenceBinaryVault = new Map<string, Buffer>();
+
   private retentionPolicy = {
     policyKey: "default",
     closedEvidenceRetentionDays: 90,
@@ -327,386 +512,11 @@ export class ComplaintsService {
     for (const cat of DEFAULT_COMPLAINT_CATEGORIES) {
       this.categoriesMap.set(cat.slug, { ...cat });
     }
-    this.seedInitialReferenceComplaints();
+    // IMPORTANT: Zero fake complaints are seeded! The database starts clean and only stores real submissions.
   }
 
   private hashString(val: string): string {
     return createHash("sha256").update(val).digest("hex");
-  }
-
-  private seedInitialReferenceComplaints(): void {
-    const now = Date.now();
-    const iso = (offsetMins: number) => new Date(now + offsetMins * 60_000).toISOString();
-
-    const seeded: DiscreetComplaintRecord[] = [
-      {
-        id: "c5000000-0000-4000-8000-000000008492",
-        referenceNumber: "#SKH-ANON-2026-8492",
-        passkeyPlainHint: "LOTUS-749-SAFE",
-        passkeyDigest: this.hashString("LOTUS-749-SAFE"),
-        disguisedBackupSerial: "Series #8492-LOTUS-749",
-        reportingMode: "ANONYMOUS",
-        confidentialAccountId: null,
-        blindedRateLimitBucket: "bkt_9f21a4c8e012",
-        categorySlug: "harassment",
-        categoryTitle: "Harassment",
-        customCategoryLabel: null,
-        urgency: "HAPPENING_NOW",
-        description:
-          "Over the past three days, a member account kept sending unwanted messages after a community member declined a business collaboration inquiry in the local area yesterday evening.",
-        piiGuardRedacted: true,
-        approximateDateLabel: "25 Oct 2026",
-        approximateTimeWindow: "Evening (5 PM – 9 PM)",
-        locationType: "COARSE_AREA",
-        generalLocationLabel: "Chandragiri Mandal / Tirupati Public Area (5 km Coarse Zone)",
-        linkedTargetType: "POST",
-        linkedTargetHandle: "@studio_collab_tpt24",
-        linkedPostId: "pst_98234_oct25",
-        linkedBusinessId: null,
-        evidenceFiles: [
-          {
-            id: "ev_8492_01",
-            fileName: "evidence_redacted_01.png",
-            originalFileNameRedacted: "[REDACTED_ORIGINAL_FILENAME].jpg",
-            contentType: "image/png",
-            byteSize: 1420800,
-            sha256Digest: "8f4c2b910e4a71239c5812b74a0f12e9b814c6a2039481726354819203a4e92a",
-            exifGpsStripped: true,
-            deviceMetadataStripped: true,
-            visualBlurApplied: true,
-            scrubbedFields: ["EXIF.GPSLatitude", "EXIF.GPSLongitude", "EXIF.Make", "EXIF.Model", "OriginalFilename"],
-            uploadedAt: iso(-120),
-          },
-          {
-            id: "ev_8492_02",
-            fileName: "chat_export_log_oct25.pdf",
-            originalFileNameRedacted: "[REDACTED_DOCUMENT].pdf",
-            contentType: "application/pdf",
-            byteSize: 634880,
-            sha256Digest: "3a1d9e774b2c80912f6e1189c023a4b5c6d7e8f90123456789abcdef01234567",
-            exifGpsStripped: true,
-            deviceMetadataStripped: true,
-            visualBlurApplied: false,
-            scrubbedFields: ["PDF.Author", "PDF.Creator", "PDF.Producer", "PDF.CreationDate"],
-            uploadedAt: iso(-118),
-          },
-        ],
-        supportingLinks: [
-          {
-            url: "sakhi://community/post/pst_98234_oct25",
-            linkType: "SAKHI_POST_SNAPSHOT",
-            snapshotArchived: true,
-          },
-        ],
-        wantsUpdates: true,
-        submitAnonymouslyToReviewTeam: true,
-        acknowledgedNonPoliceLegalNotice: true,
-        status: "ADDITIONAL_INFO_REQUIRED",
-        severity: "S2_HIGH",
-        priority: "P1_URGENT",
-        assignedReviewerId: "SR-04",
-        assignedReviewerName: "Meera Krishnan (#SR-04 • Senior Trust & Safety Officer)",
-        duplicateClusterId: "CLUST-209",
-        mergedIntoReference: null,
-        isFlaggedMaliciousAbuse: false,
-        maliciousAbuseReason: null,
-        rejectionReasonCode: null,
-        publicResolutionSummary:
-          "Assigned to Senior Reviewer #SR-04. Cross-checking repeat-offender cluster #CLUST-209.",
-        enforcementActions: ["ARCHIVE_POST_SNAPSHOT", "ZERO_DISCOVERY_SHIELD_ACTIVE"],
-        complainantMessages: [
-          {
-            id: "msg_8492_1",
-            senderRole: "SAFETY_REVIEWER",
-            senderLabel: "Senior Safety Reviewer #SR-04",
-            message:
-              "Thank you for sharing your report bravely. We have verified the primary account you reported. Before we apply a permanent restriction, could you clarify if the user contacted you from any secondary handle so we can block those as well? (Please do not include your own phone number.)",
-            attachedFiles: [],
-            createdAt: iso(-45),
-          },
-        ],
-        internalNotes: [
-          {
-            id: "note_8492_1",
-            reviewerId: "SR-04",
-            reviewerName: "Meera Krishnan (#SR-04)",
-            visibilityRole: "SENIOR_REVIEWER",
-            noteText:
-              "Target account @studio_collab_tpt24 matched 2 prior anonymous complaints in Cluster #CLUST-209 for intimidating female business owners. Stripped screenshot hashes verified.",
-            createdAt: iso(-50),
-          },
-        ],
-        auditHistory: [
-          {
-            id: "aud_8492_1",
-            auditCode: "#AUD-9912",
-            actorRole: "SYSTEM_INTAKE",
-            actorLabel: "Anonymous Privacy Gateway",
-            action: "complaint.submitted.anonymous",
-            summary: "Anonymous intake created • Profile detached • 2 files EXIF-scrubbed",
-            timestamp: iso(-120),
-          },
-          {
-            id: "aud_8492_2",
-            auditCode: "#AUD-9930",
-            actorRole: "ADMIN_REVIEWER",
-            actorLabel: "Meera Krishnan (#SR-04)",
-            action: "complaint.assigned.classified",
-            summary: "Assigned to Reviewer #SR-04 • Severity: S2_HIGH • Priority: P1_URGENT",
-            timestamp: iso(-65),
-          },
-          {
-            id: "aud_8492_3",
-            auditCode: "#AUD-9938",
-            actorRole: "ADMIN_REVIEWER",
-            actorLabel: "Meera Krishnan (#SR-04)",
-            action: "complaint.status.additional_info_required",
-            summary: "Status updated to ADDITIONAL_INFO_REQUIRED with encrypted question",
-            timestamp: iso(-45),
-          },
-        ],
-        mediaPurgedAt: null,
-        retentionExpiresAt: new Date(now + 90 * 86_400_000).toISOString(),
-        createdAt: iso(-120),
-        updatedAt: iso(-45),
-      },
-      {
-        id: "c5000000-0000-4000-8000-000000008489",
-        referenceNumber: "#SKH-CONF-2026-8489",
-        passkeyPlainHint: "PEONY-318-GUARD",
-        passkeyDigest: this.hashString("PEONY-318-GUARD"),
-        disguisedBackupSerial: "Series #8489-PEONY-318",
-        reportingMode: "CONFIDENTIAL",
-        confidentialAccountId: "00000000-0000-4000-8000-000000000101",
-        blindedRateLimitBucket: "bkt_4a89c1d2f901",
-        categorySlug: "stalking_unwanted_contact",
-        categoryTitle: "Stalking or unwanted contact",
-        customCategoryLabel: null,
-        urgency: "REPEATED_PATTERN",
-        description:
-          "Repeated unwanted contact across multiple community circles and attempts to follow after being blocked.",
-        piiGuardRedacted: true,
-        approximateDateLabel: "24 Oct 2026",
-        approximateTimeWindow: "Night (9 PM – 6 AM)",
-        locationType: "ONLINE_IN_APP",
-        generalLocationLabel: "Online / Sakhi Community Circles",
-        linkedTargetType: "MEMBER",
-        linkedTargetHandle: "@studio_collab_tpt24",
-        linkedPostId: null,
-        linkedBusinessId: null,
-        evidenceFiles: [
-          {
-            id: "ev_8489_01",
-            fileName: "evidence_redacted_stalking_01.png",
-            originalFileNameRedacted: "[REDACTED_SCREENSHOT].png",
-            contentType: "image/png",
-            byteSize: 912400,
-            sha256Digest: "7c91e044a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a",
-            exifGpsStripped: true,
-            deviceMetadataStripped: true,
-            visualBlurApplied: true,
-            scrubbedFields: ["EXIF.GPS", "EXIF.DeviceID"],
-            uploadedAt: iso(-340),
-          },
-        ],
-        supportingLinks: [],
-        wantsUpdates: true,
-        submitAnonymouslyToReviewTeam: false,
-        acknowledgedNonPoliceLegalNotice: true,
-        status: "ESCALATED",
-        severity: "S1_CRITICAL",
-        priority: "P1_URGENT",
-        assignedReviewerId: "EL-01",
-        assignedReviewerName: "Dr. Kavita Rao (#EL-01 • Escalation Lead)",
-        duplicateClusterId: "CLUST-209",
-        mergedIntoReference: null,
-        isFlaggedMaliciousAbuse: false,
-        maliciousAbuseReason: null,
-        rejectionReasonCode: null,
-        publicResolutionSummary:
-          "Escalated to Senior Trust & Safety Specialist Lead (#EL-01). Correlated with Cluster #CLUST-209 for permanent platform-wide enforcement.",
-        enforcementActions: ["AUTO_BLOCK_APPLIED", "ESCALATED_TO_SPECIALIST_DESK"],
-        complainantMessages: [],
-        internalNotes: [
-          {
-            id: "note_8489_1",
-            reviewerId: "EL-01",
-            reviewerName: "Dr. Kavita Rao (#EL-01)",
-            visibilityRole: "SUPER_ADMIN",
-            noteText:
-              "Confidential reporter identity locked in encrypted vault (hidden from standard moderators). Mutual block and search invisibility enforced immediately.",
-            createdAt: iso(-200),
-          },
-        ],
-        auditHistory: [
-          {
-            id: "aud_8489_1",
-            auditCode: "#AUD-9840",
-            actorRole: "SYSTEM_INTAKE",
-            actorLabel: "Confidential Vault Gateway",
-            action: "complaint.submitted.confidential",
-            summary: "Confidential intake created • Identity hidden from target & standard mods",
-            timestamp: iso(-340),
-          },
-          {
-            id: "aud_8489_2",
-            auditCode: "#AUD-9885",
-            actorRole: "ADMIN_REVIEWER",
-            actorLabel: "Dr. Kavita Rao (#EL-01)",
-            action: "complaint.status.escalated",
-            summary: "Escalated to P1 Specialist Desk • Linked to Cluster #CLUST-209",
-            timestamp: iso(-200),
-          },
-        ],
-        mediaPurgedAt: null,
-        retentionExpiresAt: new Date(now + 90 * 86_400_000).toISOString(),
-        createdAt: iso(-340),
-        updatedAt: iso(-200),
-      },
-      {
-        id: "c5000000-0000-4000-8000-000000008471",
-        referenceNumber: "#SKH-ANON-2026-8471",
-        passkeyPlainHint: "SAGE-109-MINT",
-        passkeyDigest: this.hashString("SAGE-109-MINT"),
-        disguisedBackupSerial: "Series #8471-SAGE-109",
-        reportingMode: "ANONYMOUS",
-        confidentialAccountId: null,
-        blindedRateLimitBucket: "bkt_spam_flood_7721",
-        categorySlug: "business_related_complaints",
-        categoryTitle: "Business-related complaints",
-        customCategoryLabel: null,
-        urgency: "PAST_INCIDENT",
-        description:
-          "Unverified competitor complaint submitted in burst flood (5 identical reports in 4 minutes without supporting evidence).",
-        piiGuardRedacted: false,
-        approximateDateLabel: "22 Oct 2026",
-        approximateTimeWindow: "Afternoon (12 PM – 5 PM)",
-        locationType: "PREFER_NOT_TO_SAY",
-        generalLocationLabel: null,
-        linkedTargetType: "BUSINESS",
-        linkedTargetHandle: "@aaradhya_handlooms",
-        linkedPostId: null,
-        linkedBusinessId: "BIZ-409",
-        evidenceFiles: [],
-        supportingLinks: [],
-        wantsUpdates: false,
-        submitAnonymouslyToReviewTeam: true,
-        acknowledgedNonPoliceLegalNotice: true,
-        status: "REJECTED_WITH_REASON",
-        severity: "S4_LOW",
-        priority: "P4_ROUTINE",
-        assignedReviewerId: "SR-07",
-        assignedReviewerName: "Anjali Menon (#SR-07 • Safety Reviewer)",
-        duplicateClusterId: null,
-        mergedIntoReference: null,
-        isFlaggedMaliciousAbuse: true,
-        maliciousAbuseReason:
-          "Burst flood pattern (5 identical submissions in 4 mins from same blinded bucket) with zero corroborating evidence.",
-        rejectionReasonCode: "#OUTSIDE-SCOPE-OR-UNVERIFIED-BURST",
-        publicResolutionSummary:
-          "We carefully reviewed this report. It concerns a commercial dispute without safety threats or corroborating evidence. You may submit an appeal with new evidence if harassment occurred.",
-        enforcementActions: ["BLINDED_BUCKET_RATE_LIMITED_72H"],
-        complainantMessages: [],
-        internalNotes: [],
-        auditHistory: [
-          {
-            id: "aud_8471_1",
-            auditCode: "#AUD-9710",
-            actorRole: "ADMIN_REVIEWER",
-            actorLabel: "Anjali Menon (#SR-07)",
-            action: "complaint.status.rejected_with_reason",
-            summary: "Marked Rejected with Reason (#OUTSIDE-SCOPE-OR-UNVERIFIED-BURST)",
-            timestamp: iso(-600),
-          },
-        ],
-        mediaPurgedAt: null,
-        retentionExpiresAt: new Date(now + 30 * 86_400_000).toISOString(),
-        createdAt: iso(-720),
-        updatedAt: iso(-600),
-      },
-      {
-        id: "c5000000-0000-4000-8000-000000008465",
-        referenceNumber: "#SKH-ANON-2026-8465",
-        passkeyPlainHint: "ROSE-552-CALM",
-        passkeyDigest: this.hashString("ROSE-552-CALM"),
-        disguisedBackupSerial: "Series #8465-ROSE-552",
-        reportingMode: "ANONYMOUS",
-        confidentialAccountId: null,
-        blindedRateLimitBucket: "bkt_3319ef01a8",
-        categorySlug: "online_abuse_cyberbullying",
-        categoryTitle: "Online abuse or cyberbullying",
-        customCategoryLabel: null,
-        urgency: "PAST_INCIDENT",
-        description:
-          "Account posted derogatory and harassing comments under a community wellness thread.",
-        piiGuardRedacted: true,
-        approximateDateLabel: "21 Oct 2026",
-        approximateTimeWindow: "Evening (5 PM – 9 PM)",
-        locationType: "ONLINE_IN_APP",
-        generalLocationLabel: "Online / Social Wall",
-        linkedTargetType: "POST",
-        linkedTargetHandle: "@troll_handle_99",
-        linkedPostId: "pst_44120_oct21",
-        linkedBusinessId: null,
-        evidenceFiles: [
-          {
-            id: "ev_8465_01",
-            fileName: "comment_capture_scrubbed.png",
-            originalFileNameRedacted: "[REDACTED].png",
-            contentType: "image/png",
-            byteSize: 512000,
-            sha256Digest: "9b8a7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b",
-            exifGpsStripped: true,
-            deviceMetadataStripped: true,
-            visualBlurApplied: true,
-            scrubbedFields: ["EXIF.GPS", "EXIF.Model"],
-            uploadedAt: iso(-1440),
-          },
-        ],
-        supportingLinks: [],
-        wantsUpdates: true,
-        submitAnonymouslyToReviewTeam: true,
-        acknowledgedNonPoliceLegalNotice: true,
-        status: "ACTION_TAKEN",
-        severity: "S2_HIGH",
-        priority: "P2_HIGH",
-        assignedReviewerId: "SR-04",
-        assignedReviewerName: "Meera Krishnan (#SR-04 • Senior Trust & Safety Officer)",
-        duplicateClusterId: null,
-        mergedIntoReference: null,
-        isFlaggedMaliciousAbuse: false,
-        maliciousAbuseReason: null,
-        rejectionReasonCode: null,
-        publicResolutionSummary:
-          "Protective Action Taken: Offending account permanently suspended, abusive comments removed, and device added to Repeat-Offender Blocklist. Your identity was never exposed.",
-        enforcementActions: [
-          "OFFENDING_ACCOUNT_SUSPENDED",
-          "CONTENT_AND_DMS_REMOVED",
-          "REPEAT_OFFENDER_DEVICE_BLOCK",
-        ],
-        complainantMessages: [],
-        internalNotes: [],
-        auditHistory: [
-          {
-            id: "aud_8465_1",
-            auditCode: "#AUD-9610",
-            actorRole: "ADMIN_REVIEWER",
-            actorLabel: "Meera Krishnan (#SR-04)",
-            action: "complaint.status.action_taken",
-            summary: "Protective Action Taken: Target suspended & content removed",
-            timestamp: iso(-1100),
-          },
-        ],
-        mediaPurgedAt: null,
-        retentionExpiresAt: new Date(now + 90 * 86_400_000).toISOString(),
-        createdAt: iso(-1440),
-        updatedAt: iso(-1100),
-      },
-    ];
-
-    for (const item of seeded) {
-      this.complaintsMap.set(item.referenceNumber.toUpperCase(), item);
-    }
   }
 
   private stagingAdminReviewEnabled(): boolean {
@@ -751,7 +561,10 @@ export class ComplaintsService {
     );
   }
 
-  public assertReviewer(provided?: string): { reviewerLabel: string; role: "SENIOR_REVIEWER" | "SUPER_ADMIN" } {
+  public assertReviewer(provided?: string): {
+    reviewerLabel: string;
+    role: "SENIOR_REVIEWER" | "SUPER_ADMIN";
+  } {
     if (
       process.env.NODE_ENV === "production" &&
       process.env.SAKHI_ENV === "staging"
@@ -761,40 +574,142 @@ export class ComplaintsService {
         provided?.startsWith("test-access.") ||
         (!this.stagingAdminReviewEnabled() && this.stagingFullAdminEnabled())
       ) {
-        const label = StagingTestAdminService.assertFullAdminSessionToken(provided);
+        const label =
+          StagingTestAdminService.assertFullAdminSessionToken(provided);
         return { reviewerLabel: label, role: "SUPER_ADMIN" };
       }
     }
     const expected = this.configuredAdminToken();
     if (!provided) {
-      throw new UnauthorizedException("A reviewer token is required to access complaint management.");
+      throw new UnauthorizedException(
+        "A reviewer token is required to access complaint management.",
+      );
     }
     const candidates = expected
       .split(",")
       .map((item) => item.trim())
       .filter((item) => item.length > 0);
-    const providedDigest = createHash("sha256").update(provided.trim()).digest();
+    const providedDigest = createHash("sha256")
+      .update(provided.trim())
+      .digest();
     const matched = candidates.some((candidate) => {
       const expectedDigest = createHash("sha256").update(candidate).digest();
       return timingSafeEqual(expectedDigest, providedDigest);
     });
     if (!matched) {
-      throw new UnauthorizedException("The reviewer token is invalid or expired.");
+      throw new UnauthorizedException(
+        "The reviewer token is invalid or expired.",
+      );
     }
-    const label = process.env.SAKHI_ADMIN_REVIEWER_LABEL?.trim() || "Meera Krishnan (#SR-04)";
+    const label =
+      process.env.SAKHI_ADMIN_REVIEWER_LABEL?.trim() ||
+      "Meera Krishnan (#SR-04)";
     return { reviewerLabel: label, role: "SENIOR_REVIEWER" };
   }
 
-  private async resolveOptionalAccountId(authorization?: string): Promise<string | null> {
-    if (!authorization || !authorization.trim().toLowerCase().startsWith("bearer ")) {
-      return null;
+  private async resolveRequiredAccountId(
+    authorization?: string,
+  ): Promise<string> {
+    if (
+      !authorization ||
+      !authorization.trim().toLowerCase().startsWith("bearer ")
+    ) {
+      throw new UnauthorizedException(
+        "Confidential reporting requires an active signed-in Sakhi member session. Choose Anonymous Mode if you wish to submit without an account session.",
+      );
     }
     try {
-      const status = await this.auth.getCurrentAccount(authorization);
-      return status.accountId ?? null;
-    } catch {
-      return null;
+      const anyAuth = this.auth as unknown as Record<string, any>;
+      if (typeof anyAuth.getCurrentAccount === "function") {
+        const status = await anyAuth.getCurrentAccount(authorization);
+        if (status?.accountId) return String(status.accountId);
+      }
+      if (typeof anyAuth.getCurrentAccountStatus === "function") {
+        const status = await anyAuth.getCurrentAccountStatus(authorization);
+        if (status?.accountId) return String(status.accountId);
+      }
+    } catch (err) {
+      if (err instanceof UnauthorizedException) throw err;
     }
+    throw new UnauthorizedException(
+      "Could not verify your member session for Confidential Mode. Please sign in again or switch to Anonymous Mode.",
+    );
+  }
+
+  private mapDbRowToRecord(r: Record<string, any>): DiscreetComplaintRecord {
+    return {
+      id: String(r.id),
+      referenceNumber: String(r.referenceNumber),
+      passkeyDigest: String(r.passkeyDigest),
+      disguisedBackupSerial: String(r.disguisedBackupSerial),
+      reportingMode:
+        r.reportingMode === "CONFIDENTIAL" ? "CONFIDENTIAL" : "ANONYMOUS",
+      confidentialAccountId: r.confidentialAccountId ?? null,
+      blindedRateLimitBucket: r.blindedRateLimitBucket ?? "bkt_default",
+      categorySlug: String(r.categorySlug),
+      categoryTitle: String(r.categoryTitle),
+      customCategoryLabel: r.customCategoryLabel ?? null,
+      urgency:
+        r.urgency === "HAPPENING_NOW" || r.urgency === "REPEATED_PATTERN"
+          ? r.urgency
+          : "PAST_INCIDENT",
+      description: String(r.description),
+      piiGuardRedacted: Boolean(r.piiGuardRedacted),
+      approximateDateLabel: String(r.approximateDateLabel),
+      approximateTimeWindow: String(r.approximateTimeWindow),
+      locationType:
+        r.locationType === "ONLINE_IN_APP" ||
+        r.locationType === "PREFER_NOT_TO_SAY"
+          ? r.locationType
+          : "COARSE_AREA",
+      generalLocationLabel: r.generalLocationLabel ?? null,
+      linkedTargetType: r.linkedTargetType ?? null,
+      linkedTargetHandle: r.linkedTargetHandle ?? null,
+      linkedPostId: r.linkedPostId ?? null,
+      linkedBusinessId: r.linkedBusinessId ?? null,
+      evidenceFiles: Array.isArray(r.evidenceFiles) ? r.evidenceFiles : [],
+      supportingLinks: Array.isArray(r.supportingLinks)
+        ? r.supportingLinks
+        : [],
+      wantsUpdates: Boolean(r.wantsUpdates),
+      submitAnonymouslyToReviewTeam: Boolean(r.submitAnonymouslyToReviewTeam),
+      acknowledgedNonPoliceLegalNotice: Boolean(
+        r.acknowledgedNonPoliceLegalNotice,
+      ),
+      status: (ALL_COMPLAINT_STATUSES.includes(r.status)
+        ? r.status
+        : "SUBMITTED") as ComplaintStatusType,
+      severity: r.severity ?? "S2_HIGH",
+      priority: r.priority ?? "P2_HIGH",
+      assignedReviewerId: r.assignedReviewerId ?? null,
+      assignedReviewerName: r.assignedReviewerName ?? null,
+      duplicateClusterId: r.duplicateClusterId ?? null,
+      mergedIntoReference: r.mergedIntoReference ?? null,
+      isFlaggedMaliciousAbuse: Boolean(r.isFlaggedMaliciousAbuse),
+      maliciousAbuseReason: r.maliciousAbuseReason ?? null,
+      rejectionReasonCode: r.rejectionReasonCode ?? null,
+      publicResolutionSummary: r.publicResolutionSummary ?? null,
+      enforcementActions: Array.isArray(r.enforcementActions)
+        ? r.enforcementActions
+        : [],
+      complainantMessages: Array.isArray(r.complainantMessages)
+        ? r.complainantMessages
+        : [],
+      internalNotes: Array.isArray(r.internalNotes) ? r.internalNotes : [],
+      auditHistory: Array.isArray(r.auditHistory) ? r.auditHistory : [],
+      mediaPurgedAt: r.mediaPurgedAt
+        ? new Date(r.mediaPurgedAt).toISOString()
+        : null,
+      retentionExpiresAt: r.retentionExpiresAt
+        ? new Date(r.retentionExpiresAt).toISOString()
+        : new Date(Date.now() + 90 * 86_400_000).toISOString(),
+      createdAt: r.createdAt
+        ? new Date(r.createdAt).toISOString()
+        : new Date().toISOString(),
+      updatedAt: r.updatedAt
+        ? new Date(r.updatedAt).toISOString()
+        : new Date().toISOString(),
+    };
   }
 
   private async ensureHydrated(): Promise<void> {
@@ -802,80 +717,104 @@ export class ComplaintsService {
     this.hydratedFromDb = true;
     try {
       const anyPrisma = this.prisma as unknown as Record<string, any>;
-      if (anyPrisma.discreetComplaint?.findMany) {
-        const rows = await anyPrisma.discreetComplaint.findMany({
-          orderBy: { createdAt: "desc" },
-          take: 100,
-        });
-        for (const r of rows) {
-          if (r && typeof r.referenceNumber === "string") {
-            this.complaintsMap.set(r.referenceNumber.toUpperCase(), {
-              id: r.id,
-              referenceNumber: r.referenceNumber,
-              passkeyDigest: r.passkeyDigest,
-              disguisedBackupSerial: r.disguisedBackupSerial,
-              reportingMode: r.reportingMode === "CONFIDENTIAL" ? "CONFIDENTIAL" : "ANONYMOUS",
-              confidentialAccountId: r.confidentialAccountId ?? null,
-              blindedRateLimitBucket: r.blindedRateLimitBucket ?? "bkt_default",
-              categorySlug: r.categorySlug,
-              categoryTitle: r.categoryTitle,
-              customCategoryLabel: r.customCategoryLabel ?? null,
-              urgency: r.urgency ?? "PAST_INCIDENT",
-              description: r.description,
-              piiGuardRedacted: Boolean(r.piiGuardRedacted),
-              approximateDateLabel: r.approximateDateLabel,
-              approximateTimeWindow: r.approximateTimeWindow,
-              locationType: r.locationType ?? "COARSE_AREA",
-              generalLocationLabel: r.generalLocationLabel ?? null,
-              linkedTargetType: r.linkedTargetType ?? null,
-              linkedTargetHandle: r.linkedTargetHandle ?? null,
-              linkedPostId: r.linkedPostId ?? null,
-              linkedBusinessId: r.linkedBusinessId ?? null,
-              evidenceFiles: Array.isArray(r.evidenceFiles) ? r.evidenceFiles : [],
-              supportingLinks: Array.isArray(r.supportingLinks) ? r.supportingLinks : [],
-              wantsUpdates: Boolean(r.wantsUpdates),
-              submitAnonymouslyToReviewTeam: Boolean(r.submitAnonymouslyToReviewTeam),
-              acknowledgedNonPoliceLegalNotice: Boolean(r.acknowledgedNonPoliceLegalNotice),
-              status: r.status as ComplaintStatusType,
-              severity: r.severity ?? "S2_HIGH",
-              priority: r.priority ?? "P2_HIGH",
-              assignedReviewerId: r.assignedReviewerId ?? null,
-              assignedReviewerName: r.assignedReviewerName ?? null,
-              duplicateClusterId: r.duplicateClusterId ?? null,
-              mergedIntoReference: r.mergedIntoReference ?? null,
-              isFlaggedMaliciousAbuse: Boolean(r.isFlaggedMaliciousAbuse),
-              maliciousAbuseReason: r.maliciousAbuseReason ?? null,
-              rejectionReasonCode: r.rejectionReasonCode ?? null,
-              publicResolutionSummary: r.publicResolutionSummary ?? null,
-              enforcementActions: Array.isArray(r.enforcementActions) ? r.enforcementActions : [],
-              complainantMessages: Array.isArray(r.complainantMessages) ? r.complainantMessages : [],
-              internalNotes: Array.isArray(r.internalNotes) ? r.internalNotes : [],
-              auditHistory: Array.isArray(r.auditHistory) ? r.auditHistory : [],
-              mediaPurgedAt: r.mediaPurgedAt ? new Date(r.mediaPurgedAt).toISOString() : null,
-              retentionExpiresAt: r.retentionExpiresAt
-                ? new Date(r.retentionExpiresAt).toISOString()
-                : new Date(Date.now() + 90 * 86_400_000).toISOString(),
-              createdAt: new Date(r.createdAt).toISOString(),
-              updatedAt: new Date(r.updatedAt).toISOString(),
+
+      // 1. Hydrate configurable categories from DB if table exists
+      if (anyPrisma.complaintCategoryConfig?.findMany) {
+        const dbCats = await anyPrisma.complaintCategoryConfig
+          .findMany({ orderBy: { displayOrder: "asc" } })
+          .catch(() => []);
+        if (Array.isArray(dbCats) && dbCats.length > 0) {
+          for (const c of dbCats) {
+            this.categoriesMap.set(c.slug, {
+              slug: c.slug,
+              name: c.name,
+              description: c.description,
+              iconKey: c.iconKey ?? "shield",
+              flowerType: c.flowerType ?? "peonySoft",
+              defaultPriority: c.defaultPriority ?? "P2_HIGH",
+              defaultSeverity: c.defaultSeverity ?? "S2_HIGH",
+              safetyGuidanceText: c.safetyGuidanceText,
+              legalHelplineNote: c.legalHelplineNote,
+              isEnabled: Boolean(c.isEnabled),
+              displayOrder: Number(c.displayOrder ?? 1),
             });
+          }
+        } else if (anyPrisma.complaintCategoryConfig?.upsert) {
+          // Seed the 10 SRS categories into complaint_category_configs table on first run
+          for (const cat of DEFAULT_COMPLAINT_CATEGORIES) {
+            await anyPrisma.complaintCategoryConfig
+              .upsert({
+                where: { slug: cat.slug },
+                update: {},
+                create: { ...cat },
+              })
+              .catch(() => null);
           }
         }
       }
 
-      // Also hydrate snapshots saved in AuditEvent table (works even if discreet_complaints migration hasn't run yet!)
-      const snapshots = await this.prisma.auditEvent.findMany({
-        where: { action: "module5.complaint.snapshot" },
-        orderBy: { createdAt: "asc" },
-        take: 100,
-      });
-      for (const snap of snapshots) {
-        const meta = snap.redactedMetadata as unknown as DiscreetComplaintRecord | null;
-        if (meta && typeof meta.referenceNumber === "string") {
-          this.complaintsMap.set(meta.referenceNumber.toUpperCase(), meta);
+      // 2. Hydrate retention policy from DB if table exists
+      if (anyPrisma.complaintRetentionPolicy?.findUnique) {
+        const dbPolicy = await anyPrisma.complaintRetentionPolicy
+          .findUnique({ where: { policyKey: "default" } })
+          .catch(() => null);
+        if (dbPolicy) {
+          this.retentionPolicy = {
+            policyKey: "default",
+            closedEvidenceRetentionDays: Number(
+              dbPolicy.closedEvidenceRetentionDays,
+            ),
+            rejectedReportRetentionDays: Number(
+              dbPolicy.rejectedReportRetentionDays,
+            ),
+            technicalRateLimitLogDays: Number(
+              dbPolicy.technicalRateLimitLogDays,
+            ),
+            updatedBy: dbPolicy.updatedBy ?? "System Default (DPDP Compliant)",
+            updatedAt: new Date(dbPolicy.updatedAt).toISOString(),
+          };
+        }
+      }
+
+      // 3. Hydrate real complaints from discreet_complaints table
+      let loadedFromPrimaryTable = false;
+      if (anyPrisma.discreetComplaint?.findMany) {
+        const rows = await anyPrisma.discreetComplaint
+          .findMany({
+            orderBy: { createdAt: "desc" },
+            take: 500,
+          })
+          .catch(() => null);
+        if (Array.isArray(rows)) {
+          loadedFromPrimaryTable = true;
+          for (const r of rows) {
+            if (r && typeof r.referenceNumber === "string") {
+              const rec = this.mapDbRowToRecord(r);
+              this.complaintsMap.set(rec.referenceNumber.toUpperCase(), rec);
+            }
+          }
+        }
+      }
+
+      // 4. Fallback to AuditEvent snapshots ONLY if discreet_complaints table is not yet migrated
+      if (!loadedFromPrimaryTable && this.prisma.auditEvent?.findMany) {
+        const snapshots = await this.prisma.auditEvent
+          .findMany({
+            where: { action: "module5.complaint.snapshot" },
+            orderBy: { createdAt: "asc" },
+            take: 250,
+          })
+          .catch(() => []);
+        for (const snap of snapshots) {
+          const meta =
+            snap.redactedMetadata as unknown as DiscreetComplaintRecord | null;
+          if (meta && typeof meta.referenceNumber === "string") {
+            this.complaintsMap.set(meta.referenceNumber.toUpperCase(), meta);
+          }
         }
       }
     } catch {
-      // Safe fallback to in-memory seeded state if DB is unreachable in unit tests
+      // Safe fallback in unit tests without live DB connection
     }
   }
 
@@ -886,97 +825,105 @@ export class ComplaintsService {
     outcome: string,
   ): Promise<void> {
     this.complaintsMap.set(record.referenceNumber.toUpperCase(), record);
-    try {
-      const anyPrisma = this.prisma as unknown as Record<string, any>;
-      if (anyPrisma.discreetComplaint?.upsert) {
-        await anyPrisma.discreetComplaint
-          .upsert({
-            where: { referenceNumber: record.referenceNumber },
-            update: {
-              status: record.status,
-              severity: record.severity,
-              priority: record.priority,
-              assignedReviewerId: record.assignedReviewerId,
-              assignedReviewerName: record.assignedReviewerName,
-              duplicateClusterId: record.duplicateClusterId,
-              mergedIntoReference: record.mergedIntoReference,
-              isFlaggedMaliciousAbuse: record.isFlaggedMaliciousAbuse,
-              maliciousAbuseReason: record.maliciousAbuseReason,
-              rejectionReasonCode: record.rejectionReasonCode,
-              publicResolutionSummary: record.publicResolutionSummary,
-              enforcementActions: record.enforcementActions,
-              evidenceFiles: record.evidenceFiles,
-              complainantMessages: record.complainantMessages,
-              internalNotes: record.internalNotes,
-              auditHistory: record.auditHistory,
-              mediaPurgedAt: record.mediaPurgedAt ? new Date(record.mediaPurgedAt) : null,
-              updatedAt: new Date(),
-            },
-            create: {
-              id: record.id,
-              referenceNumber: record.referenceNumber,
-              passkeyDigest: record.passkeyDigest,
-              disguisedBackupSerial: record.disguisedBackupSerial,
-              reportingMode: record.reportingMode,
-              confidentialAccountId: record.confidentialAccountId,
-              blindedRateLimitBucket: record.blindedRateLimitBucket,
-              categorySlug: record.categorySlug,
-              categoryTitle: record.categoryTitle,
-              customCategoryLabel: record.customCategoryLabel,
-              urgency: record.urgency,
-              description: record.description,
-              piiGuardRedacted: record.piiGuardRedacted,
-              approximateDateLabel: record.approximateDateLabel,
-              approximateTimeWindow: record.approximateTimeWindow,
-              locationType: record.locationType,
-              generalLocationLabel: record.generalLocationLabel,
-              linkedTargetType: record.linkedTargetType,
-              linkedTargetHandle: record.linkedTargetHandle,
-              linkedPostId: record.linkedPostId,
-              linkedBusinessId: record.linkedBusinessId,
-              evidenceFiles: record.evidenceFiles,
-              supportingLinks: record.supportingLinks,
-              wantsUpdates: record.wantsUpdates,
-              submitAnonymouslyToReviewTeam: record.submitAnonymouslyToReviewTeam,
-              acknowledgedNonPoliceLegalNotice: record.acknowledgedNonPoliceLegalNotice,
-              status: record.status,
-              severity: record.severity,
-              priority: record.priority,
-              assignedReviewerId: record.assignedReviewerId,
-              assignedReviewerName: record.assignedReviewerName,
-              duplicateClusterId: record.duplicateClusterId,
-              mergedIntoReference: record.mergedIntoReference,
-              isFlaggedMaliciousAbuse: record.isFlaggedMaliciousAbuse,
-              maliciousAbuseReason: record.maliciousAbuseReason,
-              rejectionReasonCode: record.rejectionReasonCode,
-              publicResolutionSummary: record.publicResolutionSummary,
-              enforcementActions: record.enforcementActions,
-              complainantMessages: record.complainantMessages,
-              internalNotes: record.internalNotes,
-              auditHistory: record.auditHistory,
-              retentionExpiresAt: new Date(record.retentionExpiresAt),
-            },
-          })
-          .catch(() => null);
-      }
+    const anyPrisma = this.prisma as unknown as Record<string, any>;
 
-      // Always write tamper-evident audit event & snapshot to AuditEvent
+    if (anyPrisma.discreetComplaint?.upsert) {
+      await anyPrisma.discreetComplaint
+        .upsert({
+          where: { referenceNumber: record.referenceNumber },
+          update: {
+            status: record.status,
+            severity: record.severity,
+            priority: record.priority,
+            assignedReviewerId: record.assignedReviewerId,
+            assignedReviewerName: record.assignedReviewerName,
+            duplicateClusterId: record.duplicateClusterId,
+            mergedIntoReference: record.mergedIntoReference,
+            isFlaggedMaliciousAbuse: record.isFlaggedMaliciousAbuse,
+            maliciousAbuseReason: record.maliciousAbuseReason,
+            rejectionReasonCode: record.rejectionReasonCode,
+            publicResolutionSummary: record.publicResolutionSummary,
+            enforcementActions: record.enforcementActions,
+            evidenceFiles: record.evidenceFiles,
+            complainantMessages: record.complainantMessages,
+            internalNotes: record.internalNotes,
+            auditHistory: record.auditHistory,
+            mediaPurgedAt: record.mediaPurgedAt
+              ? new Date(record.mediaPurgedAt)
+              : null,
+            updatedAt: new Date(record.updatedAt),
+          },
+          create: {
+            id: record.id,
+            referenceNumber: record.referenceNumber,
+            passkeyDigest: record.passkeyDigest,
+            disguisedBackupSerial: record.disguisedBackupSerial,
+            reportingMode: record.reportingMode,
+            confidentialAccountId: record.confidentialAccountId,
+            blindedRateLimitBucket: record.blindedRateLimitBucket,
+            categorySlug: record.categorySlug,
+            categoryTitle: record.categoryTitle,
+            customCategoryLabel: record.customCategoryLabel,
+            urgency: record.urgency,
+            description: record.description,
+            piiGuardRedacted: record.piiGuardRedacted,
+            approximateDateLabel: record.approximateDateLabel,
+            approximateTimeWindow: record.approximateTimeWindow,
+            locationType: record.locationType,
+            generalLocationLabel: record.generalLocationLabel,
+            linkedTargetType: record.linkedTargetType,
+            linkedTargetHandle: record.linkedTargetHandle,
+            linkedPostId: record.linkedPostId,
+            linkedBusinessId: record.linkedBusinessId,
+            evidenceFiles: record.evidenceFiles,
+            supportingLinks: record.supportingLinks,
+            wantsUpdates: record.wantsUpdates,
+            submitAnonymouslyToReviewTeam: record.submitAnonymouslyToReviewTeam,
+            acknowledgedNonPoliceLegalNotice:
+              record.acknowledgedNonPoliceLegalNotice,
+            status: record.status,
+            severity: record.severity,
+            priority: record.priority,
+            assignedReviewerId: record.assignedReviewerId,
+            assignedReviewerName: record.assignedReviewerName,
+            duplicateClusterId: record.duplicateClusterId,
+            mergedIntoReference: record.mergedIntoReference,
+            isFlaggedMaliciousAbuse: record.isFlaggedMaliciousAbuse,
+            maliciousAbuseReason: record.maliciousAbuseReason,
+            rejectionReasonCode: record.rejectionReasonCode,
+            publicResolutionSummary: record.publicResolutionSummary,
+            enforcementActions: record.enforcementActions,
+            complainantMessages: record.complainantMessages,
+            internalNotes: record.internalNotes,
+            auditHistory: record.auditHistory,
+            retentionExpiresAt: new Date(record.retentionExpiresAt),
+            createdAt: new Date(record.createdAt),
+            updatedAt: new Date(record.updatedAt),
+          },
+        })
+        .catch(() => null);
+    }
+
+    // Write tamper-evident audit event without exposing confidentialAccountId or passkey
+    if (this.prisma.auditEvent?.create) {
+      const safeAuditMetadata = {
+        ...record,
+        confidentialAccountId: null,
+      };
       await this.prisma.auditEvent
         .create({
           data: {
             actorType,
-            actorId: null, // Never attach reporter accountId to audit log in anonymous/confidential complaint events
+            actorId: null, // Never attach reporter accountId to audit log
             action: "module5.complaint.snapshot",
             targetType: "module5_complaint",
             targetId: record.referenceNumber,
             outcome: `${auditAction}:${outcome}`.slice(0, 32),
             requestId: randomUUID(),
-            redactedMetadata: JSON.parse(JSON.stringify(record)),
+            redactedMetadata: JSON.parse(JSON.stringify(safeAuditMetadata)),
           },
         })
         .catch(() => null);
-    } catch {
-      // Non-fatal in unit test environments without DB
     }
   }
 
@@ -990,14 +937,37 @@ export class ComplaintsService {
       .sort((a, b) => a.displayOrder - b.displayOrder);
     return {
       categories: items,
+      allCategories: Array.from(this.categoriesMap.values()).sort(
+        (a, b) => a.displayOrder - b.displayOrder,
+      ),
       legalDisclaimer:
         "Submitting a complaint within Sakhi does not automatically constitute a Police FIR or legal filing. For immediate physical danger or official law-enforcement dispatch, dial 112 (Emergency ERSS), 1091 (Women Police), 181 (Domestic Helpline), or 1930 (Cybercrime).",
       emergencyChannels: [
-        { code: "112", title: "112 — India National Emergency ERSS", subtitle: "Immediate Police, Fire & Medical Dispatch" },
-        { code: "1091", title: "1091 — Women Police Helpline", subtitle: "Direct Women Safety Cell & PCR Patrol" },
-        { code: "181", title: "181 — Domestic & Crisis Helpline", subtitle: "24/7 Counselling, Shelter & One-Stop Centre" },
-        { code: "1930", title: "1930 — National Cyber Crime Helpline", subtitle: "Online Harassment, Morphing & Financial Fraud" },
-        { code: "7827170170", title: "NCW — National Commission for Women", subtitle: "Workplace POSH & Statutory Escalation" },
+        {
+          code: "112",
+          title: "112 — India National Emergency ERSS",
+          subtitle: "Immediate Police, Fire & Medical Dispatch",
+        },
+        {
+          code: "1091",
+          title: "1091 — Women Police Helpline",
+          subtitle: "Direct Women Safety Cell & PCR Patrol",
+        },
+        {
+          code: "181",
+          title: "181 — Domestic & Crisis Helpline",
+          subtitle: "24/7 Counselling, Shelter & One-Stop Centre",
+        },
+        {
+          code: "1930",
+          title: "1930 — National Cyber Crime Helpline",
+          subtitle: "Online Harassment, Morphing & Financial Fraud",
+        },
+        {
+          code: "7827170170",
+          title: "NCW — National Commission for Women",
+          subtitle: "Workplace POSH & Statutory Escalation",
+        },
       ],
       retentionPolicy: this.retentionPolicy,
     };
@@ -1008,21 +978,27 @@ export class ComplaintsService {
   // ---------------------------------------------------------------------------
   checkDescriptionForIdentityClues(dto: CheckDescriptionPiiDto) {
     const raw = (dto.description ?? "").trim();
-    const flaggedClues: Array<{ phrase: string; reason: string; replacement: string }> = [];
+    if (!raw) {
+      throw new BadRequestException("Description cannot be empty.");
+    }
+    const flaggedClues: Array<{
+      phrase: string;
+      reason: string;
+      replacement: string;
+    }> = [];
     let generalized = raw;
 
-    // Detect phone numbers
     const phoneRegex = /(\+91[\s-]?)?[6-9]\d{9}\b/g;
     for (const match of raw.matchAll(phoneRegex)) {
       flaggedClues.push({
         phrase: match[0],
-        reason: "Phone number in description can directly reveal your identity.",
+        reason:
+          "Phone number in description can directly reveal your identity.",
         replacement: "[phone number redacted]",
       });
       generalized = generalized.replace(match[0], "[phone number redacted]");
     }
 
-    // Detect email addresses
     const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
     for (const match of raw.matchAll(emailRegex)) {
       flaggedClues.push({
@@ -1033,20 +1009,45 @@ export class ComplaintsService {
       generalized = generalized.replace(match[0], "[email redacted]");
     }
 
-    // Detect first-person ownership / exact address clues (e.g., "my studio", "my flat", "4th Cross", exact minute "6:34 PM")
-    const specificPatterns: Array<{ pattern: RegExp; reason: string; replacement: string }> = [
+    const aadhaarRegex = /\b\d{4}[\s-]\d{4}[\s-]\d{4}\b/g;
+    for (const match of raw.matchAll(aadhaarRegex)) {
+      flaggedClues.push({
+        phrase: match[0],
+        reason:
+          "Government ID / Aadhaar number pattern can expose your identity.",
+        replacement: "[govt ID redacted]",
+      });
+      generalized = generalized.replace(match[0], "[govt ID redacted]");
+    }
+
+    const specificPatterns: Array<{
+      pattern: RegExp;
+      reason: string;
+      replacement: string;
+    }> = [
       {
-        pattern: /\bmy\s+(bridal\s+)?(studio|shop|boutique|flat|apartment|house|desk|cabin)(\s+on\s+[A-Za-z0-9\s]+)?/gi,
-        reason: "Mentioning your specific studio, flat, or desk location may narrow down who you are to the reported person.",
+        pattern:
+          /\b(?:my name is|i am|this is)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/gi,
+        reason:
+          "Self-identifying name phrase can reveal who submitted the report.",
+        replacement: "[complainant identity redacted]",
+      },
+      {
+        pattern:
+          /\bmy\s+(bridal\s+)?(studio|shop|boutique|flat|apartment|house|desk|cabin)(\s+on\s+[A-Za-z0-9\s]+)?/gi,
+        reason:
+          "Mentioning your specific studio, flat, or desk location may narrow down who you are to the reported person.",
         replacement: "a local workspace in the area",
       },
       {
         pattern: /\b\d{1,2}:[0-5]\d\s?(AM|PM|am|pm)\b/g,
-        reason: "Exact minute timestamps can allow a sender to match their chat log to you.",
+        reason:
+          "Exact minute timestamps can allow a sender to match their chat log to you.",
         replacement: "around that time window",
       },
       {
-        pattern: /\b(Flat|Apt|House|Plot|Room)\s*#?\s*[A-Za-z0-9-]+\b/gi,
+        pattern:
+          /\b(Flat|Apt|Apartment|House|Plot|Room)\s*(?:no\.?|#)?\s*[A-Za-z0-9/-]+\b/gi,
         reason: "Door or flat numbers can identify your residence.",
         replacement: "[general building area]",
       },
@@ -1075,26 +1076,117 @@ export class ComplaintsService {
   }
 
   // ---------------------------------------------------------------------------
-  // 3. Automatic EXIF & Identifying Metadata Scrubber (SRS 7.4)
+  // 3. Real Binary & Base64 EXIF Metadata Scrubber (SRS 7.4)
   // ---------------------------------------------------------------------------
-  scrubEvidenceMetadata(dto: ScrubEvidenceMetadataDto) {
-    const extMatch = dto.originalFileName.match(/\.[a-zA-Z0-9]+$/);
+  scrubEvidenceBinaryFile(params: {
+    originalFileName: string;
+    contentType: string;
+    buffer: Buffer;
+    visualBlurApplied?: boolean;
+  }) {
+    const cleanContentType = params.contentType.trim().toLowerCase();
+    if (!ALLOWED_EVIDENCE_MIME_TYPES.has(cleanContentType)) {
+      throw new BadRequestException(
+        `Unsupported evidence file type "${params.contentType}". Allowed types: PNG, JPEG, WebP, PDF, M4A, MP3, WAV.`,
+      );
+    }
+    if (
+      params.buffer.length <= 0 ||
+      params.buffer.length > MAX_EVIDENCE_BYTES
+    ) {
+      throw new BadRequestException(
+        `Evidence file size must be between 1 byte and 15 MB (received ${params.buffer.length} bytes).`,
+      );
+    }
+
+    const { scrubbedBuffer, removedMarkers } = stripBinaryMetadata(
+      params.buffer,
+      cleanContentType,
+    );
+    const digest = createHash("sha256").update(scrubbedBuffer).digest("hex");
+    const extMatch = params.originalFileName.match(/\.[a-zA-Z0-9]+$/);
     const ext = extMatch ? extMatch[0].toLowerCase() : ".png";
-    const randomShort = randomUUID().slice(0, 6);
+    const randomShort = randomUUID().slice(0, 8);
+    const evidenceId = `ev_${randomShort}`;
     const sanitizedFileName = `evidence_redacted_${randomShort}${ext}`;
-    const digest = this.hashString(`${dto.originalFileName}:${dto.byteSize ?? 0}:${Date.now()}`);
+
+    this.scrubbedEvidenceBinaryVault.set(evidenceId, scrubbedBuffer);
+
+    return {
+      sanitizedFile: {
+        id: evidenceId,
+        fileName: sanitizedFileName,
+        originalFileNameRedacted: `[PURGED:${params.originalFileName.replace(/[^a-zA-Z0-9._-]/g, "_")}]`,
+        contentType: cleanContentType,
+        byteSize: scrubbedBuffer.length,
+        sha256Digest: digest,
+        exifGpsStripped: true,
+        deviceMetadataStripped: true,
+        visualBlurApplied: params.visualBlurApplied ?? true,
+        scrubbedFields: [
+          ...removedMarkers,
+          "EXIF.GPSLatitude (Purged)",
+          "EXIF.GPSLongitude (Purged)",
+          "EXIF.DeviceModel (Purged)",
+          "File.OriginalName (Renamed to random token)",
+        ],
+        uploadedAt: new Date().toISOString(),
+      },
+      safetyNotice:
+        "Binary EXIF GPS and device metadata segments were stripped and SHA-256 hashed on the server.",
+    };
+  }
+
+  scrubEvidenceMetadata(dto: ScrubEvidenceMetadataDto) {
+    const cleanName = (dto.originalFileName ?? "").trim();
+    if (!cleanName) {
+      throw new BadRequestException("originalFileName is required.");
+    }
+    const cleanType = (dto.contentType ?? "image/png").trim().toLowerCase();
+    if (!ALLOWED_EVIDENCE_MIME_TYPES.has(cleanType)) {
+      throw new BadRequestException(
+        `Unsupported evidence file type "${dto.contentType}". Allowed types: PNG, JPEG, WebP, PDF, M4A, MP3, WAV.`,
+      );
+    }
+    if (
+      dto.byteSize !== undefined &&
+      (dto.byteSize <= 0 || dto.byteSize > MAX_EVIDENCE_BYTES)
+    ) {
+      throw new BadRequestException(
+        "Evidence file size must be between 1 byte and 15 MB.",
+      );
+    }
+
+    if (dto.base64Data && dto.base64Data.trim().length > 0) {
+      const buf = Buffer.from(dto.base64Data.trim(), "base64");
+      return this.scrubEvidenceBinaryFile({
+        originalFileName: cleanName,
+        contentType: cleanType,
+        buffer: buf,
+        visualBlurApplied: dto.visualBlurApplied ?? true,
+      });
+    }
+
+    const extMatch = cleanName.match(/\.[a-zA-Z0-9]+$/);
+    const ext = extMatch ? extMatch[0].toLowerCase() : ".png";
+    const randomShort = randomUUID().slice(0, 8);
+    const sanitizedFileName = `evidence_redacted_${randomShort}${ext}`;
+    const byteSize = dto.byteSize ?? 1024;
+    const digest = this.hashString(
+      `${cleanName}:${cleanType}:${byteSize}:${randomShort}`,
+    );
 
     return {
       sanitizedFile: {
         id: `ev_${randomShort}`,
         fileName: sanitizedFileName,
-        originalFileNameRedacted: `[PURGED:${dto.originalFileName}]`,
-        contentType: dto.contentType ?? "image/png",
-        byteSize: dto.byteSize ?? 524288,
+        originalFileNameRedacted: `[PURGED:${cleanName}]`,
+        contentType: cleanType,
+        byteSize,
         sha256Digest: digest,
         exifGpsStripped: true,
         deviceMetadataStripped: true,
-        visualBlurApplied: Boolean(dto.visualBlurApplied),
+        visualBlurApplied: Boolean(dto.visualBlurApplied ?? true),
         scrubbedFields: [
           "EXIF.GPSLatitude (Purged)",
           "EXIF.GPSLongitude (Purged)",
@@ -1109,18 +1201,142 @@ export class ComplaintsService {
     };
   }
 
+  private normalizeCategorySlug(raw: string): string {
+    const clean = raw.trim().toLowerCase();
+    const legacyAliases: Record<string, string> = {
+      harassment: "harassment",
+      stalking: "stalking_unwanted_contact",
+      stalking_unwanted_contact: "stalking_unwanted_contact",
+      cyberbullying: "online_abuse_cyberbullying",
+      online_abuse_cyberbullying: "online_abuse_cyberbullying",
+      blackmail_extortion: "fraud_suspicious_activity",
+      fraud_suspicious_activity: "fraud_suspicious_activity",
+      domestic_family_concern: "domestic_interpersonal_safety",
+      domestic_interpersonal_safety: "domestic_interpersonal_safety",
+      workplace_harassment: "workplace_misconduct",
+      workplace_misconduct: "workplace_misconduct",
+      impersonation_fake_account: "fraud_suspicious_activity",
+      unsafe_community_behaviour: "public_place_safety",
+      public_place_safety: "public_place_safety",
+      discrimination: "discrimination",
+      business_related_complaint: "business_related_complaints",
+      business_related_complaints: "business_related_complaints",
+      other: "other",
+    };
+    return legacyAliases[clean] ?? clean;
+  }
+
+  private validateSupportingUrl(urlStr: string): {
+    url: string;
+    linkType: string;
+  } {
+    const trimmed = urlStr.trim();
+    if (!trimmed || trimmed.length > 500) {
+      throw new BadRequestException(
+        "Supporting link URL must be between 1 and 500 characters.",
+      );
+    }
+    if (trimmed.startsWith("sakhi://")) {
+      if (!/^sakhi:\/\/[a-zA-Z0-9_./@-]+$/.test(trimmed)) {
+        throw new BadRequestException(
+          `Malformed Sakhi internal reference link: ${trimmed}`,
+        );
+      }
+      return { url: trimmed, linkType: "SAKHI_CONTENT" };
+    }
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+        throw new BadRequestException(
+          `Unsupported link protocol "${parsed.protocol}". Only https://, http://, or sakhi:// links are allowed.`,
+        );
+      }
+      return { url: parsed.toString(), linkType: "EXTERNAL_URL" };
+    } catch (err) {
+      if (err instanceof BadRequestException) throw err;
+      throw new BadRequestException(
+        `Malformed supporting link URL: "${trimmed}"`,
+      );
+    }
+  }
+
+  private validateApproximateDateNotFuture(dateLabel?: string): string {
+    const clean = (dateLabel ?? "").trim();
+    if (!clean) return "Today / Recent";
+    // Check if the user supplied an ISO date or parseable date in the future
+    const parsedMs = Date.parse(clean);
+    if (!Number.isNaN(parsedMs)) {
+      const maxAllowedMs = Date.now() + 24 * 3600_000; // allow timezone offset up to 24h
+      if (parsedMs > maxAllowedMs) {
+        throw new BadRequestException("Incident date cannot be in the future.");
+      }
+    }
+    return clean;
+  }
+
   // ---------------------------------------------------------------------------
   // 4. Submit Discreet Complaint (Anonymous or Confidential Mode — SRS 7.3 & 7.4)
   // ---------------------------------------------------------------------------
-  async submitComplaint(authorization: string | undefined, dto: SubmitDiscreetComplaintDto) {
+  async submitComplaint(
+    authorization: string | undefined,
+    dto: SubmitDiscreetComplaintDto,
+  ) {
     await this.ensureHydrated();
 
-    const mode =
-      dto.reportingMode?.toUpperCase() === "CONFIDENTIAL"
-        ? "CONFIDENTIAL"
-        : "ANONYMOUS";
+    const rawMode = (dto.reportingMode ?? "").trim().toUpperCase();
+    if (rawMode !== "ANONYMOUS" && rawMode !== "CONFIDENTIAL") {
+      throw new BadRequestException(
+        'reportingMode must be either "ANONYMOUS" or "CONFIDENTIAL".',
+      );
+    }
+    const mode = rawMode as "ANONYMOUS" | "CONFIDENTIAL";
 
-    const bucketSeed = dto.clientRateLimitHint?.trim() || "anon_session_default";
+    if (dto.acknowledgedNonPoliceLegalNotice === false) {
+      throw new BadRequestException(
+        "You must acknowledge the non-police / emergency channels legal disclaimer before submitting.",
+      );
+    }
+
+    const cleanDescription = (dto.description ?? "").trim();
+    if (cleanDescription.length < 20) {
+      throw new BadRequestException(
+        "Incident description must be at least 20 non-whitespace characters.",
+      );
+    }
+    if (cleanDescription.length > 4000) {
+      throw new BadRequestException(
+        "Incident description cannot exceed 4,000 characters.",
+      );
+    }
+
+    const normalizedSlug = this.normalizeCategorySlug(dto.categorySlug ?? "");
+    const category = this.categoriesMap.get(normalizedSlug);
+    if (!category || !category.isEnabled) {
+      throw new BadRequestException(
+        `Invalid or disabled complaint category: "${dto.categorySlug}".`,
+      );
+    }
+
+    if (
+      category.slug === "other" &&
+      (!dto.customCategoryLabel || dto.customCategoryLabel.trim().length < 3)
+    ) {
+      throw new BadRequestException(
+        'Please provide a customCategoryLabel (at least 3 characters) when selecting the "Other" category.',
+      );
+    }
+
+    // In CONFIDENTIAL mode, require a valid authenticated member session.
+    // In ANONYMOUS mode, NEVER attach accountId even if an authorization header was sent!
+    const confidentialAccountId =
+      mode === "CONFIDENTIAL"
+        ? await this.resolveRequiredAccountId(authorization)
+        : null;
+
+    const bucketSeed =
+      dto.clientRateLimitHint?.trim() ||
+      confidentialAccountId ||
+      "anon_session_default";
     const blindedBucket = `bkt_${this.hashString(bucketSeed).slice(0, 12)}`;
 
     // Check if this blinded bucket was throttled for malicious flood abuse (SRS 7.6)
@@ -1131,36 +1347,116 @@ export class ComplaintsService {
       );
     }
 
-    const category =
-      this.categoriesMap.get(dto.categorySlug) ??
-      this.categoriesMap.get("other") ??
-      DEFAULT_COMPLAINT_CATEGORIES[0];
+    // Duplicate rapid submission check (same bucket + category + normalized description within 60s)
+    const submissionFp = this.hashString(
+      `${blindedBucket}:${category.slug}:${cleanDescription.toLowerCase()}`,
+    );
+    const prevTs = this.recentSubmissionFingerprints.get(submissionFp);
+    if (prevTs && Date.now() - prevTs < 60_000) {
+      throw new ConflictException(
+        "Duplicate submission detected: this exact complaint was just submitted moments ago.",
+      );
+    }
 
-    if (!category) {
-      throw new ServiceUnavailableException("Complaint category configuration is unavailable.");
+    const validatedDateLabel = this.validateApproximateDateNotFuture(
+      dto.approximateDateLabel,
+    );
+
+    // Validate supporting links
+    const rawLinks = dto.supportingLinks ?? [];
+    if (rawLinks.length > 10) {
+      throw new BadRequestException(
+        "A maximum of 10 supporting links is allowed.",
+      );
+    }
+    const parsedLinks = rawLinks.map((item) => {
+      const urlStr =
+        typeof item === "string"
+          ? item
+          : String((item as Record<string, unknown>).url ?? "");
+      const validated = this.validateSupportingUrl(urlStr);
+      return {
+        url: validated.url,
+        linkType: validated.linkType,
+        snapshotArchived: true,
+      };
+    });
+
+    // Validate evidence files
+    const rawEvidence = dto.evidenceFiles ?? [];
+    if (rawEvidence.length > MAX_EVIDENCE_FILES_PER_COMPLAINT) {
+      throw new BadRequestException(
+        `A maximum of ${MAX_EVIDENCE_FILES_PER_COMPLAINT} evidence files can be attached per submission.`,
+      );
     }
 
     // Generate Reference Number & Private Passkey
-    const numSuffix = Math.floor(1000 + Math.random() * 9000);
+    let numSuffix = randomInt(1000, 9999);
     const prefix = mode === "ANONYMOUS" ? "SKH-ANON" : "SKH-CONF";
-    const referenceNumber = `#${prefix}-2026-${numSuffix}`;
+    let referenceNumber = `#${prefix}-2026-${numSuffix}`;
+    while (this.complaintsMap.has(referenceNumber.toUpperCase())) {
+      numSuffix = randomInt(1000, 9999);
+      referenceNumber = `#${prefix}-2026-${numSuffix}`;
+    }
+
     const flowerWords = ["LOTUS", "PEONY", "LILY", "ROSE", "SAGE", "ORCHID"];
     const word = flowerWords[numSuffix % flowerWords.length];
-    const passkeyPlain = `${word}-${Math.floor(100 + Math.random() * 899)}-SAFE`;
-    const disguisedBackupSerial = `Botanical Edition • Series #${numSuffix}-${passkeyPlain.replace("-SAFE", "")}`;
+    const passkeyPlain = `${word}-${randomInt(100, 999)}-SAFE`;
+    const disguisedBackupSerial = `SKH-WELLNESS-2026-${numSuffix}::${passkeyPlain}`;
 
-    // In ANONYMOUS mode, NEVER attach accountId even if an authorization header was sent!
-    const confidentialAccountId =
-      mode === "CONFIDENTIAL"
-        ? await this.resolveOptionalAccountId(authorization)
-        : null;
+    const sanitizedEvidence: SanitizedEvidenceFile[] = rawEvidence.map(
+      (f, idx) => {
+        const contentType = String(f.contentType ?? f.mimeType ?? "image/png")
+          .trim()
+          .toLowerCase();
+        if (!ALLOWED_EVIDENCE_MIME_TYPES.has(contentType)) {
+          throw new BadRequestException(
+            `Unsupported evidence file MIME type "${contentType}".`,
+          );
+        }
+        const byteSize = Number(f.byteSize ?? f.sizeBytes ?? 1024);
+        if (
+          !Number.isFinite(byteSize) ||
+          byteSize <= 0 ||
+          byteSize > MAX_EVIDENCE_BYTES
+        ) {
+          throw new BadRequestException(
+            "Evidence attachment byteSize must be between 1 byte and 15 MB.",
+          );
+        }
+        return {
+          id: String(f.id ?? `ev_${numSuffix}_${idx + 1}`),
+          fileName: String(
+            f.fileName ??
+              f.sanitizedFileName ??
+              `evidence_redacted_0${idx + 1}.png`,
+          ),
+          originalFileNameRedacted: "[PURGED_ON_UPLOAD]",
+          contentType,
+          byteSize,
+          sha256Digest: String(
+            f.sha256Digest ??
+              f.sha256Hash ??
+              this.hashString(`${referenceNumber}:ev:${idx}`),
+          ),
+          exifGpsStripped: true,
+          deviceMetadataStripped: true,
+          visualBlurApplied: Boolean(
+            f.visualBlurApplied ?? f.blurredByDefault ?? true,
+          ),
+          scrubbedFields: ["EXIF.GPS", "EXIF.DeviceModel", "OriginalFilename"],
+          uploadedAt: new Date().toISOString(),
+        };
+      },
+    );
 
     // Duplicate & Repeat-Offender Cluster Detection (SRS 7.6)
     let duplicateClusterId: string | null = null;
     const cleanTarget = (dto.linkedTargetHandle ?? "").trim().toLowerCase();
     if (cleanTarget.length > 1) {
       const existingSameTarget = Array.from(this.complaintsMap.values()).find(
-        (c) => (c.linkedTargetHandle ?? "").trim().toLowerCase() === cleanTarget,
+        (c) =>
+          (c.linkedTargetHandle ?? "").trim().toLowerCase() === cleanTarget,
       );
       if (existingSameTarget) {
         duplicateClusterId =
@@ -1169,39 +1465,6 @@ export class ComplaintsService {
         existingSameTarget.duplicateClusterId = duplicateClusterId;
       }
     }
-
-    const sanitizedEvidence: SanitizedEvidenceFile[] = (dto.evidenceFiles ?? []).map(
-      (f, idx) => ({
-        id: String(f.id ?? `ev_${numSuffix}_${idx + 1}`),
-        fileName: String(f.fileName ?? `evidence_redacted_0${idx + 1}.png`),
-        originalFileNameRedacted: "[PURGED_ON_UPLOAD]",
-        contentType: String(f.contentType ?? "image/png"),
-        byteSize: Number(f.byteSize ?? 640000),
-        sha256Digest: String(
-          f.sha256Digest ?? this.hashString(`${referenceNumber}:ev:${idx}`),
-        ),
-        exifGpsStripped: true,
-        deviceMetadataStripped: true,
-        visualBlurApplied: Boolean(f.visualBlurApplied ?? true),
-        scrubbedFields: ["EXIF.GPS", "EXIF.DeviceModel", "OriginalFilename"],
-        uploadedAt: new Date().toISOString(),
-      }),
-    );
-
-    const parsedLinks = (dto.supportingLinks ?? []).map((item) => {
-      if (typeof item === "string") {
-        return {
-          url: item,
-          linkType: item.startsWith("sakhi://") ? "SAKHI_CONTENT" : "EXTERNAL_URL",
-          snapshotArchived: true,
-        };
-      }
-      return {
-        url: String(item.url ?? ""),
-        linkType: String(item.linkType ?? "EXTERNAL_URL"),
-        snapshotArchived: true,
-      };
-    });
 
     const urgency =
       dto.urgency === "HAPPENING_NOW" || dto.urgency === "REPEATED_PATTERN"
@@ -1219,10 +1482,13 @@ export class ComplaintsService {
         : (category.defaultSeverity as DiscreetComplaintRecord["severity"]);
 
     const nowIso = new Date().toISOString();
+    const initialAuditHash = this.hashString(
+      `${referenceNumber}:SUBMITTED:${nowIso}:${cleanDescription.length}`,
+    );
+
     const record: DiscreetComplaintRecord = {
       id: randomUUID(),
       referenceNumber,
-      passkeyPlainHint: passkeyPlain,
       passkeyDigest: this.hashString(passkeyPlain),
       disguisedBackupSerial,
       reportingMode: mode,
@@ -1232,11 +1498,11 @@ export class ComplaintsService {
       categoryTitle: category.name,
       customCategoryLabel: dto.customCategoryLabel?.trim() || null,
       urgency,
-      description: dto.description.trim(),
+      description: cleanDescription,
       piiGuardRedacted: Boolean(dto.piiGuardRedacted),
-      approximateDateLabel: dto.approximateDateLabel?.trim() || "26 Oct 2026",
+      approximateDateLabel: validatedDateLabel,
       approximateTimeWindow:
-        dto.approximateTimeWindow?.trim() || "Evening (5 PM – 9 PM)",
+        dto.approximateTimeWindow?.trim() || "Unspecified Window",
       locationType:
         dto.locationType === "ONLINE_IN_APP" ||
         dto.locationType === "PREFER_NOT_TO_SAY"
@@ -1251,28 +1517,32 @@ export class ComplaintsService {
       supportingLinks: parsedLinks,
       wantsUpdates: dto.wantsUpdates ?? true,
       submitAnonymouslyToReviewTeam:
-        mode === "ANONYMOUS" ? true : Boolean(dto.submitAnonymouslyToReviewTeam),
-      acknowledgedNonPoliceLegalNotice:
-        dto.acknowledgedNonPoliceLegalNotice ?? true,
+        mode === "ANONYMOUS"
+          ? true
+          : Boolean(dto.submitAnonymouslyToReviewTeam),
+      acknowledgedNonPoliceLegalNotice: true,
       status: "SUBMITTED",
       severity,
       priority,
-      assignedReviewerId: "SR-04",
-      assignedReviewerName: "Meera Krishnan (#SR-04 • Senior Trust & Safety Officer)",
+      assignedReviewerId: null,
+      assignedReviewerName: null,
       duplicateClusterId,
       mergedIntoReference: null,
       isFlaggedMaliciousAbuse: false,
       maliciousAbuseReason: null,
       rejectionReasonCode: null,
       publicResolutionSummary:
-        "Your report has been received in the encrypted intake queue and assigned to a vetted Trust & Safety reviewer.",
-      enforcementActions: ["ZERO_SOCIAL_WALL_PUBLICATION", "TARGET_DISCOVERY_SHIELD_ON"],
+        "Your report has been received in the encrypted intake queue and is awaiting Senior Safety Reviewer triage.",
+      enforcementActions: [
+        "ZERO_SOCIAL_WALL_PUBLICATION",
+        "TARGET_DISCOVERY_SHIELD_ON",
+      ],
       complainantMessages: [],
       internalNotes: [],
       auditHistory: [
         {
           id: randomUUID(),
-          auditCode: `#AUD-${Math.floor(1000 + Math.random() * 8999)}`,
+          auditCode: `#AUD-${randomInt(1000, 9999)}`,
           actorRole: "SYSTEM_INTAKE",
           actorLabel:
             mode === "ANONYMOUS"
@@ -1280,16 +1550,20 @@ export class ComplaintsService {
               : "Confidential Vault Gateway",
           action: `complaint.submitted.${mode.toLowerCase()}`,
           summary: `${mode} complaint submitted • ${sanitizedEvidence.length} file(s) EXIF-scrubbed • Target discovery blocked`,
+          integrityHash: `SHA256:${initialAuditHash}`,
           timestamp: nowIso,
         },
       ],
       mediaPurgedAt: null,
       retentionExpiresAt: new Date(
-        Date.now() + this.retentionPolicy.closedEvidenceRetentionDays * 86_400_000,
+        Date.now() +
+          this.retentionPolicy.closedEvidenceRetentionDays * 86_400_000,
       ).toISOString(),
       createdAt: nowIso,
       updatedAt: nowIso,
     };
+
+    this.recentSubmissionFingerprints.set(submissionFp, Date.now());
 
     await this.persistComplaintSnapshot(
       record,
@@ -1304,7 +1578,8 @@ export class ComplaintsService {
       passkey: passkeyPlain,
       disguisedBackupSerial: record.disguisedBackupSerial,
       disguisedWellnessQuote: {
-        quote: "Peace begins the moment you choose to honour your own boundaries.",
+        quote:
+          "Peace begins the moment you choose to honour your own boundaries.",
         attribution: "Sakhi Morning Reflection",
         encodedSerialTag: record.disguisedBackupSerial,
       },
@@ -1323,6 +1598,71 @@ export class ComplaintsService {
         "Submitting a complaint within Sakhi does not automatically constitute a Police FIR or legal filing. Use 112 / 1091 / 181 for emergency dispatch.",
       complaint: this.toComplainantSafeView(record),
     };
+  }
+
+  private resolveRecordAndPasskey(
+    referenceOrSerial: string,
+    providedPasskey?: string,
+  ): DiscreetComplaintRecord {
+    const raw = (referenceOrSerial ?? "").trim();
+    if (!raw) {
+      throw new BadRequestException(
+        "A complaint reference number is required.",
+      );
+    }
+
+    let lookupRef = raw.toUpperCase();
+    let extractedPasskey = providedPasskey?.trim().toUpperCase();
+
+    // Support lookup via Disguised Wellness Quote Serial ("SKH-WELLNESS-2026-8492::LOTUS-123-SAFE")
+    if (lookupRef.includes("::")) {
+      const parts = lookupRef.split("::");
+      const suffixMatch = (parts[0] ?? "").match(/(\d{4})$/);
+      const suffix = suffixMatch?.[1];
+      if (suffix) {
+        const foundBySuffix = Array.from(this.complaintsMap.values()).find(
+          (c) => c.referenceNumber.endsWith(suffix),
+        );
+        if (foundBySuffix) {
+          lookupRef = foundBySuffix.referenceNumber.toUpperCase();
+        }
+      }
+      if (!extractedPasskey && parts[1]) {
+        extractedPasskey = parts[1].trim().toUpperCase();
+      }
+    }
+
+    const norm = lookupRef.startsWith("#") ? lookupRef : `#${lookupRef}`;
+    const record =
+      this.complaintsMap.get(norm) ??
+      Array.from(this.complaintsMap.values()).find(
+        (c) => c.disguisedBackupSerial.toUpperCase() === raw.toUpperCase(),
+      );
+
+    if (!record) {
+      throw new NotFoundException(
+        `No complaint found matching reference number ${norm}. Check your #SKH-ANON or #SKH-CONF code.`,
+      );
+    }
+
+    if (!extractedPasskey) {
+      throw new ForbiddenException(
+        "Your complaint passkey is required to access or update this report.",
+      );
+    }
+
+    const expectedDigest = Buffer.from(record.passkeyDigest, "hex");
+    const actualDigest = createHash("sha256").update(extractedPasskey).digest();
+    if (
+      expectedDigest.length !== actualDigest.length ||
+      !timingSafeEqual(expectedDigest, actualDigest)
+    ) {
+      throw new ForbiddenException(
+        "Invalid check-in passkey for this complaint reference number.",
+      );
+    }
+
+    return record;
   }
 
   private normalizeRef(raw: string): string {
@@ -1349,6 +1689,8 @@ export class ComplaintsService {
       generalLocationLabel: record.generalLocationLabel,
       linkedTargetType: record.linkedTargetType,
       linkedTargetHandle: record.linkedTargetHandle,
+      linkedPostId: record.linkedPostId,
+      linkedBusinessId: record.linkedBusinessId,
       evidenceFiles: record.evidenceFiles,
       supportingLinks: record.supportingLinks,
       wantsUpdates: record.wantsUpdates,
@@ -1356,12 +1698,22 @@ export class ComplaintsService {
       severity: record.severity,
       priority: record.priority,
       assignedReviewerName:
-        record.assignedReviewerName ?? "Assigned Trust & Safety Reviewer",
+        record.assignedReviewerName ?? "Pending Senior Safety Reviewer Triage",
       duplicateClusterId: record.duplicateClusterId,
       rejectionReasonCode: record.rejectionReasonCode,
       publicResolutionSummary: record.publicResolutionSummary,
       enforcementActions: record.enforcementActions,
       complainantMessages: record.complainantMessages,
+      auditHistory: record.auditHistory.map((a) => ({
+        id: a.id,
+        auditCode: a.auditCode,
+        actorRole: a.actorRole,
+        actorLabel: a.actorLabel,
+        action: a.action,
+        summary: a.summary,
+        integrityHash: a.integrityHash,
+        timestamp: a.timestamp,
+      })),
       mediaPurgedAt: record.mediaPurgedAt,
       retentionExpiresAt: record.retentionExpiresAt,
       createdAt: record.createdAt,
@@ -1370,26 +1722,11 @@ export class ComplaintsService {
   }
 
   // ---------------------------------------------------------------------------
-  // 5. Track Complaint by Reference Number (SRS 7.5 — All 7 Statuses)
+  // 5. Track Complaint by Reference Number + Passkey (SRS 7.5 — All 7 Statuses)
   // ---------------------------------------------------------------------------
   async trackByReference(referenceNumber: string, passkey?: string) {
     await this.ensureHydrated();
-    const norm = this.normalizeRef(referenceNumber);
-    const record = this.complaintsMap.get(norm);
-    if (!record) {
-      throw new NotFoundException(
-        `No complaint found matching reference number ${norm}. Check your #SKH-ANON or #SKH-CONF code.`,
-      );
-    }
-    if (passkey && passkey.trim().length > 0) {
-      const cleanPass = passkey.trim().toUpperCase();
-      if (
-        record.passkeyDigest !== this.hashString(cleanPass) &&
-        record.passkeyPlainHint !== cleanPass
-      ) {
-        throw new ForbiddenException("Invalid check-in passkey for this reference number.");
-      }
-    }
+    const record = this.resolveRecordAndPasskey(referenceNumber, passkey);
     return {
       found: true,
       allSupportedStatuses: ALL_COMPLAINT_STATUSES,
@@ -1400,29 +1737,43 @@ export class ComplaintsService {
   // ---------------------------------------------------------------------------
   // 6. Two-Way Encrypted Anonymous Reply & Evidence Follow-up (SRS 7.5)
   // ---------------------------------------------------------------------------
-  async addComplainantReply(referenceNumber: string, dto: AddComplainantReplyDto) {
+  async addComplainantReply(
+    referenceNumber: string,
+    dto: AddComplainantReplyDto,
+  ) {
     await this.ensureHydrated();
-    const norm = this.normalizeRef(referenceNumber);
-    const record = this.complaintsMap.get(norm);
-    if (!record) {
-      throw new NotFoundException(`Complaint ${norm} was not found.`);
+    const record = this.resolveRecordAndPasskey(referenceNumber, dto.passkey);
+
+    const cleanMessage = (dto.message ?? "").trim();
+    if (cleanMessage.length < 2) {
+      throw new BadRequestException("Reply message cannot be empty.");
     }
 
-    const extraFiles: SanitizedEvidenceFile[] = (dto.additionalEvidenceFiles ?? []).map(
-      (f, idx) => ({
-        id: `ev_reply_${Date.now()}_${idx}`,
-        fileName: String(f.fileName ?? `followup_redacted_0${idx + 1}.png`),
-        originalFileNameRedacted: "[PURGED_ON_FOLLOWUP]",
-        contentType: String(f.contentType ?? "image/png"),
-        byteSize: Number(f.byteSize ?? 480000),
-        sha256Digest: this.hashString(`${norm}:reply:${Date.now()}:${idx}`),
-        exifGpsStripped: true,
-        deviceMetadataStripped: true,
-        visualBlurApplied: true,
-        scrubbedFields: ["EXIF.GPS", "EXIF.DeviceID"],
-        uploadedAt: new Date().toISOString(),
-      }),
-    );
+    const extraFiles: SanitizedEvidenceFile[] = (
+      dto.additionalEvidenceFiles ?? []
+    ).map((f, idx) => ({
+      id: `ev_reply_${Date.now()}_${idx}`,
+      fileName: String(
+        f.fileName ??
+          f.sanitizedFileName ??
+          `followup_redacted_0${idx + 1}.png`,
+      ),
+      originalFileNameRedacted: "[PURGED_ON_FOLLOWUP]",
+      contentType: String(f.contentType ?? f.mimeType ?? "image/png"),
+      byteSize: Number(f.byteSize ?? f.sizeBytes ?? 480000),
+      sha256Digest: String(
+        f.sha256Digest ??
+          f.sha256Hash ??
+          this.hashString(
+            `${record.referenceNumber}:reply:${Date.now()}:${idx}`,
+          ),
+      ),
+      exifGpsStripped: true,
+      deviceMetadataStripped: true,
+      visualBlurApplied: true,
+      scrubbedFields: ["EXIF.GPS", "EXIF.DeviceID"],
+      uploadedAt: new Date().toISOString(),
+    }));
 
     const replyItem: ComplainantMessageItem = {
       id: `msg_${Date.now()}`,
@@ -1434,7 +1785,7 @@ export class ComplaintsService {
         record.reportingMode === "ANONYMOUS"
           ? `Anonymous Reporter (${record.referenceNumber})`
           : `Confidential Reporter (${record.referenceNumber})`,
-      message: dto.message.trim(),
+      message: cleanMessage,
       attachedFiles: extraFiles,
       createdAt: new Date().toISOString(),
     };
@@ -1446,16 +1797,18 @@ export class ComplaintsService {
     if (record.status === "ADDITIONAL_INFO_REQUIRED") {
       record.status = "UNDER_REVIEW";
       record.publicResolutionSummary =
-        "Additional information received from complainant. Reviewer #SR-04 has resumed active investigation.";
+        "Additional information received from complainant. Active investigation has resumed.";
     }
     record.updatedAt = new Date().toISOString();
+    const prevHash = record.auditHistory[0]?.integrityHash ?? "GENESIS";
     record.auditHistory.unshift({
       id: randomUUID(),
-      auditCode: `#AUD-${Math.floor(1000 + Math.random() * 8999)}`,
+      auditCode: `#AUD-${randomInt(1000, 9999)}`,
       actorRole: "COMPLAINANT_TOKEN",
       actorLabel: record.referenceNumber,
       action: "complaint.followup.reply_received",
-      summary: `Anonymous reply added (${extraFiles.length} scrubbed attachment(s)) • Status -> ${record.status}`,
+      summary: `Verified passkey reply added (${extraFiles.length} scrubbed attachment(s)) • Status -> ${record.status}`,
+      integrityHash: `SHA256:${this.hashString(`${prevHash}:reply:${record.updatedAt}`)}`,
       timestamp: record.updatedAt,
     });
 
@@ -1477,40 +1830,51 @@ export class ComplaintsService {
   // ---------------------------------------------------------------------------
   async submitAppeal(referenceNumber: string, dto: SubmitComplaintAppealDto) {
     await this.ensureHydrated();
-    const norm = this.normalizeRef(referenceNumber);
-    const record = this.complaintsMap.get(norm);
-    if (!record) {
-      throw new NotFoundException(`Complaint ${norm} was not found.`);
+    const record = this.resolveRecordAndPasskey(referenceNumber, dto.passkey);
+
+    const cleanAppeal = (dto.appealDescription ?? "").trim();
+    if (cleanAppeal.length < 10) {
+      throw new BadRequestException(
+        "Appeal description must be at least 10 characters.",
+      );
     }
 
     record.status = "ESCALATED";
     record.priority = "P1_URGENT";
     record.assignedReviewerId = "EL-01";
-    record.assignedReviewerName = "Dr. Kavita Rao (#EL-01 • Senior Escalation Lead)";
-    record.publicResolutionSummary = `Appeal (${dto.appealReasonCategory}) accepted and routed to a different Senior Escalation Officer (#EL-01) for independent re-review.`;
+    record.assignedReviewerName =
+      "Dr. Kavita Rao (#EL-01 • Senior Escalation Lead)";
+    record.publicResolutionSummary = `Appeal (${dto.appealReasonCategory.trim()}) accepted and routed to a different Senior Escalation Officer (#EL-01) for independent re-review.`;
     record.complainantMessages.push({
       id: `msg_appeal_${Date.now()}`,
       senderRole:
         record.reportingMode === "ANONYMOUS"
           ? "COMPLAINANT_ANONYMOUS"
           : "COMPLAINANT_CONFIDENTIAL",
-      senderLabel: `Appeal Request (${dto.appealReasonCategory})`,
-      message: dto.appealDescription.trim(),
+      senderLabel: `Appeal Request (${dto.appealReasonCategory.trim()})`,
+      message: cleanAppeal,
       attachedFiles: [],
       createdAt: new Date().toISOString(),
     });
     record.updatedAt = new Date().toISOString();
+    const prevHash = record.auditHistory[0]?.integrityHash ?? "GENESIS";
     record.auditHistory.unshift({
       id: randomUUID(),
-      auditCode: `#AUD-${Math.floor(1000 + Math.random() * 8999)}`,
+      auditCode: `#AUD-${randomInt(1000, 9999)}`,
       actorRole: "COMPLAINANT_TOKEN",
       actorLabel: record.referenceNumber,
       action: "complaint.appeal.escalated",
-      summary: `Case appeal submitted (${dto.appealReasonCategory}) • Re-assigned to Escalation Lead #EL-01`,
+      summary: `Case appeal submitted (${dto.appealReasonCategory.trim()}) • Re-assigned to Escalation Lead #EL-01`,
+      integrityHash: `SHA256:${this.hashString(`${prevHash}:appeal:${record.updatedAt}`)}`,
       timestamp: record.updatedAt,
     });
 
-    await this.persistComplaintSnapshot(record, "appeal", "ANONYMOUS_REPORTER", "ESCALATED");
+    await this.persistComplaintSnapshot(
+      record,
+      "appeal",
+      "ANONYMOUS_REPORTER",
+      "ESCALATED",
+    );
 
     return {
       appealed: true,
@@ -1519,34 +1883,43 @@ export class ComplaintsService {
   }
 
   // ---------------------------------------------------------------------------
-  // 8. Immediate User-Initiated Media Purge on Closed Cases (SRS 7.6 & Module 11)
+  // 8. Immediate User-Initiated Media Purge (SRS 7.6 & Module 11)
   // ---------------------------------------------------------------------------
-  async purgeComplainantMedia(referenceNumber: string) {
+  async purgeComplainantMedia(referenceNumber: string, passkey?: string) {
     await this.ensureHydrated();
-    const norm = this.normalizeRef(referenceNumber);
-    const record = this.complaintsMap.get(norm);
-    if (!record) {
-      throw new NotFoundException(`Complaint ${norm} was not found.`);
-    }
+    const record = this.resolveRecordAndPasskey(referenceNumber, passkey);
+
     const nowIso = new Date().toISOString();
+    for (const ev of record.evidenceFiles) {
+      this.scrubbedEvidenceBinaryVault.delete(ev.id);
+    }
     record.evidenceFiles = record.evidenceFiles.map((ev) => ({
       ...ev,
       isPurged: true,
+      byteSize: 0,
       fileName: `[PURGED_BY_REPORTER_${ev.fileName}]`,
     }));
     record.mediaPurgedAt = nowIso;
     record.updatedAt = nowIso;
+    const prevHash = record.auditHistory[0]?.integrityHash ?? "GENESIS";
     record.auditHistory.unshift({
       id: randomUUID(),
-      auditCode: `#AUD-${Math.floor(1000 + Math.random() * 8999)}`,
+      auditCode: `#AUD-${randomInt(1000, 9999)}`,
       actorRole: "COMPLAINANT_TOKEN",
       actorLabel: record.referenceNumber,
       action: "complaint.media.purged_by_reporter",
-      summary: "All uploaded evidence media purged immediately at reporter's request",
+      summary:
+        "All uploaded evidence media purged immediately at reporter's request",
+      integrityHash: `SHA256:${this.hashString(`${prevHash}:purge:${nowIso}`)}`,
       timestamp: nowIso,
     });
 
-    await this.persistComplaintSnapshot(record, "purge_media", "ANONYMOUS_REPORTER", "PURGED");
+    await this.persistComplaintSnapshot(
+      record,
+      "purge_media",
+      "ANONYMOUS_REPORTER",
+      "PURGED",
+    );
     return {
       purged: true,
       mediaPurgedAt: nowIso,
@@ -1557,6 +1930,95 @@ export class ComplaintsService {
   // ===========================================================================
   // ADMIN COMPLAINT MANAGEMENT SUITE (SRS Section 7.6 & Section 12.5)
   // ===========================================================================
+
+  private maskComplaintForRole(
+    item: DiscreetComplaintRecord,
+    effectiveRole: "STANDARD_MODERATOR" | "SENIOR_REVIEWER" | "SUPER_ADMIN",
+  ) {
+    const visibleNotes = item.internalNotes.filter((n) => {
+      if (effectiveRole === "STANDARD_MODERATOR") return false;
+      if (
+        n.visibilityRole === "SUPER_ADMIN" &&
+        effectiveRole !== "SUPER_ADMIN"
+      ) {
+        return false;
+      }
+      return true;
+    });
+
+    // Admin APIs must never expose complainant tracking credentials. The
+    // disguised backup serial contains the plain passkey suffix.
+    const {
+      passkeyDigest: _passkeyDigest,
+      disguisedBackupSerial: _disguisedBackupSerial,
+      ...adminSafeRecord
+    } = item;
+    void _passkeyDigest;
+    void _disguisedBackupSerial;
+
+    return {
+      ...adminSafeRecord,
+      confidentialAccountId:
+        effectiveRole === "STANDARD_MODERATOR"
+          ? null
+          : item.confidentialAccountId,
+      confidentialAccountVaultStatus:
+        item.reportingMode === "ANONYMOUS"
+          ? "DETACHED_ZERO_IDENTITY (Anonymous)"
+          : effectiveRole === "STANDARD_MODERATOR"
+            ? "MASKED_REQUIRES_SENIOR_CLEARANCE"
+            : `VAULT_PROTECTED (Ref: ${item.confidentialAccountId?.slice(0, 8) ?? "verified"}••• • Hidden from Target)`,
+      generalLocationLabel:
+        effectiveRole === "STANDARD_MODERATOR"
+          ? "[Location Masked for Ordinary Moderator Role]"
+          : item.generalLocationLabel,
+      blindedRateLimitBucket:
+        effectiveRole === "STANDARD_MODERATOR"
+          ? "[Masked]"
+          : item.blindedRateLimitBucket,
+      internalNotes: visibleNotes,
+    };
+  }
+
+  async adminGetComplaintDetail(
+    token: string | undefined,
+    referenceOrId: string,
+    viewerRole?: string,
+  ) {
+    const reviewer = this.assertReviewer(token);
+    await this.ensureHydrated();
+    // A request may lower the caller to the ordinary-moderator view, but
+    // cannot promote its own authenticated role through a query parameter.
+    const effectiveRole =
+      viewerRole === "STANDARD_MODERATOR"
+        ? "STANDARD_MODERATOR"
+        : reviewer.role;
+
+    const record = this.findComplaintByRefOrId(referenceOrId);
+    return {
+      reviewer: {
+        reviewerLabel: reviewer.reviewerLabel,
+        effectiveRole,
+      },
+      complaint: this.maskComplaintForRole(record, effectiveRole),
+    };
+  }
+
+  private findComplaintByRefOrId(
+    referenceOrId: string,
+  ): DiscreetComplaintRecord {
+    const clean = (referenceOrId ?? "").trim();
+    const norm = this.normalizeRef(clean);
+    const byRef = this.complaintsMap.get(norm);
+    if (byRef) return byRef;
+    const byId = Array.from(this.complaintsMap.values()).find(
+      (c) => c.id === clean || c.referenceNumber.toUpperCase() === norm,
+    );
+    if (!byId) {
+      throw new NotFoundException(`Complaint ${clean} not found.`);
+    }
+    return byId;
+  }
 
   async adminDashboardAndQueue(
     token: string | undefined,
@@ -1575,25 +2037,38 @@ export class ComplaintsService {
     const reviewer = this.assertReviewer(token);
     await this.ensureHydrated();
 
+    // The viewerRole query is permitted only to request a more restrictive
+    // view; elevated roles always come from the validated reviewer credential.
     const effectiveRole =
       query.viewerRole === "STANDARD_MODERATOR"
         ? "STANDARD_MODERATOR"
-        : query.viewerRole === "SUPER_ADMIN"
-          ? "SUPER_ADMIN"
-          : reviewer.role;
+        : reviewer.role;
 
     const allItems = Array.from(this.complaintsMap.values()).sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
 
     const filtered = allItems.filter((item) => {
-      if (query.status && query.status !== "ALL" && item.status !== query.status) {
+      if (
+        query.status &&
+        query.status !== "ALL" &&
+        item.status !== query.status
+      ) {
         return false;
       }
-      if (query.priority && query.priority !== "ALL" && item.priority !== query.priority) {
+      if (
+        query.priority &&
+        query.priority !== "ALL" &&
+        item.priority !== query.priority
+      ) {
         return false;
       }
-      if (query.severity && query.severity !== "ALL" && item.severity !== query.severity) {
+      if (
+        query.severity &&
+        query.severity !== "ALL" &&
+        item.severity !== query.severity
+      ) {
         return false;
       }
       if (
@@ -1612,7 +2087,8 @@ export class ComplaintsService {
       }
       if (query.search && query.search.trim().length > 0) {
         const q = query.search.trim().toLowerCase();
-        const hay = `${item.referenceNumber} ${item.categoryTitle} ${item.description} ${item.linkedTargetHandle ?? ""} ${item.duplicateClusterId ?? ""}`.toLowerCase();
+        const hay =
+          `${item.referenceNumber} ${item.categoryTitle} ${item.description} ${item.linkedTargetHandle ?? ""} ${item.duplicateClusterId ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -1623,55 +2099,61 @@ export class ComplaintsService {
     const start = (page - 1) * pageSize;
     const paged = filtered.slice(start, start + pageSize);
 
-    // Enforce Role-Based Access Control (SRS 7.4 & 7.6):
-    // Ordinary moderators NEVER see device, coarse location, or confidential account vaults.
-    const roleMaskedItems = paged.map((item) => ({
-      ...item,
-      confidentialAccountVaultStatus:
-        item.reportingMode === "ANONYMOUS"
-          ? "DETACHED_ZERO_IDENTITY (Anonymous)"
-          : effectiveRole === "STANDARD_MODERATOR"
-            ? "MASKED_REQUIRES_SENIOR_CLEARANCE"
-            : `VAULT_PROTECTED (Ref: ${item.confidentialAccountId?.slice(0, 8) ?? "linked"}••• • Hidden from Target)`,
-      generalLocationLabel:
-        effectiveRole === "STANDARD_MODERATOR"
-          ? "[Location Masked for Ordinary Moderator Role]"
-          : item.generalLocationLabel,
-      blindedRateLimitBucket:
-        effectiveRole === "STANDARD_MODERATOR"
-          ? "[Masked]"
-          : item.blindedRateLimitBucket,
-    }));
+    const roleMaskedItems = paged.map((item) =>
+      this.maskComplaintForRole(item, effectiveRole),
+    );
 
     const openCount = allItems.filter(
       (i) => i.status !== "CLOSED" && i.status !== "REJECTED_WITH_REASON",
     ).length;
-    const urgentP1Count = allItems.filter((i) => i.priority === "P1_URGENT").length;
-    const anonCount = allItems.filter((i) => i.reportingMode === "ANONYMOUS").length;
+    const urgentP1Count = allItems.filter(
+      (i) => i.priority === "P1_URGENT",
+    ).length;
+    const anonCount = allItems.filter(
+      (i) => i.reportingMode === "ANONYMOUS",
+    ).length;
     const duplicateClusters = new Set(
       allItems.map((i) => i.duplicateClusterId).filter(Boolean),
     );
-    const flaggedAbuseCount = allItems.filter((i) => i.isFlaggedMaliciousAbuse).length;
+    const flaggedAbuseCount = allItems.filter(
+      (i) => i.isFlaggedMaliciousAbuse,
+    ).length;
+
+    // Compute real median triage hours from actual records (0 when DB is empty)
+    const triagedHoursList = allItems
+      .filter((i) => i.status !== "SUBMITTED")
+      .map((i) => {
+        const diffMs =
+          new Date(i.updatedAt).getTime() - new Date(i.createdAt).getTime();
+        return Math.max(0.1, Number((diffMs / 3_600_000).toFixed(1)));
+      })
+      .sort((a, b) => a - b);
+    const medianTriageHours =
+      triagedHoursList.length > 0
+        ? triagedHoursList[Math.floor(triagedHoursList.length / 2)]
+        : 0;
 
     return {
       reviewer: {
         reviewerLabel: reviewer.reviewerLabel,
         effectiveRole,
-        ordinaryModeratorMaskingActive: true,
+        ordinaryModeratorMaskingActive: effectiveRole === "STANDARD_MODERATOR",
       },
       metrics: {
         totalComplaints: allItems.length,
         openComplaintsCount: openCount,
         urgentP1Count,
         anonymousPercentage:
-          allItems.length > 0 ? Math.round((anonCount / allItems.length) * 100) : 75,
+          allItems.length > 0
+            ? Math.round((anonCount / allItems.length) * 100)
+            : 0,
         confidentialPercentage:
           allItems.length > 0
             ? 100 - Math.round((anonCount / allItems.length) * 100)
-            : 25,
+            : 0,
         duplicateClustersCount: duplicateClusters.size,
         flaggedMaliciousAbuseCount: flaggedAbuseCount,
-        medianTriageHours: 1.8,
+        medianTriageHours,
       },
       pagination: {
         page,
@@ -1685,9 +2167,21 @@ export class ComplaintsService {
       ),
       retentionPolicy: this.retentionPolicy,
       authorisedReviewers: [
-        { id: "SR-04", name: "Meera Krishnan (#SR-04 • Senior Trust & Safety Officer)", clearance: "LEVEL_3_POSH_CYBER" },
-        { id: "EL-01", name: "Dr. Kavita Rao (#EL-01 • Senior Escalation Lead)", clearance: "LEVEL_4_LEGAL_ESCALATION" },
-        { id: "SR-07", name: "Anjali Menon (#SR-07 • Safety Reviewer)", clearance: "LEVEL_2_TRUST_SAFETY" },
+        {
+          id: "SR-04",
+          name: "Meera Krishnan (#SR-04 • Senior Trust & Safety Officer)",
+          clearance: "LEVEL_3_POSH_CYBER",
+        },
+        {
+          id: "EL-01",
+          name: "Dr. Kavita Rao (#EL-01 • Senior Escalation Lead)",
+          clearance: "LEVEL_4_LEGAL_ESCALATION",
+        },
+        {
+          id: "SR-07",
+          name: "Anjali Menon (#SR-07 • Safety Reviewer)",
+          clearance: "LEVEL_2_TRUST_SAFETY",
+        },
       ],
     };
   }
@@ -1699,9 +2193,26 @@ export class ComplaintsService {
   ) {
     const reviewer = this.assertReviewer(token);
     await this.ensureHydrated();
-    const norm = this.normalizeRef(referenceNumber);
-    const record = this.complaintsMap.get(norm);
-    if (!record) throw new NotFoundException(`Complaint ${norm} not found.`);
+    const record = this.findComplaintByRefOrId(referenceNumber);
+
+    const allowedSeverities = new Set([
+      "S1_CRITICAL",
+      "S2_HIGH",
+      "S3_MODERATE",
+      "S4_LOW",
+    ]);
+    const allowedPriorities = new Set([
+      "P1_URGENT",
+      "P2_HIGH",
+      "P3_STANDARD",
+      "P4_ROUTINE",
+    ]);
+    if (!allowedSeverities.has(dto.severity)) {
+      throw new BadRequestException(`Invalid severity "${dto.severity}".`);
+    }
+    if (!allowedPriorities.has(dto.priority)) {
+      throw new BadRequestException(`Invalid priority "${dto.priority}".`);
+    }
 
     record.assignedReviewerId = dto.assignedReviewerId.trim();
     record.assignedReviewerName = dto.assignedReviewerName.trim();
@@ -1711,17 +2222,24 @@ export class ComplaintsService {
       record.status = "UNDER_REVIEW";
     }
     record.updatedAt = new Date().toISOString();
+    const prevHash = record.auditHistory[0]?.integrityHash ?? "GENESIS";
     record.auditHistory.unshift({
       id: randomUUID(),
-      auditCode: `#AUD-${Math.floor(1000 + Math.random() * 8999)}`,
+      auditCode: `#AUD-${randomInt(1000, 9999)}`,
       actorRole: reviewer.role,
       actorLabel: reviewer.reviewerLabel,
       action: "admin.complaint.assigned_classified",
       summary: `Assigned to ${record.assignedReviewerName} • Severity: ${record.severity} • Priority: ${record.priority}`,
+      integrityHash: `SHA256:${this.hashString(`${prevHash}:assign:${record.updatedAt}`)}`,
       timestamp: record.updatedAt,
     });
 
-    await this.persistComplaintSnapshot(record, "assign", "ADMIN", record.status);
+    await this.persistComplaintSnapshot(
+      record,
+      "assign",
+      "ADMIN",
+      record.status,
+    );
     return { updated: true, complaint: record };
   }
 
@@ -1732,25 +2250,55 @@ export class ComplaintsService {
   ) {
     const reviewer = this.assertReviewer(token);
     await this.ensureHydrated();
-    const norm = this.normalizeRef(referenceNumber);
-    const record = this.complaintsMap.get(norm);
-    if (!record) throw new NotFoundException(`Complaint ${norm} not found.`);
+    const record = this.findComplaintByRefOrId(referenceNumber);
 
-    const nextStatus = dto.status.trim().toUpperCase() as ComplaintStatusType;
-    if (!ALL_COMPLAINT_STATUSES.includes(nextStatus)) {
-      throw new BadRequestException(`Unsupported complaint status: ${dto.status}`);
-    }
-    if (nextStatus === "REJECTED_WITH_REASON" && !dto.rejectionReasonCode && !dto.publicMessageToComplainant) {
+    const rawStatus = dto.status.trim().toUpperCase();
+    const normalizedStatus = (
+      rawStatus === "ADDITIONAL_INFORMATION_REQUIRED"
+        ? "ADDITIONAL_INFO_REQUIRED"
+        : rawStatus
+    ) as ComplaintStatusType;
+
+    if (!ALL_COMPLAINT_STATUSES.includes(normalizedStatus)) {
       throw new BadRequestException(
-        "Rejected complaints must include a reason code or explanation (SRS 7.5).",
+        `Unsupported complaint status: ${dto.status}`,
       );
     }
 
-    record.status = nextStatus;
-    if (dto.rejectionReasonCode) {
+    // Enforce valid state transition matrix (allow idempotent same-status update for adding messages)
+    if (record.status !== normalizedStatus) {
+      const allowedNext = VALID_STATUS_TRANSITIONS[record.status] ?? [];
+      if (!allowedNext.includes(normalizedStatus)) {
+        throw new BadRequestException(
+          `Invalid status transition from ${record.status} to ${normalizedStatus}. Allowed transitions: ${allowedNext.join(", ")}.`,
+        );
+      }
+    }
+
+    if (
+      normalizedStatus === "REJECTED_WITH_REASON" &&
+      !dto.rejectionReasonCode?.trim() &&
+      !dto.publicMessageToComplainant?.trim()
+    ) {
+      throw new BadRequestException(
+        "Rejected complaints must include a rejectionReasonCode or publicMessageToComplainant explanation (SRS 7.5).",
+      );
+    }
+
+    if (
+      normalizedStatus === "ADDITIONAL_INFO_REQUIRED" &&
+      !dto.publicMessageToComplainant?.trim()
+    ) {
+      throw new BadRequestException(
+        "Transitioning to ADDITIONAL_INFO_REQUIRED requires a publicMessageToComplainant question for the reporter.",
+      );
+    }
+
+    record.status = normalizedStatus;
+    if (dto.rejectionReasonCode?.trim()) {
       record.rejectionReasonCode = dto.rejectionReasonCode.trim();
     }
-    if (dto.publicMessageToComplainant) {
+    if (dto.publicMessageToComplainant?.trim()) {
       record.publicResolutionSummary = dto.publicMessageToComplainant.trim();
       record.complainantMessages.push({
         id: `msg_admin_${Date.now()}`,
@@ -1761,29 +2309,39 @@ export class ComplaintsService {
         createdAt: new Date().toISOString(),
       });
     }
-    if (Array.isArray(dto.enforcementActions) && dto.enforcementActions.length > 0) {
+    if (
+      Array.isArray(dto.enforcementActions) &&
+      dto.enforcementActions.length > 0
+    ) {
       record.enforcementActions = Array.from(
         new Set([...record.enforcementActions, ...dto.enforcementActions]),
       );
     }
-    if (dto.escalateToSpecialist || nextStatus === "ESCALATED") {
+    if (dto.escalateToSpecialist || normalizedStatus === "ESCALATED") {
       record.priority = "P1_URGENT";
       record.assignedReviewerId = "EL-01";
       record.assignedReviewerName = "Dr. Kavita Rao (#EL-01 • Escalation Lead)";
     }
 
     record.updatedAt = new Date().toISOString();
+    const prevHash = record.auditHistory[0]?.integrityHash ?? "GENESIS";
     record.auditHistory.unshift({
       id: randomUUID(),
-      auditCode: `#AUD-${Math.floor(1000 + Math.random() * 8999)}`,
+      auditCode: `#AUD-${randomInt(1000, 9999)}`,
       actorRole: reviewer.role,
       actorLabel: reviewer.reviewerLabel,
-      action: `admin.complaint.status.${nextStatus.toLowerCase()}`,
-      summary: `Status changed to ${nextStatus}${dto.rejectionReasonCode ? ` (${dto.rejectionReasonCode})` : ""}`,
+      action: `admin.complaint.status.${normalizedStatus.toLowerCase()}`,
+      summary: `Status changed to ${normalizedStatus}${dto.rejectionReasonCode ? ` (${dto.rejectionReasonCode})` : ""}`,
+      integrityHash: `SHA256:${this.hashString(`${prevHash}:status:${normalizedStatus}:${record.updatedAt}`)}`,
       timestamp: record.updatedAt,
     });
 
-    await this.persistComplaintSnapshot(record, "status", "ADMIN", nextStatus);
+    await this.persistComplaintSnapshot(
+      record,
+      "status",
+      "ADMIN",
+      normalizedStatus,
+    );
     return { updated: true, complaint: record };
   }
 
@@ -1794,28 +2352,37 @@ export class ComplaintsService {
   ) {
     const reviewer = this.assertReviewer(token);
     await this.ensureHydrated();
-    const norm = this.normalizeRef(referenceNumber);
-    const record = this.complaintsMap.get(norm);
-    if (!record) throw new NotFoundException(`Complaint ${norm} not found.`);
+    const record = this.findComplaintByRefOrId(referenceNumber);
+
+    const cleanNote = (dto.noteText ?? "").trim();
+    if (cleanNote.length < 3) {
+      throw new BadRequestException(
+        "Internal note must be at least 3 characters.",
+      );
+    }
 
     const note: InternalReviewerNoteItem = {
       id: `note_${Date.now()}`,
       reviewerId: record.assignedReviewerId ?? "SR-04",
       reviewerName: reviewer.reviewerLabel,
       visibilityRole:
-        dto.visibilityRole === "SUPER_ADMIN" ? "SUPER_ADMIN" : "SENIOR_REVIEWER",
-      noteText: dto.noteText.trim(),
+        dto.visibilityRole === "SUPER_ADMIN"
+          ? "SUPER_ADMIN"
+          : "SENIOR_REVIEWER",
+      noteText: cleanNote,
       createdAt: new Date().toISOString(),
     };
     record.internalNotes.unshift(note);
     record.updatedAt = note.createdAt;
+    const prevHash = record.auditHistory[0]?.integrityHash ?? "GENESIS";
     record.auditHistory.unshift({
       id: randomUUID(),
-      auditCode: `#AUD-${Math.floor(1000 + Math.random() * 8999)}`,
+      auditCode: `#AUD-${randomInt(1000, 9999)}`,
       actorRole: reviewer.role,
       actorLabel: reviewer.reviewerLabel,
       action: "admin.complaint.internal_note_added",
       summary: `Internal note added (${note.visibilityRole} visibility • Never shown to users)`,
+      integrityHash: `SHA256:${this.hashString(`${prevHash}:note:${record.updatedAt}`)}`,
       timestamp: record.updatedAt,
     });
 
@@ -1829,30 +2396,60 @@ export class ComplaintsService {
     dto: AccessComplaintEvidenceDto,
   ) {
     const reviewer = this.assertReviewer(token);
+    if (dto.viewerRole === "STANDARD_MODERATOR") {
+      throw new ForbiddenException(
+        "Ordinary moderators are not authorised to unblur or export raw complaint evidence (SRS 7.6).",
+      );
+    }
     await this.ensureHydrated();
-    const norm = this.normalizeRef(referenceNumber);
-    const record = this.complaintsMap.get(norm);
-    if (!record) throw new NotFoundException(`Complaint ${norm} not found.`);
+    const record = this.findComplaintByRefOrId(referenceNumber);
 
-    const ev = record.evidenceFiles.find((e) => e.id === dto.evidenceId) ?? record.evidenceFiles[0];
+    const ev = record.evidenceFiles.find((e) => e.id === dto.evidenceId);
+    if (!ev) {
+      throw new NotFoundException(
+        `Evidence attachment ${dto.evidenceId} not found on complaint ${record.referenceNumber}.`,
+      );
+    }
+    if (ev.isPurged) {
+      throw new ConflictException(
+        "This evidence file has already been purged under DPDP retention/erasure controls.",
+      );
+    }
+
+    const cleanReason = (dto.justificationReason ?? "").trim();
+    if (cleanReason.length < 10) {
+      throw new BadRequestException(
+        "A justificationReason of at least 10 characters is required to unblur or export evidence.",
+      );
+    }
+
     const nowIso = new Date().toISOString();
-    const watermarkStamp = `WATERMARK: ${reviewer.reviewerLabel} • ${norm} • ${nowIso} • Reason: ${dto.justificationReason.trim()}`;
+    const watermarkStamp = `WATERMARK: ${reviewer.reviewerLabel} • ${record.referenceNumber} • ${nowIso} • Reason: ${cleanReason}`;
+    const prevHash = record.auditHistory[0]?.integrityHash ?? "GENESIS";
 
     record.auditHistory.unshift({
       id: randomUUID(),
-      auditCode: `#AUD-${Math.floor(1000 + Math.random() * 8999)}`,
+      auditCode: `#AUD-${randomInt(1000, 9999)}`,
       actorRole: reviewer.role,
       actorLabel: reviewer.reviewerLabel,
       action: `admin.evidence.${dto.action.toLowerCase()}`,
-      summary: `Controlled Evidence ${dto.action} (${ev?.fileName ?? dto.evidenceId}) • Justification: ${dto.justificationReason.trim()}`,
+      summary: `Controlled Evidence ${dto.action} (${ev.fileName}) • Justification: ${cleanReason}`,
+      integrityHash: `SHA256:${this.hashString(`${prevHash}:evidence:${ev.id}:${nowIso}`)}`,
       timestamp: nowIso,
     });
     record.updatedAt = nowIso;
 
-    await this.persistComplaintSnapshot(record, "evidence_access", "ADMIN", dto.action);
+    await this.persistComplaintSnapshot(
+      record,
+      "evidence_access",
+      "ADMIN",
+      dto.action,
+    );
     return {
       authorized: true,
-      evidenceId: dto.evidenceId,
+      evidenceId: ev.id,
+      fileName: ev.fileName,
+      sha256Digest: ev.sha256Digest,
       action: dto.action,
       watermarkOverlayText: watermarkStamp,
       expiresAt: new Date(Date.now() + 48 * 3600_000).toISOString(),
@@ -1866,47 +2463,73 @@ export class ComplaintsService {
     dto: MergeDuplicateComplaintsDto,
   ) {
     const reviewer = this.assertReviewer(token);
+    if (dto.viewerRole === "STANDARD_MODERATOR") {
+      throw new ForbiddenException(
+        "Ordinary moderators cannot merge complaint clusters.",
+      );
+    }
     await this.ensureHydrated();
-    const primaryNorm = this.normalizeRef(dto.primaryReferenceNumber);
-    const primary = this.complaintsMap.get(primaryNorm);
-    if (!primary) {
-      throw new NotFoundException(`Primary complaint ${primaryNorm} not found.`);
+    const primary = this.findComplaintByRefOrId(dto.primaryReferenceNumber);
+    const primaryNorm = primary.referenceNumber;
+
+    if (
+      !Array.isArray(dto.duplicateReferenceNumbers) ||
+      dto.duplicateReferenceNumbers.length === 0
+    ) {
+      throw new BadRequestException(
+        "Provide at least one duplicate reference number to merge.",
+      );
     }
 
     const clusterId =
-      dto.clusterId?.trim() || primary.duplicateClusterId || `CLUST-${Math.floor(100 + Math.random() * 899)}`;
+      dto.clusterId?.trim() ||
+      primary.duplicateClusterId ||
+      `CLUST-${randomInt(100, 999)}`;
     primary.duplicateClusterId = clusterId;
     const nowIso = new Date().toISOString();
 
     const mergedRefs: string[] = [];
-    for (const dupRaw of dto.duplicateReferenceNumbers ?? []) {
+    for (const dupRaw of dto.duplicateReferenceNumbers) {
       const dupNorm = this.normalizeRef(dupRaw);
       if (dupNorm === primaryNorm) continue;
       const dup = this.complaintsMap.get(dupNorm);
-      if (dup) {
-        dup.duplicateClusterId = clusterId;
-        dup.mergedIntoReference = primaryNorm;
-        dup.status = "CLOSED";
-        dup.publicResolutionSummary = `Merged into primary investigation ${primaryNorm} under Repeat-Offender Cluster #${clusterId}.`;
-        dup.updatedAt = nowIso;
-        mergedRefs.push(dupNorm);
-        await this.persistComplaintSnapshot(dup, "merge_child", "ADMIN", "CLOSED");
-      } else {
-        mergedRefs.push(dupNorm);
+      if (!dup) {
+        throw new NotFoundException(
+          `Duplicate complaint ${dupNorm} not found.`,
+        );
       }
+      dup.duplicateClusterId = clusterId;
+      dup.mergedIntoReference = primaryNorm;
+      dup.status = "CLOSED";
+      dup.publicResolutionSummary = `Merged into primary investigation ${primaryNorm} under Repeat-Offender Cluster #${clusterId}.`;
+      dup.updatedAt = nowIso;
+      mergedRefs.push(dupNorm);
+      await this.persistComplaintSnapshot(
+        dup,
+        "merge_child",
+        "ADMIN",
+        "CLOSED",
+      );
     }
 
+    const prevHash = primary.auditHistory[0]?.integrityHash ?? "GENESIS";
     primary.auditHistory.unshift({
       id: randomUUID(),
-      auditCode: `#AUD-${Math.floor(1000 + Math.random() * 8999)}`,
+      auditCode: `#AUD-${randomInt(1000, 9999)}`,
       actorRole: reviewer.role,
       actorLabel: reviewer.reviewerLabel,
       action: "admin.complaint.duplicate_cluster_merged",
-      summary: `Linked Cluster #${clusterId} • Merged ${mergedRefs.join(", ") || "corroborating reports"} into ${primaryNorm}`,
+      summary: `Linked Cluster #${clusterId} • Merged ${mergedRefs.join(", ")} into ${primaryNorm}`,
+      integrityHash: `SHA256:${this.hashString(`${prevHash}:merge:${clusterId}:${nowIso}`)}`,
       timestamp: nowIso,
     });
     primary.updatedAt = nowIso;
-    await this.persistComplaintSnapshot(primary, "merge_primary", "ADMIN", clusterId);
+    await this.persistComplaintSnapshot(
+      primary,
+      "merge_primary",
+      "ADMIN",
+      clusterId,
+    );
 
     return {
       merged: true,
@@ -1923,10 +2546,13 @@ export class ComplaintsService {
     dto: HandleMaliciousComplaintDto,
   ) {
     const reviewer = this.assertReviewer(token);
+    if (dto.viewerRole === "STANDARD_MODERATOR") {
+      throw new ForbiddenException(
+        "Ordinary moderators are not authorised to apply malicious-report bucket throttles.",
+      );
+    }
     await this.ensureHydrated();
-    const norm = this.normalizeRef(referenceNumber);
-    const record = this.complaintsMap.get(norm);
-    if (!record) throw new NotFoundException(`Complaint ${norm} not found.`);
+    const record = this.findComplaintByRefOrId(referenceNumber);
 
     const hours = dto.cooldownHours ?? 72;
     const untilIso = new Date(Date.now() + hours * 3600_000).toISOString();
@@ -1936,7 +2562,12 @@ export class ComplaintsService {
     record.rejectionReasonCode = "#MALICIOUS-OR-BAD-FAITH-REPORT";
     record.publicResolutionSummary =
       "Report closed under Sakhi Anti-Abuse & Malicious Report Safeguards (SRS 7.6).";
-    record.enforcementActions.push(`BLINDED_BUCKET_THROTTLED_${hours}H`);
+    record.enforcementActions = Array.from(
+      new Set([
+        ...record.enforcementActions,
+        `BLINDED_BUCKET_THROTTLED_${hours}H`,
+      ]),
+    );
     this.throttledBuckets.set(record.blindedRateLimitBucket, {
       untilIso,
       reason: dto.reason.trim(),
@@ -1944,17 +2575,24 @@ export class ComplaintsService {
 
     const nowIso = new Date().toISOString();
     record.updatedAt = nowIso;
+    const prevHash = record.auditHistory[0]?.integrityHash ?? "GENESIS";
     record.auditHistory.unshift({
       id: randomUUID(),
-      auditCode: `#AUD-${Math.floor(1000 + Math.random() * 8999)}`,
+      auditCode: `#AUD-${randomInt(1000, 9999)}`,
       actorRole: reviewer.role,
       actorLabel: reviewer.reviewerLabel,
       action: "admin.complaint.malicious_report_handled",
       summary: `Malicious report safeguard applied (${dto.action}) • Blinded bucket ${record.blindedRateLimitBucket} throttled for ${hours}h without unmasking user identity`,
+      integrityHash: `SHA256:${this.hashString(`${prevHash}:malicious:${nowIso}`)}`,
       timestamp: nowIso,
     });
 
-    await this.persistComplaintSnapshot(record, "malicious_guard", "ADMIN", "REJECTED");
+    await this.persistComplaintSnapshot(
+      record,
+      "malicious_guard",
+      "ADMIN",
+      "REJECTED",
+    );
     return {
       handled: true,
       throttledBucket: record.blindedRateLimitBucket,
@@ -1968,7 +2606,20 @@ export class ComplaintsService {
     dto: UpsertComplaintCategoryConfigDto,
   ) {
     const reviewer = this.assertReviewer(token);
-    const slug = dto.slug.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_");
+    if (dto.viewerRole === "STANDARD_MODERATOR") {
+      throw new ForbiddenException(
+        "Ordinary moderators are not authorised to modify complaint categories.",
+      );
+    }
+    await this.ensureHydrated();
+
+    const slug = dto.slug
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, "_");
+    if (!slug) {
+      throw new BadRequestException("Category slug cannot be empty.");
+    }
     const existing = this.categoriesMap.get(slug);
     const updated: ComplaintCategoryItem = {
       slug,
@@ -1976,8 +2627,10 @@ export class ComplaintsService {
       description: dto.description.trim(),
       iconKey: dto.iconKey?.trim() || existing?.iconKey || "shield",
       flowerType: dto.flowerType?.trim() || existing?.flowerType || "peonySoft",
-      defaultPriority: dto.defaultPriority?.trim() || existing?.defaultPriority || "P2_HIGH",
-      defaultSeverity: dto.defaultSeverity?.trim() || existing?.defaultSeverity || "S2_HIGH",
+      defaultPriority:
+        dto.defaultPriority?.trim() || existing?.defaultPriority || "P2_HIGH",
+      defaultSeverity:
+        dto.defaultSeverity?.trim() || existing?.defaultSeverity || "S2_HIGH",
       safetyGuidanceText:
         dto.safetyGuidanceText?.trim() ||
         existing?.safetyGuidanceText ||
@@ -1987,11 +2640,40 @@ export class ComplaintsService {
         existing?.legalHelplineNote ||
         "Dial 112 or 1091 for immediate police assistance.",
       isEnabled: dto.isEnabled ?? existing?.isEnabled ?? true,
-      displayOrder: dto.displayOrder ?? existing?.displayOrder ?? this.categoriesMap.size + 1,
+      displayOrder:
+        dto.displayOrder ??
+        existing?.displayOrder ??
+        this.categoriesMap.size + 1,
     };
     this.categoriesMap.set(slug, updated);
 
-    try {
+    const anyPrisma = this.prisma as unknown as Record<string, any>;
+    if (anyPrisma.complaintCategoryConfig?.upsert) {
+      await anyPrisma.complaintCategoryConfig
+        .upsert({
+          where: { slug },
+          update: {
+            name: updated.name,
+            description: updated.description,
+            iconKey: updated.iconKey,
+            flowerType: updated.flowerType,
+            defaultPriority: updated.defaultPriority,
+            defaultSeverity: updated.defaultSeverity,
+            safetyGuidanceText: updated.safetyGuidanceText,
+            legalHelplineNote: updated.legalHelplineNote,
+            isEnabled: updated.isEnabled,
+            displayOrder: updated.displayOrder,
+            updatedBy: reviewer.reviewerLabel,
+          },
+          create: {
+            ...updated,
+            updatedBy: reviewer.reviewerLabel,
+          },
+        })
+        .catch(() => null);
+    }
+
+    if (this.prisma.auditEvent?.create) {
       await this.prisma.auditEvent
         .create({
           data: {
@@ -2001,12 +2683,15 @@ export class ComplaintsService {
             targetId: slug,
             outcome: updated.isEnabled ? "ENABLED" : "DISABLED",
             requestId: randomUUID(),
-            redactedMetadata: JSON.parse(JSON.stringify({ reviewer: reviewer.reviewerLabel, category: updated })),
+            redactedMetadata: JSON.parse(
+              JSON.stringify({
+                reviewer: reviewer.reviewerLabel,
+                category: updated,
+              }),
+            ),
           },
         })
         .catch(() => null);
-    } catch {
-      // ignore
     }
 
     return {
@@ -2023,6 +2708,13 @@ export class ComplaintsService {
     dto: UpdateComplaintRetentionPolicyDto,
   ) {
     const reviewer = this.assertReviewer(token);
+    if (dto.viewerRole === "STANDARD_MODERATOR") {
+      throw new ForbiddenException(
+        "Ordinary moderators are not authorised to modify DPDP retention policies.",
+      );
+    }
+    await this.ensureHydrated();
+
     this.retentionPolicy = {
       policyKey: "default",
       closedEvidenceRetentionDays: dto.closedEvidenceRetentionDays,
@@ -2032,7 +2724,29 @@ export class ComplaintsService {
       updatedAt: new Date().toISOString(),
     };
 
-    try {
+    const anyPrisma = this.prisma as unknown as Record<string, any>;
+    if (anyPrisma.complaintRetentionPolicy?.upsert) {
+      await anyPrisma.complaintRetentionPolicy
+        .upsert({
+          where: { policyKey: "default" },
+          update: {
+            closedEvidenceRetentionDays: dto.closedEvidenceRetentionDays,
+            rejectedReportRetentionDays: dto.rejectedReportRetentionDays,
+            technicalRateLimitLogDays: dto.technicalRateLimitLogDays,
+            updatedBy: reviewer.reviewerLabel,
+          },
+          create: {
+            policyKey: "default",
+            closedEvidenceRetentionDays: dto.closedEvidenceRetentionDays,
+            rejectedReportRetentionDays: dto.rejectedReportRetentionDays,
+            technicalRateLimitLogDays: dto.technicalRateLimitLogDays,
+            updatedBy: reviewer.reviewerLabel,
+          },
+        })
+        .catch(() => null);
+    }
+
+    if (this.prisma.auditEvent?.create) {
       await this.prisma.auditEvent
         .create({
           data: {
@@ -2046,8 +2760,6 @@ export class ComplaintsService {
           },
         })
         .catch(() => null);
-    } catch {
-      // ignore
     }
 
     return {

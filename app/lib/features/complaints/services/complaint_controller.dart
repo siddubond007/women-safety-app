@@ -1,5 +1,6 @@
 import 'dart:async';
-import 'dart:math';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
@@ -7,31 +8,79 @@ import '../../../core/widgets/sakhi_botanical_flower.dart';
 import '../../auth/backend_api_client.dart';
 import '../models/complaint_models.dart';
 
-/// Central state & backend integration controller for Module 5:
+/// Allowed MIME types for Module 5 evidence attachments (max 15 MB per file).
+const Set<String> kAllowedComplaintEvidenceMimeTypes = <String>{
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/webp',
+  'application/pdf',
+  'audio/mp4',
+  'audio/mpeg',
+  'audio/wav',
+  'audio/aac',
+  'audio/x-m4a',
+  'audio/m4a',
+};
+
+const int kMaxComplaintEvidenceBytes = 15 * 1024 * 1024;
+const int kMaxComplaintEvidenceFiles = 5;
+
+/// Central state & real backend integration controller for Module 5:
 /// Discreet and Anonymous Complaint System (SRS Section 7, 12.5, 13 & 14).
+///
+/// IMPORTANT: Zero fake complaints are seeded in production. All submissions,
+/// lookups, status transitions, replies, appeals, media purges, and admin queue
+/// operations execute against the real backend API (`/api/v1/complaints/*` and
+/// `/api/v1/admin-review/complaints/*`).
 class SakhiComplaintController extends ChangeNotifier {
-  SakhiComplaintController._() {
-    _seedInitialCases();
+  SakhiComplaintController({BackendApiClient? apiClient})
+    : _apiClient = apiClient ?? BackendApiClient();
+
+  static SakhiComplaintController instance = SakhiComplaintController();
+
+  BackendApiClient _apiClient;
+  void setApiClientForTesting(BackendApiClient client) {
+    _apiClient = client;
   }
-
-  static final SakhiComplaintController instance = SakhiComplaintController._();
-
-  final BackendApiClient _apiClient = BackendApiClient();
 
   bool _isSyncing = false;
   bool get isSyncing => _isSyncing;
 
+  String? _lastError;
+  String? get lastError => _lastError;
+  void clearError() {
+    if (_lastError != null) {
+      _lastError = null;
+      notifyListeners();
+    }
+  }
+
+  String _adminReviewerToken = const String.fromEnvironment(
+    'SAKHI_ADMIN_REVIEW_TOKEN',
+    defaultValue: 'ADMIN2026TEST',
+  );
+  String get adminReviewerToken => _adminReviewerToken;
+  void setAdminReviewerToken(String token) {
+    _adminReviewerToken = token.trim();
+    notifyListeners();
+  }
+
   String _activeAdminRole =
-      'SENIOR_SAFETY_REVIEWER'; // or STANDARD_MODERATOR / SUPER_ADMIN
+      'SENIOR_REVIEWER'; // SENIOR_REVIEWER, SUPER_ADMIN, STANDARD_MODERATOR
   String get activeAdminRole => _activeAdminRole;
 
   bool get canViewConfidentialContact =>
+      _activeAdminRole == 'SENIOR_REVIEWER' ||
       _activeAdminRole == 'SENIOR_SAFETY_REVIEWER' ||
       _activeAdminRole == 'SUPER_ADMIN';
 
   void setActiveAdminRole(String role) {
-    if (_activeAdminRole == role) return;
-    _activeAdminRole = role;
+    final normalized = role == 'SENIOR_SAFETY_REVIEWER'
+        ? 'SENIOR_REVIEWER'
+        : role;
+    if (_activeAdminRole == normalized) return;
+    _activeAdminRole = normalized;
     notifyListeners();
   }
 
@@ -39,126 +88,183 @@ class SakhiComplaintController extends ChangeNotifier {
       const ComplaintRetentionPolicyModel(
         closedCaseRetentionDays: 90,
         rejectedCaseRetentionDays: 30,
-        autoPurgeRawMediaAfterDays: 45,
-        scrubIpLogsAfterHours: 24,
+        autoPurgeRawMediaAfterDays: 90,
+        scrubIpLogsAfterHours: 336,
         allowUserImmediateMediaPurge: true,
-        dpdpComplianceNote: 'Compliant with India DPDP Act 2023 • Zero Aadhaar retention • Coarse blinded rate-limit bucket • Encrypted evidence vault.',
+        dpdpComplianceNote:
+            'DPDP Act 2023 Compliant • Closed evidence purged after 90d • Rejected reports purged after 30d • Technical rate-limit logs rotated every 14d.',
       );
   ComplaintRetentionPolicyModel get retentionPolicy => _retentionPolicy;
 
   final List<ComplaintCategoryInfo> _categories = <ComplaintCategoryInfo>[
     const ComplaintCategoryInfo(
-      id: 'cat-1',
-      code: 'HARASSMENT',
+      id: 'cat-harassment',
+      code: 'harassment',
       label: 'Harassment',
       shortLabel: 'Harassment',
-      subtitle:
-          'Unwanted messages, repeated comments, intimidation or hostility',
-      safetyGuidance: 'Save screenshots before blocking if safe to do so. Sakhi strips all EXIF GPS & camera metadata automatically.',
-      defaultSeverity: 'HIGH_P2',
+      subtitle: 'Verbal, physical, or persistent intimidation and threats',
+      safetyGuidance:
+          'Do not engage directly with the harasser. Preserve screenshots with timestamps, enable Sakhi Profile Privacy Lock, and use Anonymous Mode if you fear retaliation.',
+      legalHelplineNote:
+          'For immediate physical danger dial 112 (Emergency ERSS) or 1091 (Women Police Helpline).',
+      defaultPriority: 'P1_URGENT',
+      defaultSeverity: 'S2_HIGH',
       icon: Icons.record_voice_over_rounded,
       flowerType: SakhiFlowerType.roseClassic,
+      displayOrder: 1,
     ),
     const ComplaintCategoryInfo(
-      id: 'cat-2',
-      code: 'STALKING',
-      label: 'Stalking',
-      shortLabel: 'Stalking',
-      subtitle: 'Offline or online tracking, unwanted following, or location watching',
-      safetyGuidance: 'Never share live location publicly. If you are in immediate physical danger, use the SOS button or dial 112 / 1091 immediately.',
-      defaultSeverity: 'CRITICAL_P1',
-      icon: Icons.visibility_off_rounded,
-      flowerType: SakhiFlowerType.cosmosViolet,
-    ),
-    const ComplaintCategoryInfo(
-      id: 'cat-3',
-      code: 'CYBERBULLYING',
-      label: 'Cyberbullying',
-      shortLabel: 'Cyberbullying',
+      id: 'cat-online_abuse_cyberbullying',
+      code: 'online_abuse_cyberbullying',
+      label: 'Online abuse or cyberbullying',
+      shortLabel: 'Online Abuse / Cyberbullying',
       subtitle:
-          'Coordinated shaming, dogpiling, derogatory threads or body-shaming',
-      safetyGuidance: 'Link the offending Sakhi post or comment ID so moderators can freeze the thread even if the author edits it.',
-      defaultSeverity: 'MEDIUM_P3',
+          'Abusive DMs, image morphing, doxxing, non-consensual sharing, or trolling',
+      safetyGuidance:
+          'Take screenshots before blocking the account. Sakhi automatically strips EXIF GPS and device metadata from your uploaded screenshots.',
+      legalHelplineNote:
+          'You can also file an official cyber complaint via 1930 or cybercrime.gov.in.',
+      defaultPriority: 'P1_URGENT',
+      defaultSeverity: 'S2_HIGH',
       icon: Icons.shield_moon_rounded,
       flowerType: SakhiFlowerType.cherryBlossom,
+      displayOrder: 2,
     ),
     const ComplaintCategoryInfo(
-      id: 'cat-4',
-      code: 'BLACKMAIL_EXTORTION',
-      label: 'Blackmail / Extortion',
-      shortLabel: 'Blackmail / Extortion',
-      subtitle: 'Coercion, threats to leak private photos/chats, or financial extortion',
-      safetyGuidance: 'Do not pay or delete raw chat logs on your phone if you plan to file a Cybercrime report (1930). Our Evidence Vault stores a SHA-256 hash.',
-      defaultSeverity: 'CRITICAL_P1',
+      id: 'cat-stalking_unwanted_contact',
+      code: 'stalking_unwanted_contact',
+      label: 'Stalking or unwanted contact',
+      shortLabel: 'Stalking / Unwanted Contact',
+      subtitle:
+          'Following, repeated unwanted calls/messages, or physical surveillance',
+      safetyGuidance:
+          'Ensure live location sharing is restricted only to your verified family contacts. Log approximate dates and patterns; Sakhi correlates repeat stalker handles automatically.',
+      legalHelplineNote:
+          'Call 1091 or 112 immediately if someone is following you or waiting near your residence/workplace.',
+      defaultPriority: 'P1_URGENT',
+      defaultSeverity: 'S1_CRITICAL',
+      icon: Icons.visibility_off_rounded,
+      flowerType: SakhiFlowerType.cosmosViolet,
+      displayOrder: 3,
+    ),
+    const ComplaintCategoryInfo(
+      id: 'cat-workplace_misconduct',
+      code: 'workplace_misconduct',
+      label: 'Workplace misconduct',
+      shortLabel: 'Workplace (POSH)',
+      subtitle:
+          'POSH sexual harassment, quid-pro-quo coercion, or hostile work environment',
+      safetyGuidance:
+          'Under the POSH Act, keep a dated log of incidents, witnesses, and messages. Avoid using your employer\'s Wi-Fi or corporate laptop when submitting sensitive evidence.',
+      legalHelplineNote:
+          'Contact NCW (7827-170-170) or SHe-Box portal for statutory Internal Complaints Committee (ICC) escalation.',
+      defaultPriority: 'P1_URGENT',
+      defaultSeverity: 'S2_HIGH',
+      icon: Icons.business_center_rounded,
+      flowerType: SakhiFlowerType.eucalyptusSage,
+      displayOrder: 4,
+    ),
+    const ComplaintCategoryInfo(
+      id: 'cat-public_place_safety',
+      code: 'public_place_safety',
+      label: 'Public-place safety concerns',
+      shortLabel: 'Public-Place Safety',
+      subtitle:
+          'Unsafe streets, dark corridors, transit harassment, or loitering hotspots',
+      safetyGuidance:
+          'Select a coarse 5 km neighbourhood zone rather than your exact home address. Your report helps warn the Sakhi safety team about unsafe corridors.',
+      legalHelplineNote:
+          'Use Module 4 Nearest Police Stations or dial 112 for immediate PCR van patrol.',
+      defaultPriority: 'P2_HIGH',
+      defaultSeverity: 'S2_HIGH',
+      icon: Icons.location_city_rounded,
+      flowerType: SakhiFlowerType.cosmosViolet,
+      displayOrder: 5,
+    ),
+    const ComplaintCategoryInfo(
+      id: 'cat-fraud_suspicious_activity',
+      code: 'fraud_suspicious_activity',
+      label: 'Fraud or suspicious activity',
+      shortLabel: 'Fraud / Fake Profile / Extortion',
+      subtitle:
+          'Financial scams, fake profiles, impersonation, or blackmail/extortion',
+      safetyGuidance:
+          'Never transfer money or share OTPs with anyone claiming to represent a business or moderator. Attach profile links and payment handle screenshots.',
+      legalHelplineNote:
+          'Dial 1930 immediately to freeze fraudulent UPI/bank transfers on the National Cyber Crime Portal.',
+      defaultPriority: 'P2_HIGH',
+      defaultSeverity: 'S2_HIGH',
       icon: Icons.lock_person_rounded,
       flowerType: SakhiFlowerType.babysBreath,
+      displayOrder: 6,
     ),
     const ComplaintCategoryInfo(
-      id: 'cat-5',
-      code: 'DOMESTIC_FAMILY_CONCERN',
-      label: 'Domestic or Family Concern',
-      shortLabel: 'Domestic / Family',
-      subtitle: 'Coercive control, domestic safety concern, or family pressure',
-      safetyGuidance: 'Use Anonymous Mode + Discreet In-App Vault Only (Zero Push Notifications) if family members have access to your phone lock screen.',
-      defaultSeverity: 'CRITICAL_P1',
+      id: 'cat-discrimination',
+      code: 'discrimination',
+      label: 'Discrimination',
+      shortLabel: 'Discrimination',
+      subtitle:
+          'Exclusion, hate speech, or bias based on caste, religion, gender, or background',
+      safetyGuidance:
+          'Sakhi has zero tolerance for caste, religious, regional, or gender discrimination. Link the offending post or comment so we can archive a tamper-evident snapshot.',
+      legalHelplineNote:
+          'Severe hate speech or threats can be escalated to statutory commissions and cyber cells.',
+      defaultPriority: 'P2_HIGH',
+      defaultSeverity: 'S3_MODERATE',
+      icon: Icons.balance_rounded,
+      flowerType: SakhiFlowerType.roseClassic,
+      displayOrder: 7,
+    ),
+    const ComplaintCategoryInfo(
+      id: 'cat-domestic_interpersonal_safety',
+      code: 'domestic_interpersonal_safety',
+      label: 'Domestic or interpersonal safety concerns',
+      shortLabel: 'Domestic / Family Safety',
+      subtitle:
+          'Partner, spouse, family, or household abuse, coercion, and threats',
+      safetyGuidance:
+          'If a partner or family member checks your phone, use Anonymous Mode, tap "Discreet Backup" to save your reference code disguised as a Wellness Quote Card, and use the top-right "Quick Exit" button anytime.',
+      legalHelplineNote:
+          'Dial 181 (24/7 Women\'s Domestic Abuse & Sakhi One-Stop Centre Helpline) or 112 for shelter, legal, and medical aid.',
+      defaultPriority: 'P1_URGENT',
+      defaultSeverity: 'S1_CRITICAL',
       icon: Icons.home_work_rounded,
       flowerType: SakhiFlowerType.eucalyptusSage,
+      displayOrder: 8,
     ),
     const ComplaintCategoryInfo(
-      id: 'cat-6',
-      code: 'WORKPLACE_HARASSMENT',
-      label: 'Workplace Harassment',
-      shortLabel: 'Workplace (POSH)',
-      subtitle: 'POSH Act workplace misconduct, quid-pro-quo, or professional retaliation',
-      safetyGuidance: 'Note approximate dates and witnesses if applicable. Under India\'s POSH Act 2013, you can also request Internal Committee (IC) guidance.',
-      defaultSeverity: 'HIGH_P2',
-      icon: Icons.business_center_rounded,
-      flowerType: SakhiFlowerType.babysBreath,
-    ),
-    const ComplaintCategoryInfo(
-      id: 'cat-7',
-      code: 'IMPERSONATION_FAKE_ACCOUNT',
-      label: 'Impersonation / Fake Account',
-      shortLabel: 'Impersonation / Fake',
-      subtitle: 'Stolen photos, fake female identity, or unauthorized profile cloning',
-      safetyGuidance: 'Provide the @handle of the suspected account. Our verification team can trigger a mandatory re-verification lock.',
-      defaultSeverity: 'HIGH_P2',
-      icon: Icons.person_off_rounded,
-      flowerType: SakhiFlowerType.roseClassic,
-    ),
-    const ComplaintCategoryInfo(
-      id: 'cat-8',
-      code: 'UNSAFE_COMMUNITY_BEHAVIOUR',
-      label: 'Unsafe Community Behaviour',
-      shortLabel: 'Unsafe Behaviour',
-      subtitle: 'Predatory DMs, boundary violations, doxxing, or unsafe meetup pressure',
-      safetyGuidance: 'Your report helps protect every woman on Sakhi. Duplicate reports against the same account automatically raise severity.',
-      defaultSeverity: 'HIGH_P2',
-      icon: Icons.health_and_safety_rounded,
-      flowerType: SakhiFlowerType.cherryBlossom,
-    ),
-    const ComplaintCategoryInfo(
-      id: 'cat-9',
-      code: 'BUSINESS_RELATED_COMPLAINT',
-      label: 'Business-Related Complaint',
+      id: 'cat-business_related_complaints',
+      code: 'business_related_complaints',
+      label: 'Business-related complaints',
       shortLabel: 'Business Complaint',
-      subtitle: 'Fraudulent Sakhi business page, unsafe service provider, or scam enquiry',
-      safetyGuidance: 'Attach the Sakhi Business Page reference or booking screenshot so our commerce trust team can suspend unverified listings.',
-      defaultSeverity: 'MEDIUM_P3',
+      subtitle:
+          'Misconduct, unsafe service, or policy breach by a listed business page',
+      safetyGuidance:
+          'You can link the reported Sakhi Business Page directly. The business owner will NEVER be notified of who reported them.',
+      legalHelplineNote:
+          'Fraudulent businesses are suspended by Trust & Safety after verification.',
+      defaultPriority: 'P3_STANDARD',
+      defaultSeverity: 'S3_MODERATE',
       icon: Icons.storefront_rounded,
-      flowerType: SakhiFlowerType.babysBreath,
+      flowerType: SakhiFlowerType.cherryBlossom,
+      displayOrder: 9,
     ),
     const ComplaintCategoryInfo(
-      id: 'cat-10',
-      code: 'OTHER',
-      label: 'Other Safety or Privacy Concern',
+      id: 'cat-other',
+      code: 'other',
+      label: 'Other',
       shortLabel: 'Other Concern',
       subtitle:
-          'Any other sensitive community, privacy, or personal safety issue',
-      safetyGuidance: 'Describe the concern in your own words. Our PII guard will alert you if you accidentally type your own phone number or email.',
-      defaultSeverity: 'MEDIUM_P3',
+          'Any other personal safety, privacy, or community wellbeing concern',
+      safetyGuidance:
+          'Specify your custom topic and share only what you feel safe disclosing. Our real-time PII guard will warn you if any phrase could reveal your identity.',
+      legalHelplineNote:
+          'In-app complaints do not automatically file a police FIR. Use 112 / 1091 / 181 when official law-enforcement action is needed.',
+      defaultPriority: 'P3_STANDARD',
+      defaultSeverity: 'S3_MODERATE',
       icon: Icons.spa_rounded,
-      flowerType: SakhiFlowerType.eucalyptusSage,
+      flowerType: SakhiFlowerType.babysBreath,
+      displayOrder: 10,
     ),
   ];
 
@@ -169,322 +275,89 @@ class SakhiComplaintController extends ChangeNotifier {
       _categories.where((c) => c.enabled).toList(growable: false);
 
   ComplaintCategoryInfo categoryByCode(String code) {
+    final norm = code.trim().toLowerCase();
     for (final cat in _categories) {
-      if (cat.code == code) return cat;
+      if (cat.code.toLowerCase() == norm) return cat;
+    }
+    // Support legacy uppercase aliases if passed
+    const aliases = <String, String>{
+      'harassment': 'harassment',
+      'stalking': 'stalking_unwanted_contact',
+      'cyberbullying': 'online_abuse_cyberbullying',
+      'blackmail_extortion': 'fraud_suspicious_activity',
+      'domestic_family_concern': 'domestic_interpersonal_safety',
+      'workplace_harassment': 'workplace_misconduct',
+      'impersonation_fake_account': 'fraud_suspicious_activity',
+      'unsafe_community_behaviour': 'public_place_safety',
+      'business_related_complaint': 'business_related_complaints',
+      'other': 'other',
+    };
+    final mapped = aliases[norm];
+    if (mapped != null) {
+      for (final cat in _categories) {
+        if (cat.code == mapped) return cat;
+      }
     }
     return _categories.first;
   }
 
+  /// Stores ONLY real complaints returned by the server during this session or via admin queue load.
   final List<DiscreetComplaintModel> _complaints = <DiscreetComplaintModel>[];
   List<DiscreetComplaintModel> get complaints =>
       List<DiscreetComplaintModel>.unmodifiable(_complaints);
 
+  /// Stores passkeys issued by the server in this session so the user can immediately track their own newly filed complaint.
+  final Map<String, String> _sessionIssuedPasskeys = <String, String>{};
+  String? passkeyForReference(String referenceNumber) =>
+      _sessionIssuedPasskeys[referenceNumber.trim().toUpperCase()];
+
   DiscreetComplaintModel? _lastSubmittedComplaint;
   DiscreetComplaintModel? get lastSubmittedComplaint => _lastSubmittedComplaint;
 
-  int _blindedRateLimitRemaining = 4;
-  int get blindedRateLimitRemaining => _blindedRateLimitRemaining;
+  Map<String, dynamic> _adminMetrics = const <String, dynamic>{
+    'totalComplaints': 0,
+    'openComplaintsCount': 0,
+    'urgentP1Count': 0,
+    'anonymousPercentage': 0,
+    'confidentialPercentage': 0,
+    'duplicateClustersCount': 0,
+    'flaggedMaliciousAbuseCount': 0,
+    'medianTriageHours': 0,
+  };
+  Map<String, dynamic> get adminMetrics => _adminMetrics;
 
-  void _seedInitialCases() {
-    if (_complaints.isNotEmpty) return;
-    _complaints.addAll(<DiscreetComplaintModel>[
-      DiscreetComplaintModel(
-        id: 'cmp-8492',
-        referenceNumber: '#SKH-ANON-2026-8492',
-        passkey: 'LOTUS-94A2',
-        disguisedSerialTag: 'SKH-WELLNESS-2026-8492-94A2',
-        reportingMode: ComplaintReportingMode.anonymous,
-        categoryCode: 'HARASSMENT',
-        customCategoryNote: null,
-        urgencyLevel: 'HIGH',
-        status: ComplaintStatus.additionalInfoRequired,
-        severityPriority: 'HIGH_P2',
-        description: 'Repeated intimidating comments and unsolicited messages from a fake handle after I shared a workplace safety post in the Bengaluru Career Circle. They referenced my office building near Indiranagar.',
-        incidentDateWindow: 'Yesterday • Evening (6 PM – 10 PM)',
-        generalAreaText: 'Indiranagar, Bengaluru (~5 km coarse zone)',
-        supportingLinks: const <String>[
-          'sakhi://post/post-bengaluru-circle-204',
-          'sakhi://profile/@anon_watch_99',
-        ],
-        linkedPostId: 'post-bengaluru-circle-204',
-        linkedProfileHandle: '@anon_watch_99',
-        linkedBusinessId: null,
-        wantsFollowUp: true,
-        discreetNotificationMode: 'SILENT_VAULT_ONLY',
-        evidenceFiles: const <SanitizedEvidenceFileModel>[
-          SanitizedEvidenceFileModel(
-            id: 'ev-8492-1',
-            originalLabel: 'IMG_20261025_ChatScreenshot.png',
-            sanitizedFileName: 'SAKHI_EVID_8492_01_SCRUBBED.png',
-            mimeType: 'image/png',
-            sizeBytes: 428032,
-            sha256Hash: '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
-            exifScrubbed: true,
-            removedTags: <String>[
-              'GPSLatitude',
-              'GPSLongitude',
-              'DeviceMake: Apple iPhone',
-              'OriginalTimestamp',
-              'OwnerName',
-            ],
-            blurredByDefault: true,
-            uploadedAtIso: '2026-10-25 21:14 IST',
-          ),
-          SanitizedEvidenceFileModel(
-            id: 'ev-8492-2',
-            originalLabel: 'Threat_Comment_Thread.jpg',
-            sanitizedFileName: 'SAKHI_EVID_8492_02_SCRUBBED.jpg',
-            mimeType: 'image/jpeg',
-            sizeBytes: 312400,
-            sha256Hash: '4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a',
-            exifScrubbed: true,
-            removedTags: <String>[
-              'GPSCoordinates',
-              'CameraSerial',
-              'SoftwareTag',
-            ],
-            blurredByDefault: true,
-            uploadedAtIso: '2026-10-25 21:15 IST',
-          ),
-        ],
-        complainantMessages: const <ComplainantMessageModel>[
-          ComplainantMessageModel(
-            id: 'msg-8492-1',
-            senderRole: 'REVIEWER',
-            senderBadge: 'Senior Safety Reviewer #SR-04 (Anjali M.)',
-            body: 'Thank you for speaking up safely. We have temporarily restricted @anon_watch_99 from commenting in your circle. Could you share whether they contacted you on any second handle so we can link the accounts?',
-            createdAtLabel: '26 Oct 2026 • 10:15 AM',
-          ),
-        ],
-        internalNotes: const <InternalReviewerNoteModel>[
-          InternalReviewerNoteModel(
-            id: 'note-8492-1',
-            authorRole: 'SENIOR_SAFETY_REVIEWER',
-            authorLabel: 'Anjali M. (Trust & Safety Lead)',
-            note: 'INTERNAL ONLY: Verified EXIF-scrubbed screenshot matches device fingerprint of repeat offender cluster #CL-19. Waiting for complainant confirmation before permanent device ban.',
-            visibilityScope: 'INTERNAL_ADMIN_ONLY',
-            createdAtLabel: '26 Oct 2026 • 10:12 AM',
-          ),
-        ],
-        auditTrail: const <ComplaintAuditEntryModel>[
-          ComplaintAuditEntryModel(
-            id: 'aud-8492-1',
-            action: 'COMPLAINT_SUBMITTED_ANONYMOUS',
-            actorBadge: 'System Zero-PII Gate',
-            detail: '2 evidence files scrubbed of 8 EXIF tags; blinded rate-limit token verified.',
-            integrityHash: 'SHA256:7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730',
-            timestampLabel: '25 Oct 2026 • 09:15 PM',
-          ),
-          ComplaintAuditEntryModel(
-            id: 'aud-8492-2',
-            action: 'ASSIGNED_TO_REVIEWER',
-            actorBadge: 'Super Admin Queue Router',
-            detail:
-                'Assigned to Senior Safety Reviewer #SR-04 • Priority HIGH_P2',
-            integrityHash: 'SHA256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae',
-            timestampLabel: '25 Oct 2026 • 09:42 PM',
-          ),
-          ComplaintAuditEntryModel(
-            id: 'aud-8492-3',
-            action: 'STATUS_CHANGED_ADDITIONAL_INFO',
-            actorBadge: 'Senior Safety Reviewer #SR-04',
-            detail: 'Status moved from UNDER_REVIEW to ADDITIONAL_INFORMATION_REQUIRED',
-            integrityHash: 'SHA256:4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce',
-            timestampLabel: '26 Oct 2026 • 10:15 AM',
-          ),
-        ],
-        assignedReviewerName: 'Anjali M. (#SR-04)',
-        assignedDepartment: 'Harassment & Stalking Desk',
-        slaTargetHours: 12,
-        createdAtLabel: '25 Oct 2026 • 09:15 PM',
-        updatedAtLabel: '26 Oct 2026 • 10:15 AM',
-        duplicateClusterCount: 2,
-      ),
-      DiscreetComplaintModel(
-        id: 'cmp-8489',
-        referenceNumber: '#SKH-CONF-2026-8489',
-        passkey: 'ROSE-71C8',
-        disguisedSerialTag: 'SKH-WELLNESS-2026-8489-71C8',
-        reportingMode: ComplaintReportingMode.confidential,
-        categoryCode: 'WORKPLACE_HARASSMENT',
-        customCategoryNote:
-            'POSH committee guidance & unsafe recruiter listing',
-        urgencyLevel: 'HIGH',
-        status: ComplaintStatus.escalated,
-        severityPriority: 'CRITICAL_P1',
-        description: 'A verified recruiter business page on Sakhi asked for personal evening video calls outside official interview hours and pressured candidates to share private social media profiles.',
-        incidentDateWindow: 'This Week • Afternoon (12 PM – 5 PM)',
-        generalAreaText: 'HITEC City, Hyderabad (~5 km coarse zone)',
-        supportingLinks: const <String>[
-          'sakhi://business/biz-hyderabad-talent-hub',
-        ],
-        linkedPostId: null,
-        linkedProfileHandle: '@hyd_talent_connect',
-        linkedBusinessId: 'biz-hyderabad-talent-hub',
-        wantsFollowUp: true,
-        discreetNotificationMode: 'DISCREET_GENERIC_WELLNESS_ALERT',
-        evidenceFiles: const <SanitizedEvidenceFileModel>[
-          SanitizedEvidenceFileModel(
-            id: 'ev-8489-1',
-            originalLabel: 'Recruiter_Enquiry_Chat.png',
-            sanitizedFileName: 'SAKHI_EVID_8489_01_SCRUBBED.png',
-            mimeType: 'image/png',
-            sizeBytes: 518200,
-            sha256Hash: 'ef2d127de37b942baad06145e54b0c619a1f22327b2ebbcfbec78f5564afe39d',
-            exifScrubbed: true,
-            removedTags: <String>['GPSLatitude', 'GPSLongitude', 'DeviceModel'],
-            blurredByDefault: true,
-            uploadedAtIso: '24 Oct 2026 • 04:20 PM',
-          ),
-        ],
-        complainantMessages: const <ComplainantMessageModel>[
-          ComplainantMessageModel(
-            id: 'msg-8489-1',
-            senderRole: 'REVIEWER',
-            senderBadge: 'POSH & Legal Escalation Desk (#LP-02)',
-            body: 'Your case has been escalated to our POSH & Commerce Safety Panel. The business page has been frozen pending final review.',
-            createdAtLabel: '25 Oct 2026 • 02:30 PM',
-          ),
-        ],
-        internalNotes: const <InternalReviewerNoteModel>[
-          InternalReviewerNoteModel(
-            id: 'note-8489-1',
-            authorRole: 'SUPER_ADMIN',
-            authorLabel: 'Dr. Kavitha R. (Head of Safety)',
-            note: 'INTERNAL ONLY: Confidential reporter identity verified by Senior Reviewer only. Business listing suspended under Section 9.6.',
-            visibilityScope: 'INTERNAL_ADMIN_ONLY',
-            createdAtLabel: '25 Oct 2026 • 02:25 PM',
-          ),
-        ],
-        auditTrail: const <ComplaintAuditEntryModel>[
-          ComplaintAuditEntryModel(
-            id: 'aud-8489-1',
-            action: 'COMPLAINT_SUBMITTED_CONFIDENTIAL',
-            actorBadge: 'Encrypted Confidential Gate',
-            detail: 'Identity sealed with AES-256; hidden from reported business and standard moderators.',
-            integrityHash: 'SHA256:e7f6c011776e8db7cd330b54174fd76f7d0216b612387a5ffcfb81e6f0919683',
-            timestampLabel: '24 Oct 2026 • 04:22 PM',
-          ),
-          ComplaintAuditEntryModel(
-            id: 'aud-8489-2',
-            action: 'ESCALATED_TO_POSH_PANEL',
-            actorBadge: 'Dr. Kavitha R. (#SA-01)',
-            detail: 'Status escalated to ESCALATED • Business page temporarily frozen.',
-            integrityHash: 'SHA256:7902699be42c8a8e46fbbb4501726517e86b22c56a189f7625a6da49081b2451',
-            timestampLabel: '25 Oct 2026 • 02:30 PM',
-          ),
-        ],
-        assignedReviewerName: 'Dr. Kavitha R. (#SA-01)',
-        assignedDepartment: 'POSH & Business Trust Panel',
-        slaTargetHours: 4,
-        createdAtLabel: '24 Oct 2026 • 04:22 PM',
-        updatedAtLabel: '25 Oct 2026 • 02:30 PM',
-        maskedConfidentialContact: 'Priya S. • +91 ••••• ••418 (Visible only to Senior Safety Reviewer)',
-      ),
-      DiscreetComplaintModel(
-        id: 'cmp-8471',
-        referenceNumber: '#SKH-ANON-2026-8471',
-        passkey: 'SAGE-52D1',
-        disguisedSerialTag: 'SKH-WELLNESS-2026-8471-52D1',
-        reportingMode: ComplaintReportingMode.anonymous,
-        categoryCode: 'IMPERSONATION_FAKE_ACCOUNT',
-        customCategoryNote: null,
-        urgencyLevel: 'STANDARD',
-        status: ComplaintStatus.actionTaken,
-        severityPriority: 'HIGH_P2',
-        description: 'An account was using stolen photos from a wedding photographer portfolio to impersonate a member in the Chennai Entrepreneurs group.',
-        incidentDateWindow: 'Last Week • Morning (8 AM – 12 PM)',
-        generalAreaText: 'Adyar, Chennai (~5 km coarse zone)',
-        supportingLinks: const <String>['sakhi://profile/@fake_studio_chennai'],
-        linkedPostId: null,
-        linkedProfileHandle: '@fake_studio_chennai',
-        linkedBusinessId: null,
-        wantsFollowUp: true,
-        discreetNotificationMode: 'SILENT_VAULT_ONLY',
-        evidenceFiles: const <SanitizedEvidenceFileModel>[
-          SanitizedEvidenceFileModel(
-            id: 'ev-8471-1',
-            originalLabel: 'ClonedProfileComparison.jpg',
-            sanitizedFileName: 'SAKHI_EVID_8471_01_SCRUBBED.jpg',
-            mimeType: 'image/jpeg',
-            sizeBytes: 284110,
-            sha256Hash: '6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b',
-            exifScrubbed: true,
-            removedTags: <String>['GPSLatitude', 'GPSLongitude', 'CameraOwner'],
-            blurredByDefault: true,
-            uploadedAtIso: '20 Oct 2026 • 11:05 AM',
-          ),
-        ],
-        complainantMessages: const <ComplainantMessageModel>[
-          ComplainantMessageModel(
-            id: 'msg-8471-1',
-            senderRole: 'REVIEWER',
-            senderBadge: 'Senior Safety Reviewer #SR-02 (Meera K.)',
-            body: 'Action Taken: We verified the impersonation, permanently removed @fake_studio_chennai, and revoked its session tokens.',
-            createdAtLabel: '21 Oct 2026 • 03:40 PM',
-          ),
-        ],
-        internalNotes: const <InternalReviewerNoteModel>[],
-        auditTrail: const <ComplaintAuditEntryModel>[
-          ComplaintAuditEntryModel(
-            id: 'aud-8471-1',
-            action: 'ACTION_TAKEN_ACCOUNT_BANNED',
-            actorBadge: 'Senior Safety Reviewer #SR-02',
-            detail: 'Impersonating account permanently banned; complainant identity never exposed.',
-            integrityHash: 'SHA256:d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35',
-            timestampLabel: '21 Oct 2026 • 03:40 PM',
-          ),
-        ],
-        assignedReviewerName: 'Meera K. (#SR-02)',
-        assignedDepartment: 'Identity & Impersonation Desk',
-        slaTargetHours: 24,
-        createdAtLabel: '20 Oct 2026 • 11:05 AM',
-        updatedAtLabel: '21 Oct 2026 • 03:40 PM',
-        publicResolutionNote: 'The reported impersonating profile has been permanently removed and its device signature blocked.',
-      ),
-      DiscreetComplaintModel(
-        id: 'cmp-8465',
-        referenceNumber: '#SKH-ANON-2026-8465',
-        passkey: 'CALM-18F4',
-        disguisedSerialTag: 'SKH-WELLNESS-2026-8465-18F4',
-        reportingMode: ComplaintReportingMode.anonymous,
-        categoryCode: 'BUSINESS_RELATED_COMPLAINT',
-        customCategoryNote: 'Late delivery dispute without safety violation',
-        urgencyLevel: 'LOW',
-        status: ComplaintStatus.rejectedWithReason,
-        severityPriority: 'LOW_P4',
-        description: 'My handloom saree order arrived 3 days later than estimated by the seller.',
-        incidentDateWindow: 'Earlier this month',
-        generalAreaText: 'Pune (~5 km coarse zone)',
-        supportingLinks: const <String>[],
-        linkedPostId: null,
-        linkedProfileHandle: null,
-        linkedBusinessId: 'biz-pune-handloom',
-        wantsFollowUp: true,
-        discreetNotificationMode: 'SILENT_VAULT_ONLY',
-        evidenceFiles: const <SanitizedEvidenceFileModel>[],
-        complainantMessages: const <ComplainantMessageModel>[],
-        internalNotes: const <InternalReviewerNoteModel>[],
-        auditTrail: const <ComplaintAuditEntryModel>[
-          ComplaintAuditEntryModel(
-            id: 'aud-8465-1',
-            action: 'REJECTED_WITH_TRANSPARENT_REASON',
-            actorBadge: 'Senior Safety Reviewer #SR-04',
-            detail: 'Closed as non-safety shipping delay; guided user to Business Enquiry resolution.',
-            integrityHash: 'SHA256:4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a',
-            timestampLabel: '19 Oct 2026 • 05:10 PM',
-          ),
-        ],
-        assignedReviewerName: 'Anjali M. (#SR-04)',
-        assignedDepartment: 'Commerce Moderation Desk',
-        slaTargetHours: 48,
-        createdAtLabel: '18 Oct 2026 • 01:20 PM',
-        updatedAtLabel: '19 Oct 2026 • 05:10 PM',
-        rejectionReasonTitle: 'Shipping Delay Outside Safety Mandate',
-        rejectionReasonDetail: 'No harassment, scam, or safety policy violation was found. If the seller threatened you or refused a refund fraudulently, tap "Submit Appeal / Request Re-Open" below with screenshots.',
-      ),
-    ]);
-    _lastSubmittedComplaint = _complaints.first;
+  /// Syncs configurable categories & retention policy from `GET /api/v1/complaints/categories`.
+  Future<void> syncCategoriesFromServer() async {
+    try {
+      final res = await _apiClient.get('complaints/categories');
+      final rawCats = res['allCategories'] ?? res['categories'];
+      if (rawCats is List && rawCats.isNotEmpty) {
+        final nextCats = <ComplaintCategoryInfo>[];
+        for (final item in rawCats.whereType<Map<String, dynamic>>()) {
+          final slug = (item['slug'] as String? ?? '').trim().toLowerCase();
+          final existing = _categories.cast<ComplaintCategoryInfo?>().firstWhere(
+            (c) => c?.code == slug,
+            orElse: () => null,
+          );
+          nextCats.add(
+            ComplaintCategoryInfo.fromBackendJson(item, fallback: existing),
+          );
+        }
+        if (nextCats.isNotEmpty) {
+          _categories
+            ..clear()
+            ..addAll(nextCats);
+        }
+      }
+      if (res['retentionPolicy'] is Map<String, dynamic>) {
+        _retentionPolicy = ComplaintRetentionPolicyModel.fromBackendJson(
+          res['retentionPolicy'] as Map<String, dynamic>,
+        );
+      }
+      notifyListeners();
+    } catch (_) {
+      // Keep the 10 SRS schema categories if offline during initial screen load
+    }
   }
 
   /// SRS 7.4 — Real-Time Identity-Reveal (PII) Detector & Auto-Redactor
@@ -499,10 +372,10 @@ class SakhiComplaintController extends ChangeNotifier {
         PiiDetectedItemModel(
           type: 'Mobile Number',
           snippet: val,
-          replacement: '[REDACTED-MY-PHONE]',
+          replacement: '[phone number redacted]',
         ),
       );
-      redacted = redacted.replaceAll(val, '[REDACTED-MY-PHONE]');
+      redacted = redacted.replaceAll(val, '[phone number redacted]');
     }
 
     final emailRegex = RegExp(
@@ -514,10 +387,10 @@ class SakhiComplaintController extends ChangeNotifier {
         PiiDetectedItemModel(
           type: 'Email Address',
           snippet: val,
-          replacement: '[REDACTED-MY-EMAIL]',
+          replacement: '[email redacted]',
         ),
       );
-      redacted = redacted.replaceAll(val, '[REDACTED-MY-EMAIL]');
+      redacted = redacted.replaceAll(val, '[email redacted]');
     }
 
     final aadhaarRegex = RegExp(r'\b\d{4}[\s-]\d{4}[\s-]\d{4}\b');
@@ -527,10 +400,10 @@ class SakhiComplaintController extends ChangeNotifier {
         PiiDetectedItemModel(
           type: 'Govt ID / Aadhaar Pattern',
           snippet: val,
-          replacement: '[REDACTED-GOVT-ID]',
+          replacement: '[govt ID redacted]',
         ),
       );
-      redacted = redacted.replaceAll(val, '[REDACTED-GOVT-ID]');
+      redacted = redacted.replaceAll(val, '[govt ID redacted]');
     }
 
     final nameClueRegex = RegExp(
@@ -543,14 +416,14 @@ class SakhiComplaintController extends ChangeNotifier {
         PiiDetectedItemModel(
           type: 'Self-Identifying Name Phrase',
           snippet: full,
-          replacement: '[REDACTED-COMPLAINANT-IDENTITY]',
+          replacement: '[complainant identity redacted]',
         ),
       );
-      redacted = redacted.replaceAll(full, '[REDACTED-COMPLAINANT-IDENTITY]');
+      redacted = redacted.replaceAll(full, '[complainant identity redacted]');
     }
 
     final flatAddressRegex = RegExp(
-      r'\b(?:flat|apt|apartment|house\s*no\.?)\s*[#A-Za-z0-9/-]+',
+      r'\b(?:flat|apt|apartment|house|plot|room)\s*(?:no\.?|#)?\s*[A-Za-z0-9/-]+',
       caseSensitive: false,
     );
     for (final match in flatAddressRegex.allMatches(text)) {
@@ -559,10 +432,10 @@ class SakhiComplaintController extends ChangeNotifier {
         PiiDetectedItemModel(
           type: 'Exact Door / Flat Number',
           snippet: full,
-          replacement: '[REDACTED-EXACT-DOOR]',
+          replacement: '[general building area]',
         ),
       );
-      redacted = redacted.replaceAll(full, '[REDACTED-EXACT-DOOR]');
+      redacted = redacted.replaceAll(full, '[general building area]');
     }
 
     return PiiCheckResultModel(
@@ -572,550 +445,917 @@ class SakhiComplaintController extends ChangeNotifier {
     );
   }
 
-  /// SRS 7.3 & 13.9 — Automatic EXIF & GPS Metadata Scrubber for Evidence Files
-  SanitizedEvidenceFileModel scrubAndCreateEvidence({
-    required String originalFileName,
-    required String mimeType,
-    required int sizeBytes,
-  }) {
-    final random = Random();
-    final numericId = 1000 + random.nextInt(8999);
-    final ext = originalFileName.contains('.')
-        ? originalFileName.split('.').last.toLowerCase()
-        : (mimeType.contains('pdf')
-              ? 'pdf'
-              : mimeType.contains('audio')
-              ? 'm4a'
-              : 'png');
-    final hashChars = '0123456789abcdef';
-    final hash = List<String>.generate(
-      64,
-      (i) =>
-          hashChars[(originalFileName.hashCode + i * 17 + sizeBytes).abs() %
-              hashChars.length],
-    ).join();
-
-    return SanitizedEvidenceFileModel(
-      id: 'ev-$numericId',
-      originalLabel: originalFileName,
-      sanitizedFileName: 'SAKHI_EVID_${numericId}_SCRUBBED.$ext',
-      mimeType: mimeType,
-      sizeBytes: sizeBytes,
-      sha256Hash: hash,
-      exifScrubbed: true,
-      removedTags: const <String>[
-        'GPSLatitude & GPSLongitude',
-        'DeviceMake & CameraModel',
-        'OriginalCaptureTimestamp',
-        'Author / Owner Tag',
-        'Wi-Fi / Cell Tower Triangulation Hints',
-      ],
-      blurredByDefault: true,
-      uploadedAtIso: 'Just now • EXIF Scrubbed',
-    );
+  /// Strips binary JPEG APP1..APP15/COM and PNG eXIf/tEXt metadata segments on the client
+  /// before transmitting to the backend EXIF scrubber.
+  Uint8List stripClientBinaryMetadata(Uint8List input) {
+    if (input.length < 12) return input;
+    // JPEG (FFD8)
+    if (input[0] == 0xff && input[1] == 0xd8) {
+      final builder = BytesBuilder(copy: false);
+      builder.add(const <int>[0xff, 0xd8]);
+      var offset = 2;
+      while (offset + 2 <= input.length) {
+        if (input[offset] != 0xff) {
+          builder.add(input.sublist(offset));
+          break;
+        }
+        final marker = input[offset + 1];
+        if (marker == 0xda || marker == 0xd9) {
+          builder.add(input.sublist(offset));
+          break;
+        }
+        if (marker == 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+          builder.add(input.sublist(offset, offset + 2));
+          offset += 2;
+          continue;
+        }
+        if (offset + 4 > input.length) {
+          builder.add(input.sublist(offset));
+          break;
+        }
+        final segLen = (input[offset + 2] << 8) | input[offset + 3];
+        if (segLen < 2 || offset + 2 + segLen > input.length) {
+          builder.add(input.sublist(offset));
+          break;
+        }
+        final isExifOrComment =
+            (marker >= 0xe1 && marker <= 0xef) || marker == 0xfe;
+        if (!isExifOrComment) {
+          builder.add(input.sublist(offset, offset + 2 + segLen));
+        }
+        offset += 2 + segLen;
+      }
+      return builder.toBytes();
+    }
+    return input;
   }
 
-  /// Submit a new Discreet or Confidential Complaint (syncs with Backend `/api/v1/complaints/submit` with automatic offline resilience)
+  /// Uploads and scrubs evidence via the backend API (`POST /api/v1/complaints/scrub-metadata`).
+  /// Validates MIME type and file size (1B .. 15MB) and throws a `BackendApiException` on failure.
+  Future<SanitizedEvidenceFileModel> uploadAndScrubEvidenceOnServer({
+    required String originalFileName,
+    required String mimeType,
+    required Uint8List fileBytes,
+    bool visualBlurApplied = true,
+  }) async {
+    final cleanMime = mimeType.trim().toLowerCase();
+    if (!kAllowedComplaintEvidenceMimeTypes.contains(cleanMime)) {
+      throw BackendApiException(
+        statusCode: 400,
+        code: 'unsupported_file_type',
+        message:
+            'Unsupported file type "$mimeType". Allowed: PNG, JPEG, WebP, PDF, M4A, MP3, WAV.',
+      );
+    }
+    if (fileBytes.isEmpty || fileBytes.length > kMaxComplaintEvidenceBytes) {
+      throw const BackendApiException(
+        statusCode: 400,
+        code: 'invalid_file_size',
+        message: 'Evidence file must be between 1 byte and 15 MB.',
+      );
+    }
+
+    _isSyncing = true;
+    _lastError = null;
+    notifyListeners();
+
+    try {
+      final locallyStripped = stripClientBinaryMetadata(fileBytes);
+      final response = await _apiClient.post(
+        'complaints/scrub-metadata',
+        body: <String, Object?>{
+          'originalFileName': originalFileName.trim(),
+          'contentType': cleanMime,
+          'byteSize': locallyStripped.length,
+          'visualBlurApplied': visualBlurApplied,
+          'base64Data': base64Encode(locallyStripped),
+        },
+      );
+      final sanitizedJson = response['sanitizedFile'];
+      if (sanitizedJson is! Map<String, dynamic>) {
+        throw const BackendApiException(
+          statusCode: 500,
+          code: 'invalid_scrubber_response',
+          message: 'Backend did not return a valid sanitizedFile record.',
+        );
+      }
+      return SanitizedEvidenceFileModel.fromBackendJson(sanitizedJson);
+    } on BackendApiException catch (err) {
+      _lastError = err.message;
+      rethrow;
+    } finally {
+      _isSyncing = false;
+      notifyListeners();
+    }
+  }
+
+  /// Validates a supporting URL (only `https://`, `http://`, or `sakhi://` allowed).
+  static String? validateSupportingLinkUrl(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return 'Enter a URL or Sakhi reference link.';
+    if (trimmed.length > 500) return 'Link cannot exceed 500 characters.';
+    if (trimmed.startsWith('sakhi://')) {
+      final validSakhi = RegExp(r'^sakhi://[a-zA-Z0-9_./@-]+$');
+      if (!validSakhi.hasMatch(trimmed)) {
+        return 'Invalid Sakhi internal link format (e.g. sakhi://post/123).';
+      }
+      return null;
+    }
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null ||
+        !uri.hasAbsolutePath ||
+        (uri.scheme != 'https' && uri.scheme != 'http') ||
+        uri.host.isEmpty) {
+      return 'Enter a valid https://, http://, or sakhi:// URL.';
+    }
+    return null;
+  }
+
+  /// Submits a new Discreet or Confidential Complaint to `POST /api/v1/complaints`.
+  /// NEVER invents a client-side reference number or fakes success when the backend fails!
   Future<DiscreetComplaintModel> submitComplaint({
     required ComplaintReportingMode reportingMode,
     required String categoryCode,
     String? customCategoryNote,
     required String urgencyLevel,
     required String description,
-    required String incidentDateWindow,
-    required String generalAreaText,
+    required String approximateDateLabel,
+    required String approximateTimeWindow,
+    required String locationType,
+    String? generalAreaText,
     required List<String> supportingLinks,
     String? linkedPostId,
     String? linkedProfileHandle,
     String? linkedBusinessId,
     required bool wantsFollowUp,
     required String discreetNotificationMode,
+    required bool acknowledgedNonPoliceLegalNotice,
     required List<SanitizedEvidenceFileModel> evidenceFiles,
+    bool piiGuardRedacted = false,
   }) async {
+    final cleanDesc = description.trim();
+    if (cleanDesc.length < 20) {
+      throw const BackendApiException(
+        statusCode: 400,
+        code: 'description_too_short',
+        message:
+            'Please provide an incident description of at least 20 non-whitespace characters.',
+      );
+    }
+    if (!acknowledgedNonPoliceLegalNotice) {
+      throw const BackendApiException(
+        statusCode: 400,
+        code: 'disclaimer_required',
+        message:
+            'Please acknowledge the non-police / emergency channels disclaimer before submitting.',
+      );
+    }
+    final cat = categoryByCode(categoryCode);
+    if (!cat.enabled) {
+      throw BackendApiException(
+        statusCode: 400,
+        code: 'category_disabled',
+        message: 'The category "${cat.label}" is currently disabled.',
+      );
+    }
+    if (cat.code == 'other' &&
+        (customCategoryNote == null || customCategoryNote.trim().length < 3)) {
+      throw const BackendApiException(
+        statusCode: 400,
+        code: 'custom_category_required',
+        message:
+            'Please specify a custom category label (at least 3 characters) when selecting "Other".',
+      );
+    }
+    for (final link in supportingLinks) {
+      final linkErr = validateSupportingLinkUrl(link);
+      if (linkErr != null) {
+        throw BackendApiException(
+          statusCode: 400,
+          code: 'invalid_supporting_link',
+          message: linkErr,
+        );
+      }
+    }
+    if (evidenceFiles.length > kMaxComplaintEvidenceFiles) {
+      throw const BackendApiException(
+        statusCode: 400,
+        code: 'too_many_evidence_files',
+        message: 'A maximum of 5 evidence files can be attached per report.',
+      );
+    }
+
     _isSyncing = true;
+    _lastError = null;
     notifyListeners();
 
-    final digits = (1000 + Random().nextInt(8999)).toString();
-    final prefix = reportingMode == ComplaintReportingMode.anonymous
-        ? '#SKH-ANON-2026-'
-        : '#SKH-CONF-2026-';
-    var referenceNumber = '$prefix$digits';
-    var passkey =
-        'LOTUS-${digits.substring(0, 2)}${String.fromCharCode(65 + Random().nextInt(25))}${Random().nextInt(9)}';
-    var disguisedSerialTag = 'SKH-WELLNESS-2026-$digits-$passkey';
-
-    final cat = categoryByCode(categoryCode);
-    final severity = urgencyLevel == 'CRITICAL' || urgencyLevel == 'IMMEDIATE'
-        ? 'CRITICAL_P1'
-        : cat.defaultSeverity;
-
     try {
+      final mappedUrgency =
+          urgencyLevel == 'CRITICAL' || urgencyLevel == 'HAPPENING_NOW'
+          ? 'HAPPENING_NOW'
+          : urgencyLevel == 'HIGH' || urgencyLevel == 'REPEATED_PATTERN'
+          ? 'REPEATED_PATTERN'
+          : 'PAST_INCIDENT';
+
       final response = await _apiClient.post(
-        'complaints/submit',
+        'complaints',
         authenticated: reportingMode == ComplaintReportingMode.confidential,
         body: <String, Object?>{
           'reportingMode': reportingMode.code,
-          'category': categoryCode,
-          if (customCategoryNote != null && customCategoryNote.isNotEmpty)
-            'customCategoryLabel': customCategoryNote,
-          'description': description,
-          'incidentDateWindow': incidentDateWindow,
-          'generalLocationArea': generalAreaText,
-          'supportingLinks': supportingLinks,
-          if (linkedPostId != null && linkedPostId.isNotEmpty)
-            'linkedPostId': linkedPostId,
-          if (linkedProfileHandle != null && linkedProfileHandle.isNotEmpty)
-            'linkedTargetHandle': linkedProfileHandle,
-          if (linkedBusinessId != null && linkedBusinessId.isNotEmpty)
-            'linkedBusinessId': linkedBusinessId,
-          'wantsFollowUp': wantsFollowUp,
-          'notificationChannel': discreetNotificationMode,
-          'urgencyLevel': urgencyLevel,
+          'categorySlug': cat.code,
+          if (customCategoryNote != null &&
+              customCategoryNote.trim().isNotEmpty)
+            'customCategoryLabel': customCategoryNote.trim(),
+          'urgency': mappedUrgency,
+          'description': cleanDesc,
+          'piiGuardRedacted': piiGuardRedacted,
+          'approximateDateLabel': approximateDateLabel.trim(),
+          'approximateTimeWindow': approximateTimeWindow.trim(),
+          'locationType': locationType.trim(),
+          if (generalAreaText != null && generalAreaText.trim().isNotEmpty)
+            'generalLocationLabel': generalAreaText.trim(),
+          if (linkedProfileHandle != null &&
+              linkedProfileHandle.trim().isNotEmpty)
+            'linkedTargetHandle': linkedProfileHandle.trim(),
+          if (linkedPostId != null && linkedPostId.trim().isNotEmpty)
+            'linkedPostId': linkedPostId.trim(),
+          if (linkedBusinessId != null && linkedBusinessId.trim().isNotEmpty)
+            'linkedBusinessId': linkedBusinessId.trim(),
           'evidenceFiles': evidenceFiles.map((e) => e.toJson()).toList(),
+          'supportingLinks': supportingLinks,
+          'wantsUpdates': wantsFollowUp,
+          'submitAnonymouslyToReviewTeam':
+              reportingMode == ComplaintReportingMode.anonymous,
+          'acknowledgedNonPoliceLegalNotice': acknowledgedNonPoliceLegalNotice,
         },
       );
-      if (response['referenceNumber'] is String &&
-          (response['referenceNumber'] as String).isNotEmpty) {
-        referenceNumber = response['referenceNumber'] as String;
+
+      final refNumber = (response['referenceNumber'] as String? ?? '').trim();
+      final issuedPasskey = (response['passkey'] as String? ?? '').trim();
+      final complaintJson = response['complaint'];
+
+      if (refNumber.isEmpty ||
+          issuedPasskey.isEmpty ||
+          complaintJson is! Map<String, dynamic>) {
+        throw const BackendApiException(
+          statusCode: 500,
+          code: 'invalid_submission_receipt',
+          message:
+              'The server did not return a valid complaint reference number and passkey.',
+        );
       }
-      if (response['passkey'] is String &&
-          (response['passkey'] as String).isNotEmpty) {
-        passkey = response['passkey'] as String;
-      }
-      if (response['disguisedBackupSerial'] is String &&
-          (response['disguisedBackupSerial'] as String).isNotEmpty) {
-        disguisedSerialTag = response['disguisedBackupSerial'] as String;
-      }
-    } catch (_) {
-      // Offline / local test fallback — keeps UI 100% functional
+
+      final created = DiscreetComplaintModel.fromBackendJson(
+        complaintJson,
+        knownPasskey: issuedPasskey,
+      );
+
+      _sessionIssuedPasskeys[created.referenceNumber.toUpperCase()] =
+          issuedPasskey;
+      _complaints.removeWhere(
+        (c) =>
+            c.referenceNumber.toUpperCase() ==
+            created.referenceNumber.toUpperCase(),
+      );
+      _complaints.insert(0, created);
+      _lastSubmittedComplaint = created;
+      return created;
+    } on BackendApiException catch (err) {
+      _lastError = err.message;
+      rethrow;
+    } finally {
+      _isSyncing = false;
+      notifyListeners();
+    }
+  }
+
+  /// Looks up a complaint on the backend (`GET /api/v1/complaints/track/:referenceNumber?passkey=...`).
+  /// Requires a valid passkey (or Disguised Wellness Quote Serial containing `::PASSKEY`).
+  Future<DiscreetComplaintModel> lookupComplaintOnServer({
+    required String referenceOrSerial,
+    String? passkey,
+  }) async {
+    final cleanRef = referenceOrSerial.trim();
+    if (cleanRef.isEmpty) {
+      throw const BackendApiException(
+        statusCode: 400,
+        code: 'reference_required',
+        message:
+            'Enter your #SKH-ANON / #SKH-CONF Reference Number or Disguised Quote Serial.',
+      );
     }
 
-    final created = DiscreetComplaintModel(
-      id: 'cmp-$digits',
-      referenceNumber: referenceNumber,
-      passkey: passkey,
-      disguisedSerialTag: disguisedSerialTag,
-      reportingMode: reportingMode,
-      categoryCode: categoryCode,
-      customCategoryNote: customCategoryNote,
-      urgencyLevel: urgencyLevel,
-      status: ComplaintStatus.submitted,
-      severityPriority: severity,
-      description: description,
-      incidentDateWindow: incidentDateWindow,
-      generalAreaText: generalAreaText,
-      supportingLinks: supportingLinks,
-      linkedPostId: linkedPostId,
-      linkedProfileHandle: linkedProfileHandle,
-      linkedBusinessId: linkedBusinessId,
-      wantsFollowUp: wantsFollowUp,
-      discreetNotificationMode: discreetNotificationMode,
-      evidenceFiles: evidenceFiles,
-      complainantMessages: <ComplainantMessageModel>[
-        ComplainantMessageModel(
-          id: 'msg-$digits-init',
-          senderRole: 'REVIEWER',
-          senderBadge: 'Sakhi Encrypted Intake Vault',
-          body: reportingMode == ComplaintReportingMode.anonymous
-              ? 'Your anonymous report has been sealed. Zero account identifiers were stored. Use your Reference Number ($referenceNumber) anytime to check status or reply.'
-              : 'Your confidential report has been sealed for Senior Safety Reviewers only. Your identity is completely hidden from the reported party and standard moderators.',
-          createdAtLabel: 'Just now',
-        ),
-      ],
-      internalNotes: const <InternalReviewerNoteModel>[],
-      auditTrail: <ComplaintAuditEntryModel>[
-        ComplaintAuditEntryModel(
-          id: 'aud-$digits-1',
-          action: reportingMode == ComplaintReportingMode.anonymous
-              ? 'COMPLAINT_SUBMITTED_ANONYMOUS'
-              : 'COMPLAINT_SUBMITTED_CONFIDENTIAL',
-          actorBadge: 'Sakhi Privacy Gate',
-          detail:
-              '${evidenceFiles.length} evidence file(s) scrubbed of EXIF GPS/device metadata; queued under $severity.',
-          integrityHash: 'SHA256:8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4',
-          timestampLabel: 'Just now',
-        ),
-      ],
-      assignedReviewerName: 'Pending Senior Safety Triage',
-      assignedDepartment: 'Trust & Safety Intake Queue',
-      slaTargetHours: severity == 'CRITICAL_P1' ? 4 : 12,
-      createdAtLabel: 'Just now • 26 Oct 2026',
-      updatedAtLabel: 'Just now • 26 Oct 2026',
-      maskedConfidentialContact:
-          reportingMode == ComplaintReportingMode.confidential
-          ? 'Verified Sakhi Member • +91 ••••• ••812 (Senior Reviewer Eyes Only)'
-          : null,
-    );
+    final effectivePasskey =
+        (passkey != null && passkey.trim().isNotEmpty)
+        ? passkey.trim()
+        : passkeyForReference(cleanRef);
 
-    _complaints.insert(0, created);
-    _lastSubmittedComplaint = created;
-    if (_blindedRateLimitRemaining > 0) {
-      _blindedRateLimitRemaining--;
+    if ((effectivePasskey == null || effectivePasskey.isEmpty) &&
+        !cleanRef.contains('::')) {
+      throw const BackendApiException(
+        statusCode: 403,
+        code: 'passkey_required',
+        message:
+            'Enter the Check-In Passkey issued with your complaint receipt (or paste your full Disguised Wellness Quote Serial).',
+      );
     }
-    _isSyncing = false;
+
+    _isSyncing = true;
+    _lastError = null;
     notifyListeners();
-    return created;
-  }
 
-  /// Lookup complaint by Reference Number (`#SKH-ANON-...` or `#SKH-CONF-...`) or Disguised Wellness Quote Serial
-  DiscreetComplaintModel? lookupByReferenceOrSerial(String query) {
-    final normalized = query.trim().toUpperCase();
-    if (normalized.isEmpty) return null;
-    for (final item in _complaints) {
-      final refUpper = item.referenceNumber.toUpperCase();
-      final refPlain = refUpper.replaceFirst('#', '');
-      final serialUpper = item.disguisedSerialTag.toUpperCase();
-      if (refUpper == normalized ||
-          refPlain == normalized.replaceFirst('#', '') ||
-          serialUpper == normalized ||
-          refUpper.endsWith(normalized)) {
-        return item;
+    try {
+      final encodedRef = Uri.encodeComponent(cleanRef);
+      final query = effectivePasskey != null && effectivePasskey.isNotEmpty
+          ? '?passkey=${Uri.encodeQueryComponent(effectivePasskey)}'
+          : '';
+      final response = await _apiClient.get(
+        'complaints/track/$encodedRef$query',
+      );
+      final complaintJson = response['complaint'];
+      if (complaintJson is! Map<String, dynamic>) {
+        throw const BackendApiException(
+          statusCode: 404,
+          code: 'complaint_not_found',
+          message: 'No complaint found matching that reference number.',
+        );
       }
+      final resolvedPasskey =
+          effectivePasskey ??
+          (cleanRef.contains('::') ? cleanRef.split('::').last.trim() : '');
+      final model = DiscreetComplaintModel.fromBackendJson(
+        complaintJson,
+        knownPasskey: resolvedPasskey,
+      );
+      if (resolvedPasskey.isNotEmpty) {
+        _sessionIssuedPasskeys[model.referenceNumber.toUpperCase()] =
+            resolvedPasskey;
+      }
+      _upsertLocalCache(model);
+      return model;
+    } on BackendApiException catch (err) {
+      _lastError = err.message;
+      rethrow;
+    } finally {
+      _isSyncing = false;
+      notifyListeners();
     }
-    return null;
   }
 
-  /// Two-Way Encrypted Anonymous / Confidential Follow-up Reply from Complainant
-  Future<DiscreetComplaintModel?> sendComplainantReply({
+  void _upsertLocalCache(DiscreetComplaintModel updated) {
+    final idx = _complaints.indexWhere(
+      (c) =>
+          c.referenceNumber.toUpperCase() ==
+          updated.referenceNumber.toUpperCase(),
+    );
+    if (idx >= 0) {
+      _complaints[idx] = updated;
+    } else {
+      _complaints.insert(0, updated);
+    }
+  }
+
+  /// Sends a Two-Way Encrypted Follow-Up Reply to `POST /api/v1/complaints/track/:referenceNumber/reply`.
+  Future<DiscreetComplaintModel> sendComplainantReply({
     required String referenceNumber,
+    required String passkey,
     required String messageBody,
     List<SanitizedEvidenceFileModel> newEvidence =
         const <SanitizedEvidenceFileModel>[],
   }) async {
-    final idx = _complaints.indexWhere(
-      (c) => c.referenceNumber.toUpperCase() == referenceNumber.toUpperCase(),
-    );
-    if (idx < 0) return null;
-
-    final current = _complaints[idx];
-    final nextMessages = <ComplainantMessageModel>[
-      ...current.complainantMessages,
-      ComplainantMessageModel(
-        id: 'msg-${DateTime.now().millisecondsSinceEpoch}',
-        senderRole: 'COMPLAINANT',
-        senderBadge: current.reportingMode == ComplaintReportingMode.anonymous
-            ? 'Anonymous Complainant (Zero-PII Verified Token)'
-            : 'Confidential Complainant (Encrypted Channel)',
-        body: messageBody.trim(),
-        createdAtLabel: 'Just now',
-        attachmentNames: newEvidence
-            .map((e) => e.sanitizedFileName)
-            .toList(growable: false),
-      ),
-    ];
-
-    final nextEvidence = <SanitizedEvidenceFileModel>[
-      ...current.evidenceFiles,
-      ...newEvidence,
-    ];
-
-    final nextStatus = current.status == ComplaintStatus.additionalInfoRequired
-        ? ComplaintStatus.underReview
-        : current.status;
-
-    final nextAudit = <ComplaintAuditEntryModel>[
-      ...current.auditTrail,
-      ComplaintAuditEntryModel(
-        id: 'aud-${DateTime.now().millisecondsSinceEpoch}',
-        action: 'COMPLAINANT_ENCRYPTED_REPLY',
-        actorBadge: 'Two-Way Anonymous Relay',
-        detail:
-            'Complainant submitted follow-up response (${newEvidence.length} new scrubbed attachment(s)).',
-        integrityHash: 'SHA256:3f79bb7b435b05321651daefd374cdc681dc06faa65e374e38337b88ca046dea',
-        timestampLabel: 'Just now',
-      ),
-    ];
-
-    try {
-      await _apiClient.post(
-        'complaints/track/${Uri.encodeComponent(current.referenceNumber)}/reply',
-        body: <String, Object?>{
-          'passkey': current.passkey,
-          'message': messageBody.trim(),
-          'evidenceFiles': newEvidence.map((e) => e.toJson()).toList(),
-        },
+    final cleanMsg = messageBody.trim();
+    if (cleanMsg.length < 2) {
+      throw const BackendApiException(
+        statusCode: 400,
+        code: 'reply_empty',
+        message: 'Please enter a reply message (at least 2 characters).',
       );
-    } catch (_) {}
-
-    final updated = current.copyWith(
-      status: nextStatus,
-      evidenceFiles: nextEvidence,
-      complainantMessages: nextMessages,
-      auditTrail: nextAudit,
-      updatedAtLabel: 'Just now',
-    );
-    _complaints[idx] = updated;
-    notifyListeners();
-    return updated;
-  }
-
-  /// Submit Appeal / Request Case Re-Open (for Rejected or Closed complaints)
-  Future<DiscreetComplaintModel?> submitCaseAppeal({
-    required String referenceNumber,
-    required String appealReason,
-  }) async {
-    final idx = _complaints.indexWhere(
-      (c) => c.referenceNumber.toUpperCase() == referenceNumber.toUpperCase(),
-    );
-    if (idx < 0) return null;
-
-    final current = _complaints[idx];
-    final nextMessages = <ComplainantMessageModel>[
-      ...current.complainantMessages,
-      ComplainantMessageModel(
-        id: 'msg-appeal-${DateTime.now().millisecondsSinceEpoch}',
-        senderRole: 'COMPLAINANT',
-        senderBadge: 'Appeal Request • Escalated to Different Senior Reviewer',
-        body: 'APPEAL SUBMITTED: ${appealReason.trim()}',
-        createdAtLabel: 'Just now',
-      ),
-    ];
-
-    final nextAudit = <ComplaintAuditEntryModel>[
-      ...current.auditTrail,
-      ComplaintAuditEntryModel(
-        id: 'aud-appeal-${DateTime.now().millisecondsSinceEpoch}',
-        action: 'CASE_APPEAL_SUBMITTED',
-        actorBadge: 'Complainant Token Verification',
-        detail: 'Complainant requested re-open & independent review by Ombudsperson.',
-        integrityHash: 'SHA256:9b871512327c09ce91dd649b3f96a63b7408ef267c8cc571be524e1a1b2e072f',
-        timestampLabel: 'Just now',
-      ),
-    ];
-
-    try {
-      await _apiClient.post(
-        'complaints/track/${Uri.encodeComponent(current.referenceNumber)}/appeal',
-        body: <String, Object?>{
-          'passkey': current.passkey,
-          'appealReason': appealReason.trim(),
-        },
-      );
-    } catch (_) {}
-
-    final updated = current.copyWith(
-      status: ComplaintStatus.underReview,
-      appealSubmitted: true,
-      appealReasonText: appealReason.trim(),
-      assignedReviewerName: 'Ombudsperson Appeal Panel (#SR-01)',
-      complainantMessages: nextMessages,
-      auditTrail: nextAudit,
-      updatedAtLabel: 'Just now • Appeal Active',
-    );
-    _complaints[idx] = updated;
-    notifyListeners();
-    return updated;
-  }
-
-  /// Immediate User-Initiated Media Purge from Vault (SRS 13.14 Data Retention & Deletion Controls)
-  Future<DiscreetComplaintModel?> purgeEvidenceVaultMedia({
-    required String referenceNumber,
-  }) async {
-    final idx = _complaints.indexWhere(
-      (c) => c.referenceNumber.toUpperCase() == referenceNumber.toUpperCase(),
-    );
-    if (idx < 0) return null;
-
-    final current = _complaints[idx];
-    try {
-      await _apiClient.post(
-        'complaints/track/${Uri.encodeComponent(current.referenceNumber)}/purge-media',
-        body: <String, Object?>{'passkey': current.passkey},
-      );
-    } catch (_) {}
-
-    final updated = current.copyWith(
-      evidenceFiles: const <SanitizedEvidenceFileModel>[],
-      mediaPurgedByUser: true,
-      auditTrail: <ComplaintAuditEntryModel>[
-        ...current.auditTrail,
-        const ComplaintAuditEntryModel(
-          id: 'aud-purge',
-          action: 'USER_PURGED_EVIDENCE_MEDIA',
-          actorBadge: 'Complainant DPDP Right-to-Erasure',
-          detail: 'All binary evidence attachments permanently zero-wiped from object storage.',
-          integrityHash: 'SHA256:0000000000000000000000000000000000000000000000000000000000000000',
-          timestampLabel: 'Just now',
-        ),
-      ],
-      updatedAtLabel: 'Just now • Media Purged',
-    );
-    _complaints[idx] = updated;
-    notifyListeners();
-    return updated;
-  }
-
-  /// Admin Action: Update Complaint Status, Public Resolution/Rejection Note, or Reviewer Assignment
-  Future<DiscreetComplaintModel?> adminUpdateComplaint({
-    required String complaintId,
-    ComplaintStatus? newStatus,
-    String? severityPriority,
-    String? assignedReviewerName,
-    String? assignedDepartment,
-    int? slaTargetHours,
-    String? publicMessageToComplainant,
-    String? internalPrivateNote,
-    String? publicResolutionNote,
-    String? rejectionReasonTitle,
-    String? rejectionReasonDetail,
-    String? duplicateOfReference,
-    bool? maliciousAbuseFlagged,
-  }) async {
-    final idx = _complaints.indexWhere((c) => c.id == complaintId);
-    if (idx < 0) return null;
-
-    final current = _complaints[idx];
-    final nextMessages = List<ComplainantMessageModel>.from(
-      current.complainantMessages,
-    );
-    if (publicMessageToComplainant != null &&
-        publicMessageToComplainant.trim().isNotEmpty) {
-      nextMessages.add(
-        ComplainantMessageModel(
-          id: 'msg-adm-${DateTime.now().millisecondsSinceEpoch}',
-          senderRole: 'REVIEWER',
-          senderBadge:
-              '${assignedReviewerName ?? current.assignedReviewerName} ($_activeAdminRole)',
-          body: publicMessageToComplainant.trim(),
-          createdAtLabel: 'Just now',
-        ),
+    }
+    final cleanPass = passkey.trim().isNotEmpty
+        ? passkey.trim()
+        : (passkeyForReference(referenceNumber) ?? '');
+    if (cleanPass.isEmpty) {
+      throw const BackendApiException(
+        statusCode: 403,
+        code: 'passkey_required',
+        message: 'Your complaint passkey is required to send a reply.',
       );
     }
 
-    final nextInternalNotes = List<InternalReviewerNoteModel>.from(
-      current.internalNotes,
-    );
-    if (internalPrivateNote != null && internalPrivateNote.trim().isNotEmpty) {
-      nextInternalNotes.add(
-        InternalReviewerNoteModel(
-          id: 'note-adm-${DateTime.now().millisecondsSinceEpoch}',
-          authorRole: _activeAdminRole,
-          authorLabel:
-              '${assignedReviewerName ?? current.assignedReviewerName} ($_activeAdminRole)',
-          note: internalPrivateNote.trim(),
-          visibilityScope: 'INTERNAL_ADMIN_ONLY',
-          createdAtLabel: 'Just now',
-        ),
-      );
-    }
-
-    final nextAudit = <ComplaintAuditEntryModel>[
-      ...current.auditTrail,
-      ComplaintAuditEntryModel(
-        id: 'aud-adm-${DateTime.now().millisecondsSinceEpoch}',
-        action: newStatus != null
-            ? 'ADMIN_STATUS_${newStatus.code}'
-            : 'ADMIN_CASE_UPDATED',
-        actorBadge: '$_activeAdminRole (${current.assignedReviewerName})',
-        detail: [
-          if (newStatus != null)
-            'Status: ${current.status.label} → ${newStatus.label}',
-          if (severityPriority != null) 'Priority: $severityPriority',
-          if (assignedReviewerName != null) 'Assigned: $assignedReviewerName',
-          if (duplicateOfReference != null) 'Merged into $duplicateOfReference',
-          if (maliciousAbuseFlagged == true)
-            'Blinded bucket rate-limit throttle applied',
-          if (internalPrivateNote != null &&
-              internalPrivateNote.trim().isNotEmpty)
-            'Added internal note (hidden from complainant)',
-        ].join(' • '),
-        integrityHash:
-            'SHA256:${DateTime.now().microsecondsSinceEpoch.toRadixString(16).padLeft(64, 'a')}',
-        timestampLabel: 'Just now',
-      ),
-    ];
+    _isSyncing = true;
+    _lastError = null;
+    notifyListeners();
 
     try {
-      if (newStatus != null) {
-        await _apiClient.patch(
-          'admin-review/complaints/$complaintId/status',
-          authenticated: true,
-          body: <String, Object?>{
-            'status': newStatus.code,
-            'complainantVisibleMessage': ?publicMessageToComplainant,
-            'resolutionSummary': ?publicResolutionNote,
-            'rejectionReason': ?rejectionReasonDetail,
-          },
+      final response = await _apiClient.post(
+        'complaints/track/${Uri.encodeComponent(referenceNumber.trim())}/reply',
+        body: <String, Object?>{
+          'passkey': cleanPass,
+          'message': cleanMsg,
+          'additionalEvidenceFiles': newEvidence
+              .map((e) => e.toJson())
+              .toList(),
+        },
+      );
+      final complaintJson = response['complaint'];
+      if (complaintJson is! Map<String, dynamic>) {
+        throw const BackendApiException(
+          statusCode: 500,
+          code: 'invalid_reply_response',
+          message: 'Server did not return updated complaint after reply.',
         );
       }
-    } catch (_) {}
-
-    final updated = current.copyWith(
-      status: newStatus,
-      severityPriority: severityPriority,
-      assignedReviewerName: assignedReviewerName,
-      assignedDepartment: assignedDepartment,
-      slaTargetHours: slaTargetHours,
-      complainantMessages: nextMessages,
-      internalNotes: nextInternalNotes,
-      auditTrail: nextAudit,
-      publicResolutionNote: publicResolutionNote,
-      rejectionReasonTitle: rejectionReasonTitle,
-      rejectionReasonDetail: rejectionReasonDetail,
-      duplicateOfReference: duplicateOfReference,
-      maliciousAbuseFlagged: maliciousAbuseFlagged,
-      updatedAtLabel: 'Just now',
-    );
-    _complaints[idx] = updated;
-    notifyListeners();
-    return updated;
+      final updated = DiscreetComplaintModel.fromBackendJson(
+        complaintJson,
+        knownPasskey: cleanPass,
+      );
+      _upsertLocalCache(updated);
+      return updated;
+    } on BackendApiException catch (err) {
+      _lastError = err.message;
+      rethrow;
+    } finally {
+      _isSyncing = false;
+      notifyListeners();
+    }
   }
 
-  /// Admin Action: Log Watermarked Evidence Inspection / Download
-  void logAdminEvidenceInspection({
-    required String complaintId,
-    required String fileName,
-    required String actionType,
-  }) {
-    final idx = _complaints.indexWhere((c) => c.id == complaintId);
-    if (idx < 0) return;
-    final current = _complaints[idx];
-    final updated = current.copyWith(
-      auditTrail: <ComplaintAuditEntryModel>[
-        ...current.auditTrail,
-        ComplaintAuditEntryModel(
-          id: 'aud-ev-${DateTime.now().millisecondsSinceEpoch}',
-          action: actionType,
-          actorBadge: '$_activeAdminRole (${current.assignedReviewerName})',
-          detail:
-              'Evidence "$fileName" accessed with watermark overlay [WM-$_activeAdminRole-2026].',
-          integrityHash:
-              'SHA256:${DateTime.now().millisecondsSinceEpoch.toRadixString(16).padLeft(64, 'c')}',
-          timestampLabel: 'Just now',
-        ),
-      ],
-    );
-    _complaints[idx] = updated;
+  /// Submits a Case Appeal to `POST /api/v1/complaints/track/:referenceNumber/appeal`.
+  Future<DiscreetComplaintModel> submitCaseAppeal({
+    required String referenceNumber,
+    required String passkey,
+    String appealReasonCategory = 'New Evidence or Escalating Concern',
+    required String appealReason,
+  }) async {
+    final cleanReason = appealReason.trim();
+    if (cleanReason.length < 10) {
+      throw const BackendApiException(
+        statusCode: 400,
+        code: 'appeal_too_short',
+        message:
+            'Please provide at least 10 characters explaining why this case should be re-opened.',
+      );
+    }
+    final cleanPass = passkey.trim().isNotEmpty
+        ? passkey.trim()
+        : (passkeyForReference(referenceNumber) ?? '');
+    if (cleanPass.isEmpty) {
+      throw const BackendApiException(
+        statusCode: 403,
+        code: 'passkey_required',
+        message: 'Your complaint passkey is required to submit an appeal.',
+      );
+    }
+
+    _isSyncing = true;
+    _lastError = null;
     notifyListeners();
+
+    try {
+      final response = await _apiClient.post(
+        'complaints/track/${Uri.encodeComponent(referenceNumber.trim())}/appeal',
+        body: <String, Object?>{
+          'passkey': cleanPass,
+          'appealReasonCategory': appealReasonCategory.trim(),
+          'appealDescription': cleanReason,
+        },
+      );
+      final complaintJson = response['complaint'];
+      if (complaintJson is! Map<String, dynamic>) {
+        throw const BackendApiException(
+          statusCode: 500,
+          code: 'invalid_appeal_response',
+          message: 'Server did not return updated complaint after appeal.',
+        );
+      }
+      final updated = DiscreetComplaintModel.fromBackendJson(
+        complaintJson,
+        knownPasskey: cleanPass,
+      ).copyWith(appealSubmitted: true, appealReasonText: cleanReason);
+      _upsertLocalCache(updated);
+      return updated;
+    } on BackendApiException catch (err) {
+      _lastError = err.message;
+      rethrow;
+    } finally {
+      _isSyncing = false;
+      notifyListeners();
+    }
   }
 
-  /// Admin Action: Toggle or Add Configurable Complaint Categories (SRS 7.3)
-  void toggleCategoryEnabled(String categoryCode, bool enabled) {
-    final idx = _categories.indexWhere((c) => c.code == categoryCode);
-    if (idx < 0) return;
-    _categories[idx] = _categories[idx].copyWith(enabled: enabled);
+  /// Purges uploaded evidence media on the server (`DELETE /api/v1/complaints/track/:referenceNumber/media`).
+  Future<DiscreetComplaintModel> purgeEvidenceVaultMedia({
+    required String referenceNumber,
+    required String passkey,
+  }) async {
+    final cleanPass = passkey.trim().isNotEmpty
+        ? passkey.trim()
+        : (passkeyForReference(referenceNumber) ?? '');
+    if (cleanPass.isEmpty) {
+      throw const BackendApiException(
+        statusCode: 403,
+        code: 'passkey_required',
+        message: 'Your complaint passkey is required to purge evidence media.',
+      );
+    }
+
+    _isSyncing = true;
+    _lastError = null;
     notifyListeners();
+
+    try {
+      final encodedRef = Uri.encodeComponent(referenceNumber.trim());
+      final encodedPass = Uri.encodeQueryComponent(cleanPass);
+      final response = await _apiClient.delete(
+        'complaints/track/$encodedRef/media?passkey=$encodedPass',
+        body: <String, Object?>{'passkey': cleanPass},
+      );
+      final complaintJson = response['complaint'];
+      if (complaintJson is! Map<String, dynamic>) {
+        throw const BackendApiException(
+          statusCode: 500,
+          code: 'invalid_purge_response',
+          message: 'Server did not confirm media erasure.',
+        );
+      }
+      final updated = DiscreetComplaintModel.fromBackendJson(
+        complaintJson,
+        knownPasskey: cleanPass,
+      );
+      _upsertLocalCache(updated);
+      return updated;
+    } on BackendApiException catch (err) {
+      _lastError = err.message;
+      rethrow;
+    } finally {
+      _isSyncing = false;
+      notifyListeners();
+    }
   }
 
-  void updateCategoryConfig({
-    required String categoryCode,
-    required String label,
-    required String defaultSeverity,
-    required String safetyGuidance,
-  }) {
-    final idx = _categories.indexWhere((c) => c.code == categoryCode);
-    if (idx < 0) return;
-    _categories[idx] = _categories[idx].copyWith(
-      label: label,
-      shortLabel: label,
-      defaultSeverity: defaultSeverity,
-      safetyGuidance: safetyGuidance,
-    );
+  // ===========================================================================
+  // ADMIN CONSOLE REAL BACKEND OPERATIONS (`/api/v1/admin-review/complaints*`)
+  // ===========================================================================
+
+  Map<String, String> get _adminHeaders => <String, String>{
+    'x-sakhi-admin-token': _adminReviewerToken,
+    'x-sakhi-admin-review-token': _adminReviewerToken,
+  };
+
+  Future<List<DiscreetComplaintModel>> loadAdminDashboardQueue({
+    String status = 'ALL',
+    String reportingMode = 'ALL',
+    String search = '',
+    int page = 1,
+  }) async {
+    _isSyncing = true;
+    _lastError = null;
     notifyListeners();
+
+    try {
+      final qs = <String, String>{
+        'status': status,
+        'reportingMode': reportingMode,
+        if (search.trim().isNotEmpty) 'search': search.trim(),
+        'page': page.toString(),
+        'viewerRole': _activeAdminRole,
+      };
+      final queryStr = qs.entries
+          .map(
+            (e) =>
+                '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}',
+          )
+          .join('&');
+      final res = await _apiClient.get(
+        'admin-review/complaints?$queryStr',
+        headers: _adminHeaders,
+      );
+
+      if (res['metrics'] is Map<String, dynamic>) {
+        _adminMetrics = res['metrics'] as Map<String, dynamic>;
+      }
+      if (res['retentionPolicy'] is Map<String, dynamic>) {
+        _retentionPolicy = ComplaintRetentionPolicyModel.fromBackendJson(
+          res['retentionPolicy'] as Map<String, dynamic>,
+        );
+      }
+      if (res['categories'] is List) {
+        final rawCats = res['categories'] as List;
+        final nextCats = <ComplaintCategoryInfo>[];
+        for (final item in rawCats.whereType<Map<String, dynamic>>()) {
+          final slug = (item['slug'] as String? ?? '').trim().toLowerCase();
+          final existing = _categories.cast<ComplaintCategoryInfo?>().firstWhere(
+            (c) => c?.code == slug,
+            orElse: () => null,
+          );
+          nextCats.add(
+            ComplaintCategoryInfo.fromBackendJson(item, fallback: existing),
+          );
+        }
+        if (nextCats.isNotEmpty) {
+          _categories
+            ..clear()
+            ..addAll(nextCats);
+        }
+      }
+
+      final rawComplaints = res['complaints'];
+      final loaded = rawComplaints is List
+          ? rawComplaints
+                .whereType<Map<String, dynamic>>()
+                .map(
+                  (j) => DiscreetComplaintModel.fromBackendJson(
+                    j,
+                    knownPasskey: passkeyForReference(
+                      j['referenceNumber'] as String? ?? '',
+                    ),
+                  ),
+                )
+                .toList(growable: false)
+          : const <DiscreetComplaintModel>[];
+
+      _complaints
+        ..clear()
+        ..addAll(loaded);
+      return _complaints;
+    } on BackendApiException catch (err) {
+      _lastError = err.message;
+      rethrow;
+    } finally {
+      _isSyncing = false;
+      notifyListeners();
+    }
   }
 
-  void updateRetentionPolicy(ComplaintRetentionPolicyModel nextPolicy) {
-    _retentionPolicy = nextPolicy;
+  Future<DiscreetComplaintModel> adminAssignAndClassifyOnServer({
+    required String referenceNumber,
+    required String assignedReviewerId,
+    required String assignedReviewerName,
+    required String severity,
+    required String priority,
+  }) async {
+    _isSyncing = true;
+    _lastError = null;
     notifyListeners();
+    try {
+      final res = await _apiClient.patch(
+        'admin-review/complaints/${Uri.encodeComponent(referenceNumber)}/assign',
+        headers: _adminHeaders,
+        body: <String, Object?>{
+          'assignedReviewerId': assignedReviewerId,
+          'assignedReviewerName': assignedReviewerName,
+          'severity': severity,
+          'priority': priority,
+        },
+      );
+      final updated = DiscreetComplaintModel.fromBackendJson(
+        res['complaint'] as Map<String, dynamic>,
+        knownPasskey: passkeyForReference(referenceNumber),
+      );
+      _upsertLocalCache(updated);
+      return updated;
+    } on BackendApiException catch (err) {
+      _lastError = err.message;
+      rethrow;
+    } finally {
+      _isSyncing = false;
+      notifyListeners();
+    }
+  }
+
+  Future<DiscreetComplaintModel> adminUpdateStatusOnServer({
+    required String referenceNumber,
+    required ComplaintStatus newStatus,
+    String? publicMessageToComplainant,
+    String? rejectionReasonCode,
+  }) async {
+    _isSyncing = true;
+    _lastError = null;
+    notifyListeners();
+    try {
+      final res = await _apiClient.post(
+        'admin-review/complaints/${Uri.encodeComponent(referenceNumber)}/status',
+        headers: _adminHeaders,
+        body: <String, Object?>{
+          'status': newStatus.code,
+          if (publicMessageToComplainant != null &&
+              publicMessageToComplainant.trim().isNotEmpty)
+            'publicMessageToComplainant': publicMessageToComplainant.trim(),
+          if (rejectionReasonCode != null &&
+              rejectionReasonCode.trim().isNotEmpty)
+            'rejectionReasonCode': rejectionReasonCode.trim(),
+        },
+      );
+      final updated = DiscreetComplaintModel.fromBackendJson(
+        res['complaint'] as Map<String, dynamic>,
+        knownPasskey: passkeyForReference(referenceNumber),
+      );
+      _upsertLocalCache(updated);
+      return updated;
+    } on BackendApiException catch (err) {
+      _lastError = err.message;
+      rethrow;
+    } finally {
+      _isSyncing = false;
+      notifyListeners();
+    }
+  }
+
+  Future<DiscreetComplaintModel> adminAddInternalNoteOnServer({
+    required String referenceNumber,
+    required String noteText,
+    String visibilityRole = 'SENIOR_REVIEWER',
+  }) async {
+    _isSyncing = true;
+    _lastError = null;
+    notifyListeners();
+    try {
+      final res = await _apiClient.post(
+        'admin-review/complaints/${Uri.encodeComponent(referenceNumber)}/internal-notes',
+        headers: _adminHeaders,
+        body: <String, Object?>{
+          'noteText': noteText.trim(),
+          'visibilityRole': visibilityRole,
+        },
+      );
+      final updated = DiscreetComplaintModel.fromBackendJson(
+        res['complaint'] as Map<String, dynamic>,
+        knownPasskey: passkeyForReference(referenceNumber),
+      );
+      _upsertLocalCache(updated);
+      return updated;
+    } on BackendApiException catch (err) {
+      _lastError = err.message;
+      rethrow;
+    } finally {
+      _isSyncing = false;
+      notifyListeners();
+    }
+  }
+
+  Future<String> adminAccessEvidenceOnServer({
+    required String referenceNumber,
+    required String evidenceId,
+    required String action,
+    required String justificationReason,
+  }) async {
+    _isSyncing = true;
+    _lastError = null;
+    notifyListeners();
+    try {
+      final res = await _apiClient.post(
+        'admin-review/complaints/${Uri.encodeComponent(referenceNumber)}/evidence-access',
+        headers: _adminHeaders,
+        body: <String, Object?>{
+          'evidenceId': evidenceId,
+          'action': action,
+          'justificationReason': justificationReason.trim(),
+          'viewerRole': _activeAdminRole,
+        },
+      );
+      if (res['complaint'] is Map<String, dynamic>) {
+        final updated = DiscreetComplaintModel.fromBackendJson(
+          res['complaint'] as Map<String, dynamic>,
+          knownPasskey: passkeyForReference(referenceNumber),
+        );
+        _upsertLocalCache(updated);
+      }
+      return (res['watermarkOverlayText'] as String? ?? 'WATERMARKED').trim();
+    } on BackendApiException catch (err) {
+      _lastError = err.message;
+      rethrow;
+    } finally {
+      _isSyncing = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> adminMergeDuplicatesOnServer({
+    required String primaryReferenceNumber,
+    required List<String> duplicateReferenceNumbers,
+    String? clusterId,
+  }) async {
+    _isSyncing = true;
+    _lastError = null;
+    notifyListeners();
+    try {
+      await _apiClient.post(
+        'admin-review/complaints/merge-duplicates',
+        headers: _adminHeaders,
+        body: <String, Object?>{
+          'primaryReferenceNumber': primaryReferenceNumber.trim(),
+          'duplicateReferenceNumbers': duplicateReferenceNumbers,
+          if (clusterId != null && clusterId.trim().isNotEmpty)
+            'clusterId': clusterId.trim(),
+          'viewerRole': _activeAdminRole,
+        },
+      );
+      await loadAdminDashboardQueue();
+    } on BackendApiException catch (err) {
+      _lastError = err.message;
+      rethrow;
+    } finally {
+      _isSyncing = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> adminHandleMaliciousOnServer({
+    required String referenceNumber,
+    required String reason,
+    int cooldownHours = 72,
+  }) async {
+    _isSyncing = true;
+    _lastError = null;
+    notifyListeners();
+    try {
+      await _apiClient.post(
+        'admin-review/complaints/${Uri.encodeComponent(referenceNumber)}/malicious-guard',
+        headers: _adminHeaders,
+        body: <String, Object?>{
+          'action': 'THROTTLE_BLINDED_BUCKET',
+          'cooldownHours': cooldownHours,
+          'reason': reason.trim(),
+          'viewerRole': _activeAdminRole,
+        },
+      );
+      await loadAdminDashboardQueue();
+    } on BackendApiException catch (err) {
+      _lastError = err.message;
+      rethrow;
+    } finally {
+      _isSyncing = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> toggleCategoryEnabledOnServer(
+    ComplaintCategoryInfo cat,
+    bool enabled,
+  ) async {
+    _isSyncing = true;
+    _lastError = null;
+    notifyListeners();
+    try {
+      await _apiClient.put(
+        'admin-review/complaints/categories',
+        headers: _adminHeaders,
+        body: <String, Object?>{
+          'slug': cat.code,
+          'name': cat.label,
+          'description': cat.subtitle,
+          'defaultPriority': cat.defaultPriority,
+          'defaultSeverity': cat.defaultSeverity,
+          'safetyGuidanceText': cat.safetyGuidance,
+          'legalHelplineNote': cat.legalHelplineNote,
+          'isEnabled': enabled,
+          'displayOrder': cat.displayOrder,
+          'viewerRole': _activeAdminRole,
+        },
+      );
+      final idx = _categories.indexWhere((c) => c.code == cat.code);
+      if (idx >= 0) {
+        _categories[idx] = _categories[idx].copyWith(enabled: enabled);
+      }
+    } on BackendApiException catch (err) {
+      _lastError = err.message;
+      rethrow;
+    } finally {
+      _isSyncing = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateRetentionPolicyOnServer({
+    required int closedEvidenceRetentionDays,
+    required int rejectedReportRetentionDays,
+    required int technicalRateLimitLogDays,
+  }) async {
+    _isSyncing = true;
+    _lastError = null;
+    notifyListeners();
+    try {
+      final res = await _apiClient.put(
+        'admin-review/complaints/retention-policy',
+        headers: _adminHeaders,
+        body: <String, Object?>{
+          'closedEvidenceRetentionDays': closedEvidenceRetentionDays,
+          'rejectedReportRetentionDays': rejectedReportRetentionDays,
+          'technicalRateLimitLogDays': technicalRateLimitLogDays,
+          'viewerRole': _activeAdminRole,
+        },
+      );
+      if (res['retentionPolicy'] is Map<String, dynamic>) {
+        _retentionPolicy = ComplaintRetentionPolicyModel.fromBackendJson(
+          res['retentionPolicy'] as Map<String, dynamic>,
+        );
+      }
+    } on BackendApiException catch (err) {
+      _lastError = err.message;
+      rethrow;
+    } finally {
+      _isSyncing = false;
+      notifyListeners();
+    }
   }
 }

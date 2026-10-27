@@ -515,6 +515,7 @@ class _FakeDecentroDemoApiClient extends BackendApiClient {
   Future<Map<String, dynamic>> get(
     String path, {
     bool authenticated = false,
+    Map<String, String>? headers,
   }) async {
     if (path == 'eligibility/configuration') {
       return <String, dynamic>{
@@ -543,6 +544,7 @@ class _FakeDecentroDemoApiClient extends BackendApiClient {
     String path, {
     Map<String, Object?> body = const <String, Object?>{},
     bool authenticated = false,
+    Map<String, String>? headers,
   }) async {
     postRequests.add((
       path: path,

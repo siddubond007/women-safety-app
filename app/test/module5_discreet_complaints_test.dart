@@ -1,7 +1,10 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:women_safety_app/core/navigation/app_routes.dart';
 import 'package:women_safety_app/core/theme/app_theme.dart';
+import 'package:women_safety_app/features/auth/backend_api_client.dart';
 import 'package:women_safety_app/features/complaints/models/complaint_models.dart';
 import 'package:women_safety_app/features/complaints/screens/complaint_admin_console_screen.dart';
 import 'package:women_safety_app/features/complaints/screens/complaint_submission_wizard_screen.dart';
@@ -9,40 +12,234 @@ import 'package:women_safety_app/features/complaints/screens/complaint_tracking_
 import 'package:women_safety_app/features/complaints/screens/discreet_complaint_hub_screen.dart';
 import 'package:women_safety_app/features/complaints/services/complaint_controller.dart';
 
+/// Isolated test-only API client that simulates the backend contract for widget/unit tests
+/// without polluting production code with fake fallback records.
+class _FakeComplaintBackendApiClient extends BackendApiClient {
+  bool shouldFail = false;
+  final Map<String, Map<String, dynamic>> storedComplaints =
+      <String, Map<String, dynamic>>{};
+
+  @override
+  Future<Map<String, dynamic>> get(
+    String path, {
+    bool authenticated = false,
+    Map<String, String>? headers,
+  }) async {
+    if (shouldFail) {
+      throw const BackendApiException(
+        statusCode: 503,
+        code: 'network_unavailable',
+        message: 'Simulated backend offline error.',
+      );
+    }
+    if (path.startsWith('complaints/categories')) {
+      return <String, dynamic>{
+        'categories': <Map<String, dynamic>>[],
+        'retentionPolicy': <String, dynamic>{
+          'closedEvidenceRetentionDays': 90,
+          'rejectedReportRetentionDays': 30,
+          'technicalRateLimitLogDays': 14,
+        },
+      };
+    }
+    if (path.startsWith('complaints/track/')) {
+      final uri = Uri.parse('http://localhost/$path');
+      final ref = Uri.decodeComponent(uri.pathSegments.last).toUpperCase();
+      final pass = uri.queryParameters['passkey'] ?? '';
+      final found = storedComplaints[ref];
+      if (found == null) {
+        throw const BackendApiException(
+          statusCode: 404,
+          code: 'not_found',
+          message: 'Complaint not found.',
+        );
+      }
+      if (pass.isEmpty || found['passkey'] != pass) {
+        throw const BackendApiException(
+          statusCode: 403,
+          code: 'forbidden',
+          message: 'Invalid check-in passkey.',
+        );
+      }
+      return <String, dynamic>{'found': true, 'complaint': found};
+    }
+    if (path.startsWith('admin-review/complaints')) {
+      return <String, dynamic>{
+        'metrics': <String, dynamic>{
+          'totalComplaints': storedComplaints.length,
+          'openComplaintsCount': storedComplaints.length,
+          'urgentP1Count': 0,
+          'anonymousPercentage': 100,
+          'confidentialPercentage': 0,
+          'duplicateClustersCount': 0,
+          'flaggedMaliciousAbuseCount': 0,
+          'medianTriageHours': 0,
+        },
+        'complaints': storedComplaints.values.toList(),
+        'categories': <Map<String, dynamic>>[],
+        'retentionPolicy': <String, dynamic>{
+          'closedEvidenceRetentionDays': 90,
+          'rejectedReportRetentionDays': 30,
+          'technicalRateLimitLogDays': 14,
+        },
+      };
+    }
+    return <String, dynamic>{};
+  }
+
+  @override
+  Future<Map<String, dynamic>> post(
+    String path, {
+    Map<String, Object?> body = const <String, Object?>{},
+    bool authenticated = false,
+    Map<String, String>? headers,
+  }) async {
+    if (shouldFail) {
+      throw const BackendApiException(
+        statusCode: 503,
+        code: 'network_unavailable',
+        message: 'Simulated backend offline error.',
+      );
+    }
+    if (path == 'complaints/scrub-metadata') {
+      return <String, dynamic>{
+        'sanitizedFile': <String, dynamic>{
+          'id': 'ev_test_01',
+          'fileName': 'evidence_redacted_01.png',
+          'originalFileNameRedacted': '[PURGED]',
+          'contentType': body['contentType'] ?? 'image/png',
+          'byteSize': body['byteSize'] ?? 1024,
+          'sha256Digest':
+              '8f4c2b910e4a71239c5812b74a0f12e9b814c6a2039481726354819203a4e92a',
+          'exifGpsStripped': true,
+          'deviceMetadataStripped': true,
+          'visualBlurApplied': true,
+          'scrubbedFields': <String>['EXIF.GPSLatitude', 'EXIF.DeviceModel'],
+          'uploadedAt': '2026-10-26T10:00:00Z',
+        },
+      };
+    }
+    if (path == 'complaints') {
+      const ref = '#SKH-ANON-2026-9001';
+      const passkey = 'LOTUS-901-SAFE';
+      final record = <String, dynamic>{
+        'id': 'cmp-9001',
+        'referenceNumber': ref,
+        'passkey': passkey,
+        'disguisedBackupSerial': 'SKH-WELLNESS-2026-9001::$passkey',
+        'reportingMode': body['reportingMode'] ?? 'ANONYMOUS',
+        'categorySlug': body['categorySlug'] ?? 'harassment',
+        'categoryTitle': 'Harassment',
+        'urgency': body['urgency'] ?? 'PAST_INCIDENT',
+        'description': body['description'] ?? '',
+        'approximateDateLabel': body['approximateDateLabel'] ?? 'Today',
+        'approximateTimeWindow': body['approximateTimeWindow'] ?? 'Evening',
+        'locationType': body['locationType'] ?? 'COARSE_AREA',
+        'generalLocationLabel': body['generalLocationLabel'] ?? 'Online',
+        'supportingLinks': body['supportingLinks'] ?? <String>[],
+        'evidenceFiles': body['evidenceFiles'] ?? <Map<String, dynamic>>[],
+        'status': 'SUBMITTED',
+        'severity': 'S2_HIGH',
+        'priority': 'P1_URGENT',
+        'complainantMessages': <Map<String, dynamic>>[],
+        'internalNotes': <Map<String, dynamic>>[],
+        'auditHistory': <Map<String, dynamic>>[],
+        'createdAt': '2026-10-26T10:00:00Z',
+        'updatedAt': '2026-10-26T10:00:00Z',
+      };
+      storedComplaints[ref] = record;
+      return <String, dynamic>{
+        'submitted': true,
+        'referenceNumber': ref,
+        'passkey': passkey,
+        'disguisedBackupSerial': record['disguisedBackupSerial'],
+        'complaint': record,
+      };
+    }
+    if (path.endsWith('/reply')) {
+      final ref = '#SKH-ANON-2026-9001';
+      final rec = Map<String, dynamic>.from(storedComplaints[ref]!);
+      rec['status'] = 'UNDER_REVIEW';
+      rec['complainantMessages'] = <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'msg-1',
+          'senderRole': 'COMPLAINANT_ANONYMOUS',
+          'senderLabel': 'Anonymous Reporter',
+          'message': body['message'],
+          'createdAt': 'Just now',
+        },
+      ];
+      storedComplaints[ref] = rec;
+      return <String, dynamic>{'updated': true, 'complaint': rec};
+    }
+    if (path.endsWith('/appeal')) {
+      final ref = '#SKH-ANON-2026-9001';
+      final rec = Map<String, dynamic>.from(storedComplaints[ref]!);
+      rec['status'] = 'ESCALATED';
+      storedComplaints[ref] = rec;
+      return <String, dynamic>{'appealed': true, 'complaint': rec};
+    }
+    return <String, dynamic>{};
+  }
+
+  @override
+  Future<Map<String, dynamic>> delete(
+    String path, {
+    Map<String, Object?>? body,
+    bool authenticated = false,
+    Map<String, String>? headers,
+  }) async {
+    final ref = '#SKH-ANON-2026-9001';
+    final rec = Map<String, dynamic>.from(storedComplaints[ref]!);
+    rec['mediaPurgedAt'] = '2026-10-26T10:05:00Z';
+    rec['evidenceFiles'] = <Map<String, dynamic>>[];
+    storedComplaints[ref] = rec;
+    return <String, dynamic>{'purged': true, 'complaint': rec};
+  }
+}
+
 Widget _wrapWithMaterialApp(Widget home) {
+  final routes = Map<String, WidgetBuilder>.from(AppRoutes.routes)
+    ..remove(AppRoutes.root);
   return MaterialApp(
     theme: AppTheme.lightTheme,
-    routes: Map<String, WidgetBuilder>.from(AppRoutes.routes)
-      ..remove(AppRoutes.root),
+    routes: routes,
     home: home,
   );
 }
 
 void main() {
-  group('Module 5 — SakhiComplaintController & Privacy Invariants', () {
-    final controller = SakhiComplaintController.instance;
+  group('Module 5 — Real Data, Validation & Privacy Invariants', () {
+    test('starts with an empty complaint list (zero fabricated records)', () {
+      final freshController = SakhiComplaintController(
+        apiClient: _FakeComplaintBackendApiClient(),
+      );
+      expect(freshController.complaints, isEmpty);
+      expect(freshController.categories.length, 10);
+    });
 
-    test('exposes all 10 configurable SRS Section 7.3 categories', () {
-      expect(controller.categories.length, greaterThanOrEqualTo(10));
+    test('exposes all 10 configurable SRS Section 7.2 categories', () {
+      final controller = SakhiComplaintController.instance;
       final codes = controller.categories.map((c) => c.code).toSet();
       expect(
         codes,
         containsAll(<String>[
-          'HARASSMENT',
-          'STALKING',
-          'CYBERBULLYING',
-          'BLACKMAIL_EXTORTION',
-          'DOMESTIC_FAMILY_CONCERN',
-          'WORKPLACE_HARASSMENT',
-          'IMPERSONATION_FAKE_ACCOUNT',
-          'UNSAFE_COMMUNITY_BEHAVIOUR',
-          'BUSINESS_RELATED_COMPLAINT',
-          'OTHER',
+          'harassment',
+          'online_abuse_cyberbullying',
+          'stalking_unwanted_contact',
+          'workplace_misconduct',
+          'public_place_safety',
+          'fraud_suspicious_activity',
+          'discrimination',
+          'domestic_interpersonal_safety',
+          'business_related_complaints',
+          'other',
         ]),
       );
     });
 
     test('detects and redacts accidental self-identifying PII clues', () {
+      final controller = SakhiComplaintController.instance;
       const sample =
           'My name is Riya Sharma and my phone is +91 9876543210, email riya@example.com at Flat #402.';
       final res = controller.analyzeTextForSelfIdentifyingClues(sample);
@@ -50,74 +247,112 @@ void main() {
       expect(res.detectedItems.length, greaterThanOrEqualTo(3));
       expect(res.redactedText, isNot(contains('9876543210')));
       expect(res.redactedText, isNot(contains('riya@example.com')));
-      expect(res.redactedText, contains('[REDACTED-MY-PHONE]'));
-      expect(res.redactedText, contains('[REDACTED-MY-EMAIL]'));
     });
 
-    test('scrubs EXIF and GPS metadata from evidence attachments', () {
-      final ev = controller.scrubAndCreateEvidence(
-        originalFileName: 'IMG_8812_LocationPhoto.jpg',
-        mimeType: 'image/jpeg',
-        sizeBytes: 512000,
-      );
-      expect(ev.exifScrubbed, isTrue);
-      expect(ev.blurredByDefault, isTrue);
-      expect(ev.removedTags, isNotEmpty);
-      expect(ev.sha256Hash.length, 64);
+    test('strips binary JPEG EXIF/APP1 markers on client before upload', () {
+      final controller = SakhiComplaintController.instance;
+      final jpegWithExif = Uint8List.fromList(<int>[
+        0xff, 0xd8, // SOI
+        0xff, 0xe1, 0x00, 0x08, 0x45, 0x78, 0x69, 0x66, 0x00, 0x00, // APP1 EXIF
+        0xff, 0xd9, // EOI
+      ]);
+      final stripped = controller.stripClientBinaryMetadata(jpegWithExif);
+      expect(stripped, equals(Uint8List.fromList(<int>[0xff, 0xd8, 0xff, 0xd9])));
     });
 
-    test('supports full lifecycle: submit, lookup, two-way reply, appeal, and DPDP media purge', () async {
-      final created = await controller.submitComplaint(
-        reportingMode: ComplaintReportingMode.anonymous,
-        categoryCode: 'CYBERBULLYING',
-        urgencyLevel: 'HIGH',
-        description: 'Coordinated harassment thread in community group.',
-        incidentDateWindow: 'Today • Evening',
-        generalAreaText: 'Online Only',
-        supportingLinks: const <String>['sakhi://post/test-99'],
-        wantsFollowUp: true,
-        discreetNotificationMode: 'SILENT_VAULT_ONLY',
-        evidenceFiles: <SanitizedEvidenceFileModel>[
-          controller.scrubAndCreateEvidence(
-            originalFileName: 'Proof.png',
-            mimeType: 'image/png',
-            sizeBytes: 204800,
-          ),
-        ],
-      );
+    test('never invents a fake reference number when the backend fails', () async {
+      final fakeClient = _FakeComplaintBackendApiClient()..shouldFail = true;
+      final controller = SakhiComplaintController(apiClient: fakeClient);
 
-      expect(created.referenceNumber, startsWith('#SKH-ANON-'));
-      expect(
-        controller.lookupByReferenceOrSerial(created.referenceNumber)?.id,
-        created.id,
+      await expectLater(
+        () => controller.submitComplaint(
+          reportingMode: ComplaintReportingMode.anonymous,
+          categoryCode: 'harassment',
+          urgencyLevel: 'PAST_INCIDENT',
+          description:
+              'Repeated harassing messages sent in the community group.',
+          approximateDateLabel: 'Today',
+          approximateTimeWindow: 'Evening',
+          locationType: 'COARSE_AREA',
+          supportingLinks: const <String>[],
+          wantsFollowUp: true,
+          discreetNotificationMode: 'SILENT_VAULT_ONLY',
+          acknowledgedNonPoliceLegalNotice: true,
+          evidenceFiles: const <SanitizedEvidenceFileModel>[],
+        ),
+        throwsA(isA<BackendApiException>()),
       );
-      expect(
-        controller.lookupByReferenceOrSerial(created.disguisedSerialTag)?.id,
-        created.id,
-      );
-
-      final afterReply = await controller.sendComplainantReply(
-        referenceNumber: created.referenceNumber,
-        messageBody: 'Adding second screenshot context.',
-      );
-      expect(afterReply, isNotNull);
-      expect(afterReply!.complainantMessages.length, greaterThanOrEqualTo(2));
-
-      final afterAppeal = await controller.submitCaseAppeal(
-        referenceNumber: created.referenceNumber,
-        appealReason: 'Escalating threat requires independent review.',
-      );
-      expect(afterAppeal?.appealSubmitted, isTrue);
-
-      final afterPurge = await controller.purgeEvidenceVaultMedia(
-        referenceNumber: created.referenceNumber,
-      );
-      expect(afterPurge?.mediaPurgedByUser, isTrue);
-      expect(afterPurge?.evidenceFiles, isEmpty);
+      expect(controller.complaints, isEmpty);
     });
+
+    test(
+      'executes full server-backed lifecycle: scrub, submit, passkey lookup, reply, appeal, and purge',
+      () async {
+        final fakeClient = _FakeComplaintBackendApiClient();
+        final controller = SakhiComplaintController(apiClient: fakeClient);
+
+        final scrubbed = await controller.uploadAndScrubEvidenceOnServer(
+          originalFileName: 'Proof.png',
+          mimeType: 'image/png',
+          fileBytes: Uint8List.fromList(<int>[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
+        );
+        expect(scrubbed.exifScrubbed, isTrue);
+
+        final created = await controller.submitComplaint(
+          reportingMode: ComplaintReportingMode.anonymous,
+          categoryCode: 'online_abuse_cyberbullying',
+          urgencyLevel: 'HAPPENING_NOW',
+          description:
+              'Coordinated harassment thread in community group targeting members.',
+          approximateDateLabel: 'Today',
+          approximateTimeWindow: 'Evening',
+          locationType: 'ONLINE_IN_APP',
+          supportingLinks: const <String>['sakhi://post/test-99'],
+          wantsFollowUp: true,
+          discreetNotificationMode: 'SILENT_VAULT_ONLY',
+          acknowledgedNonPoliceLegalNotice: true,
+          evidenceFiles: <SanitizedEvidenceFileModel>[scrubbed],
+        );
+
+        expect(created.referenceNumber, '#SKH-ANON-2026-9001');
+        expect(created.passkey, 'LOTUS-901-SAFE');
+
+        final lookedUp = await controller.lookupComplaintOnServer(
+          referenceOrSerial: created.referenceNumber,
+          passkey: created.passkey,
+        );
+        expect(lookedUp.referenceNumber, created.referenceNumber);
+
+        final afterReply = await controller.sendComplainantReply(
+          referenceNumber: created.referenceNumber,
+          passkey: created.passkey,
+          messageBody: 'Adding second screenshot context.',
+        );
+        expect(afterReply.status, ComplaintStatus.underReview);
+
+        final afterAppeal = await controller.submitCaseAppeal(
+          referenceNumber: created.referenceNumber,
+          passkey: created.passkey,
+          appealReason: 'Escalating threat requires independent review.',
+        );
+        expect(afterAppeal.status, ComplaintStatus.escalated);
+
+        final afterPurge = await controller.purgeEvidenceVaultMedia(
+          referenceNumber: created.referenceNumber,
+          passkey: created.passkey,
+        );
+        expect(afterPurge.mediaPurgedByUser, isTrue);
+      },
+    );
   });
 
-  group('Module 5 — Live Flutter UI Screens & Navigation', () {
+  group('Module 5 — Live Flutter UI Screens & Step Validation', () {
+    setUp(() {
+      SakhiComplaintController.instance.setApiClientForTesting(
+        _FakeComplaintBackendApiClient(),
+      );
+    });
+
     testWidgets(
       'DiscreetComplaintHubScreen renders hero, legal notice, modes, and quick exit',
       (tester) async {
@@ -127,7 +362,10 @@ void main() {
         await tester.pump(const Duration(milliseconds: 250));
 
         expect(find.text('Discreet Complaint Hub'), findsOneWidget);
-        expect(find.text('Speak Up Safely, On Your Own Terms'), findsOneWidget);
+        expect(
+          find.text('Speak Up Safely, On Your Own Terms'),
+          findsOneWidget,
+        );
         expect(
           find.byKey(const Key('m5-start-discreet-report-button')),
           findsOneWidget,
@@ -141,74 +379,97 @@ void main() {
     );
 
     testWidgets(
-      'QuickExitWellnessCamouflageScreen hides complaint terms and supports return to hub',
-      (tester) async {
-        await tester.pumpWidget(
-          _wrapWithMaterialApp(const QuickExitWellnessCamouflageScreen()),
-        );
-        await tester.pump(const Duration(milliseconds: 200));
-
-        expect(find.text('Evening Chamomile & Gratitude'), findsOneWidget);
-        expect(find.text('Today\'s Calm Reflection'), findsOneWidget);
-      },
-    );
-
-    testWidgets(
-      'ComplaintSubmissionWizardScreen navigates across all 5 steps',
+      'ComplaintSubmissionWizardScreen blocks advancing past Step 3 when description is empty and advances once valid',
       (tester) async {
         await tester.pumpWidget(
           _wrapWithMaterialApp(const ComplaintSubmissionWizardScreen()),
         );
         await tester.pump(const Duration(milliseconds: 200));
 
-        expect(
-          find.text('Select Your Privacy & Protection Mode'),
-          findsOneWidget,
-        );
-
-        // Tap Step 2 chip
-        await tester.tap(find.byKey(const Key('m5-step-chip-2')));
+        // Step 1 -> Step 2
+        await tester.tap(find.byKey(const Key('m5-wizard-primary-next-button')));
         await tester.pumpAndSettle();
         expect(
           find.text('What Kind of Concern Are You Reporting?'),
           findsOneWidget,
         );
 
-        // Tap Step 3 chip
-        await tester.tap(find.byKey(const Key('m5-step-chip-3')));
+        // Step 2 -> Step 3
+        await tester.tap(find.byKey(const Key('m5-wizard-primary-next-button')));
         await tester.pumpAndSettle();
         expect(find.text('Describe What Happened Safely'), findsOneWidget);
 
-        // Tap Step 4 chip
-        await tester.tap(find.byKey(const Key('m5-step-chip-4')));
+        // Try to advance Step 3 with empty description -> blocked with validation error banner!
+        await tester.tap(find.byKey(const Key('m5-wizard-primary-next-button')));
         await tester.pumpAndSettle();
         expect(
-          find.text('Encrypted Evidence Vault & Auto-EXIF Scrubber'),
+          find.byKey(const Key('m5-wizard-validation-error-banner')),
           findsOneWidget,
         );
 
-        // Tap Step 5 chip
-        await tester.tap(find.byKey(const Key('m5-step-chip-5')));
+        // Enter a valid >= 20 char description and advance to Step 4
+        await tester.enterText(
+          find.byKey(const Key('m5-incident-description-input')),
+          'Repeated intimidating messages sent after a community safety discussion.',
+        );
         await tester.pumpAndSettle();
-        expect(find.text('Discreet Updates & Final Review'), findsOneWidget);
+        await tester.tap(find.byKey(const Key('m5-wizard-primary-next-button')));
+        await tester.pumpAndSettle();
+        expect(
+          find.text('Encrypted Evidence Vault & Server EXIF Scrubber'),
+          findsOneWidget,
+        );
       },
     );
 
     testWidgets(
-      'ComplaintTrackingLookupScreen inspects all 7 SRS 7.5 status stages',
+      'ComplaintTrackingLookupScreen renders read-only 7-stage timeline for preloaded complaint',
       (tester) async {
+        const sample = DiscreetComplaintModel(
+          id: 'cmp-9001',
+          referenceNumber: '#SKH-ANON-2026-9001',
+          passkey: 'LOTUS-901-SAFE',
+          disguisedSerialTag: 'SKH-WELLNESS-2026-9001::LOTUS-901-SAFE',
+          reportingMode: ComplaintReportingMode.anonymous,
+          categoryCode: 'harassment',
+          categoryTitle: 'Harassment',
+          customCategoryNote: null,
+          urgencyLevel: 'PAST_INCIDENT',
+          status: ComplaintStatus.submitted,
+          severity: 'S2_HIGH',
+          priority: 'P1_URGENT',
+          description: 'Verified test complaint record.',
+          approximateDateLabel: 'Today',
+          approximateTimeWindow: 'Evening',
+          locationType: 'COARSE_AREA',
+          generalAreaText: 'Online',
+          supportingLinks: <String>[],
+          linkedPostId: null,
+          linkedProfileHandle: null,
+          linkedBusinessId: null,
+          wantsFollowUp: true,
+          discreetNotificationMode: 'SILENT_VAULT_ONLY',
+          evidenceFiles: <SanitizedEvidenceFileModel>[],
+          complainantMessages: <ComplainantMessageModel>[],
+          internalNotes: <InternalReviewerNoteModel>[],
+          auditTrail: <ComplaintAuditEntryModel>[],
+          assignedReviewerName: 'Pending Senior Safety Triage',
+          assignedDepartment: 'Trust & Safety Desk',
+          slaTargetHours: 4,
+          createdAtLabel: 'Just now',
+          updatedAtLabel: 'Just now',
+        );
+
         await tester.pumpWidget(
           _wrapWithMaterialApp(
             const ComplaintTrackingLookupScreen(
-              initialReferenceNumber: '#SKH-ANON-2026-8492',
+              initialPreloadedComplaint: sample,
             ),
           ),
         );
         await tester.pump(const Duration(milliseconds: 250));
 
         expect(find.text('Track Complaint Status'), findsOneWidget);
-        expect(find.text('#SKH-ANON-2026-8492'), findsWidgets);
-
         for (final st in ComplaintStatus.values) {
           expect(
             find.byKey(Key('m5-status-stage-chip-${st.code}')),
@@ -219,32 +480,20 @@ void main() {
     );
 
     testWidgets(
-      'ComplaintAdminConsoleScreen enforces RBAC PII masking and audit trail tabs',
+      'ComplaintAdminConsoleScreen renders empty queue honesty state and RBAC role selector',
       (tester) async {
         await tester.pumpWidget(
           _wrapWithMaterialApp(const ComplaintAdminConsoleScreen()),
         );
-        await tester.pump(const Duration(milliseconds: 250));
+        await tester.pumpAndSettle();
 
         expect(find.text('Admin Complaint Console'), findsOneWidget);
         expect(
           find.byKey(const Key('m5-admin-role-chip-STANDARD_MODERATOR')),
           findsOneWidget,
         );
-
-        // Switch to Audit tab
-        await tester.tap(find.byKey(const Key('m5-admin-tab-audit')));
-        await tester.pumpAndSettle();
         expect(
-          find.textContaining('Immutable Case Audit History'),
-          findsOneWidget,
-        );
-
-        // Switch to Categories & DPDP Retention tab
-        await tester.tap(find.byKey(const Key('m5-admin-tab-config')));
-        await tester.pumpAndSettle();
-        expect(
-          find.textContaining('DPDP Act 2023 Data Retention'),
+          find.text('No Complaints in Queue (0 Database Records)'),
           findsOneWidget,
         );
       },

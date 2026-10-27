@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Eye,
   FileClock,
   GitMerge,
@@ -57,6 +59,7 @@ interface ComplaintAuditEntry {
   actorLabel: string;
   action: string;
   summary: string;
+  integrityHash?: string;
   timestamp: string;
 }
 
@@ -79,6 +82,8 @@ interface ComplaintItem {
   generalLocationLabel?: string | null;
   linkedTargetType?: string | null;
   linkedTargetHandle?: string | null;
+  linkedPostId?: string | null;
+  linkedBusinessId?: string | null;
   evidenceFiles: SanitizedEvidenceFile[];
   supportingLinks: Array<{ url: string; linkType: string; snapshotArchived: boolean }>;
   status: string;
@@ -96,6 +101,7 @@ interface ComplaintItem {
   complainantMessages: ComplainantMessageItem[];
   internalNotes: InternalReviewerNoteItem[];
   auditHistory: ComplaintAuditEntry[];
+  mediaPurgedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -146,207 +152,6 @@ interface ComplaintsDashboardPayload {
   authorisedReviewers: Array<{ id: string; name: string; clearance: string }>;
 }
 
-const FALLBACK_PAYLOAD: ComplaintsDashboardPayload = {
-  reviewer: {
-    reviewerLabel: "Meera Krishnan (#SR-04 • Senior Trust & Safety Officer)",
-    effectiveRole: "SENIOR_REVIEWER",
-    ordinaryModeratorMaskingActive: true,
-  },
-  metrics: {
-    totalComplaints: 4,
-    openComplaintsCount: 2,
-    urgentP1Count: 2,
-    anonymousPercentage: 75,
-    confidentialPercentage: 25,
-    duplicateClustersCount: 1,
-    flaggedMaliciousAbuseCount: 1,
-    medianTriageHours: 1.8,
-  },
-  pagination: { page: 1, pageSize: 20, totalItems: 4, totalPages: 1 },
-  complaints: [
-    {
-      id: "c5000000-0000-4000-8000-000000008492",
-      referenceNumber: "#SKH-ANON-2026-8492",
-      disguisedBackupSerial: "Series #8492-LOTUS-749",
-      reportingMode: "ANONYMOUS",
-      confidentialAccountVaultStatus: "DETACHED_ZERO_IDENTITY (Anonymous)",
-      blindedRateLimitBucket: "bkt_9f21a4c8e012",
-      categorySlug: "harassment",
-      categoryTitle: "Harassment",
-      urgency: "HAPPENING_NOW",
-      description:
-        "Over the past three days, a member account kept sending unwanted messages after a community member declined a business collaboration inquiry in the local area yesterday evening.",
-      piiGuardRedacted: true,
-      approximateDateLabel: "25 Oct 2026",
-      approximateTimeWindow: "Evening (5 PM – 9 PM)",
-      locationType: "COARSE_AREA",
-      generalLocationLabel: "Chandragiri Mandal / Tirupati Public Area (5 km Coarse Zone)",
-      linkedTargetType: "POST",
-      linkedTargetHandle: "@studio_collab_tpt24",
-      evidenceFiles: [
-        {
-          id: "ev_8492_01",
-          fileName: "evidence_redacted_01.png",
-          originalFileNameRedacted: "[REDACTED].jpg",
-          contentType: "image/png",
-          byteSize: 1420800,
-          sha256Digest: "8f4c2b910e4a71239c5812b74a0f12e9b814c6a2039481726354819203a4e92a",
-          exifGpsStripped: true,
-          deviceMetadataStripped: true,
-          visualBlurApplied: true,
-          scrubbedFields: ["EXIF.GPSLatitude", "EXIF.GPSLongitude", "EXIF.Model", "OriginalFilename"],
-          uploadedAt: new Date().toISOString(),
-        },
-      ],
-      supportingLinks: [
-        { url: "sakhi://community/post/pst_98234_oct25", linkType: "SAKHI_POST_SNAPSHOT", snapshotArchived: true },
-      ],
-      status: "ADDITIONAL_INFO_REQUIRED",
-      severity: "S2_HIGH",
-      priority: "P1_URGENT",
-      assignedReviewerId: "SR-04",
-      assignedReviewerName: "Meera Krishnan (#SR-04 • Senior Trust & Safety Officer)",
-      duplicateClusterId: "CLUST-209",
-      isFlaggedMaliciousAbuse: false,
-      publicResolutionSummary:
-        "Assigned to Senior Reviewer #SR-04. Cross-checking repeat-offender cluster #CLUST-209.",
-      enforcementActions: ["ARCHIVE_POST_SNAPSHOT", "ZERO_DISCOVERY_SHIELD_ACTIVE"],
-      complainantMessages: [
-        {
-          id: "msg_8492_1",
-          senderRole: "SAFETY_REVIEWER",
-          senderLabel: "Senior Safety Reviewer #SR-04",
-          message:
-            "Could you clarify if the user contacted you from any secondary handle so we can block those as well?",
-          createdAt: new Date().toISOString(),
-        },
-      ],
-      internalNotes: [
-        {
-          id: "note_8492_1",
-          reviewerId: "SR-04",
-          reviewerName: "Meera Krishnan (#SR-04)",
-          visibilityRole: "SENIOR_REVIEWER",
-          noteText:
-            "Target account @studio_collab_tpt24 matched 2 prior anonymous complaints in Cluster #CLUST-209.",
-          createdAt: new Date().toISOString(),
-        },
-      ],
-      auditHistory: [
-        {
-          id: "aud_1",
-          auditCode: "#AUD-9938",
-          actorRole: "SENIOR_REVIEWER",
-          actorLabel: "Meera Krishnan (#SR-04)",
-          action: "complaint.status.additional_info_required",
-          summary: "Status updated to ADDITIONAL_INFO_REQUIRED with encrypted question",
-          timestamp: new Date().toISOString(),
-        },
-      ],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-    {
-      id: "c5000000-0000-4000-8000-000000008489",
-      referenceNumber: "#SKH-CONF-2026-8489",
-      disguisedBackupSerial: "Series #8489-PEONY-318",
-      reportingMode: "CONFIDENTIAL",
-      confidentialAccountVaultStatus: "VAULT_PROTECTED (Hidden from Target & Standard Mods)",
-      blindedRateLimitBucket: "bkt_4a89c1d2f901",
-      categorySlug: "stalking_unwanted_contact",
-      categoryTitle: "Stalking or unwanted contact",
-      urgency: "REPEATED_PATTERN",
-      description:
-        "Repeated unwanted contact across multiple community circles and attempts to follow after being blocked.",
-      piiGuardRedacted: true,
-      approximateDateLabel: "24 Oct 2026",
-      approximateTimeWindow: "Night (9 PM – 6 AM)",
-      locationType: "ONLINE_IN_APP",
-      generalLocationLabel: "Online / Sakhi Community Circles",
-      linkedTargetType: "MEMBER",
-      linkedTargetHandle: "@studio_collab_tpt24",
-      evidenceFiles: [],
-      supportingLinks: [],
-      status: "ESCALATED",
-      severity: "S1_CRITICAL",
-      priority: "P1_URGENT",
-      assignedReviewerId: "EL-01",
-      assignedReviewerName: "Dr. Kavita Rao (#EL-01 • Escalation Lead)",
-      duplicateClusterId: "CLUST-209",
-      isFlaggedMaliciousAbuse: false,
-      publicResolutionSummary:
-        "Escalated to Senior Trust & Safety Specialist Lead (#EL-01).",
-      enforcementActions: ["AUTO_BLOCK_APPLIED", "ESCALATED_TO_SPECIALIST_DESK"],
-      complainantMessages: [],
-      internalNotes: [],
-      auditHistory: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-    {
-      id: "c5000000-0000-4000-8000-000000008471",
-      referenceNumber: "#SKH-ANON-2026-8471",
-      disguisedBackupSerial: "Series #8471-SAGE-109",
-      reportingMode: "ANONYMOUS",
-      confidentialAccountVaultStatus: "DETACHED_ZERO_IDENTITY (Anonymous)",
-      blindedRateLimitBucket: "bkt_spam_flood_7721",
-      categorySlug: "business_related_complaints",
-      categoryTitle: "Business-related complaints",
-      urgency: "PAST_INCIDENT",
-      description:
-        "Unverified competitor complaint submitted in burst flood (5 identical reports in 4 minutes without supporting evidence).",
-      piiGuardRedacted: false,
-      approximateDateLabel: "22 Oct 2026",
-      approximateTimeWindow: "Afternoon (12 PM – 5 PM)",
-      locationType: "PREFER_NOT_TO_SAY",
-      generalLocationLabel: null,
-      linkedTargetType: "BUSINESS",
-      linkedTargetHandle: "@aaradhya_handlooms",
-      evidenceFiles: [],
-      supportingLinks: [],
-      status: "REJECTED_WITH_REASON",
-      severity: "S4_LOW",
-      priority: "P4_ROUTINE",
-      assignedReviewerId: "SR-07",
-      assignedReviewerName: "Anjali Menon (#SR-07 • Safety Reviewer)",
-      duplicateClusterId: null,
-      isFlaggedMaliciousAbuse: true,
-      maliciousAbuseReason: "Burst flood pattern (5 identical reports in 4 mins) with zero evidence.",
-      rejectionReasonCode: "#OUTSIDE-SCOPE-OR-UNVERIFIED-BURST",
-      publicResolutionSummary: "Closed under Malicious-Report Safeguards.",
-      enforcementActions: ["BLINDED_BUCKET_RATE_LIMITED_72H"],
-      complainantMessages: [],
-      internalNotes: [],
-      auditHistory: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-  ],
-  categories: [
-    { slug: "harassment", name: "Harassment", description: "Verbal, physical, or persistent intimidation", defaultPriority: "P1_URGENT", defaultSeverity: "S2_HIGH", safetyGuidanceText: "Preserve screenshots with timestamps.", legalHelplineNote: "Dial 112 or 1091.", isEnabled: true, displayOrder: 1 },
-    { slug: "online_abuse_cyberbullying", name: "Online abuse or cyberbullying", description: "Abusive DMs, morphing, doxxing, or trolling", defaultPriority: "P1_URGENT", defaultSeverity: "S2_HIGH", safetyGuidanceText: "EXIF GPS stripped automatically.", legalHelplineNote: "Dial 1930.", isEnabled: true, displayOrder: 2 },
-    { slug: "stalking_unwanted_contact", name: "Stalking or unwanted contact", description: "Following, repeated calls, or unwanted visits", defaultPriority: "P1_URGENT", defaultSeverity: "S1_CRITICAL", safetyGuidanceText: "Restrict live location to family.", legalHelplineNote: "Dial 1091 or 112.", isEnabled: true, displayOrder: 3 },
-    { slug: "workplace_misconduct", name: "Workplace misconduct", description: "POSH concerns, coercion, or unsafe workplace", defaultPriority: "P1_URGENT", defaultSeverity: "S2_HIGH", safetyGuidanceText: "Keep dated logs of POSH incidents.", legalHelplineNote: "Contact NCW 7827-170-170.", isEnabled: true, displayOrder: 4 },
-    { slug: "public_place_safety", name: "Public-place safety concerns", description: "Unsafe streets, transport, lighting, or loitering", defaultPriority: "P2_HIGH", defaultSeverity: "S2_HIGH", safetyGuidanceText: "Select a coarse 5km zone.", legalHelplineNote: "Dial 112.", isEnabled: true, displayOrder: 5 },
-    { slug: "fraud_suspicious_activity", name: "Fraud or suspicious activity", description: "Scams, fake profiles, impersonation, or extortion", defaultPriority: "P2_HIGH", defaultSeverity: "S2_HIGH", safetyGuidanceText: "Never share OTPs.", legalHelplineNote: "Dial 1930.", isEnabled: true, displayOrder: 6 },
-    { slug: "discrimination", name: "Discrimination", description: "Bias based on caste, religion, gender, or background", defaultPriority: "P2_HIGH", defaultSeverity: "S3_MODERATE", safetyGuidanceText: "Link the offending post for snapshot archiving.", legalHelplineNote: "Statutory escalation available.", isEnabled: true, displayOrder: 7 },
-    { slug: "domestic_interpersonal_safety", name: "Domestic or interpersonal safety concerns", description: "Partner, family, or household abuse & threats", defaultPriority: "P1_URGENT", defaultSeverity: "S1_CRITICAL", safetyGuidanceText: "Use Quick Exit & Disguised Quote Backup.", legalHelplineNote: "Dial 181 or 112.", isEnabled: true, displayOrder: 8 },
-    { slug: "business_related_complaints", name: "Business-related complaints", description: "Misconduct or fraud by a listed business page", defaultPriority: "P3_STANDARD", defaultSeverity: "S3_MODERATE", safetyGuidanceText: "Business owner never sees who reported them.", legalHelplineNote: "Trust & Safety review.", isEnabled: true, displayOrder: 9 },
-    { slug: "other", name: "Other", description: "Any other safety or community concern", defaultPriority: "P3_STANDARD", defaultSeverity: "S3_MODERATE", safetyGuidanceText: "PII detector checks your draft.", legalHelplineNote: "Dial 112 in emergencies.", isEnabled: true, displayOrder: 10 },
-  ],
-  retentionPolicy: {
-    closedEvidenceRetentionDays: 90,
-    rejectedReportRetentionDays: 30,
-    technicalRateLimitLogDays: 14,
-    updatedBy: "DPDP Compliance Default",
-  },
-  authorisedReviewers: [
-    { id: "SR-04", name: "Meera Krishnan (#SR-04 • Senior Trust & Safety Officer)", clearance: "LEVEL_3_POSH_CYBER" },
-    { id: "EL-01", name: "Dr. Kavita Rao (#EL-01 • Senior Escalation Lead)", clearance: "LEVEL_4_LEGAL_ESCALATION" },
-    { id: "SR-07", name: "Anjali Menon (#SR-07 • Safety Reviewer)", clearance: "LEVEL_2_TRUST_SAFETY" },
-  ],
-};
-
 const ALL_STATUSES = [
   "SUBMITTED",
   "UNDER_REVIEW",
@@ -357,9 +162,44 @@ const ALL_STATUSES = [
   "REJECTED_WITH_REASON",
 ];
 
+const VALID_NEXT_STATUSES: Record<string, string[]> = {
+  SUBMITTED: [
+    "UNDER_REVIEW",
+    "ADDITIONAL_INFO_REQUIRED",
+    "ESCALATED",
+    "ACTION_TAKEN",
+    "REJECTED_WITH_REASON",
+  ],
+  UNDER_REVIEW: [
+    "ADDITIONAL_INFO_REQUIRED",
+    "ESCALATED",
+    "ACTION_TAKEN",
+    "CLOSED",
+    "REJECTED_WITH_REASON",
+  ],
+  ADDITIONAL_INFO_REQUIRED: [
+    "UNDER_REVIEW",
+    "ESCALATED",
+    "ACTION_TAKEN",
+    "CLOSED",
+    "REJECTED_WITH_REASON",
+  ],
+  ESCALATED: [
+    "UNDER_REVIEW",
+    "ADDITIONAL_INFO_REQUIRED",
+    "ACTION_TAKEN",
+    "CLOSED",
+    "REJECTED_WITH_REASON",
+  ],
+  ACTION_TAKEN: ["CLOSED", "ESCALATED", "UNDER_REVIEW"],
+  CLOSED: ["ESCALATED", "UNDER_REVIEW"],
+  REJECTED_WITH_REASON: ["ESCALATED", "UNDER_REVIEW"],
+};
+
 export function ComplaintsManagementPage() {
-  const [data, setData] = useState<ComplaintsDashboardPayload>(FALLBACK_PAYLOAD);
+  const [data, setData] = useState<ComplaintsDashboardPayload | null>(null);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
@@ -368,18 +208,21 @@ export function ComplaintsManagementPage() {
     "queue" | "vault" | "duplicates" | "malicious" | "config"
   >("queue");
 
-  // Filters & Role Simulator (SRS 7.4 & 7.6 RBAC)
+  // Filters, Pagination & Role Clearance (SRS 7.4 & 7.6 RBAC)
   const [viewerRole, setViewerRole] = useState<string>("SENIOR_REVIEWER");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [priorityFilter, setPriorityFilter] = useState<string>("ALL");
   const [modeFilter, setModeFilter] = useState<string>("ALL");
+  const [categoryFilter, setCategoryFilter] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [selectedRef, setSelectedRef] = useState<string>("#SKH-ANON-2026-8492");
+  const [page, setPage] = useState<number>(1);
+  const [selectedRef, setSelectedRef] = useState<string>("");
 
   // Case Action States
   const [selectedReviewerId, setSelectedReviewerId] = useState("SR-04");
   const [selectedSeverity, setSelectedSeverity] = useState("S2_HIGH");
   const [selectedPriority, setSelectedPriority] = useState("P1_URGENT");
-  const [nextStatus, setNextStatus] = useState("ACTION_TAKEN");
+  const [nextStatus, setNextStatus] = useState("UNDER_REVIEW");
   const [publicMessage, setPublicMessage] = useState("");
   const [rejectionCode, setRejectionCode] = useState("#OUTSIDE-SCOPE-COMMERCIAL");
   const [internalNoteText, setInternalNoteText] = useState("");
@@ -391,9 +234,22 @@ export function ComplaintsManagementPage() {
     "Escalation Review & Repeat-Offender Ban Documentation",
   );
 
+  // Duplicate Merge Form State
+  const [mergePrimaryRef, setMergePrimaryRef] = useState("");
+  const [mergeDuplicateRefsInput, setMergeDuplicateRefsInput] = useState("");
+  const [mergeClusterId, setMergeClusterId] = useState("");
+
+  // Malicious Report Guard State
+  const [maliciousTargetRef, setMaliciousTargetRef] = useState("");
+  const [maliciousCooldownHours, setMaliciousCooldownHours] = useState(72);
+  const [maliciousReason, setMaliciousReason] = useState(
+    "Coordinated burst flood with zero corroborating evidence",
+  );
+
   // Category & Retention Config State
   const [newCatName, setNewCatName] = useState("");
   const [newCatDesc, setNewCatDesc] = useState("");
+  const [newCatGuidance, setNewCatGuidance] = useState("");
   const [closedRetentionDays, setClosedRetentionDays] = useState(90);
   const [rejectedRetentionDays, setRejectedRetentionDays] = useState(30);
   const [logRetentionDays, setLogRetentionDays] = useState(14);
@@ -404,110 +260,211 @@ export function ComplaintsManagementPage() {
     try {
       const qs = new URLSearchParams({
         status: statusFilter,
+        priority: priorityFilter,
         reportingMode: modeFilter,
-        search: searchQuery,
+        categorySlug: categoryFilter,
+        search: searchQuery.trim(),
+        page: String(page),
+        pageSize: "20",
         viewerRole,
       });
       const res = await adminApi<ComplaintsDashboardPayload>(
         `/admin-review/complaints?${qs.toString()}`,
       );
       setData(res);
-      if (res.complaints.length > 0 && !res.complaints.some((c) => c.referenceNumber === selectedRef)) {
-        setSelectedRef(res.complaints[0].referenceNumber);
+      if (res.complaints.length > 0) {
+        const currentExists = res.complaints.some(
+          (c) => c.referenceNumber === selectedRef,
+        );
+        const activeCase = currentExists
+          ? res.complaints.find((c) => c.referenceNumber === selectedRef)!
+          : res.complaints[0];
+        if (!currentExists) {
+          setSelectedRef(activeCase.referenceNumber);
+        }
+        setMergePrimaryRef((prev) => prev || activeCase.referenceNumber);
+        setMaliciousTargetRef((prev) => prev || activeCase.referenceNumber);
+      } else {
+        setSelectedRef("");
       }
       setClosedRetentionDays(res.retentionPolicy.closedEvidenceRetentionDays);
       setRejectedRetentionDays(res.retentionPolicy.rejectedReportRetentionDays);
       setLogRetentionDays(res.retentionPolicy.technicalRateLimitLogDays);
-    } catch {
-      // Keep interactive fallback payload if offline
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Could not load complaints from backend API. Verify the backend server and admin session token.",
+      );
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, modeFilter, searchQuery, viewerRole, selectedRef]);
+  }, [
+    statusFilter,
+    priorityFilter,
+    modeFilter,
+    categoryFilter,
+    searchQuery,
+    page,
+    viewerRole,
+    selectedRef,
+  ]);
 
   useEffect(() => {
-    void Promise.resolve().then(() => loadDashboard());
+    void loadDashboard();
   }, [loadDashboard]);
 
-  const selectedComplaint = useMemo(
-    () =>
+  const selectedComplaint = useMemo(() => {
+    if (!data || data.complaints.length === 0) return null;
+    return (
       data.complaints.find((c) => c.referenceNumber === selectedRef) ??
-      data.complaints[0] ??
-      null,
-    [data.complaints, selectedRef],
-  );
+      data.complaints[0]
+    );
+  }, [data, selectedRef]);
+
+  useEffect(() => {
+    if (!selectedComplaint) return;
+    setSelectedSeverity(selectedComplaint.severity || "S2_HIGH");
+    setSelectedPriority(selectedComplaint.priority || "P1_URGENT");
+    if (selectedComplaint.assignedReviewerId) {
+      setSelectedReviewerId(selectedComplaint.assignedReviewerId);
+    }
+    const allowed = VALID_NEXT_STATUSES[selectedComplaint.status] ?? ALL_STATUSES;
+    if (!allowed.includes(nextStatus)) {
+      setNextStatus(allowed[0] ?? "UNDER_REVIEW");
+    }
+  }, [selectedComplaint, nextStatus]);
 
   async function handleAssignAndClassify() {
-    if (!selectedComplaint) return;
+    if (!selectedComplaint || !data) return;
     const rev =
       data.authorisedReviewers.find((r) => r.id === selectedReviewerId) ??
       data.authorisedReviewers[0];
+    if (!rev) return;
+    setSubmitting(true);
+    setError("");
+    setNotice("");
     try {
       await adminApi(
         `/admin-review/complaints/${encodeURIComponent(selectedComplaint.referenceNumber)}/assign`,
         {
           method: "PATCH",
-          body: JSON.stringify({
+          body: {
             assignedReviewerId: rev.id,
             assignedReviewerName: rev.name,
             severity: selectedSeverity,
             priority: selectedPriority,
-          }),
+          },
         },
       );
-      setNotice(`Assigned ${selectedComplaint.referenceNumber} to ${rev.name} (${selectedSeverity} • ${selectedPriority}). Audit log appended.`);
+      setNotice(
+        `Assigned ${selectedComplaint.referenceNumber} to ${rev.name} (${selectedSeverity} • ${selectedPriority}). Audit log appended.`,
+      );
       await loadDashboard();
-    } catch {
-      setNotice(`Assigned ${selectedComplaint.referenceNumber} to ${rev.name} (${selectedSeverity} • ${selectedPriority}).`);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to assign reviewer and classify complaint.",
+      );
+    } finally {
+      setSubmitting(false);
     }
   }
 
   async function handleUpdateStatus() {
     if (!selectedComplaint) return;
+    if (
+      nextStatus === "ADDITIONAL_INFO_REQUIRED" &&
+      publicMessage.trim().length < 5
+    ) {
+      setError(
+        "Please enter a follow-up question for the complainant before setting status to ADDITIONAL_INFO_REQUIRED.",
+      );
+      return;
+    }
+    if (
+      nextStatus === "REJECTED_WITH_REASON" &&
+      !rejectionCode.trim() &&
+      !publicMessage.trim()
+    ) {
+      setError(
+        "Rejected complaints require a rejection reason code or explanation (SRS 7.5).",
+      );
+      return;
+    }
+
+    setSubmitting(true);
+    setError("");
+    setNotice("");
     try {
       await adminApi(
         `/admin-review/complaints/${encodeURIComponent(selectedComplaint.referenceNumber)}/status`,
         {
           method: "POST",
-          body: JSON.stringify({
+          body: {
             status: nextStatus,
-            publicMessageToComplainant: publicMessage || undefined,
+            publicMessageToComplainant: publicMessage.trim() || undefined,
             rejectionReasonCode:
-              nextStatus === "REJECTED_WITH_REASON" ? rejectionCode : undefined,
+              nextStatus === "REJECTED_WITH_REASON"
+                ? rejectionCode.trim()
+                : undefined,
             enforcementActions:
               nextStatus === "ACTION_TAKEN"
-                ? ["SUSPEND_TARGET_ACCOUNT", "REMOVE_OFFENDING_CONTENT", "REPEAT_OFFENDER_HASH_LOGGED"]
+                ? [
+                    "SUSPEND_TARGET_ACCOUNT",
+                    "REMOVE_OFFENDING_CONTENT",
+                    "REPEAT_OFFENDER_HASH_LOGGED",
+                  ]
                 : undefined,
-          }),
+          },
         },
       );
       setPublicMessage("");
-      setNotice(`Updated ${selectedComplaint.referenceNumber} status to ${nextStatus} and logged audit entry.`);
+      setNotice(
+        `Updated ${selectedComplaint.referenceNumber} status to ${nextStatus} and logged SHA-256 audit entry.`,
+      );
       await loadDashboard();
-    } catch {
-      setNotice(`Updated ${selectedComplaint.referenceNumber} status to ${nextStatus}.`);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to update complaint status.",
+      );
+    } finally {
+      setSubmitting(false);
     }
   }
 
   async function handleAddInternalNote() {
-    if (!selectedComplaint || !internalNoteText.trim()) return;
+    if (!selectedComplaint) return;
+    if (internalNoteText.trim().length < 3) {
+      setError("Internal note must be at least 3 characters.");
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    setNotice("");
     try {
       await adminApi(
         `/admin-review/complaints/${encodeURIComponent(selectedComplaint.referenceNumber)}/internal-notes`,
         {
           method: "POST",
-          body: JSON.stringify({
+          body: {
             noteText: internalNoteText.trim(),
             visibilityRole: noteVisibilityRole,
-          }),
+          },
         },
       );
       setInternalNoteText("");
-      setNotice(`Private internal reviewer note saved to ${selectedComplaint.referenceNumber} (hidden from users).`);
+      setNotice(
+        `Private internal reviewer note saved to ${selectedComplaint.referenceNumber} (hidden from complainant & public).`,
+      );
       await loadDashboard();
-    } catch {
-      setInternalNoteText("");
-      setNotice(`Private internal reviewer note saved to ${selectedComplaint.referenceNumber}.`);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to save internal note.",
+      );
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -516,118 +473,268 @@ export function ComplaintsManagementPage() {
     action: "REVEAL_VIEWER" | "WATERMARKED_DOWNLOAD",
   ) {
     if (!selectedComplaint) return;
+    if (exportReason.trim().length < 10) {
+      setError(
+        "Please provide an audit justification of at least 10 characters before revealing or exporting evidence.",
+      );
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    setNotice("");
     try {
       const res = await adminApi<{ watermarkOverlayText: string }>(
         `/admin-review/complaints/${encodeURIComponent(selectedComplaint.referenceNumber)}/evidence-access`,
         {
           method: "POST",
-          body: JSON.stringify({
+          body: {
             evidenceId,
             action,
-            justificationReason: exportReason,
-          }),
+            justificationReason: exportReason.trim(),
+            viewerRole,
+          },
         },
       );
       setRevealedEvidenceIds((prev) => ({
         ...prev,
         [evidenceId]: res.watermarkOverlayText,
       }));
-      setNotice(`Controlled Evidence ${action} authorized & logged in immutable audit trail.`);
+      setNotice(
+        `Controlled Evidence ${action} authorized & logged in immutable audit trail.`,
+      );
       await loadDashboard();
-    } catch {
-      setRevealedEvidenceIds((prev) => ({
-        ...prev,
-        [evidenceId]: `WATERMARK: ${data.reviewer.reviewerLabel} • ${selectedComplaint.referenceNumber} • Reason: ${exportReason}`,
-      }));
-      setNotice(`Controlled Evidence ${action} authorized & logged.`);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Evidence access denied or failed.",
+      );
+    } finally {
+      setSubmitting(false);
     }
   }
 
   async function handleMergeCluster() {
+    const primary = mergePrimaryRef.trim();
+    const dupList = mergeDuplicateRefsInput
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (!primary || dupList.length === 0) {
+      setError(
+        "Specify both a Primary Reference # and at least one comma-separated Duplicate Reference # to merge.",
+      );
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    setNotice("");
     try {
-      await adminApi("/admin-review/complaints/merge-duplicates", {
+      const res = await adminApi<{
+        clusterId: string;
+        primaryReferenceNumber: string;
+        mergedReferences: string[];
+      }>("/admin-review/complaints/merge-duplicates", {
         method: "POST",
-        body: JSON.stringify({
-          primaryReferenceNumber: "#SKH-ANON-2026-8492",
-          duplicateReferenceNumbers: ["#SKH-ANON-2026-8490"],
-          clusterId: "CLUST-209",
-        }),
+        body: {
+          primaryReferenceNumber: primary,
+          duplicateReferenceNumbers: dupList,
+          clusterId: mergeClusterId.trim() || undefined,
+          viewerRole,
+        },
       });
-      setNotice("Merged duplicate complaint #SKH-ANON-2026-8490 into primary investigation #SKH-ANON-2026-8492 under Repeat-Offender Cluster #CLUST-209.");
+      setNotice(
+        `Merged ${res.mergedReferences.join(", ")} into primary investigation ${res.primaryReferenceNumber} under Cluster #${res.clusterId}.`,
+      );
+      setMergeDuplicateRefsInput("");
       await loadDashboard();
-    } catch {
-      setNotice("Merged duplicate cluster #CLUST-209 into #SKH-ANON-2026-8492.");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to merge duplicate complaints.",
+      );
+    } finally {
+      setSubmitting(false);
     }
   }
 
-  async function handleMaliciousSafeguard(referenceNumber: string) {
+  async function handleMaliciousSafeguard() {
+    const ref = maliciousTargetRef.trim() || selectedComplaint?.referenceNumber;
+    if (!ref) {
+      setError("Select or enter a complaint reference number to apply safeguard.");
+      return;
+    }
+    if (maliciousReason.trim().length < 5) {
+      setError("Provide a reason of at least 5 characters.");
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    setNotice("");
     try {
-      await adminApi(
-        `/admin-review/complaints/${encodeURIComponent(referenceNumber)}/malicious-guard`,
+      const res = await adminApi<{ throttledBucket: string; cooldownUntil: string }>(
+        `/admin-review/complaints/${encodeURIComponent(ref)}/malicious-guard`,
         {
           method: "POST",
-          body: JSON.stringify({
+          body: {
             action: "THROTTLE_BLINDED_BUCKET",
-            cooldownHours: 72,
-            reason: "Burst flood pattern with zero corroborating evidence",
-          }),
+            cooldownHours: maliciousCooldownHours,
+            reason: maliciousReason.trim(),
+            viewerRole,
+          },
         },
       );
-      setNotice(`Applied 72-hour blinded rate-limit cooldown to ${referenceNumber} without unmasking anonymous user identity.`);
+      setNotice(
+        `Applied ${maliciousCooldownHours}h cooldown to blinded bucket (${res.throttledBucket}) for ${ref} without unmasking user identity.`,
+      );
       await loadDashboard();
-    } catch {
-      setNotice(`Applied 72-hour blinded rate-limit cooldown to ${referenceNumber}.`);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to apply malicious-report safeguard.",
+      );
+    } finally {
+      setSubmitting(false);
     }
   }
 
   async function handleSaveRetentionPolicy() {
+    setSubmitting(true);
+    setError("");
+    setNotice("");
     try {
       await adminApi("/admin-review/complaints/retention-policy", {
         method: "PUT",
-        body: JSON.stringify({
+        body: {
           closedEvidenceRetentionDays: closedRetentionDays,
           rejectedReportRetentionDays: rejectedRetentionDays,
           technicalRateLimitLogDays: logRetentionDays,
-        }),
+          viewerRole,
+        },
       });
       setNotice(
         `Updated DPDP Retention Policy: Closed media (${closedRetentionDays}d), Rejected reports (${rejectedRetentionDays}d), Rate-limit logs (${logRetentionDays}d).`,
       );
       await loadDashboard();
-    } catch {
-      setNotice("Updated DPDP Retention Policy.");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to update retention policy.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleToggleCategory(cat: ComplaintCategoryConfig) {
+    setSubmitting(true);
+    setError("");
+    setNotice("");
+    try {
+      await adminApi("/admin-review/complaints/categories", {
+        method: "PUT",
+        body: {
+          slug: cat.slug,
+          name: cat.name,
+          description: cat.description,
+          defaultPriority: cat.defaultPriority,
+          defaultSeverity: cat.defaultSeverity,
+          safetyGuidanceText: cat.safetyGuidanceText,
+          legalHelplineNote: cat.legalHelplineNote,
+          isEnabled: !cat.isEnabled,
+          displayOrder: cat.displayOrder,
+          viewerRole,
+        },
+      });
+      setNotice(
+        `Category "${cat.name}" is now ${!cat.isEnabled ? "ENABLED" : "DISABLED"} for mobile complaint submissions.`,
+      );
+      await loadDashboard();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to update category state.",
+      );
+    } finally {
+      setSubmitting(false);
     }
   }
 
   async function handleAddCategory() {
-    if (!newCatName.trim()) return;
-    const slug = newCatName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
+    if (!newCatName.trim()) {
+      setError("Category name is required.");
+      return;
+    }
+    const slug = newCatName
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    setSubmitting(true);
+    setError("");
+    setNotice("");
     try {
       await adminApi("/admin-review/complaints/categories", {
         method: "PUT",
-        body: JSON.stringify({
+        body: {
           slug,
           name: newCatName.trim(),
-          description: newCatDesc.trim() || "Custom configurable safety category",
+          description:
+            newCatDesc.trim() || "Custom configurable safety category",
+          safetyGuidanceText:
+            newCatGuidance.trim() ||
+            "Preserve screenshots safely and use Quick Exit if needed.",
           defaultPriority: "P2_HIGH",
           defaultSeverity: "S2_HIGH",
           isEnabled: true,
-        }),
+          viewerRole,
+        },
       });
       setNewCatName("");
       setNewCatDesc("");
-      setNotice(`Added configurable category "${newCatName.trim()}" — synced live to mobile Screen 07.`);
+      setNewCatGuidance("");
+      setNotice(
+        `Saved configurable category "${slug}" — synced live to mobile complaint intake.`,
+      );
       await loadDashboard();
-    } catch {
-      setNewCatName("");
-      setNewCatDesc("");
-      setNotice("Category saved and synced to mobile complaint flow.");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to save category.",
+      );
+    } finally {
+      setSubmitting(false);
     }
   }
 
-  if (loading && data.complaints.length === 0) {
-    return <SakhiQuoteLoader statusLabel="Loading encrypted Module 5 Complaint Management Console..." />;
+  if (loading && !data) {
+    return (
+      <SakhiQuoteLoader statusLabel="Loading real Module 5 Complaint Management Console from backend..." />
+    );
   }
+
+  const metrics = data?.metrics ?? {
+    totalComplaints: 0,
+    openComplaintsCount: 0,
+    urgentP1Count: 0,
+    anonymousPercentage: 0,
+    confidentialPercentage: 0,
+    duplicateClustersCount: 0,
+    flaggedMaliciousAbuseCount: 0,
+    medianTriageHours: 0,
+  };
+
+  const complaints = data?.complaints ?? [];
+  const categories = data?.categories ?? [];
+  const pagination = data?.pagination ?? {
+    page: 1,
+    pageSize: 20,
+    totalItems: 0,
+    totalPages: 1,
+  };
 
   return (
     <div className="page-stack">
@@ -636,87 +743,226 @@ export function ComplaintsManagementPage() {
         <div className="hero-copy">
           <div className="eyebrow-row">
             <StatusPill tone="rose">MODULE 5 • SRS SECTIONS 7.1–7.6 &amp; 12.5</StatusPill>
-            <StatusPill tone="green">EXIF Metadata Scrubber &amp; RBAC Masking Active</StatusPill>
+            <StatusPill tone="green">Real Database Persistence &amp; RBAC Active</StatusPill>
           </div>
           <h1>Discreet &amp; Anonymous Complaint Management Console</h1>
           <p>
-            Role-restricted triage queue for Anonymous (<code>#SKH-ANON</code>) and Confidential (<code>#SKH-CONF</code>) safety complaints. Ordinary moderators never see device, location, or account metadata. Submitting an in-app complaint does not automatically constitute a Police FIR.
+            Role-restricted triage queue for Anonymous (<code>#SKH-ANON</code>) and Confidential (<code>#SKH-CONF</code>) safety complaints. Ordinary moderators never see device, location, or account metadata, and cannot unblur evidence or change retention settings.
           </p>
         </div>
-        <div className="hero-actions" style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+        <div
+          className="hero-actions"
+          style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}
+        >
           <label style={{ fontSize: "12px", fontWeight: 700, color: "#52345f" }}>
-            RBAC View Mode:&nbsp;
+            RBAC Clearance:&nbsp;
             <select
               value={viewerRole}
-              onChange={(e) => setViewerRole(e.target.value)}
-              style={{ padding: "8px 12px", borderRadius: "8px", border: "1px solid #dcc8e6", fontWeight: 700 }}
+              onChange={(e) => {
+                setViewerRole(e.target.value);
+                setPage(1);
+              }}
+              style={{
+                padding: "8px 12px",
+                borderRadius: "8px",
+                border: "1px solid #dcc8e6",
+                fontWeight: 700,
+              }}
             >
               <option value="SENIOR_REVIEWER">Senior Safety Reviewer (#SR-04)</option>
               <option value="SUPER_ADMIN">Super Admin Escalation Lead (#EL-01)</option>
-              <option value="STANDARD_MODERATOR">Ordinary Moderator (PII &amp; Location Masked)</option>
+              <option value="STANDARD_MODERATOR">
+                Ordinary Moderator (PII &amp; Location Masked)
+              </option>
             </select>
           </label>
-          <button className="secondary-button" type="button" onClick={() => void loadDashboard()}>
-            <RefreshCw size={15} /> Refresh Queue
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={loading || submitting}
+            onClick={() => void loadDashboard()}
+          >
+            <RefreshCw size={15} /> {loading ? "Syncing..." : "Refresh Queue"}
           </button>
         </div>
       </section>
 
       {notice && (
-        <div className="demo-banner" style={{ background: "#e8f5ed", borderColor: "#b8e2c8", color: "#1f6e4e" }}>
+        <div
+          className="demo-banner"
+          style={{
+            background: "#e8f5ed",
+            borderColor: "#b8e2c8",
+            color: "#1f6e4e",
+          }}
+        >
           <CheckCircle2 size={18} />
           <div>
-            <strong>Action Confirmed &amp; Audit-Logged</strong>
+            <strong>Server Action Confirmed &amp; Audit-Logged</strong>
             <span>{notice}</span>
           </div>
         </div>
       )}
       {error && (
-        <div className="demo-banner" style={{ background: "#fcebed", borderColor: "#f5c2c7", color: "#a63b4a" }}>
+        <div
+          className="demo-banner"
+          style={{
+            background: "#fcebed",
+            borderColor: "#f5c2c7",
+            color: "#a63b4a",
+          }}
+        >
           <AlertTriangle size={18} />
           <div>
-            <strong>Notice</strong>
+            <strong>Backend Validation / API Error</strong>
             <span>{error}</span>
           </div>
         </div>
       )}
 
-      {/* KPI Metrics Row (Screen 33 & 34) */}
-      <section className="stats-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "14px" }}>
-        <article className="stat-card" style={{ background: "#fff", padding: "18px", borderRadius: "14px", border: "1px solid #eee7ee" }}>
-          <span style={{ fontSize: "12px", color: "#877b8b", fontWeight: 700 }}>OPEN COMPLAINTS QUEUE</span>
-          <div style={{ fontSize: "28px", fontWeight: 800, color: "#31263a", marginTop: "6px" }}>
-            {data.metrics.openComplaintsCount} <StatusPill tone="urgent">{data.metrics.urgentP1Count} Urgent P1</StatusPill>
+      {/* Real Database KPI Metrics Row */}
+      <section
+        className="stats-grid"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+          gap: "14px",
+        }}
+      >
+        <article
+          className="stat-card"
+          style={{
+            background: "#fff",
+            padding: "18px",
+            borderRadius: "14px",
+            border: "1px solid #eee7ee",
+          }}
+        >
+          <span style={{ fontSize: "12px", color: "#877b8b", fontWeight: 700 }}>
+            OPEN COMPLAINTS QUEUE
+          </span>
+          <div
+            style={{
+              fontSize: "28px",
+              fontWeight: 800,
+              color: "#31263a",
+              marginTop: "6px",
+            }}
+          >
+            {metrics.openComplaintsCount}{" "}
+            <StatusPill tone="urgent">{metrics.urgentP1Count} Urgent P1</StatusPill>
           </div>
         </article>
-        <article className="stat-card" style={{ background: "#fff", padding: "18px", borderRadius: "14px", border: "1px solid #eee7ee" }}>
-          <span style={{ fontSize: "12px", color: "#877b8b", fontWeight: 700 }}>ANONYMOUS VS CONFIDENTIAL</span>
-          <div style={{ fontSize: "28px", fontWeight: 800, color: "#52345f", marginTop: "6px" }}>
-            {data.metrics.anonymousPercentage}% <small style={{ fontSize: "13px", color: "#877b8b" }}>Anon / {data.metrics.confidentialPercentage}% Conf</small>
+        <article
+          className="stat-card"
+          style={{
+            background: "#fff",
+            padding: "18px",
+            borderRadius: "14px",
+            border: "1px solid #eee7ee",
+          }}
+        >
+          <span style={{ fontSize: "12px", color: "#877b8b", fontWeight: 700 }}>
+            TOTAL / ANON VS CONF
+          </span>
+          <div
+            style={{
+              fontSize: "28px",
+              fontWeight: 800,
+              color: "#52345f",
+              marginTop: "6px",
+            }}
+          >
+            {metrics.totalComplaints}{" "}
+            <small style={{ fontSize: "13px", color: "#877b8b" }}>
+              ({metrics.anonymousPercentage}% Anon / {metrics.confidentialPercentage}% Conf)
+            </small>
           </div>
         </article>
-        <article className="stat-card" style={{ background: "#fff", padding: "18px", borderRadius: "14px", border: "1px solid #eee7ee" }}>
-          <span style={{ fontSize: "12px", color: "#877b8b", fontWeight: 700 }}>DUPLICATE CLUSTERS (SRS 7.6)</span>
-          <div style={{ fontSize: "28px", fontWeight: 800, color: "#9a6918", marginTop: "6px" }}>
-            {data.metrics.duplicateClustersCount} <StatusPill tone="amber">Repeat Target</StatusPill>
+        <article
+          className="stat-card"
+          style={{
+            background: "#fff",
+            padding: "18px",
+            borderRadius: "14px",
+            border: "1px solid #eee7ee",
+          }}
+        >
+          <span style={{ fontSize: "12px", color: "#877b8b", fontWeight: 700 }}>
+            DUPLICATE CLUSTERS (SRS 7.6)
+          </span>
+          <div
+            style={{
+              fontSize: "28px",
+              fontWeight: 800,
+              color: "#9a6918",
+              marginTop: "6px",
+            }}
+          >
+            {metrics.duplicateClustersCount}{" "}
+            <StatusPill tone="amber">
+              {metrics.flaggedMaliciousAbuseCount} Abuse Flagged
+            </StatusPill>
           </div>
         </article>
-        <article className="stat-card" style={{ background: "#fff", padding: "18px", borderRadius: "14px", border: "1px solid #eee7ee" }}>
-          <span style={{ fontSize: "12px", color: "#877b8b", fontWeight: 700 }}>MEDIAN TRIAGE SLA</span>
-          <div style={{ fontSize: "28px", fontWeight: 800, color: "#39785c", marginTop: "6px" }}>
-            {data.metrics.medianTriageHours} hrs <StatusPill tone="green">SLA Healthy</StatusPill>
+        <article
+          className="stat-card"
+          style={{
+            background: "#fff",
+            padding: "18px",
+            borderRadius: "14px",
+            border: "1px solid #eee7ee",
+          }}
+        >
+          <span style={{ fontSize: "12px", color: "#877b8b", fontWeight: 700 }}>
+            MEDIAN TRIAGE HOURS
+          </span>
+          <div
+            style={{
+              fontSize: "28px",
+              fontWeight: 800,
+              color: "#39785c",
+              marginTop: "6px",
+            }}
+          >
+            {metrics.medianTriageHours} hrs{" "}
+            <StatusPill tone="green">Live Metric</StatusPill>
           </div>
         </article>
       </section>
 
       {/* 5 Sub-Module Navigation Tabs */}
-      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", borderBottom: "1px solid #eee7ee", paddingBottom: "12px" }}>
+      <div
+        style={{
+          display: "flex",
+          gap: "10px",
+          flexWrap: "wrap",
+          borderBottom: "1px solid #eee7ee",
+          paddingBottom: "12px",
+        }}
+      >
         {[
-          { id: "queue", label: "1. Triage Queue & Case Workflow (S34–S37)", icon: MessageSquareWarning },
-          { id: "vault", label: "2. Controlled Evidence Vault (S36)", icon: Lock },
-          { id: "duplicates", label: "3. Duplicate & Cluster Detector (S38)", icon: GitMerge },
-          { id: "malicious", label: "4. Malicious-Report & Abuse Guard (S39)", icon: ShieldAlert },
-          { id: "config", label: "5. Categories & Retention Policy (S40)", icon: Settings2 },
+          {
+            id: "queue",
+            label: "1. Triage Queue & Case Workflow",
+            icon: MessageSquareWarning,
+          },
+          { id: "vault", label: "2. Controlled Evidence Vault", icon: Lock },
+          {
+            id: "duplicates",
+            label: "3. Duplicate & Cluster Merge",
+            icon: GitMerge,
+          },
+          {
+            id: "malicious",
+            label: "4. Malicious-Report & Abuse Guard",
+            icon: ShieldAlert,
+          },
+          {
+            id: "config",
+            label: "5. Categories & Retention Policy",
+            icon: Settings2,
+          },
         ].map((tab) => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;
@@ -745,111 +991,373 @@ export function ComplaintsManagementPage() {
         })}
       </div>
 
-      {/* TAB 1: TRIAGE QUEUE & CASE WORKFLOW (Screens 34, 35, 37) */}
+      {/* TAB 1: TRIAGE QUEUE & CASE WORKFLOW */}
       {activeTab === "queue" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1.15fr 1fr", gap: "20px", alignItems: "start" }}>
-          {/* Left Column: Filterable Queue */}
-          <div style={{ background: "#fff", borderRadius: "16px", border: "1px solid #eee7ee", padding: "20px" }}>
-            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "16px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: 1, border: "1px solid #e2d4e6", borderRadius: "10px", padding: "8px 12px" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: selectedComplaint ? "1.15fr 1fr" : "1fr",
+            gap: "20px",
+            alignItems: "start",
+          }}
+        >
+          {/* Left Column: Filterable & Paginated Queue */}
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: "16px",
+              border: "1px solid #eee7ee",
+              padding: "20px",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                gap: "10px",
+                flexWrap: "wrap",
+                marginBottom: "16px",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  flex: 1,
+                  minWidth: "200px",
+                  border: "1px solid #e2d4e6",
+                  borderRadius: "10px",
+                  padding: "8px 12px",
+                }}
+              >
                 <Search size={16} />
                 <input
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search #SKH-ANON ref, category, @target..."
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setPage(1);
+                  }}
+                  placeholder="Search #SKH ref, category, @target..."
                   style={{ border: 0, outline: 0, width: "100%", fontSize: "13px" }}
                 />
               </div>
               <select
                 value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                style={{ padding: "8px 12px", borderRadius: "10px", border: "1px solid #e2d4e6", fontSize: "13px", fontWeight: 600 }}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value);
+                  setPage(1);
+                }}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: "10px",
+                  border: "1px solid #e2d4e6",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                }}
               >
                 <option value="ALL">All 7 Statuses</option>
                 {ALL_STATUSES.map((st) => (
-                  <option key={st} value={st}>{st}</option>
+                  <option key={st} value={st}>
+                    {st}
+                  </option>
                 ))}
               </select>
               <select
+                value={priorityFilter}
+                onChange={(e) => {
+                  setPriorityFilter(e.target.value);
+                  setPage(1);
+                }}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: "10px",
+                  border: "1px solid #e2d4e6",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                }}
+              >
+                <option value="ALL">All Priorities</option>
+                <option value="P1_URGENT">P1 Urgent</option>
+                <option value="P2_HIGH">P2 High</option>
+                <option value="P3_STANDARD">P3 Standard</option>
+                <option value="P4_ROUTINE">P4 Routine</option>
+              </select>
+              <select
                 value={modeFilter}
-                onChange={(e) => setModeFilter(e.target.value)}
-                style={{ padding: "8px 12px", borderRadius: "10px", border: "1px solid #e2d4e6", fontSize: "13px", fontWeight: 600 }}
+                onChange={(e) => {
+                  setModeFilter(e.target.value);
+                  setPage(1);
+                }}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: "10px",
+                  border: "1px solid #e2d4e6",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                }}
               >
                 <option value="ALL">All Modes</option>
                 <option value="ANONYMOUS">Anonymous Only</option>
                 <option value="CONFIDENTIAL">Confidential Only</option>
               </select>
+              <select
+                value={categoryFilter}
+                onChange={(e) => {
+                  setCategoryFilter(e.target.value);
+                  setPage(1);
+                }}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: "10px",
+                  border: "1px solid #e2d4e6",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                }}
+              >
+                <option value="ALL">All Categories</option>
+                {categories.map((cat) => (
+                  <option key={cat.slug} value={cat.slug}>
+                    {cat.name}
+                  </option>
+                ))}
+              </select>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-              {data.complaints.map((item) => {
-                const isSelected = item.referenceNumber === selectedComplaint?.referenceNumber;
-                return (
-                  <div
-                    key={item.id}
-                    onClick={() => setSelectedRef(item.referenceNumber)}
-                    style={{
-                      padding: "16px",
-                      borderRadius: "14px",
-                      border: isSelected ? "2px solid #631d76" : "1px solid #eee7ee",
-                      background: isSelected ? "#fdf7fb" : "#fff",
-                      cursor: "pointer",
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                        <strong style={{ fontFamily: "monospace", fontSize: "14px", color: "#31263a" }}>
-                          {item.referenceNumber}
-                        </strong>
-                        <StatusPill tone={item.reportingMode === "ANONYMOUS" ? "neutral" : "rose"}>
-                          {item.reportingMode}
-                        </StatusPill>
-                        <StatusPill tone={item.priority === "P1_URGENT" ? "urgent" : "amber"}>
-                          {item.priority} • {item.severity}
+            {complaints.length === 0 ? (
+              <div
+                style={{
+                  padding: "36px 20px",
+                  textAlign: "center",
+                  background: "#fdf9fc",
+                  borderRadius: "14px",
+                  border: "1px dashed #dcc8e6",
+                }}
+              >
+                <strong style={{ display: "block", fontSize: "15px", color: "#52345f" }}>
+                  No Complaints Found in Database
+                </strong>
+                <p style={{ margin: "6px 0 0 0", fontSize: "13px", color: "#6e6275" }}>
+                  No fabricated records are displayed. Submit a complaint from the Sakhi mobile app or adjust your filters above, then click Refresh Queue.
+                </p>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                {complaints.map((item) => {
+                  const isSelected =
+                    item.referenceNumber === selectedComplaint?.referenceNumber;
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => setSelectedRef(item.referenceNumber)}
+                      style={{
+                        padding: "16px",
+                        borderRadius: "14px",
+                        border: isSelected
+                          ? "2px solid #631d76"
+                          : "1px solid #eee7ee",
+                        background: isSelected ? "#fdf7fb" : "#fff",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          gap: "8px",
+                          marginBottom: "8px",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <strong
+                            style={{
+                              fontFamily: "monospace",
+                              fontSize: "14px",
+                              color: "#31263a",
+                            }}
+                          >
+                            {item.referenceNumber}
+                          </strong>
+                          <StatusPill
+                            tone={
+                              item.reportingMode === "ANONYMOUS"
+                                ? "neutral"
+                                : "rose"
+                            }
+                          >
+                            {item.reportingMode}
+                          </StatusPill>
+                          <StatusPill
+                            tone={
+                              item.priority === "P1_URGENT" ? "urgent" : "amber"
+                            }
+                          >
+                            {item.priority} • {item.severity}
+                          </StatusPill>
+                        </div>
+                        <StatusPill
+                          tone={
+                            item.status === "ACTION_TAKEN"
+                              ? "green"
+                              : item.status === "REJECTED_WITH_REASON"
+                                ? "urgent"
+                                : "rose"
+                          }
+                        >
+                          {item.status}
                         </StatusPill>
                       </div>
-                      <StatusPill tone={item.status === "ACTION_TAKEN" ? "green" : item.status === "REJECTED_WITH_REASON" ? "urgent" : "rose"}>
-                        {item.status}
-                      </StatusPill>
+                      <div
+                        style={{
+                          fontWeight: 700,
+                          fontSize: "14px",
+                          color: "#31263a",
+                          marginBottom: "4px",
+                        }}
+                      >
+                        {item.categoryTitle}{" "}
+                        {item.linkedTargetHandle
+                          ? `• Target: ${item.linkedTargetHandle}`
+                          : ""}
+                      </div>
+                      <p
+                        style={{
+                          margin: "0 0 8px 0",
+                          fontSize: "12.5px",
+                          color: "#6e6275",
+                          lineHeight: 1.45,
+                        }}
+                      >
+                        {item.description}
+                      </p>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          fontSize: "11.5px",
+                          color: "#877b8b",
+                        }}
+                      >
+                        <span>
+                          Identity Vault:{" "}
+                          <strong>
+                            {item.confidentialAccountVaultStatus ?? "Protected"}
+                          </strong>
+                        </span>
+                        <span>
+                          Evidence:{" "}
+                          <strong>
+                            {item.evidenceFiles.length} Scrubbed File(s)
+                          </strong>
+                        </span>
+                      </div>
                     </div>
-                    <div style={{ fontWeight: 700, fontSize: "14px", color: "#31263a", marginBottom: "4px" }}>
-                      {item.categoryTitle} {item.linkedTargetHandle ? `• Target: ${item.linkedTargetHandle}` : ""}
-                    </div>
-                    <p style={{ margin: "0 0 8px 0", fontSize: "12.5px", color: "#6e6275", lineHeight: 1.45 }}>
-                      {item.description}
-                    </p>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11.5px", color: "#877b8b" }}>
-                      <span>Identity Vault: <strong>{item.confidentialAccountVaultStatus ?? "Protected"}</strong></span>
-                      <span>Evidence: <strong>{item.evidenceFiles.length} Scrubbed File(s)</strong></span>
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Pagination Footer */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginTop: "16px",
+                paddingTop: "12px",
+                borderTop: "1px solid #f0e8f3",
+                fontSize: "12.5px",
+                color: "#6e6275",
+              }}
+            >
+              <span>
+                Page <strong>{pagination.page}</strong> of{" "}
+                <strong>{pagination.totalPages}</strong> ({pagination.totalItems}{" "}
+                matching complaint(s))
+              </span>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={pagination.page <= 1 || loading}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  <ChevronLeft size={14} /> Prev
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={pagination.page >= pagination.totalPages || loading}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  Next <ChevronRight size={14} />
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* Right Column: Selected Case Inspector, Assignment, Status & Internal Notes */}
+          {/* Right Column: Selected Case Inspector */}
           {selectedComplaint && (
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              {/* Card 1: Assignment & Severity Classification (Screen 35) */}
-              <div style={{ background: "#fff", borderRadius: "16px", border: "1px solid #eee7ee", padding: "20px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+              {/* Card 1: Assignment & Severity Classification */}
+              <div
+                style={{
+                  background: "#fff",
+                  borderRadius: "16px",
+                  border: "1px solid #eee7ee",
+                  padding: "20px",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: "12px",
+                  }}
+                >
                   <h3 style={{ margin: 0, fontSize: "16px" }}>
-                    <UserCheck size={16} style={{ verticalAlign: "middle", marginRight: "6px" }} />
-                    Assign Reviewer &amp; Classify ({selectedComplaint.referenceNumber})
+                    <UserCheck
+                      size={16}
+                      style={{ verticalAlign: "middle", marginRight: "6px" }}
+                    />
+                    Assign Reviewer &amp; Classify (
+                    {selectedComplaint.referenceNumber})
                   </h3>
                   <StatusPill tone="green">SRS 7.6 RBAC</StatusPill>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: "10px",
+                    marginBottom: "12px",
+                  }}
+                >
                   <label style={{ fontSize: "12px", fontWeight: 700 }}>
                     Authorised Reviewer
                     <select
                       value={selectedReviewerId}
                       onChange={(e) => setSelectedReviewerId(e.target.value)}
-                      style={{ width: "100%", marginTop: "4px", padding: "8px", borderRadius: "8px", border: "1px solid #dcd0e0" }}
+                      style={{
+                        width: "100%",
+                        marginTop: "4px",
+                        padding: "8px",
+                        borderRadius: "8px",
+                        border: "1px solid #dcd0e0",
+                      }}
                     >
-                      {data.authorisedReviewers.map((r) => (
-                        <option key={r.id} value={r.id}>{r.name}</option>
+                      {(data?.authorisedReviewers ?? []).map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.name}
+                        </option>
                       ))}
                     </select>
                   </label>
@@ -859,7 +1367,12 @@ export function ComplaintsManagementPage() {
                       <select
                         value={selectedSeverity}
                         onChange={(e) => setSelectedSeverity(e.target.value)}
-                        style={{ flex: 1, padding: "8px", borderRadius: "8px", border: "1px solid #dcd0e0" }}
+                        style={{
+                          flex: 1,
+                          padding: "8px",
+                          borderRadius: "8px",
+                          border: "1px solid #dcd0e0",
+                        }}
                       >
                         <option value="S1_CRITICAL">S1: Critical</option>
                         <option value="S2_HIGH">S2: High</option>
@@ -869,7 +1382,12 @@ export function ComplaintsManagementPage() {
                       <select
                         value={selectedPriority}
                         onChange={(e) => setSelectedPriority(e.target.value)}
-                        style={{ flex: 1, padding: "8px", borderRadius: "8px", border: "1px solid #dcd0e0" }}
+                        style={{
+                          flex: 1,
+                          padding: "8px",
+                          borderRadius: "8px",
+                          border: "1px solid #dcd0e0",
+                        }}
                       >
                         <option value="P1_URGENT">P1 (&lt;4h)</option>
                         <option value="P2_HIGH">P2 (&lt;12h)</option>
@@ -881,20 +1399,55 @@ export function ComplaintsManagementPage() {
                 </div>
                 <button
                   type="button"
+                  disabled={submitting}
                   onClick={() => void handleAssignAndClassify()}
-                  style={{ width: "100%", padding: "10px", borderRadius: "999px", border: 0, background: "#631d76", color: "#fff", fontWeight: 700 }}
+                  style={{
+                    width: "100%",
+                    padding: "10px",
+                    borderRadius: "999px",
+                    border: 0,
+                    background: "#631d76",
+                    color: "#fff",
+                    fontWeight: 700,
+                  }}
                 >
                   Save Assignment &amp; Classification
                 </button>
               </div>
 
-              {/* Card 2: 7-Status Transition & Complainant Update (Screen 37) */}
-              <div style={{ background: "#fff", borderRadius: "16px", border: "1px solid #eee7ee", padding: "20px" }}>
-                <h3 style={{ margin: "0 0 12px 0", fontSize: "16px" }}>
-                  Update Status (All 7 SRS 7.5 Statuses) &amp; Complainant Update
+              {/* Card 2: Enforced 7-Status Transition & Complainant Update */}
+              <div
+                style={{
+                  background: "#fff",
+                  borderRadius: "16px",
+                  border: "1px solid #eee7ee",
+                  padding: "20px",
+                }}
+              >
+                <h3 style={{ margin: "0 0 6px 0", fontSize: "16px" }}>
+                  Update Status (Current: {selectedComplaint.status})
                 </h3>
-                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "12px" }}>
-                  {ALL_STATUSES.map((st) => (
+                <p
+                  style={{
+                    margin: "0 0 10px 0",
+                    fontSize: "12px",
+                    color: "#6e6275",
+                  }}
+                >
+                  Valid transitions from {selectedComplaint.status} are highlighted
+                  below and enforced on the backend:
+                </p>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "6px",
+                    flexWrap: "wrap",
+                    marginBottom: "12px",
+                  }}
+                >
+                  {(
+                    VALID_NEXT_STATUSES[selectedComplaint.status] ?? ALL_STATUSES
+                  ).map((st) => (
                     <button
                       key={st}
                       type="button"
@@ -904,7 +1457,10 @@ export function ComplaintsManagementPage() {
                         borderRadius: "999px",
                         fontSize: "11.5px",
                         fontWeight: 700,
-                        border: nextStatus === st ? "2px solid #b94776" : "1px solid #e2d4e6",
+                        border:
+                          nextStatus === st
+                            ? "2px solid #b94776"
+                            : "1px solid #e2d4e6",
                         background: nextStatus === st ? "#fbeaf1" : "#fff",
                         color: nextStatus === st ? "#9b315d" : "#52345f",
                       }}
@@ -918,29 +1474,66 @@ export function ComplaintsManagementPage() {
                     value={rejectionCode}
                     onChange={(e) => setRejectionCode(e.target.value)}
                     placeholder="Mandatory Rejection Reason Code (SRS 7.5)"
-                    style={{ width: "100%", padding: "8px 12px", borderRadius: "8px", border: "1px solid #e2d4e6", marginBottom: "8px", fontSize: "13px" }}
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      borderRadius: "8px",
+                      border: "1px solid #e2d4e6",
+                      marginBottom: "8px",
+                      fontSize: "13px",
+                    }}
                   />
                 )}
                 <textarea
                   value={publicMessage}
                   onChange={(e) => setPublicMessage(e.target.value)}
-                  placeholder="Optional encrypted status message/question to Complainant Reference Token..."
+                  placeholder={
+                    nextStatus === "ADDITIONAL_INFO_REQUIRED"
+                      ? "Required: Enter encrypted follow-up question for complainant..."
+                      : "Optional encrypted status message to Complainant Reference Token..."
+                  }
                   rows={2}
-                  style={{ width: "100%", padding: "10px", borderRadius: "10px", border: "1px solid #e2d4e6", marginBottom: "10px", fontSize: "13px" }}
+                  style={{
+                    width: "100%",
+                    padding: "10px",
+                    borderRadius: "10px",
+                    border: "1px solid #e2d4e6",
+                    marginBottom: "10px",
+                    fontSize: "13px",
+                  }}
                 />
                 <button
                   type="button"
+                  disabled={submitting}
                   onClick={() => void handleUpdateStatus()}
-                  style={{ width: "100%", padding: "10px", borderRadius: "999px", border: 0, background: "#b94776", color: "#fff", fontWeight: 700 }}
+                  style={{
+                    width: "100%",
+                    padding: "10px",
+                    borderRadius: "999px",
+                    border: 0,
+                    background: "#b94776",
+                    color: "#fff",
+                    fontWeight: 700,
+                  }}
                 >
                   Commit Status Transition ({nextStatus})
                 </button>
               </div>
 
-              {/* Card 3: Strictly Separated Private Internal Notes & Immutable Audit Trail (Screen 37) */}
-              <div style={{ background: "#fff", borderRadius: "16px", border: "1px solid #eee7ee", padding: "20px" }}>
+              {/* Card 3: Separated Private Internal Notes & Immutable Audit Trail */}
+              <div
+                style={{
+                  background: "#fff",
+                  borderRadius: "16px",
+                  border: "1px solid #eee7ee",
+                  padding: "20px",
+                }}
+              >
                 <h3 style={{ margin: "0 0 8px 0", fontSize: "16px" }}>
-                  <Lock size={15} style={{ verticalAlign: "middle", marginRight: "6px" }} />
+                  <Lock
+                    size={15}
+                    style={{ verticalAlign: "middle", marginRight: "6px" }}
+                  />
                   Private Internal Reviewer Notes (Never Visible to Users)
                 </h3>
                 <textarea
@@ -948,40 +1541,105 @@ export function ComplaintsManagementPage() {
                   onChange={(e) => setInternalNoteText(e.target.value)}
                   placeholder="Add confidential internal investigation note..."
                   rows={2}
-                  style={{ width: "100%", padding: "10px", borderRadius: "10px", border: "1px solid #f3ce8a", background: "#fff9ee", marginBottom: "8px", fontSize: "13px" }}
+                  style={{
+                    width: "100%",
+                    padding: "10px",
+                    borderRadius: "10px",
+                    border: "1px solid #f3ce8a",
+                    background: "#fff9ee",
+                    marginBottom: "8px",
+                    fontSize: "13px",
+                  }}
                 />
                 <div style={{ display: "flex", gap: "8px", marginBottom: "14px" }}>
                   <select
                     value={noteVisibilityRole}
                     onChange={(e) => setNoteVisibilityRole(e.target.value)}
-                    style={{ padding: "8px", borderRadius: "8px", border: "1px solid #dcd0e0", fontSize: "12px" }}
+                    style={{
+                      padding: "8px",
+                      borderRadius: "8px",
+                      border: "1px solid #dcd0e0",
+                      fontSize: "12px",
+                    }}
                   >
-                    <option value="SENIOR_REVIEWER">Senior Reviewers &amp; Above</option>
+                    <option value="SENIOR_REVIEWER">
+                      Senior Reviewers &amp; Above
+                    </option>
                     <option value="SUPER_ADMIN">Super Admin Only</option>
                   </select>
                   <button
                     type="button"
+                    disabled={submitting}
                     onClick={() => void handleAddInternalNote()}
-                    style={{ flex: 1, padding: "8px 14px", borderRadius: "999px", border: 0, background: "#52345f", color: "#fff", fontWeight: 700, fontSize: "12.5px" }}
+                    style={{
+                      flex: 1,
+                      padding: "8px 14px",
+                      borderRadius: "999px",
+                      border: 0,
+                      background: "#52345f",
+                      color: "#fff",
+                      fontWeight: 700,
+                      fontSize: "12.5px",
+                    }}
                   >
                     Append Internal Note
                   </button>
                 </div>
 
                 {selectedComplaint.internalNotes.map((n) => (
-                  <div key={n.id} style={{ background: "#fff9ee", border: "1px solid #f3ce8a", borderRadius: "10px", padding: "10px 12px", marginBottom: "8px", fontSize: "12.5px" }}>
-                    <strong>[{n.visibilityRole} • {n.reviewerName}]:</strong> {n.noteText}
+                  <div
+                    key={n.id}
+                    style={{
+                      background: "#fff9ee",
+                      border: "1px solid #f3ce8a",
+                      borderRadius: "10px",
+                      padding: "10px 12px",
+                      marginBottom: "8px",
+                      fontSize: "12.5px",
+                    }}
+                  >
+                    <strong>
+                      [{n.visibilityRole} • {n.reviewerName}]:
+                    </strong>{" "}
+                    {n.noteText}
                   </div>
                 ))}
 
-                <h4 style={{ margin: "14px 0 8px 0", fontSize: "13px", textTransform: "uppercase", color: "#877b8b" }}>
-                  <FileClock size={14} style={{ verticalAlign: "middle", marginRight: "4px" }} />
+                <h4
+                  style={{
+                    margin: "14px 0 8px 0",
+                    fontSize: "13px",
+                    textTransform: "uppercase",
+                    color: "#877b8b",
+                  }}
+                >
+                  <FileClock
+                    size={14}
+                    style={{ verticalAlign: "middle", marginRight: "4px" }}
+                  />
                   Immutable Audit History (SRS 7.6)
                 </h4>
-                <div style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "12px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "6px",
+                    fontSize: "12px",
+                  }}
+                >
                   {selectedComplaint.auditHistory.map((aud) => (
-                    <div key={aud.id} style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid #f3edf5", paddingBottom: "4px" }}>
-                      <span><strong>{aud.auditCode}</strong> • {aud.summary}</span>
+                    <div
+                      key={aud.id}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        borderBottom: "1px solid #f3edf5",
+                        paddingBottom: "4px",
+                      }}
+                    >
+                      <span>
+                        <strong>{aud.auditCode}</strong> • {aud.summary}
+                      </span>
                       <span style={{ color: "#877b8b" }}>{aud.actorLabel}</span>
                     </div>
                   ))}
@@ -992,223 +1650,625 @@ export function ComplaintsManagementPage() {
         </div>
       )}
 
-      {/* TAB 2: CONTROLLED EVIDENCE VAULT (Screen 36) */}
-      {activeTab === "vault" && selectedComplaint && (
-        <div style={{ background: "#fff", borderRadius: "16px", border: "1px solid #eee7ee", padding: "24px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
-            <div>
-              <h2 style={{ margin: 0, fontSize: "20px" }}>Controlled Evidence Viewer &amp; Watermarked Download Vault (SRS 7.6)</h2>
-              <p style={{ margin: "4px 0 0 0", color: "#6e6275", fontSize: "13.5px" }}>
-                Inspecting Case <strong>{selectedComplaint.referenceNumber}</strong>. All uploaded files have EXIF GPS and device metadata stripped on upload and are blurred by default.
-              </p>
-            </div>
-            <StatusPill tone="green">SHA-256 Integrity Verified</StatusPill>
-          </div>
-
-          <div style={{ marginBottom: "16px" }}>
-            <label style={{ fontSize: "13px", fontWeight: 700, display: "block", marginBottom: "6px" }}>
-              Mandatory Audit Justification for Viewing or Watermarked Export:
-            </label>
-            <input
-              value={exportReason}
-              onChange={(e) => setExportReason(e.target.value)}
-              style={{ width: "100%", padding: "10px 14px", borderRadius: "10px", border: "1px solid #d6c2df", fontSize: "13.5px" }}
-            />
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "16px" }}>
-            {selectedComplaint.evidenceFiles.map((ev) => {
-              const watermark = revealedEvidenceIds[ev.id];
-              return (
-                <div key={ev.id} style={{ background: "#2a1132", color: "#fff", borderRadius: "16px", padding: "20px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px" }}>
-                    <strong style={{ fontFamily: "monospace" }}>{ev.fileName}</strong>
-                    <StatusPill tone="green">EXIF Purged ✓</StatusPill>
-                  </div>
-                  <div style={{ background: "rgba(255,255,255,0.09)", border: "1.5px dashed rgba(255,255,255,0.3)", borderRadius: "12px", padding: "24px", textAlign: "center", marginBottom: "12px" }}>
-                    {watermark ? (
-                      <div>
-                        <Eye size={28} />
-                        <div style={{ fontWeight: 800, marginTop: "6px" }}>Evidence Revealed in Audit-Logged Session</div>
-                        <div style={{ fontFamily: "monospace", fontSize: "11.5px", color: "#f5c6d8", marginTop: "6px" }}>
-                          {watermark}
-                        </div>
-                      </div>
-                    ) : (
-                      <div>
-                        <Lock size={28} />
-                        <div style={{ fontWeight: 800, marginTop: "6px" }}>Blurred by Default for Survivor Privacy</div>
-                        <div style={{ fontSize: "12px", color: "#dec4ea", marginTop: "4px" }}>
-                          SHA-256: {ev.sha256Digest.slice(0, 24)}...
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ display: "flex", gap: "10px" }}>
-                    <button
-                      type="button"
-                      onClick={() => void handleControlledEvidenceAccess(ev.id, "REVEAL_VIEWER")}
-                      style={{ flex: 1, padding: "10px", borderRadius: "999px", border: 0, background: "#c83e73", color: "#fff", fontWeight: 700, fontSize: "12.5px" }}
-                    >
-                      Reveal Evidence (Logs Audit)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleControlledEvidenceAccess(ev.id, "WATERMARKED_DOWNLOAD")}
-                      style={{ flex: 1, padding: "10px", borderRadius: "999px", border: "1px solid #dec4ea", background: "transparent", color: "#fff", fontWeight: 700, fontSize: "12.5px" }}
-                    >
-                      Watermarked Export
-                    </button>
-                  </div>
+      {/* TAB 2: CONTROLLED EVIDENCE VAULT */}
+      {activeTab === "vault" && (
+        <div
+          style={{
+            background: "#fff",
+            borderRadius: "16px",
+            border: "1px solid #eee7ee",
+            padding: "24px",
+          }}
+        >
+          {!selectedComplaint ? (
+            <p style={{ margin: 0, color: "#6e6275" }}>
+              Select a complaint in the Triage Queue first to inspect its evidence vault.
+            </p>
+          ) : (
+            <>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: "14px",
+                }}
+              >
+                <div>
+                  <h2 style={{ margin: 0, fontSize: "20px" }}>
+                    Controlled Evidence Viewer &amp; Watermarked Download Vault
+                    (SRS 7.6)
+                  </h2>
+                  <p
+                    style={{
+                      margin: "4px 0 0 0",
+                      color: "#6e6275",
+                      fontSize: "13.5px",
+                    }}
+                  >
+                    Inspecting Case{" "}
+                    <strong>{selectedComplaint.referenceNumber}</strong>. All
+                    uploaded files have EXIF GPS and device metadata stripped on
+                    upload and are blurred by default.
+                  </p>
                 </div>
-              );
-            })}
-          </div>
+                <StatusPill tone="green">SHA-256 Integrity Verified</StatusPill>
+              </div>
+
+              <div style={{ marginBottom: "16px" }}>
+                <label
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    display: "block",
+                    marginBottom: "6px",
+                  }}
+                >
+                  Mandatory Audit Justification (min 10 chars) for Viewing or
+                  Watermarked Export:
+                </label>
+                <input
+                  value={exportReason}
+                  onChange={(e) => setExportReason(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "10px 14px",
+                    borderRadius: "10px",
+                    border: "1px solid #d6c2df",
+                    fontSize: "13.5px",
+                  }}
+                />
+              </div>
+
+              {selectedComplaint.evidenceFiles.length === 0 ? (
+                <p style={{ color: "#6e6275" }}>
+                  This complaint was submitted without binary attachments.
+                </p>
+              ) : (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns:
+                      "repeat(auto-fit, minmax(300px, 1fr))",
+                    gap: "16px",
+                  }}
+                >
+                  {selectedComplaint.evidenceFiles.map((ev) => {
+                    const watermark = revealedEvidenceIds[ev.id];
+                    return (
+                      <div
+                        key={ev.id}
+                        style={{
+                          background: "#2a1132",
+                          color: "#fff",
+                          borderRadius: "16px",
+                          padding: "20px",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            marginBottom: "10px",
+                          }}
+                        >
+                          <strong style={{ fontFamily: "monospace" }}>
+                            {ev.fileName}
+                          </strong>
+                          <StatusPill tone={ev.isPurged ? "urgent" : "green"}>
+                            {ev.isPurged ? "Purged by User" : "EXIF Purged ✓"}
+                          </StatusPill>
+                        </div>
+                        <div
+                          style={{
+                            background: "rgba(255,255,255,0.09)",
+                            border: "1.5px dashed rgba(255,255,255,0.3)",
+                            borderRadius: "12px",
+                            padding: "24px",
+                            textAlign: "center",
+                            marginBottom: "12px",
+                          }}
+                        >
+                          {watermark ? (
+                            <div>
+                              <Eye size={28} />
+                              <div style={{ fontWeight: 800, marginTop: "6px" }}>
+                                Evidence Revealed in Audit-Logged Session
+                              </div>
+                              <div
+                                style={{
+                                  fontFamily: "monospace",
+                                  fontSize: "11.5px",
+                                  color: "#f5c6d8",
+                                  marginTop: "6px",
+                                }}
+                              >
+                                {watermark}
+                              </div>
+                            </div>
+                          ) : (
+                            <div>
+                              <Lock size={28} />
+                              <div style={{ fontWeight: 800, marginTop: "6px" }}>
+                                Blurred by Default for Survivor Privacy
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: "12px",
+                                  color: "#dec4ea",
+                                  marginTop: "4px",
+                                }}
+                              >
+                                SHA-256: {ev.sha256Digest.slice(0, 24)}...
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ display: "flex", gap: "10px" }}>
+                          <button
+                            type="button"
+                            disabled={submitting || Boolean(ev.isPurged)}
+                            onClick={() =>
+                              void handleControlledEvidenceAccess(
+                                ev.id,
+                                "REVEAL_VIEWER",
+                              )
+                            }
+                            style={{
+                              flex: 1,
+                              padding: "10px",
+                              borderRadius: "999px",
+                              border: 0,
+                              background: "#c83e73",
+                              color: "#fff",
+                              fontWeight: 700,
+                              fontSize: "12.5px",
+                            }}
+                          >
+                            Reveal Evidence (Logs Audit)
+                          </button>
+                          <button
+                            type="button"
+                            disabled={submitting || Boolean(ev.isPurged)}
+                            onClick={() =>
+                              void handleControlledEvidenceAccess(
+                                ev.id,
+                                "WATERMARKED_DOWNLOAD",
+                              )
+                            }
+                            style={{
+                              flex: 1,
+                              padding: "10px",
+                              borderRadius: "999px",
+                              border: "1px solid #dec4ea",
+                              background: "transparent",
+                              color: "#fff",
+                              fontWeight: 700,
+                              fontSize: "12.5px",
+                            }}
+                          >
+                            Watermarked Export
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 
-      {/* TAB 3: DUPLICATE & REPEAT-OFFENDER CLUSTER DETECTOR (Screen 38) */}
+      {/* TAB 3: DUPLICATE & REPEAT-OFFENDER CLUSTER MERGE */}
       {activeTab === "duplicates" && (
-        <div style={{ background: "#fff", borderRadius: "16px", border: "1px solid #eee7ee", padding: "24px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
-            <div>
-              <h2 style={{ margin: 0, fontSize: "20px" }}>Duplicate Complaint &amp; Repeat-Offender Cluster Engine (SRS 7.6)</h2>
-              <p style={{ margin: "4px 0 0 0", color: "#6e6275", fontSize: "13.5px" }}>
-                Automatically correlates anonymous and confidential reports targeting the same handle, business page, or SHA-256 media digest.
-              </p>
-            </div>
-            <StatusPill tone="urgent">94% Pattern Match • #CLUST-209</StatusPill>
-          </div>
+        <div
+          style={{
+            background: "#fff",
+            borderRadius: "16px",
+            border: "1px solid #eee7ee",
+            padding: "24px",
+          }}
+        >
+          <h2 style={{ margin: "0 0 6px 0", fontSize: "20px" }}>
+            Duplicate Complaint &amp; Repeat-Offender Cluster Engine (SRS 7.6)
+          </h2>
+          <p
+            style={{
+              margin: "0 0 16px 0",
+              color: "#6e6275",
+              fontSize: "13.5px",
+            }}
+          >
+            Merge corroborating or duplicate reports targeting the same handle or
+            incident into a primary investigation reference number.
+          </p>
 
-          <div style={{ background: "#fff8eb", border: "1.5px solid #f3ce8a", borderRadius: "14px", padding: "18px", marginBottom: "16px" }}>
-            <h3 style={{ margin: "0 0 10px 0", color: "#8c5108" }}>
-              Cluster #CLUST-209 • Target Handle: @studio_collab_tpt24
-            </h3>
-            <ul style={{ margin: 0, paddingLeft: "20px", lineHeight: 1.7, fontSize: "13.5px" }}>
-              <li><strong>#SKH-ANON-2026-8492 (Primary):</strong> Harassment &amp; Threats • 25 Oct 2026 • 2 Scrubbed Files</li>
-              <li><strong>#SKH-ANON-2026-8490 (Duplicate Submission):</strong> Submitted 3 mins earlier with matching SHA-256 screenshot hash</li>
-              <li><strong>#SKH-CONF-2026-8489 (Corroborating Case):</strong> Stalking or Unwanted Contact against same target handle</li>
-            </ul>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr 1fr",
+              gap: "12px",
+              marginBottom: "16px",
+            }}
+          >
+            <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
+              Primary Investigation Reference #
+              <input
+                value={mergePrimaryRef}
+                onChange={(e) => setMergePrimaryRef(e.target.value)}
+                placeholder="#SKH-ANON-2026-..."
+                style={{
+                  width: "100%",
+                  marginTop: "4px",
+                  padding: "8px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #dcd0e0",
+                }}
+              />
+            </label>
+            <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
+              Duplicate Reference #(s) (comma-separated)
+              <input
+                value={mergeDuplicateRefsInput}
+                onChange={(e) => setMergeDuplicateRefsInput(e.target.value)}
+                placeholder="#SKH-ANON-2026-..."
+                style={{
+                  width: "100%",
+                  marginTop: "4px",
+                  padding: "8px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #dcd0e0",
+                }}
+              />
+            </label>
+            <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
+              Cluster ID (Optional)
+              <input
+                value={mergeClusterId}
+                onChange={(e) => setMergeClusterId(e.target.value)}
+                placeholder="CLUST-209"
+                style={{
+                  width: "100%",
+                  marginTop: "4px",
+                  padding: "8px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #dcd0e0",
+                }}
+              />
+            </label>
           </div>
 
           <button
             type="button"
+            disabled={submitting}
             onClick={() => void handleMergeCluster()}
-            style={{ padding: "12px 24px", borderRadius: "999px", border: 0, background: "#631d76", color: "#fff", fontWeight: 700 }}
+            style={{
+              padding: "12px 24px",
+              borderRadius: "999px",
+              border: 0,
+              background: "#631d76",
+              color: "#fff",
+              fontWeight: 700,
+            }}
           >
-            <GitMerge size={16} style={{ verticalAlign: "middle", marginRight: "8px" }} />
-            Merge Duplicate #8490 into Primary Investigation #8492
+            <GitMerge
+              size={16}
+              style={{ verticalAlign: "middle", marginRight: "8px" }}
+            />
+            Merge Duplicate Cluster on Backend
           </button>
         </div>
       )}
 
-      {/* TAB 4: ABUSE & MALICIOUS-REPORT GUARD (Screen 39) */}
+      {/* TAB 4: ABUSE & MALICIOUS-REPORT GUARD */}
       {activeTab === "malicious" && (
-        <div style={{ background: "#fff", borderRadius: "16px", border: "1px solid #eee7ee", padding: "24px" }}>
-          <h2 style={{ margin: "0 0 8px 0", fontSize: "20px" }}>Abuse &amp; Malicious-Report Safeguards (SRS 7.6)</h2>
-          <p style={{ margin: "0 0 16px 0", color: "#6e6275", fontSize: "13.5px" }}>
-            Protects innocent women-owned businesses and members from bad-faith spam floods using blinded cryptographic rate-limit buckets—without unmasking legitimate anonymous survivors.
+        <div
+          style={{
+            background: "#fff",
+            borderRadius: "16px",
+            border: "1px solid #eee7ee",
+            padding: "24px",
+          }}
+        >
+          <h2 style={{ margin: "0 0 8px 0", fontSize: "20px" }}>
+            Abuse &amp; Malicious-Report Safeguards (SRS 7.6)
+          </h2>
+          <p
+            style={{
+              margin: "0 0 16px 0",
+              color: "#6e6275",
+              fontSize: "13.5px",
+            }}
+          >
+            Protects innocent members and women-owned businesses from bad-faith
+            spam floods using blinded cryptographic rate-limit buckets—without
+            unmasking anonymous users.
           </p>
 
-          <div style={{ background: "#fff2f5", border: "1.5px solid #f3bac6", borderRadius: "14px", padding: "18px", marginBottom: "16px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
-              <strong style={{ fontSize: "15px", color: "#9e1932" }}>Flagged Case: #SKH-ANON-2026-8471 • Target: @aaradhya_handlooms</strong>
-              <StatusPill tone="urgent">Blinded Bucket: bkt_spam_flood_7721</StatusPill>
-            </div>
-            <p style={{ margin: "0 0 12px 0", fontSize: "13.5px", color: "#5e1928" }}>
-              Diagnostic Signal: 5 identical text reports submitted within 4 minutes from the same blinded session bucket with zero corroborating evidence.
-            </p>
-            <button
-              type="button"
-              onClick={() => void handleMaliciousSafeguard("#SKH-ANON-2026-8471")}
-              style={{ padding: "10px 20px", borderRadius: "999px", border: 0, background: "#c92a49", color: "#fff", fontWeight: 700 }}
-            >
-              Reject as Malicious Burst &amp; Throttle Blinded Bucket (72h Cooldown)
-            </button>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 160px 1.5fr",
+              gap: "12px",
+              marginBottom: "16px",
+            }}
+          >
+            <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
+              Target Complaint Reference #
+              <input
+                value={maliciousTargetRef}
+                onChange={(e) => setMaliciousTargetRef(e.target.value)}
+                placeholder="#SKH-ANON-2026-..."
+                style={{
+                  width: "100%",
+                  marginTop: "4px",
+                  padding: "8px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #dcd0e0",
+                }}
+              />
+            </label>
+            <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
+              Cooldown (Hours)
+              <input
+                type="number"
+                min={1}
+                max={720}
+                value={maliciousCooldownHours}
+                onChange={(e) =>
+                  setMaliciousCooldownHours(Number(e.target.value))
+                }
+                style={{
+                  width: "100%",
+                  marginTop: "4px",
+                  padding: "8px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #dcd0e0",
+                }}
+              />
+            </label>
+            <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
+              Audit Justification Reason
+              <input
+                value={maliciousReason}
+                onChange={(e) => setMaliciousReason(e.target.value)}
+                style={{
+                  width: "100%",
+                  marginTop: "4px",
+                  padding: "8px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #dcd0e0",
+                }}
+              />
+            </label>
           </div>
+
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={() => void handleMaliciousSafeguard()}
+            style={{
+              padding: "10px 20px",
+              borderRadius: "999px",
+              border: 0,
+              background: "#c92a49",
+              color: "#fff",
+              fontWeight: 700,
+            }}
+          >
+            Reject as Malicious &amp; Throttle Blinded Bucket
+          </button>
         </div>
       )}
 
-      {/* TAB 5: CONFIGURABLE CATEGORIES & RETENTION POLICY (Screen 40) */}
+      {/* TAB 5: CONFIGURABLE CATEGORIES & RETENTION POLICY */}
       {activeTab === "config" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "20px", alignItems: "start" }}>
-          <div style={{ background: "#fff", borderRadius: "16px", border: "1px solid #eee7ee", padding: "20px" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1.25fr 1fr",
+            gap: "20px",
+            alignItems: "start",
+          }}
+        >
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: "16px",
+              border: "1px solid #eee7ee",
+              padding: "20px",
+            }}
+          >
             <h3 style={{ margin: "0 0 12px 0", fontSize: "17px" }}>
-              10 Configurable Complaint Categories (SRS 7.2 — Synced Live to App)
+              Configurable Complaint Categories (SRS 7.2 — Synced Live to App)
             </h3>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "16px" }}>
-              {data.categories.map((cat) => (
-                <div key={cat.slug} style={{ padding: "10px 12px", borderRadius: "10px", border: "1px solid #eee7ee", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "10px",
+                marginBottom: "16px",
+              }}
+            >
+              {categories.map((cat) => (
+                <div
+                  key={cat.slug}
+                  style={{
+                    padding: "10px 12px",
+                    borderRadius: "10px",
+                    border: "1px solid #eee7ee",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: "8px",
+                  }}
+                >
                   <div>
-                    <strong style={{ fontSize: "13px", display: "block" }}>{cat.displayOrder}. {cat.name}</strong>
-                    <small style={{ fontSize: "11px", color: "#877b8b" }}>{cat.defaultPriority} • {cat.defaultSeverity}</small>
+                    <strong style={{ fontSize: "13px", display: "block" }}>
+                      {cat.displayOrder}. {cat.name}
+                    </strong>
+                    <small style={{ fontSize: "11px", color: "#877b8b" }}>
+                      {cat.defaultPriority} • {cat.defaultSeverity}
+                    </small>
                   </div>
-                  <StatusPill tone={cat.isEnabled ? "green" : "neutral"}>
-                    {cat.isEnabled ? "ENABLED" : "OFF"}
-                  </StatusPill>
+                  <button
+                    type="button"
+                    disabled={submitting}
+                    onClick={() => void handleToggleCategory(cat)}
+                    style={{
+                      padding: "5px 10px",
+                      borderRadius: "999px",
+                      border: "1px solid #dcd0e0",
+                      background: cat.isEnabled ? "#e8f5ed" : "#f5f2f6",
+                      color: cat.isEnabled ? "#1f6e4e" : "#6e6275",
+                      fontSize: "11px",
+                      fontWeight: 800,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {cat.isEnabled ? "ENABLED (Toggle)" : "OFF (Toggle)"}
+                  </button>
                 </div>
               ))}
             </div>
-            <div style={{ display: "flex", gap: "8px" }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr auto",
+                gap: "8px",
+              }}
+            >
               <input
                 value={newCatName}
                 onChange={(e) => setNewCatName(e.target.value)}
                 placeholder="New category title..."
-                style={{ flex: 1, padding: "8px 12px", borderRadius: "8px", border: "1px solid #dcd0e0", fontSize: "13px" }}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #dcd0e0",
+                  fontSize: "13px",
+                }}
               />
               <input
                 value={newCatDesc}
                 onChange={(e) => setNewCatDesc(e.target.value)}
                 placeholder="Short description..."
-                style={{ flex: 1, padding: "8px 12px", borderRadius: "8px", border: "1px solid #dcd0e0", fontSize: "13px" }}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #dcd0e0",
+                  fontSize: "13px",
+                }}
               />
               <button
                 type="button"
+                disabled={submitting}
                 onClick={() => void handleAddCategory()}
-                style={{ padding: "8px 16px", borderRadius: "999px", border: 0, background: "#631d76", color: "#fff", fontWeight: 700, fontSize: "12.5px" }}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: "999px",
+                  border: 0,
+                  background: "#631d76",
+                  color: "#fff",
+                  fontWeight: 700,
+                  fontSize: "12.5px",
+                }}
               >
-                <Plus size={14} style={{ verticalAlign: "middle" }} /> Add
+                <Plus size={14} style={{ verticalAlign: "middle" }} /> Save
               </button>
             </div>
           </div>
 
-          <div style={{ background: "#fff", borderRadius: "16px", border: "1px solid #eee7ee", padding: "20px" }}>
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: "16px",
+              border: "1px solid #eee7ee",
+              padding: "20px",
+            }}
+          >
             <h3 style={{ margin: "0 0 12px 0", fontSize: "17px" }}>
-              Configurable Retention &amp; Deletion Policies (SRS 7.6 &amp; Module 11)
+              Configurable Retention &amp; Deletion Policies (SRS 7.6 &amp; Module
+              11)
             </h3>
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "16px" }}>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "12px",
+                marginBottom: "16px",
+              }}
+            >
               <label style={{ fontSize: "13px", fontWeight: 700 }}>
                 Closed Case Raw Evidence Media Auto-Purge (Days)
                 <input
                   type="number"
+                  min={7}
+                  max={3650}
                   value={closedRetentionDays}
-                  onChange={(e) => setClosedRetentionDays(Number(e.target.value))}
-                  style={{ width: "100%", marginTop: "4px", padding: "8px 12px", borderRadius: "8px", border: "1px solid #dcd0e0" }}
+                  onChange={(e) =>
+                    setClosedRetentionDays(Number(e.target.value))
+                  }
+                  style={{
+                    width: "100%",
+                    marginTop: "4px",
+                    padding: "8px 12px",
+                    borderRadius: "8px",
+                    border: "1px solid #dcd0e0",
+                  }}
                 />
               </label>
               <label style={{ fontSize: "13px", fontWeight: 700 }}>
                 Rejected / Non-Actionable Report Auto-Purge (Days)
                 <input
                   type="number"
+                  min={7}
+                  max={3650}
                   value={rejectedRetentionDays}
-                  onChange={(e) => setRejectedRetentionDays(Number(e.target.value))}
-                  style={{ width: "100%", marginTop: "4px", padding: "8px 12px", borderRadius: "8px", border: "1px solid #dcd0e0" }}
+                  onChange={(e) =>
+                    setRejectedRetentionDays(Number(e.target.value))
+                  }
+                  style={{
+                    width: "100%",
+                    marginTop: "4px",
+                    padding: "8px 12px",
+                    borderRadius: "8px",
+                    border: "1px solid #dcd0e0",
+                  }}
                 />
               </label>
               <label style={{ fontSize: "13px", fontWeight: 700 }}>
                 Server Technical Rate-Limit Logs Rotation (Days — SRS 7.4)
                 <input
                   type="number"
+                  min={1}
+                  max={365}
                   value={logRetentionDays}
                   onChange={(e) => setLogRetentionDays(Number(e.target.value))}
-                  style={{ width: "100%", marginTop: "4px", padding: "8px 12px", borderRadius: "8px", border: "1px solid #dcd0e0" }}
+                  style={{
+                    width: "100%",
+                    marginTop: "4px",
+                    padding: "8px 12px",
+                    borderRadius: "8px",
+                    border: "1px solid #dcd0e0",
+                  }}
                 />
               </label>
             </div>
             <button
               type="button"
+              disabled={submitting}
               onClick={() => void handleSaveRetentionPolicy()}
-              style={{ width: "100%", padding: "10px", borderRadius: "999px", border: 0, background: "#39785c", color: "#fff", fontWeight: 700 }}
+              style={{
+                width: "100%",
+                padding: "10px",
+                borderRadius: "999px",
+                border: 0,
+                background: "#39785c",
+                color: "#fff",
+                fontWeight: 700,
+              }}
             >
               Save DPDP Retention Policy
             </button>

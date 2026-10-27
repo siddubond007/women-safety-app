@@ -1,18 +1,28 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../auth/backend_api_client.dart';
 import '../models/complaint_models.dart';
 import '../services/complaint_controller.dart';
 import 'discreet_complaint_hub_screen.dart';
 
-/// Screens 23 through 32 — Discreet Complaint Tracking Lookup, All 7 SRS 7.5
-/// Status Views, Two-Way Encrypted Reply Modal (Modal 27), Appeal Modal (Modal 32),
-/// and Immediate User Evidence Purge (SRS 13.14).
+/// Screens 23 through 32 — Discreet Complaint Tracking Lookup (Passkey-Protected),
+/// Read-Only 7-Stage Status Timeline (SRS 7.5), Two-Way Encrypted Reply Modal (Modal 27),
+/// Appeal Modal (Modal 32), and DPDP Immediate Evidence Media Purge (SRS 13.14).
 class ComplaintTrackingLookupScreen extends StatefulWidget {
-  const ComplaintTrackingLookupScreen({super.key, this.initialReferenceNumber});
+  const ComplaintTrackingLookupScreen({
+    super.key,
+    this.initialReferenceNumber,
+    this.initialPasskey,
+    this.initialPreloadedComplaint,
+  });
 
   final String? initialReferenceNumber;
+  final String? initialPasskey;
+  final DiscreetComplaintModel? initialPreloadedComplaint;
 
   @override
   State<ComplaintTrackingLookupScreen> createState() =>
@@ -24,43 +34,76 @@ class _ComplaintTrackingLookupScreenState
   final SakhiComplaintController _controller =
       SakhiComplaintController.instance;
   late final TextEditingController _referenceCtrl;
+  late final TextEditingController _passkeyCtrl;
+
   DiscreetComplaintModel? _activeCase;
-  ComplaintStatus? _previewStatusOverride;
+  String? _lookupError;
+  bool _isLookingUp = false;
 
   @override
   void initState() {
     super.initState();
-    final initialRef =
+    final ref =
         widget.initialReferenceNumber ??
-        _controller.complaints.first.referenceNumber;
-    _referenceCtrl = TextEditingController(text: initialRef);
-    _activeCase = _controller.lookupByReferenceOrSerial(initialRef);
+        widget.initialPreloadedComplaint?.referenceNumber ??
+        '';
+    final pass =
+        widget.initialPasskey ??
+        widget.initialPreloadedComplaint?.passkey ??
+        (ref.isNotEmpty ? (_controller.passkeyForReference(ref) ?? '') : '');
+
+    _referenceCtrl = TextEditingController(text: ref);
+    _passkeyCtrl = TextEditingController(text: pass);
+    _activeCase = widget.initialPreloadedComplaint;
+
+    if (_activeCase == null && ref.isNotEmpty && pass.isNotEmpty) {
+      unawaited(_lookupCaseOnServer());
+    }
   }
 
   @override
   void dispose() {
     _referenceCtrl.dispose();
+    _passkeyCtrl.dispose();
     super.dispose();
   }
 
-  void _lookupCase([String? explicitRef]) {
-    final query = explicitRef ?? _referenceCtrl.text.trim();
-    if (explicitRef != null) {
-      _referenceCtrl.text = explicitRef;
-    }
-    final found = _controller.lookupByReferenceOrSerial(query);
+  Future<void> _lookupCaseOnServer() async {
+    final query = _referenceCtrl.text.trim();
+    final pass = _passkeyCtrl.text.trim();
     setState(() {
-      _activeCase = found;
-      _previewStatusOverride = null;
+      _lookupError = null;
+      _isLookingUp = true;
     });
-    if (found == null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'No matching Reference Number or Wellness Quote Serial found.',
-          ),
-        ),
+    try {
+      final found = await _controller.lookupComplaintOnServer(
+        referenceOrSerial: query,
+        passkey: pass,
       );
+      if (!mounted) return;
+      setState(() {
+        _activeCase = found;
+        if (found.passkey.isNotEmpty && _passkeyCtrl.text.trim().isEmpty) {
+          _passkeyCtrl.text = found.passkey;
+        }
+      });
+    } on BackendApiException catch (err) {
+      if (!mounted) return;
+      setState(() {
+        _activeCase = null;
+        _lookupError = err.message;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _activeCase = null;
+        _lookupError =
+            'Could not reach the Sakhi backend server to look up this reference number.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isLookingUp = false);
+      }
     }
   }
 
@@ -75,9 +118,10 @@ class _ComplaintTrackingLookupScreenState
   /// Modal 27 — Two-Way Encrypted Anonymous / Confidential Reply Modal
   Future<void> _openTwoWayReplyModal(DiscreetComplaintModel item) async {
     final replyCtrl = TextEditingController();
-    var attachScreenshot = false;
+    String? modalError;
+    bool sending = false;
 
-    final submitted = await showModalBottomSheet<bool>(
+    final updated = await showModalBottomSheet<DiscreetComplaintModel>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -100,11 +144,11 @@ class _ComplaintTrackingLookupScreenState
               children: [
                 Text(
                   'Encrypted Two-Way Reply (${item.referenceNumber})',
-                  style: AppTypography.sectionTitle.copyWith(fontSize: 18),
+                  style: AppTypography.editorialSection.copyWith(fontSize: 18),
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'Respond to the Senior Safety Reviewer without revealing your identity. Any new attachment is automatically scrubbed of EXIF metadata.',
+                  'Respond to the Senior Safety Reviewer using your passkey without revealing your identity.',
                   style: AppTypography.subtitle,
                 ),
                 const SizedBox(height: 12),
@@ -113,28 +157,21 @@ class _ComplaintTrackingLookupScreenState
                   controller: replyCtrl,
                   minLines: 3,
                   maxLines: 5,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Your Encrypted Reply to Safety Reviewer *',
-                    hintText: 'Provide the requested clarification or additional context safely...',
+                    hintText:
+                        'Provide the requested clarification or additional context safely...',
+                    errorText: modalError,
                   ),
                 ),
-                const SizedBox(height: 10),
-                CheckboxListTile(
-                  contentPadding: EdgeInsets.zero,
-                  value: attachScreenshot,
-                  title: const Text(
-                    'Attach additional EXIF-scrubbed screenshot',
-                    style: AppTypography.bodyMedium,
-                  ),
-                  onChanged: (v) =>
-                      setModalState(() => attachScreenshot = v ?? false),
-                ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 12),
                 Row(
                   children: [
                     Expanded(
                       child: OutlinedButton(
-                        onPressed: () => Navigator.of(ctx).pop(false),
+                        onPressed: sending
+                            ? null
+                            : () => Navigator.of(ctx).pop(),
                         child: const Text('Cancel'),
                       ),
                     ),
@@ -145,9 +182,52 @@ class _ComplaintTrackingLookupScreenState
                         style: FilledButton.styleFrom(
                           backgroundColor: AppColors.primaryPurple,
                         ),
-                        onPressed: () => Navigator.of(ctx).pop(true),
+                        onPressed: sending
+                            ? null
+                            : () async {
+                                final text = replyCtrl.text.trim();
+                                if (text.length < 2) {
+                                  setModalState(
+                                    () => modalError =
+                                        'Please enter a reply message.',
+                                  );
+                                  return;
+                                }
+                                setModalState(() {
+                                  sending = true;
+                                  modalError = null;
+                                });
+                                try {
+                                  final res = await _controller
+                                      .sendComplainantReply(
+                                        referenceNumber: item.referenceNumber,
+                                        passkey: _passkeyCtrl.text
+                                            .trim()
+                                            .isNotEmpty
+                                            ? _passkeyCtrl.text.trim()
+                                            : item.passkey,
+                                        messageBody: text,
+                                      );
+                                  if (ctx.mounted) {
+                                    Navigator.of(ctx).pop(res);
+                                  }
+                                } on BackendApiException catch (err) {
+                                  setModalState(() {
+                                    sending = false;
+                                    modalError = err.message;
+                                  });
+                                } catch (_) {
+                                  setModalState(() {
+                                    sending = false;
+                                    modalError =
+                                        'Failed to send reply to server.';
+                                  });
+                                }
+                              },
                         icon: const Icon(Icons.send_rounded, size: 16),
-                        label: const Text('Send Encrypted Reply'),
+                        label: Text(
+                          sending ? 'Sending...' : 'Send Encrypted Reply',
+                        ),
                       ),
                     ),
                   ],
@@ -159,117 +239,152 @@ class _ComplaintTrackingLookupScreenState
       ),
     );
 
-    if (submitted == true && mounted) {
-      final text = replyCtrl.text.trim().isEmpty
-          ? 'Here is the additional context requested by the safety reviewer.'
-          : replyCtrl.text.trim();
-      final extraFiles = attachScreenshot
-          ? <SanitizedEvidenceFileModel>[
-              _controller.scrubAndCreateEvidence(
-                originalFileName: 'FollowUp_Clarification_Screen.png',
-                mimeType: 'image/png',
-                sizeBytes: 298400,
-              ),
-            ]
-          : const <SanitizedEvidenceFileModel>[];
-      final updated = await _controller.sendComplainantReply(
-        referenceNumber: item.referenceNumber,
-        messageBody: text,
-        newEvidence: extraFiles,
-      );
-      if (updated != null && mounted) {
-        setState(() {
-          _activeCase = updated;
-          _previewStatusOverride = null;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Encrypted reply delivered to Senior Safety Reviewer!',
-            ),
-          ),
-        );
-      }
-    }
     replyCtrl.dispose();
+    if (updated != null && mounted) {
+      setState(() => _activeCase = updated);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Encrypted reply confirmed and saved by server.'),
+        ),
+      );
+    }
   }
 
   /// Modal 32 — Submit Case Appeal / Request Re-Open Modal
   Future<void> _openAppealModal(DiscreetComplaintModel item) async {
     final appealCtrl = TextEditingController();
-    final submitted = await showDialog<bool>(
+    String? modalError;
+    bool sending = false;
+
+    final updated = await showDialog<DiscreetComplaintModel>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFFFFF9FC),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: Text(
-          'Appeal Decision & Request Independent Re-Open',
-          style: AppTypography.sectionTitle.copyWith(fontSize: 18),
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Your appeal is routed to a different Senior Ombudsperson Reviewer for an independent reassessment:',
-                style: AppTypography.subtitle,
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                key: const Key('m5-appeal-reason-input'),
-                controller: appealCtrl,
-                minLines: 3,
-                maxLines: 5,
-                decoration: const InputDecoration(
-                  labelText: 'Why should this complaint be re-opened? *',
-                  hintText: 'Explain new evidence, escalating threats, or policy context...',
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) => AlertDialog(
+          backgroundColor: const Color(0xFFFFF9FC),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          title: Text(
+            'Appeal Decision & Request Independent Re-Open',
+            style: AppTypography.editorialSection.copyWith(fontSize: 18),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Your appeal is routed to an independent Senior Escalation Reviewer (#EL-01):',
+                  style: AppTypography.subtitle,
                 ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton.icon(
-            key: const Key('m5-submit-appeal-confirm-button'),
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.primaryPurple,
+                const SizedBox(height: 10),
+                TextField(
+                  key: const Key('m5-appeal-reason-input'),
+                  controller: appealCtrl,
+                  minLines: 3,
+                  maxLines: 5,
+                  decoration: InputDecoration(
+                    labelText:
+                        'Why should this complaint be re-opened? (min 10 chars) *',
+                    hintText:
+                        'Explain new evidence, escalating threats, or policy context...',
+                    errorText: modalError,
+                  ),
+                ),
+              ],
             ),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            icon: const Icon(Icons.gavel_rounded, size: 16),
-            label: const Text('Submit Appeal'),
           ),
-        ],
+          actions: [
+            TextButton(
+              onPressed: sending ? null : () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              key: const Key('m5-submit-appeal-confirm-button'),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.primaryPurple,
+              ),
+              onPressed: sending
+                  ? null
+                  : () async {
+                      final reason = appealCtrl.text.trim();
+                      if (reason.length < 10) {
+                        setModalState(
+                          () => modalError =
+                              'Please enter at least 10 characters.',
+                        );
+                        return;
+                      }
+                      setModalState(() {
+                        sending = true;
+                        modalError = null;
+                      });
+                      try {
+                        final res = await _controller.submitCaseAppeal(
+                          referenceNumber: item.referenceNumber,
+                          passkey: _passkeyCtrl.text.trim().isNotEmpty
+                              ? _passkeyCtrl.text.trim()
+                              : item.passkey,
+                          appealReason: reason,
+                        );
+                        if (ctx.mounted) {
+                          Navigator.of(ctx).pop(res);
+                        }
+                      } on BackendApiException catch (err) {
+                        setModalState(() {
+                          sending = false;
+                          modalError = err.message;
+                        });
+                      } catch (_) {
+                        setModalState(() {
+                          sending = false;
+                          modalError = 'Failed to submit appeal to server.';
+                        });
+                      }
+                    },
+              icon: const Icon(Icons.gavel_rounded, size: 16),
+              label: Text(sending ? 'Submitting...' : 'Submit Appeal'),
+            ),
+          ],
+        ),
       ),
     );
 
-    if (submitted == true && mounted) {
-      final reason = appealCtrl.text.trim().isEmpty
-          ? 'Requesting independent senior review with additional threat context.'
-          : appealCtrl.text.trim();
-      final updated = await _controller.submitCaseAppeal(
-        referenceNumber: item.referenceNumber,
-        appealReason: reason,
-      );
-      if (updated != null && mounted) {
-        setState(() {
-          _activeCase = updated;
-          _previewStatusOverride = null;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Appeal submitted! Case re-opened and assigned to Ombudsperson Panel.',
-            ),
-          ),
-        );
-      }
-    }
     appealCtrl.dispose();
+    if (updated != null && mounted) {
+      setState(() => _activeCase = updated);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Appeal confirmed by server! Case escalated to Senior Escalation Lead (#EL-01).',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _handlePurgeEvidence(DiscreetComplaintModel item) async {
+    setState(() => _lookupError = null);
+    try {
+      final updated = await _controller.purgeEvidenceVaultMedia(
+        referenceNumber: item.referenceNumber,
+        passkey: _passkeyCtrl.text.trim().isNotEmpty
+            ? _passkeyCtrl.text.trim()
+            : item.passkey,
+      );
+      if (!mounted) return;
+      setState(() => _activeCase = updated);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'All uploaded evidence media purged on server (DPDP Right-to-Erasure).',
+          ),
+        ),
+      );
+    } on BackendApiException catch (err) {
+      if (!mounted) return;
+      setState(() => _lookupError = err.message);
+    }
   }
 
   @override
@@ -277,14 +392,7 @@ class _ComplaintTrackingLookupScreenState
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, _) {
-        final item = _activeCase != null
-            ? (_controller.lookupByReferenceOrSerial(
-                    _activeCase!.referenceNumber,
-                  ) ??
-                  _activeCase)
-            : null;
-        final displayedStatus =
-            _previewStatusOverride ?? item?.status ?? ComplaintStatus.submitted;
+        final item = _activeCase;
 
         return Scaffold(
           backgroundColor: const Color(0xFFFFF8FB),
@@ -295,7 +403,6 @@ class _ComplaintTrackingLookupScreenState
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Header
                   Row(
                     children: [
                       if (Navigator.of(context).canPop())
@@ -309,12 +416,12 @@ class _ComplaintTrackingLookupScreenState
                           children: [
                             Text(
                               'Track Complaint Status',
-                              style: AppTypography.sectionTitle.copyWith(
+                              style: AppTypography.editorialSection.copyWith(
                                 fontSize: 20,
                               ),
                             ),
                             const Text(
-                              'SRS 7.5 • Encrypted Reference # & 7-Stage Tracker',
+                              'SRS 7.5 • Passkey-Protected Reference Lookup',
                               style: AppTypography.subtitle,
                             ),
                           ],
@@ -333,7 +440,7 @@ class _ComplaintTrackingLookupScreenState
                   ),
                   const SizedBox(height: 12),
 
-                  // Screen 23 — Reference Number & Disguised Quote Card Lookup Box
+                  // Screen 23 — Reference Number + Passkey Lookup Card
                   Container(
                     padding: const EdgeInsets.all(15),
                     decoration: BoxDecoration(
@@ -344,68 +451,123 @@ class _ComplaintTrackingLookupScreenState
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        TextField(
+                          key: const Key('m5-tracker-reference-input'),
+                          controller: _referenceCtrl,
+                          decoration: const InputDecoration(
+                            labelText:
+                                'Reference # (#SKH-ANON-2026-...) or Disguised Quote Serial *',
+                            prefixIcon: Icon(
+                              Icons.confirmation_number_outlined,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
                         Row(
                           children: [
                             Expanded(
                               child: TextField(
-                                key: const Key('m5-tracker-reference-input'),
-                                controller: _referenceCtrl,
+                                key: const Key('m5-tracker-passkey-input'),
+                                controller: _passkeyCtrl,
                                 decoration: const InputDecoration(
-                                  labelText: 'Reference # (#SKH-ANON-...) or Quote Serial',
-                                  prefixIcon: Icon(
-                                    Icons.confirmation_number_outlined,
-                                  ),
+                                  labelText:
+                                      'Check-In Passkey (e.g. LOTUS-123-SAFE) *',
+                                  prefixIcon: Icon(Icons.key_rounded),
                                 ),
-                                onSubmitted: _lookupCase,
+                                onSubmitted: (_) => _lookupCaseOnServer(),
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            FilledButton(
+                            const SizedBox(width: 10),
+                            FilledButton.icon(
                               key: const Key('m5-tracker-lookup-button'),
-                              onPressed: () => _lookupCase(),
-                              child: const Text('Lookup'),
+                              onPressed: _isLookingUp
+                                  ? null
+                                  : _lookupCaseOnServer,
+                              icon: _isLookingUp
+                                  ? const SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Icon(Icons.search_rounded, size: 18),
+                              label: Text(_isLookingUp ? '...' : 'Lookup'),
                             ),
                           ],
-                        ),
-                        const SizedBox(height: 10),
-                        // Quick Switcher across seeded cases
-                        SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: Row(
-                            children: _controller.complaints.map((c) {
-                              final selected =
-                                  item?.referenceNumber == c.referenceNumber;
-                              return Padding(
-                                padding: const EdgeInsets.only(right: 8),
-                                child: ChoiceChip(
-                                  label: Text(
-                                    '${c.referenceNumber} (${c.status.label})',
-                                  ),
-                                  selected: selected,
-                                  selectedColor: AppColors.primaryPurple,
-                                  labelStyle: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: selected
-                                        ? Colors.white
-                                        : AppColors.textPrimary,
-                                  ),
-                                  onSelected: (_) =>
-                                      _lookupCase(c.referenceNumber),
-                                ),
-                              );
-                            }).toList(),
-                          ),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 12),
+
+                  if (_lookupError != null)
+                    Container(
+                      key: const Key('m5-tracker-error-banner'),
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFDE8EC),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFF3B4C0)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.error_outline_rounded,
+                            color: AppColors.sosRed,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              _lookupError!,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF8C1D35),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  if (item == null && !_isLookingUp)
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: AppColors.borderSubtle),
+                      ),
+                      child: const Column(
+                        children: [
+                          Icon(
+                            Icons.lock_clock_rounded,
+                            size: 36,
+                            color: AppColors.primaryPurple,
+                          ),
+                          SizedBox(height: 8),
+                          Text(
+                            'Enter Your Server-Issued Reference Number & Passkey',
+                            textAlign: TextAlign.center,
+                            style: AppTypography.cardTitle,
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'For your privacy, Sakhi never displays pre-populated complaints without a valid Reference Number and Check-In Passkey.',
+                            textAlign: TextAlign.center,
+                            style: AppTypography.subtitle,
+                          ),
+                        ],
+                      ),
+                    ),
 
                   if (item != null) ...[
-                    // Interactive 7-Stage Status Preview Switcher (Lets user/tester inspect all 7 SRS 7.5 states live!)
+                    // Read-Only 7-Stage SRS 7.5 Status Timeline
                     const Text(
-                      'Interactive SRS 7.5 Status Stage Inspector (Tap any of the 7 stages):',
+                      'Official SRS Section 7.5 Status Timeline (Server-Verified):',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w800,
@@ -417,23 +579,49 @@ class _ComplaintTrackingLookupScreenState
                       scrollDirection: Axis.horizontal,
                       child: Row(
                         children: ComplaintStatus.values.map((st) {
-                          final active = displayedStatus == st;
+                          final isCurrent = item.status == st;
                           return Padding(
                             padding: const EdgeInsets.only(right: 6),
-                            child: ChoiceChip(
+                            child: Container(
                               key: Key('m5-status-stage-chip-${st.code}'),
-                              label: Text(st.label),
-                              selected: active,
-                              selectedColor: st.badgeText,
-                              labelStyle: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
-                                color: active
-                                    ? Colors.white
-                                    : AppColors.textPrimary,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 11,
+                                vertical: 7,
                               ),
-                              onSelected: (_) =>
-                                  setState(() => _previewStatusOverride = st),
+                              decoration: BoxDecoration(
+                                color: isCurrent ? st.badgeText : Colors.white,
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                  color: isCurrent
+                                      ? st.badgeText
+                                      : AppColors.borderSubtle,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (isCurrent) ...[
+                                    const Icon(
+                                      Icons.verified_rounded,
+                                      size: 13,
+                                      color: Colors.white,
+                                    ),
+                                    const SizedBox(width: 4),
+                                  ],
+                                  Text(
+                                    st.label,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: isCurrent
+                                          ? FontWeight.w800
+                                          : FontWeight.w600,
+                                      color: isCurrent
+                                          ? Colors.white
+                                          : AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           );
                         }).toList(),
@@ -448,9 +636,7 @@ class _ComplaintTrackingLookupScreenState
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(22),
                         border: Border.all(
-                          color: displayedStatus.badgeText.withValues(
-                            alpha: 0.35,
-                          ),
+                          color: item.status.badgeText.withValues(alpha: 0.35),
                           width: 1.5,
                         ),
                       ),
@@ -465,15 +651,15 @@ class _ComplaintTrackingLookupScreenState
                                   vertical: 5,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: displayedStatus.badgeBg,
+                                  color: item.status.badgeBg,
                                   borderRadius: BorderRadius.circular(999),
                                 ),
                                 child: Text(
-                                  displayedStatus.label.toUpperCase(),
+                                  item.status.label.toUpperCase(),
                                   style: TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.w800,
-                                    color: displayedStatus.badgeText,
+                                    color: item.status.badgeText,
                                   ),
                                 ),
                               ),
@@ -499,44 +685,43 @@ class _ComplaintTrackingLookupScreenState
                               const Spacer(),
                               Text(
                                 item.severityPriority,
-                                style: AppTypography.monoToken,
+                                style: AppTypography.technicalToken,
                               ),
                             ],
                           ),
                           const SizedBox(height: 10),
                           SelectableText(
                             item.referenceNumber,
-                            style: AppTypography.monoToken.copyWith(
+                            style: AppTypography.referenceToken.copyWith(
                               fontSize: 18,
                             ),
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Category: ${_controller.categoryByCode(item.categoryCode).label} • Assigned: ${item.assignedReviewerName}',
+                            'Category: ${item.categoryTitle} • Assigned: ${item.assignedReviewerName}',
                             style: AppTypography.bodyMedium,
                           ),
                           const SizedBox(height: 8),
                           Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: displayedStatus.badgeBg.withValues(
+                              color: item.status.badgeBg.withValues(
                                 alpha: 0.55,
                               ),
                               borderRadius: BorderRadius.circular(14),
                             ),
                             child: Text(
-                              displayedStatus.summary,
+                              item.publicResolutionNote ?? item.status.summary,
                               style: TextStyle(
                                 fontSize: 12.5,
                                 height: 1.4,
                                 fontWeight: FontWeight.w600,
-                                color: displayedStatus.badgeText,
+                                color: item.status.badgeText,
                               ),
                             ),
                           ),
 
-                          // Status-Specific Callouts (Screens 26, 28, 29, 30, 31)
-                          if (displayedStatus ==
+                          if (item.status ==
                               ComplaintStatus.additionalInfoRequired) ...[
                             const SizedBox(height: 12),
                             SizedBox(
@@ -558,27 +743,7 @@ class _ComplaintTrackingLookupScreenState
                             ),
                           ],
 
-                          if (displayedStatus == ComplaintStatus.actionTaken &&
-                              item.publicResolutionNote != null) ...[
-                            const SizedBox(height: 12),
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFE6F5EE),
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              child: Text(
-                                'Resolution Summary: ${item.publicResolutionNote}',
-                                style: const TextStyle(
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w700,
-                                  color: Color(0xFF1A5A3E),
-                                ),
-                              ),
-                            ),
-                          ],
-
-                          if (displayedStatus ==
+                          if (item.status ==
                               ComplaintStatus.rejectedWithReason) ...[
                             const SizedBox(height: 12),
                             Container(
@@ -592,7 +757,7 @@ class _ComplaintTrackingLookupScreenState
                                 children: [
                                   Text(
                                     item.rejectionReasonTitle ??
-                                        'Transparent Moderator Explanation',
+                                        'Moderator Rejection Reason',
                                     style: const TextStyle(
                                       fontWeight: FontWeight.w800,
                                       color: Color(0xFF8C1D40),
@@ -600,7 +765,8 @@ class _ComplaintTrackingLookupScreenState
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    item.rejectionReasonDetail ?? 'Insufficient actionable safety violation evidence in initial submission. You may submit an Appeal with additional screenshots.',
+                                    item.rejectionReasonDetail ??
+                                        'Closed with reason. You may submit an Appeal below.',
                                     style: const TextStyle(
                                       fontSize: 12,
                                       color: Color(0xFF6E1833),
@@ -629,7 +795,6 @@ class _ComplaintTrackingLookupScreenState
                             ),
                           ],
 
-                          // Immediate Evidence Vault Purge & Two-Way Reply Actions
                           const SizedBox(height: 12),
                           Wrap(
                             spacing: 8,
@@ -645,7 +810,10 @@ class _ComplaintTrackingLookupScreenState
                               ),
                               OutlinedButton.icon(
                                 onPressed: () => _openAppealModal(item),
-                                icon: const Icon(Icons.gavel_rounded, size: 16),
+                                icon: const Icon(
+                                  Icons.gavel_rounded,
+                                  size: 16,
+                                ),
                                 label: const Text('Appeal / Escalate'),
                               ),
                               if (!item.mediaPurgedByUser &&
@@ -657,23 +825,7 @@ class _ComplaintTrackingLookupScreenState
                                   style: OutlinedButton.styleFrom(
                                     foregroundColor: AppColors.sosRed,
                                   ),
-                                  onPressed: () async {
-                                    final updated = await _controller
-                                        .purgeEvidenceVaultMedia(
-                                          referenceNumber: item.referenceNumber,
-                                        );
-                                    if (updated != null && context.mounted) {
-                                      setState(() => _activeCase = updated);
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(
-                                            const SnackBar(
-                                              content: Text(
-                                                'All uploaded evidence media purged from storage (DPDP Right-to-Erasure).',
-                                              ),
-                                            ),
-                                          );
-                                    }
-                                  },
+                                  onPressed: () => _handlePurgeEvidence(item),
                                   icon: const Icon(
                                     Icons.delete_forever_rounded,
                                     size: 16,
@@ -687,58 +839,72 @@ class _ComplaintTrackingLookupScreenState
                     ),
                     const SizedBox(height: 16),
 
-                    // Encrypted Two-Way Message Thread (Never shows private internal admin notes!)
                     Text(
                       'Encrypted Two-Way Case Messages (${item.complainantMessages.length})',
                       style: AppTypography.cardTitle,
                     ),
                     const SizedBox(height: 4),
                     const Text(
-                      'Note: Private internal reviewer notes are strictly separated and never exposed here.',
+                      'Private internal reviewer notes are strictly separated on the backend and never exposed here.',
                       style: AppTypography.subtitle,
                     ),
                     const SizedBox(height: 8),
-                    ...item.complainantMessages.map(
-                      (msg) => Container(
-                        margin: const EdgeInsets.only(bottom: 10),
+                    if (item.complainantMessages.isEmpty)
+                      Container(
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: msg.isFromReviewer
-                              ? const Color(0xFFF6ECFA)
-                              : Colors.white,
-                          borderRadius: BorderRadius.circular(18),
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
                           border: Border.all(color: AppColors.borderSubtle),
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    msg.senderBadge,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w800,
-                                      color: msg.isFromReviewer
-                                          ? AppColors.primaryPurple
-                                          : const Color(0xFF1F6E50),
+                        child: const Text(
+                          'No messages exchanged yet. Use "Send Follow-Up Message" above to add context at any time.',
+                          style: AppTypography.subtitle,
+                        ),
+                      )
+                    else
+                      ...item.complainantMessages.map(
+                        (msg) => Container(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: msg.isFromReviewer
+                                ? const Color(0xFFF6ECFA)
+                                : Colors.white,
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(color: AppColors.borderSubtle),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      msg.senderBadge,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w800,
+                                        color: msg.isFromReviewer
+                                            ? AppColors.primaryPurple
+                                            : const Color(0xFF1F6E50),
+                                      ),
                                     ),
                                   ),
-                                ),
-                                Text(
-                                  msg.createdAtLabel,
-                                  style: AppTypography.caption,
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Text(msg.body, style: AppTypography.bodyRegular),
-                          ],
+                                  Text(
+                                    msg.createdAtLabel,
+                                    style: AppTypography.caption,
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Text(msg.body, style: AppTypography.bodyRegular),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
                   ],
                 ],
               ),

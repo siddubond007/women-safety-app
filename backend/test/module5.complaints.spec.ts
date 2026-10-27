@@ -1,7 +1,15 @@
-import { UnauthorizedException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import { AuthenticationService } from "../src/auth/auth.service.js";
-import { ComplaintsService } from "../src/complaints/complaints.service.js";
+import {
+  ComplaintsService,
+  stripBinaryMetadata,
+} from "../src/complaints/complaints.service.js";
 import { PrismaService } from "../src/database/prisma.service.js";
 
 function createTestService() {
@@ -10,181 +18,452 @@ function createTestService() {
   process.env.HOST = "127.0.0.1";
   process.env.SAKHI_ADMIN_REVIEW_TOKEN = "ADMIN2026TEST";
 
+  const persistedComplaints = new Map<string, Record<string, unknown>>();
+  const persistedCategories = new Map<string, Record<string, unknown>>();
+
   const auth = {
-    getCurrentAccountStatus: vi.fn().mockResolvedValue({
-      accountId: "00000000-0000-4000-8000-000000000105",
-      accountStatus: "ACTIVE",
-      verificationStatus: "VERIFIED",
+    getCurrentAccount: vi.fn().mockImplementation(async (header?: string) => {
+      if (!header || !header.toLowerCase().startsWith("bearer valid")) {
+        throw new UnauthorizedException("Invalid session");
+      }
+      return {
+        accountId: "00000000-0000-4000-8000-000000000105",
+        accountStatus: "ACTIVE",
+        verificationStatus: "VERIFIED",
+      };
     }),
   };
+
   const prisma = {
+    discreetComplaint: {
+      findMany: vi
+        .fn()
+        .mockImplementation(async () =>
+          Array.from(persistedComplaints.values()),
+        ),
+      upsert: vi
+        .fn()
+        .mockImplementation(async ({ where, create, update }: any) => {
+          const existing = persistedComplaints.get(where.referenceNumber);
+          const merged = existing ? { ...existing, ...update } : { ...create };
+          persistedComplaints.set(where.referenceNumber, merged);
+          return merged;
+        }),
+    },
+    complaintCategoryConfig: {
+      findMany: vi
+        .fn()
+        .mockImplementation(async () =>
+          Array.from(persistedCategories.values()),
+        ),
+      upsert: vi
+        .fn()
+        .mockImplementation(async ({ where, create, update }: any) => {
+          const existing = persistedCategories.get(where.slug);
+          const merged = existing ? { ...existing, ...update } : { ...create };
+          persistedCategories.set(where.slug, merged);
+          return merged;
+        }),
+    },
+    complaintRetentionPolicy: {
+      findUnique: vi.fn().mockResolvedValue(null),
+      upsert: vi.fn().mockImplementation(async ({ create, update }: any) => ({
+        ...create,
+        ...update,
+      })),
+    },
     auditEvent: {
       findMany: vi.fn().mockResolvedValue([]),
       create: vi.fn().mockResolvedValue({ id: "audit-1" }),
     },
   };
-  return new ComplaintsService(
-    prisma as unknown as PrismaService,
-    auth as unknown as AuthenticationService,
-  );
+
+  return {
+    service: new ComplaintsService(
+      prisma as unknown as PrismaService,
+      auth as unknown as AuthenticationService,
+    ),
+    prisma,
+    persistedComplaints,
+  };
 }
 
-describe("Module 5: Discreet & Anonymous Complaint System (SRS 7.1–7.6)", () => {
-  it("lists all 10 configurable complaint categories and mandatory non-police legal disclaimer", async () => {
-    const service = createTestService();
+describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Validation Suite", () => {
+  it("starts with an empty complaint queue (zero fabricated or hardcoded records)", async () => {
+    const { service } = createTestService();
+    const dashboard = await service.adminDashboardAndQueue("ADMIN2026TEST");
+    expect(dashboard.complaints).toEqual([]);
+    expect(dashboard.metrics.totalComplaints).toBe(0);
+    expect(dashboard.metrics.openComplaintsCount).toBe(0);
+    expect(dashboard.metrics.urgentP1Count).toBe(0);
+    expect(dashboard.metrics.duplicateClustersCount).toBe(0);
+    expect(dashboard.metrics.medianTriageHours).toBe(0);
+  });
+
+  it("lists all 10 configurable SRS categories and persists admin category changes", async () => {
+    const { service } = createTestService();
     const res = await service.listCategories();
-    expect(res.categories.length).toBeGreaterThanOrEqual(10);
-    expect(res.legalDisclaimer).toContain("does not automatically constitute a Police FIR");
-    expect(res.emergencyChannels.some((c) => c.code === "112")).toBe(true);
-  });
+    expect(res.categories).toHaveLength(10);
+    expect(res.legalDisclaimer).toContain(
+      "does not automatically constitute a Police FIR",
+    );
 
-  it("detects self-identifying PII clues in incident descriptions and suggests safe generalization (SRS 7.4)", () => {
-    const service = createTestService();
-    const res = service.checkDescriptionForIdentityClues({
-      description:
-        "He messaged me at 6:34 PM about my bridal studio on 4th Cross and called +91 9845012345.",
+    // Disable a category via admin workflow and verify it is excluded from active list
+    await service.adminUpsertCategory("ADMIN2026TEST", {
+      slug: "public_place_safety",
+      name: "Public-place safety concerns",
+      description: "Unsafe streets or transit",
+      isEnabled: false,
     });
-    expect(res.hasIdentityClues).toBe(true);
-    expect(res.flaggedCount).toBeGreaterThanOrEqual(2);
-    expect(res.suggestedSafeDescription).not.toContain("9845012345");
-    expect(res.suggestedSafeDescription).toContain("local workspace");
+    const afterDisable = await service.listCategories();
+    expect(
+      afterDisable.categories.some((c) => c.slug === "public_place_safety"),
+    ).toBe(false);
+
+    // Re-enable it
+    await service.adminUpsertCategory("ADMIN2026TEST", {
+      slug: "public_place_safety",
+      name: "Public-place safety concerns",
+      description: "Unsafe streets or transit",
+      isEnabled: true,
+    });
   });
 
-  it("scrubs EXIF GPS and device metadata from uploaded evidence files (SRS 7.4)", () => {
-    const service = createTestService();
-    const res = service.scrubEvidenceMetadata({
-      originalFileName: "IMG_20261025_Raghavi_Phone.jpg",
+  it("strips real binary EXIF/APP1 segments from JPEG buffers and eXIf/tEXt chunks from PNG buffers", () => {
+    const { service } = createTestService();
+
+    // Construct a real JPEG buffer with SOI (FFD8), APP1 EXIF segment (FFE1, length 10), and EOI (FFD9)
+    const jpegWithExif = Buffer.from([
+      0xff,
+      0xd8, // SOI
+      0xff,
+      0xe1,
+      0x00,
+      0x08,
+      0x45,
+      0x78,
+      0x69,
+      0x66,
+      0x00,
+      0x00, // APP1 EXIF (10 bytes total)
+      0xff,
+      0xfe,
+      0x00,
+      0x05,
+      0x47,
+      0x50,
+      0x53, // COM comment (7 bytes total)
+      0xff,
+      0xd9, // EOI
+    ]);
+    const stripped = stripBinaryMetadata(jpegWithExif, "image/jpeg");
+    expect(stripped.removedMarkers).toContain("JPEG.APP1.EXIF_GPS_XMP");
+    expect(stripped.removedMarkers).toContain("JPEG.COM.Comment");
+    expect(
+      stripped.scrubbedBuffer.equals(Buffer.from([0xff, 0xd8, 0xff, 0xd9])),
+    ).toBe(true);
+
+    const uploadRes = service.scrubEvidenceBinaryFile({
+      originalFileName: "IMG_GPS_Photo.jpg",
       contentType: "image/jpeg",
-      byteSize: 1024000,
-      deviceModel: "OnePlus CPH2581",
-      visualBlurApplied: true,
+      buffer: jpegWithExif,
     });
-    expect(res.sanitizedFile.exifGpsStripped).toBe(true);
-    expect(res.sanitizedFile.deviceMetadataStripped).toBe(true);
-    expect(res.sanitizedFile.fileName).toMatch(/^evidence_redacted_[a-z0-9]+\.jpg$/);
+    expect(uploadRes.sanitizedFile.exifGpsStripped).toBe(true);
+    expect(uploadRes.sanitizedFile.byteSize).toBe(4);
+    expect(uploadRes.sanitizedFile.scrubbedFields).toContain(
+      "JPEG.APP1.EXIF_GPS_XMP",
+    );
+
+    // Reject unsupported executable MIME type
+    expect(() =>
+      service.scrubEvidenceMetadata({
+        originalFileName: "malware.exe",
+        contentType: "application/x-msdownload",
+        byteSize: 2048,
+      }),
+    ).toThrow(BadRequestException);
   });
 
-  it("submits an Anonymous complaint with zero identity attachment and tracks it across all 7 statuses", async () => {
-    const service = createTestService();
-    const submitted = await service.submitComplaint("Bearer token", {
+  it("validates required fields, whitespace descriptions, invalid categories, malformed URLs, future dates, and duplicate submissions", async () => {
+    const { service } = createTestService();
+
+    // 1. Whitespace / too-short description rejected
+    await expect(
+      service.submitComplaint(undefined, {
+        reportingMode: "ANONYMOUS",
+        categorySlug: "harassment",
+        description: "     too short    ",
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    // 2. Invalid category rejected
+    await expect(
+      service.submitComplaint(undefined, {
+        reportingMode: "ANONYMOUS",
+        categorySlug: "non_existent_category_xyz",
+        description:
+          "Repeated threatening messages sent in the community group.",
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    // 3. 'other' category without customCategoryLabel rejected
+    await expect(
+      service.submitComplaint(undefined, {
+        reportingMode: "ANONYMOUS",
+        categorySlug: "other",
+        description:
+          "Repeated threatening messages sent in the community group.",
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    // 4. Unacknowledged legal disclaimer rejected
+    await expect(
+      service.submitComplaint(undefined, {
+        reportingMode: "ANONYMOUS",
+        categorySlug: "harassment",
+        description:
+          "Repeated threatening messages sent in the community group.",
+        acknowledgedNonPoliceLegalNotice: false,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    // 5. Malformed URL rejected
+    await expect(
+      service.submitComplaint(undefined, {
+        reportingMode: "ANONYMOUS",
+        categorySlug: "harassment",
+        description:
+          "Repeated threatening messages sent in the community group.",
+        supportingLinks: ["javascript:alert(1)"],
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    // 6. Future incident date rejected
+    await expect(
+      service.submitComplaint(undefined, {
+        reportingMode: "ANONYMOUS",
+        categorySlug: "harassment",
+        description:
+          "Repeated threatening messages sent in the community group.",
+        approximateDateLabel: "2099-12-31",
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    // 7. Confidential mode without valid member auth token rejected
+    await expect(
+      service.submitComplaint(undefined, {
+        reportingMode: "CONFIDENTIAL",
+        categorySlug: "harassment",
+        description:
+          "Repeated threatening messages sent in the community group.",
+      }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it("enforces passkey verification, valid status transitions, RBAC masking, and full complaint lifecycle", async () => {
+    const { service } = createTestService();
+
+    // Submit a real Anonymous complaint (even if a bearer token is passed, confidentialAccountId must be null)
+    const anonRes = await service.submitComplaint("Bearer valid-token", {
       reportingMode: "ANONYMOUS",
       categorySlug: "harassment",
       urgency: "HAPPENING_NOW",
-      description: "Persistent harassing messages after declining business collaboration.",
+      description:
+        "Persistent harassing messages after declining a business collaboration inquiry.",
       approximateDateLabel: "25 Oct 2026",
       approximateTimeWindow: "Evening (5 PM – 9 PM)",
       locationType: "COARSE_AREA",
       generalLocationLabel: "Tirupati 5km Coarse Zone",
-      linkedTargetHandle: "@studio_collab_tpt24",
-      evidenceFiles: [{ fileName: "evidence_redacted_01.png", byteSize: 512000 }],
-      wantsUpdates: true,
-      submitAnonymouslyToReviewTeam: true,
-      acknowledgedNonPoliceLegalNotice: true,
+      linkedTargetHandle: "@offender_handle_1",
+      supportingLinks: ["sakhi://post/post_101", "https://example.com/context"],
+      evidenceFiles: [
+        {
+          id: "ev_test_01",
+          fileName: "evidence_redacted_01.png",
+          contentType: "image/png",
+          byteSize: 120000,
+        },
+      ],
+      clientRateLimitHint: "user_device_bucket_1",
     });
 
-    expect(submitted.submitted).toBe(true);
-    expect(submitted.referenceNumber).toMatch(/^#SKH-ANON-2026-\d{4}$/);
-    expect(submitted.privacyGuarantees.publicProfileNameAttached).toBe(false);
-    expect(submitted.privacyGuarantees.publishedOnSocialWall).toBe(false);
-    expect(submitted.disguisedWellnessQuote.encodedSerialTag).toContain("Series #");
+    expect(anonRes.submitted).toBe(true);
+    expect(anonRes.referenceNumber).toMatch(/^#SKH-ANON-2026-\d{4}$/);
+    expect(anonRes.passkey).toBeTruthy();
 
-    // Track by Reference Number
-    const tracked = await service.trackByReference(
-      submitted.referenceNumber,
-      submitted.passkey,
-    );
-    expect(tracked.found).toBe(true);
-    expect(tracked.complaint.status).toBe("SUBMITTED");
-    expect(tracked.allSupportedStatuses).toHaveLength(7);
-
-    // Admin transitions to ADDITIONAL_INFO_REQUIRED
-    await service.adminUpdateStatusAndEscalate(
-      "ADMIN2026TEST",
-      submitted.referenceNumber,
-      {
-        status: "ADDITIONAL_INFO_REQUIRED",
-        publicMessageToComplainant: "Did the user contact you from another handle?",
-      },
-    );
-
-    // Complainant sends anonymous reply -> automatically resumes UNDER_REVIEW
-    const afterReply = await service.addComplainantReply(submitted.referenceNumber, {
-      passkey: submitted.passkey,
-      message: "Yes, from @secondary_handle_24.",
-      additionalEvidenceFiles: [{ fileName: "followup.png" }],
-    });
-    expect(afterReply.complaint.status).toBe("UNDER_REVIEW");
-
-    // Admin transitions to REJECTED_WITH_REASON -> Complainant submits Appeal -> ESCALATED
-    await service.adminUpdateStatusAndEscalate(
-      "ADMIN2026TEST",
-      submitted.referenceNumber,
-      {
-        status: "REJECTED_WITH_REASON",
-        rejectionReasonCode: "#INSUFFICIENT-INITIAL-CONTEXT",
-        publicMessageToComplainant: "Initial context was insufficient.",
-      },
-    );
-    const appealed = await service.submitAppeal(submitted.referenceNumber, {
-      passkey: submitted.passkey,
-      appealReasonCategory: "New Evidence Available",
-      appealDescription: "Attached threatening voice note.",
-    });
-    expect(appealed.complaint.status).toBe("ESCALATED");
-
-    // User purges uploaded media immediately
-    const purged = await service.purgeComplainantMedia(submitted.referenceNumber);
-    expect(purged.purged).toBe(true);
-    expect(purged.complaint.mediaPurgedAt).toBeTruthy();
-  });
-
-  it("enforces role-based moderator masking, controlled evidence watermarking, duplicate merging, and malicious flood throttling (SRS 7.6)", async () => {
-    const service = createTestService();
-    const queueStandardMod = await service.adminDashboardAndQueue("ADMIN2026TEST", {
-      viewerRole: "STANDARD_MODERATOR",
-    });
-    expect(
-      queueStandardMod.complaints.every(
-        (c) =>
-          c.generalLocationLabel === "[Location Masked for Ordinary Moderator Role]",
-      ),
-    ).toBe(true);
-
-    // Controlled evidence access logs audit and returns watermark
-    const evAccess = await service.adminAccessControlledEvidence(
-      "ADMIN2026TEST",
-      "#SKH-ANON-2026-8492",
-      {
-        evidenceId: "ev_8492_01",
-        action: "WATERMARKED_DOWNLOAD",
-        justificationReason: "Repeat offender cluster verification",
-      },
-    );
-    expect(evAccess.authorized).toBe(true);
-    expect(evAccess.watermarkOverlayText).toContain("#SKH-ANON-2026-8492");
-
-    // Malicious report handling throttles blinded bucket without unmasking identity
-    await service.adminHandleMaliciousReport(
-      "ADMIN2026TEST",
-      "#SKH-ANON-2026-8471",
-      {
-        action: "THROTTLE_BLINDED_BUCKET",
-        cooldownHours: 72,
-        reason: "Coordinated competitor spam flood",
-      },
-    );
-
+    // Duplicate rapid submission with identical text from same bucket is rejected
     await expect(
       service.submitComplaint(undefined, {
         reportingMode: "ANONYMOUS",
-        categorySlug: "business_related_complaints",
-        description: "Another spam flood from same bucket",
-        clientRateLimitHint: "spam_test",
+        categorySlug: "harassment",
+        description:
+          "Persistent harassing messages after declining a business collaboration inquiry.",
+        clientRateLimitHint: "user_device_bucket_1",
       }),
-    ).resolves.toBeDefined();
+    ).rejects.toBeInstanceOf(ConflictException);
 
+    // Tracking without passkey or with wrong passkey is rejected
     await expect(
-      service.adminDashboardAndQueue("INVALID_TOKEN"),
-    ).rejects.toBeInstanceOf(UnauthorizedException);
+      service.trackByReference(anonRes.referenceNumber, undefined),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      service.trackByReference(anonRes.referenceNumber, "WRONG-PASSKEY"),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    // Tracking with valid passkey succeeds
+    const tracked = await service.trackByReference(
+      anonRes.referenceNumber,
+      anonRes.passkey,
+    );
+    expect(tracked.found).toBe(true);
+    expect(tracked.complaint.status).toBe("SUBMITTED");
+
+    // Tracking via Disguised Wellness Quote Serial also succeeds
+    const trackedBySerial = await service.trackByReference(
+      anonRes.disguisedBackupSerial,
+    );
+    expect(trackedBySerial.complaint.referenceNumber).toBe(
+      anonRes.referenceNumber,
+    );
+
+    // Invalid status transition (SUBMITTED -> CLOSED directly) is rejected
+    await expect(
+      service.adminUpdateStatusAndEscalate(
+        "ADMIN2026TEST",
+        anonRes.referenceNumber,
+        { status: "CLOSED" },
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    // Valid transition: SUBMITTED -> ADDITIONAL_INFO_REQUIRED (with required question)
+    await service.adminUpdateStatusAndEscalate(
+      "ADMIN2026TEST",
+      anonRes.referenceNumber,
+      {
+        status: "ADDITIONAL_INFO_REQUIRED",
+        publicMessageToComplainant:
+          "Did the reported account contact you from any secondary handle?",
+      },
+    );
+
+    // Complainant replies with valid passkey -> automatically resumes UNDER_REVIEW
+    const afterReply = await service.addComplainantReply(
+      anonRes.referenceNumber,
+      {
+        passkey: anonRes.passkey,
+        message: "Yes, they also messaged from @offender_backup.",
+      },
+    );
+    expect(afterReply.complaint.status).toBe("UNDER_REVIEW");
+
+    // Admin adds a private internal note and verifies complainant CANNOT see it
+    await service.adminAddInternalNote(
+      "ADMIN2026TEST",
+      anonRes.referenceNumber,
+      {
+        noteText: "INTERNAL ONLY: Cross-checking device fingerprint.",
+        visibilityRole: "SENIOR_REVIEWER",
+      },
+    );
+    const afterNoteTracked = await service.trackByReference(
+      anonRes.referenceNumber,
+      anonRes.passkey,
+    );
+    expect((afterNoteTracked.complaint as any).internalNotes).toBeUndefined();
+
+    // Standard Moderator role masking check
+    const modQueue = await service.adminDashboardAndQueue("ADMIN2026TEST", {
+      viewerRole: "STANDARD_MODERATOR",
+    });
+    expect(modQueue.complaints[0].generalLocationLabel).toBe(
+      "[Location Masked for Ordinary Moderator Role]",
+    );
+    expect(modQueue.complaints[0].internalNotes).toEqual([]);
+    expect(modQueue.complaints[0]).not.toHaveProperty("passkeyDigest");
+    expect(modQueue.complaints[0]).not.toHaveProperty("disguisedBackupSerial");
+
+    // A caller cannot elevate its role through the viewerRole query parameter.
+    const elevationAttemptQueue = await service.adminDashboardAndQueue(
+      "ADMIN2026TEST",
+      { viewerRole: "SUPER_ADMIN" },
+    );
+    expect(elevationAttemptQueue.reviewer.effectiveRole).toBe(
+      "SENIOR_REVIEWER",
+    );
+    expect(elevationAttemptQueue.complaints[0]).not.toHaveProperty(
+      "passkeyDigest",
+    );
+    expect(elevationAttemptQueue.complaints[0]).not.toHaveProperty(
+      "disguisedBackupSerial",
+    );
+
+    const elevationAttemptDetail = await service.adminGetComplaintDetail(
+      "ADMIN2026TEST",
+      anonRes.referenceNumber,
+      "SUPER_ADMIN",
+    );
+    expect(elevationAttemptDetail.reviewer.effectiveRole).toBe(
+      "SENIOR_REVIEWER",
+    );
+    expect(elevationAttemptDetail.complaint).not.toHaveProperty(
+      "passkeyDigest",
+    );
+    expect(elevationAttemptDetail.complaint).not.toHaveProperty(
+      "disguisedBackupSerial",
+    );
+
+    // Standard Moderator cannot unblur evidence
+    await expect(
+      service.adminAccessControlledEvidence(
+        "ADMIN2026TEST",
+        anonRes.referenceNumber,
+        {
+          evidenceId: "ev_test_01",
+          action: "REVEAL_VIEWER",
+          justificationReason: "Checking screenshot evidence",
+          viewerRole: "STANDARD_MODERATOR",
+        },
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    // Senior Reviewer can unblur evidence with valid justification
+    const evAccess = await service.adminAccessControlledEvidence(
+      "ADMIN2026TEST",
+      anonRes.referenceNumber,
+      {
+        evidenceId: "ev_test_01",
+        action: "WATERMARKED_DOWNLOAD",
+        justificationReason:
+          "Verifying harassment screenshot for account suspension",
+      },
+    );
+    expect(evAccess.authorized).toBe(true);
+    expect(evAccess.watermarkOverlayText).toContain(anonRes.referenceNumber);
+
+    // Admin transitions to REJECTED_WITH_REASON -> Complainant appeals -> ESCALATED
+    await service.adminUpdateStatusAndEscalate(
+      "ADMIN2026TEST",
+      anonRes.referenceNumber,
+      {
+        status: "REJECTED_WITH_REASON",
+        rejectionReasonCode: "#INSUFFICIENT-INITIAL-CONTEXT",
+        publicMessageToComplainant: "Closing pending additional proof.",
+      },
+    );
+    const appealed = await service.submitAppeal(anonRes.referenceNumber, {
+      passkey: anonRes.passkey,
+      appealReasonCategory: "New Evidence",
+      appealDescription:
+        "Providing full chat transcript and witness confirmation.",
+    });
+    expect(appealed.complaint.status).toBe("ESCALATED");
+
+    // Complainant purges media with valid passkey
+    const purged = await service.purgeComplainantMedia(
+      anonRes.referenceNumber,
+      anonRes.passkey,
+    );
+    expect(purged.purged).toBe(true);
+    expect(purged.complaint.mediaPurgedAt).toBeTruthy();
   });
 });

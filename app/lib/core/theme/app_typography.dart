@@ -144,4 +144,11 @@ class AppTypography {
     color: AppColors.textPrimary,
     letterSpacing: 0.4,
   );
+
+  // Module 5 screen aliases retained for compatibility with the complaint UI.
+  static const TextStyle editorialHeadline = heroTitle;
+  static const TextStyle editorialSection = sectionTitle;
+  static const TextStyle technicalToken = monoToken;
+  static const TextStyle technicalHash = monoToken;
+  static const TextStyle referenceToken = monoToken;
 }

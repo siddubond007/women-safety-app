@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -5,19 +6,13 @@ import 'package:flutter/material.dart';
 import '../../../core/assets/app_assets.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../auth/backend_api_client.dart';
 import '../models/complaint_models.dart';
 import '../services/complaint_controller.dart';
 
 /// Screens 33 through 40 — Role-Restricted Admin Complaint Console
-/// Covers SRS Section 7.6, Section 12.5, Section 13 (Audit Logs, RBAC, Retention) & Section 14:
-/// - Screen 33: Role-Restricted Admin Queue & SLA Dashboard + RBAC Role Switcher (`SENIOR_SAFETY_REVIEWER`, `SUPER_ADMIN`, `STANDARD_MODERATOR`)
-/// - Screen 34: Admin Case Detail & PII-Masked Inspector (Anonymous shows ZERO identity; Confidential shows sealed contact ONLY to Senior Safety Reviewer / Super Admin)
-/// - Modal 35: Reviewer Assignment, Department Routing & Severity Priority Modal
-/// - Modal 36: Controlled Blurred-by-Default Evidence Vault & Watermarked Download Modal (logs every view/download to immutable audit trail)
-/// - Screen 37: Status Transition, Separated Private Internal Notes vs Complainant-Visible Message
-/// - Screen 38: Immutable Tamper-Evident SHA-256 Case Audit History
-/// - Modal 39: Duplicate Report Cluster Merge Modal
-/// - Modal 40: Malicious-Report Blinded Bucket Throttle + Configurable Categories & DPDP Retention Policy Manager
+/// Connects directly to `/api/v1/admin-review/complaints*` using the reviewer token.
+/// Displays real database records (or an empty queue state when the database has 0 complaints).
 class ComplaintAdminConsoleScreen extends StatefulWidget {
   const ComplaintAdminConsoleScreen({super.key});
 
@@ -30,17 +25,67 @@ class _ComplaintAdminConsoleScreenState
     extends State<ComplaintAdminConsoleScreen> {
   final SakhiComplaintController _controller =
       SakhiComplaintController.instance;
+  late final TextEditingController _adminTokenCtrl;
 
   String _modeFilter = 'ALL'; // ALL, ANONYMOUS, CONFIDENTIAL
-  final String _statusFilter = 'ALL';
-  String _selectedComplaintId = 'cmp-8492';
-  int _activeWorkspaceTab = 0; // 0: Queue & Case Detail, 1: Audit Trail, 2: Categories & DPDP Retention
+  String? _selectedComplaintRef;
+  int _activeWorkspaceTab =
+      0; // 0: Queue & Case Detail, 1: Audit Trail, 2: Categories & DPDP Retention
 
-  final Set<String> _unblurredEvidenceIds = <String>{};
+  final Map<String, String> _unblurredEvidenceWatermarks = <String, String>{};
+  String? _consoleNotice;
+  String? _consoleError;
 
-  DiscreetComplaintModel get _selectedCase {
+  @override
+  void initState() {
+    super.initState();
+    _adminTokenCtrl = TextEditingController(
+      text: _controller.adminReviewerToken,
+    );
+    unawaited(_refreshFromServer());
+  }
+
+  @override
+  void dispose() {
+    _adminTokenCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _refreshFromServer() async {
+    setState(() {
+      _consoleError = null;
+    });
+    _controller.setAdminReviewerToken(_adminTokenCtrl.text);
+    try {
+      final loaded = await _controller.loadAdminDashboardQueue(
+        reportingMode: _modeFilter,
+      );
+      if (!mounted) return;
+      setState(() {
+        if (loaded.isNotEmpty &&
+            (_selectedComplaintRef == null ||
+                !loaded.any(
+                  (c) => c.referenceNumber == _selectedComplaintRef,
+                ))) {
+          _selectedComplaintRef = loaded.first.referenceNumber;
+        }
+      });
+    } on BackendApiException catch (err) {
+      if (!mounted) return;
+      setState(() => _consoleError = err.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _consoleError =
+            'Could not connect to backend Admin Complaint API. Verify server status and reviewer token.';
+      });
+    }
+  }
+
+  DiscreetComplaintModel? get _selectedCase {
+    if (_controller.complaints.isEmpty) return null;
     for (final c in _controller.complaints) {
-      if (c.id == _selectedComplaintId) return c;
+      if (c.referenceNumber == _selectedComplaintRef) return c;
     }
     return _controller.complaints.first;
   }
@@ -49,10 +94,10 @@ class _ComplaintAdminConsoleScreenState
   Future<void> _openAssignmentAndSeverityModal(
     DiscreetComplaintModel item,
   ) async {
-    var reviewer = item.assignedReviewerName;
-    var department = item.assignedDepartment;
-    var severity = item.severityPriority;
-    var slaHours = item.slaTargetHours;
+    var reviewerId = 'SR-04';
+    var reviewerName = 'Meera Krishnan (#SR-04 • Senior Trust & Safety Officer)';
+    var severity = item.severity.isNotEmpty ? item.severity : 'S2_HIGH';
+    var priority = item.priority.isNotEmpty ? item.priority : 'P1_URGENT';
 
     final saved = await showDialog<bool>(
       context: context,
@@ -64,7 +109,7 @@ class _ComplaintAdminConsoleScreenState
           ),
           title: Text(
             'Assign Reviewer & Priority (${item.referenceNumber})',
-            style: AppTypography.sectionTitle.copyWith(fontSize: 18),
+            style: AppTypography.editorialSection.copyWith(fontSize: 18),
           ),
           content: SingleChildScrollView(
             child: Column(
@@ -72,111 +117,97 @@ class _ComplaintAdminConsoleScreenState
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 DropdownButtonFormField<String>(
-                  initialValue: severity,
-                  decoration: const InputDecoration(
-                    labelText: 'Severity / Queue Priority',
-                  ),
+                  initialValue:
+                      const <String>[
+                        'S1_CRITICAL',
+                        'S2_HIGH',
+                        'S3_MODERATE',
+                        'S4_LOW',
+                      ].contains(severity)
+                      ? severity
+                      : 'S2_HIGH',
+                  decoration: const InputDecoration(labelText: 'Severity'),
                   items: const [
                     DropdownMenuItem(
-                      value: 'CRITICAL_P1',
-                      child: Text('CRITICAL_P1 (4h SLA)'),
+                      value: 'S1_CRITICAL',
+                      child: Text('S1_CRITICAL'),
                     ),
+                    DropdownMenuItem(value: 'S2_HIGH', child: Text('S2_HIGH')),
                     DropdownMenuItem(
-                      value: 'HIGH_P2',
-                      child: Text('HIGH_P2 (12h SLA)'),
+                      value: 'S3_MODERATE',
+                      child: Text('S3_MODERATE'),
                     ),
-                    DropdownMenuItem(
-                      value: 'MEDIUM_P3',
-                      child: Text('MEDIUM_P3 (24h SLA)'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'LOW_P4',
-                      child: Text('LOW_P4 (48h SLA)'),
-                    ),
+                    DropdownMenuItem(value: 'S4_LOW', child: Text('S4_LOW')),
                   ],
                   onChanged: (v) {
-                    if (v != null) {
-                      setModalState(() {
-                        severity = v;
-                        slaHours = v == 'CRITICAL_P1'
-                            ? 4
-                            : v == 'HIGH_P2'
-                            ? 12
-                            : 24;
-                      });
-                    }
+                    if (v != null) setModalState(() => severity = v);
                   },
                 ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
                   initialValue:
                       const <String>[
-                        'Anjali M. (#SR-04)',
-                        'Dr. Kavitha R. (#SA-01)',
-                        'Meera K. (#SR-02)',
-                        'Ombudsperson Appeal Panel (#SR-01)',
-                      ].contains(reviewer)
-                      ? reviewer
-                      : 'Anjali M. (#SR-04)',
+                        'P1_URGENT',
+                        'P2_HIGH',
+                        'P3_STANDARD',
+                        'P4_ROUTINE',
+                      ].contains(priority)
+                      ? priority
+                      : 'P1_URGENT',
+                  decoration: const InputDecoration(labelText: 'Queue Priority'),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'P1_URGENT',
+                      child: Text('P1_URGENT (<4h SLA)'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'P2_HIGH',
+                      child: Text('P2_HIGH (<12h SLA)'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'P3_STANDARD',
+                      child: Text('P3_STANDARD (<24h SLA)'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'P4_ROUTINE',
+                      child: Text('P4_ROUTINE (<72h SLA)'),
+                    ),
+                  ],
+                  onChanged: (v) {
+                    if (v != null) setModalState(() => priority = v);
+                  },
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  initialValue: reviewerId,
                   decoration: const InputDecoration(
                     labelText: 'Authorised Safety Reviewer',
                   ),
                   items: const [
                     DropdownMenuItem(
-                      value: 'Anjali M. (#SR-04)',
-                      child: Text('Anjali M. (#SR-04 • Harassment Lead)'),
+                      value: 'SR-04',
+                      child: Text('Meera Krishnan (#SR-04 • Senior Officer)'),
                     ),
                     DropdownMenuItem(
-                      value: 'Dr. Kavitha R. (#SA-01)',
-                      child: Text('Dr. Kavitha R. (#SA-01 • POSH & Legal)'),
+                      value: 'EL-01',
+                      child: Text('Dr. Kavita Rao (#EL-01 • Escalation Lead)'),
                     ),
                     DropdownMenuItem(
-                      value: 'Meera K. (#SR-02)',
-                      child: Text('Meera K. (#SR-02 • Impersonation Desk)'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'Ombudsperson Appeal Panel (#SR-01)',
-                      child: Text('Ombudsperson Appeal Panel (#SR-01)'),
+                      value: 'SR-07',
+                      child: Text('Anjali Menon (#SR-07 • Safety Reviewer)'),
                     ),
                   ],
                   onChanged: (v) {
-                    if (v != null) setModalState(() => reviewer = v);
-                  },
-                ),
-                const SizedBox(height: 10),
-                DropdownButtonFormField<String>(
-                  initialValue:
-                      const <String>[
-                        'Harassment & Stalking Desk',
-                        'POSH & Business Trust Panel',
-                        'Identity & Impersonation Desk',
-                        'Cybercrime 1930 Escalation Cell',
-                      ].contains(department)
-                      ? department
-                      : 'Harassment & Stalking Desk',
-                  decoration: const InputDecoration(
-                    labelText: 'Specialist Department',
-                  ),
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'Harassment & Stalking Desk',
-                      child: Text('Harassment & Stalking Desk'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'POSH & Business Trust Panel',
-                      child: Text('POSH & Business Trust Panel'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'Identity & Impersonation Desk',
-                      child: Text('Identity & Impersonation Desk'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'Cybercrime 1930 Escalation Cell',
-                      child: Text('Cybercrime 1930 Escalation Cell'),
-                    ),
-                  ],
-                  onChanged: (v) {
-                    if (v != null) setModalState(() => department = v);
+                    if (v != null) {
+                      setModalState(() {
+                        reviewerId = v;
+                        reviewerName = v == 'EL-01'
+                            ? 'Dr. Kavita Rao (#EL-01 • Escalation Lead)'
+                            : v == 'SR-07'
+                            ? 'Anjali Menon (#SR-07 • Safety Reviewer)'
+                            : 'Meera Krishnan (#SR-04 • Senior Trust & Safety Officer)';
+                      });
+                    }
                   },
                 ),
               ],
@@ -197,32 +228,40 @@ class _ComplaintAdminConsoleScreenState
     );
 
     if (saved == true && mounted) {
-      await _controller.adminUpdateComplaint(
-        complaintId: item.id,
-        severityPriority: severity,
-        assignedReviewerName: reviewer,
-        assignedDepartment: department,
-        slaTargetHours: slaHours,
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Assigned to $reviewer ($severity) • Logged in immutable audit trail.',
-          ),
-        ),
-      );
+      setState(() {
+        _consoleError = null;
+        _consoleNotice = null;
+      });
+      try {
+        await _controller.adminAssignAndClassifyOnServer(
+          referenceNumber: item.referenceNumber,
+          assignedReviewerId: reviewerId,
+          assignedReviewerName: reviewerName,
+          severity: severity,
+          priority: priority,
+        );
+        if (!mounted) return;
+        setState(() {
+          _consoleNotice =
+              'Assigned ${item.referenceNumber} to $reviewerName ($priority • $severity).';
+        });
+      } on BackendApiException catch (err) {
+        if (!mounted) return;
+        setState(() => _consoleError = err.message);
+      }
     }
   }
 
   /// Screen 37 — Status Transition + Separated Private Internal Notes vs Complainant Message Modal
   Future<void> _openStatusAndNotesModal(DiscreetComplaintModel item) async {
-    var nextStatus = item.status;
+    final allowedStatuses = item.status.allowedTransitions;
+    var nextStatus = allowedStatuses.first;
     final publicMsgCtrl = TextEditingController();
     final privateInternalNoteCtrl = TextEditingController();
-    final resolutionCtrl = TextEditingController(
-      text: item.publicResolutionNote ?? '',
+    final rejectionCtrl = TextEditingController(
+      text: '#OUTSIDE-SCOPE-OR-UNVERIFIED',
     );
+    String? modalError;
 
     final saved = await showModalBottomSheet<bool>(
       context: context,
@@ -247,15 +286,16 @@ class _ComplaintAdminConsoleScreenState
               children: [
                 Text(
                   'Update Status & Add Separated Notes (${item.referenceNumber})',
-                  style: AppTypography.sectionTitle.copyWith(fontSize: 18),
+                  style: AppTypography.editorialSection.copyWith(fontSize: 18),
                 ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<ComplaintStatus>(
                   initialValue: nextStatus,
-                  decoration: const InputDecoration(
-                    labelText: 'New Complaint Status (SRS 7.5)',
+                  decoration: InputDecoration(
+                    labelText:
+                        'Allowed Next Status (from ${item.status.label})',
                   ),
-                  items: ComplaintStatus.values
+                  items: allowedStatuses
                       .map(
                         (st) =>
                             DropdownMenuItem(value: st, child: Text(st.label)),
@@ -266,14 +306,24 @@ class _ComplaintAdminConsoleScreenState
                   },
                 ),
                 const SizedBox(height: 10),
+                if (nextStatus == ComplaintStatus.rejectedWithReason)
+                  TextField(
+                    controller: rejectionCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Mandatory Rejection Reason Code *',
+                    ),
+                  ),
+                const SizedBox(height: 10),
                 TextField(
                   key: const Key('m5-admin-private-note-input'),
                   controller: privateInternalNoteCtrl,
                   minLines: 2,
                   maxLines: 3,
                   decoration: const InputDecoration(
-                    labelText: 'PRIVATE INTERNAL REVIEWER NOTE (Hidden from Complainant & Public)',
-                    hintText: 'Internal investigation findings, cluster IDs, or legal notes...',
+                    labelText:
+                        'PRIVATE INTERNAL REVIEWER NOTE (Hidden from Complainant & Public)',
+                    hintText:
+                        'Internal investigation findings, cluster IDs, or legal notes...',
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -282,17 +332,12 @@ class _ComplaintAdminConsoleScreenState
                   controller: publicMsgCtrl,
                   minLines: 2,
                   maxLines: 3,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText:
-                        'Message Visible to Complainant in Tracker (Optional)',
-                    hintText: 'Compassionate status update or follow-up question for complainant...',
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: resolutionCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Resolution / Rejection Reason Summary',
+                        nextStatus == ComplaintStatus.additionalInfoRequired
+                        ? 'Required Follow-Up Question for Complainant *'
+                        : 'Message Visible to Complainant in Tracker (Optional)',
+                    errorText: modalError,
                   ),
                 ),
                 const SizedBox(height: 14),
@@ -311,8 +356,19 @@ class _ComplaintAdminConsoleScreenState
                         style: FilledButton.styleFrom(
                           backgroundColor: AppColors.primaryPurple,
                         ),
-                        onPressed: () => Navigator.of(ctx).pop(true),
-                        child: const Text('Apply & Audit'),
+                        onPressed: () {
+                          if (nextStatus ==
+                                  ComplaintStatus.additionalInfoRequired &&
+                              publicMsgCtrl.text.trim().length < 5) {
+                            setModalState(
+                              () => modalError =
+                                  'Enter a follow-up question for the complainant.',
+                            );
+                            return;
+                          }
+                          Navigator.of(ctx).pop(true);
+                        },
+                        child: const Text('Apply on Server'),
                       ),
                     ),
                   ],
@@ -325,32 +381,47 @@ class _ComplaintAdminConsoleScreenState
     );
 
     if (saved == true && mounted) {
-      await _controller.adminUpdateComplaint(
-        complaintId: item.id,
-        newStatus: nextStatus,
-        publicMessageToComplainant: publicMsgCtrl.text,
-        internalPrivateNote: privateInternalNoteCtrl.text,
-        publicResolutionNote: resolutionCtrl.text.trim().isEmpty
-            ? null
-            : resolutionCtrl.text.trim(),
-        rejectionReasonDetail:
-            nextStatus == ComplaintStatus.rejectedWithReason &&
-                resolutionCtrl.text.trim().isNotEmpty
-            ? resolutionCtrl.text.trim()
-            : null,
-      );
+      setState(() {
+        _consoleError = null;
+        _consoleNotice = null;
+      });
+      try {
+        if (privateInternalNoteCtrl.text.trim().length >= 3) {
+          await _controller.adminAddInternalNoteOnServer(
+            referenceNumber: item.referenceNumber,
+            noteText: privateInternalNoteCtrl.text.trim(),
+          );
+        }
+        await _controller.adminUpdateStatusOnServer(
+          referenceNumber: item.referenceNumber,
+          newStatus: nextStatus,
+          publicMessageToComplainant: publicMsgCtrl.text.trim(),
+          rejectionReasonCode: nextStatus == ComplaintStatus.rejectedWithReason
+              ? rejectionCtrl.text.trim()
+              : null,
+        );
+        if (!mounted) return;
+        setState(() {
+          _consoleNotice =
+              'Updated ${item.referenceNumber} status to ${nextStatus.label} on backend.';
+        });
+      } on BackendApiException catch (err) {
+        if (!mounted) return;
+        setState(() => _consoleError = err.message);
+      }
     }
     publicMsgCtrl.dispose();
     privateInternalNoteCtrl.dispose();
-    resolutionCtrl.dispose();
+    rejectionCtrl.dispose();
   }
 
   /// Modal 39 & Modal 40 — Duplicate Cluster Merge & Malicious Abuse Blinded Throttle
   Future<void> _openDuplicateAndAbuseModal(DiscreetComplaintModel item) async {
-    final mergeRefCtrl = TextEditingController(
-      text: item.duplicateOfReference ?? '#SKH-ANON-2026-8471',
+    final mergeRefCtrl = TextEditingController();
+    final reasonCtrl = TextEditingController(
+      text: 'Coordinated spam flood from same blinded bucket',
     );
-    var flagMalicious = item.maliciousAbuseFlagged;
+    var flagMalicious = false;
 
     final saved = await showDialog<bool>(
       context: context,
@@ -362,38 +433,44 @@ class _ComplaintAdminConsoleScreenState
           ),
           title: Text(
             'Duplicate Cluster Merge & Anti-Abuse Guard',
-            style: AppTypography.sectionTitle.copyWith(fontSize: 18),
+            style: AppTypography.editorialSection.copyWith(fontSize: 18),
           ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Link duplicate reports targeting the same offender or apply a blinded rate-limit bucket throttle without unmasking anonymous users:',
-                style: AppTypography.subtitle,
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: mergeRefCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Parent Cluster Reference # (Optional Merge)',
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: mergeRefCtrl,
+                  decoration: const InputDecoration(
+                    labelText:
+                        'Duplicate Reference # to Merge Into This Case (Optional)',
+                    hintText: '#SKH-ANON-2026-...',
+                  ),
                 ),
-              ),
-              const SizedBox(height: 10),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text(
-                  'Throttle Ephemeral Blinded Bucket (Malicious Spam)',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                const SizedBox(height: 10),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(
+                    'Throttle Blinded Bucket (Malicious Spam)',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                  ),
+                  subtitle: const Text(
+                    'Applies 72h rate-limit to the blinded token hash without unmasking user identity',
+                    style: TextStyle(fontSize: 11.5),
+                  ),
+                  value: flagMalicious,
+                  onChanged: (v) => setModalState(() => flagMalicious = v),
                 ),
-                subtitle: const Text(
-                  'Applies 24h rate-limit to the blinded token hash without revealing user identity',
-                  style: TextStyle(fontSize: 11.5),
-                ),
-                value: flagMalicious,
-                onChanged: (v) => setModalState(() => flagMalicious = v),
-              ),
-            ],
+                if (flagMalicious)
+                  TextField(
+                    controller: reasonCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Audit Justification Reason *',
+                    ),
+                  ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -402,7 +479,7 @@ class _ComplaintAdminConsoleScreenState
             ),
             FilledButton(
               onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('Apply Governance Action'),
+              child: const Text('Execute on Server'),
             ),
           ],
         ),
@@ -410,15 +487,34 @@ class _ComplaintAdminConsoleScreenState
     );
 
     if (saved == true && mounted) {
-      await _controller.adminUpdateComplaint(
-        complaintId: item.id,
-        duplicateOfReference: mergeRefCtrl.text.trim().isEmpty
-            ? null
-            : mergeRefCtrl.text.trim(),
-        maliciousAbuseFlagged: flagMalicious,
-      );
+      setState(() {
+        _consoleError = null;
+        _consoleNotice = null;
+      });
+      try {
+        if (mergeRefCtrl.text.trim().isNotEmpty) {
+          await _controller.adminMergeDuplicatesOnServer(
+            primaryReferenceNumber: item.referenceNumber,
+            duplicateReferenceNumbers: <String>[mergeRefCtrl.text.trim()],
+          );
+        }
+        if (flagMalicious) {
+          await _controller.adminHandleMaliciousOnServer(
+            referenceNumber: item.referenceNumber,
+            reason: reasonCtrl.text.trim(),
+          );
+        }
+        if (!mounted) return;
+        setState(() {
+          _consoleNotice = 'Governance action confirmed & audit-logged.';
+        });
+      } on BackendApiException catch (err) {
+        if (!mounted) return;
+        setState(() => _consoleError = err.message);
+      }
     }
     mergeRefCtrl.dispose();
+    reasonCtrl.dispose();
   }
 
   @override
@@ -428,9 +524,6 @@ class _ComplaintAdminConsoleScreenState
       builder: (context, _) {
         final filtered = _controller.complaints.where((c) {
           if (_modeFilter != 'ALL' && c.reportingMode.code != _modeFilter) {
-            return false;
-          }
-          if (_statusFilter != 'ALL' && c.status.code != _statusFilter) {
             return false;
           }
           return true;
@@ -447,10 +540,10 @@ class _ComplaintAdminConsoleScreenState
               children: [
                 Text(
                   'Admin Complaint Console',
-                  style: AppTypography.sectionTitle.copyWith(fontSize: 19),
+                  style: AppTypography.editorialSection.copyWith(fontSize: 19),
                 ),
                 Text(
-                  'Role: ${_controller.activeAdminRole} • RBAC & Audit Active',
+                  'Role: ${_controller.activeAdminRole} • Server RBAC Active',
                   style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
@@ -459,13 +552,20 @@ class _ComplaintAdminConsoleScreenState
                 ),
               ],
             ),
+            actions: [
+              IconButton(
+                tooltip: 'Refresh from Server',
+                onPressed: _controller.isSyncing ? null : _refreshFromServer,
+                icon: const Icon(Icons.refresh_rounded),
+              ),
+            ],
           ),
           body: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 36),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // RBAC Role Simulator Bar (Proves SRS 7.6 & 12.5 Role-Based Access Control)
+                // Reviewer Token & RBAC Clearance Bar
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -476,8 +576,30 @@ class _ComplaintAdminConsoleScreenState
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              key: const Key('m5-admin-token-input'),
+                              controller: _adminTokenCtrl,
+                              decoration: const InputDecoration(
+                                isDense: true,
+                                labelText:
+                                    'Reviewer Token (x-sakhi-admin-token)',
+                              ),
+                              onSubmitted: (_) => _refreshFromServer(),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton.tonal(
+                            onPressed: _refreshFromServer,
+                            child: const Text('Sync Queue'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
                       const Text(
-                        'RBAC Clearance Level (Test PII Masking per SRS 7.6):',
+                        'RBAC Clearance Level (Enforced on Backend per SRS 7.6):',
                         style: TextStyle(
                           fontSize: 11.5,
                           fontWeight: FontWeight.w800,
@@ -487,35 +609,72 @@ class _ComplaintAdminConsoleScreenState
                       const SizedBox(height: 6),
                       Wrap(
                         spacing: 8,
-                        children:
-                            <String>[
-                              'SENIOR_SAFETY_REVIEWER',
-                              'SUPER_ADMIN',
-                              'STANDARD_MODERATOR',
-                            ].map((role) {
-                              final active =
-                                  _controller.activeAdminRole == role;
-                              return ChoiceChip(
-                                key: Key('m5-admin-role-chip-$role'),
-                                label: Text(role.replaceAll('_', ' ')),
-                                selected: active,
-                                selectedColor: AppColors.primaryPurple,
-                                labelStyle: TextStyle(
-                                  fontSize: 10.5,
-                                  fontWeight: FontWeight.w800,
-                                  color: active
-                                      ? Colors.white
-                                      : AppColors.textPrimary,
-                                ),
-                                onSelected: (_) =>
-                                    _controller.setActiveAdminRole(role),
-                              );
-                            }).toList(),
+                        children: <String>[
+                          'SENIOR_REVIEWER',
+                          'SUPER_ADMIN',
+                          'STANDARD_MODERATOR',
+                        ].map((role) {
+                          final active = _controller.activeAdminRole == role;
+                          return ChoiceChip(
+                            key: Key('m5-admin-role-chip-$role'),
+                            label: Text(role.replaceAll('_', ' ')),
+                            selected: active,
+                            selectedColor: AppColors.primaryPurple,
+                            labelStyle: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w800,
+                              color: active
+                                  ? Colors.white
+                                  : AppColors.textPrimary,
+                            ),
+                            onSelected: (_) {
+                              _controller.setActiveAdminRole(role);
+                              unawaited(_refreshFromServer());
+                            },
+                          );
+                        }).toList(),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
+
+                if (_consoleNotice != null)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE6F5EE),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Text(
+                      _consoleNotice!,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF1F6E50),
+                      ),
+                    ),
+                  ),
+
+                if (_consoleError != null)
+                  Container(
+                    key: const Key('m5-admin-error-banner'),
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFDE8EC),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Text(
+                      _consoleError!,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF8C1D35),
+                      ),
+                    ),
+                  ),
 
                 // Workspace Sub-Navigation Tabs
                 Row(
@@ -569,12 +728,11 @@ class _ComplaintAdminConsoleScreenState
 
   Widget _buildQueueAndCaseDetailView(
     List<DiscreetComplaintModel> filtered,
-    DiscreetComplaintModel selected,
+    DiscreetComplaintModel? selected,
   ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Filter Bar (Anonymous vs Confidential)
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Row(
@@ -582,49 +740,87 @@ class _ComplaintAdminConsoleScreenState
               ChoiceChip(
                 label: const Text('All Modes'),
                 selected: _modeFilter == 'ALL',
-                onSelected: (_) => setState(() => _modeFilter = 'ALL'),
+                onSelected: (_) {
+                  setState(() => _modeFilter = 'ALL');
+                  unawaited(_refreshFromServer());
+                },
               ),
               const SizedBox(width: 6),
               ChoiceChip(
                 label: const Text('Anonymous Only'),
                 selected: _modeFilter == 'ANONYMOUS',
-                onSelected: (_) => setState(() => _modeFilter = 'ANONYMOUS'),
+                onSelected: (_) {
+                  setState(() => _modeFilter = 'ANONYMOUS');
+                  unawaited(_refreshFromServer());
+                },
               ),
               const SizedBox(width: 6),
               ChoiceChip(
                 label: const Text('Confidential Only'),
                 selected: _modeFilter == 'CONFIDENTIAL',
-                onSelected: (_) => setState(() => _modeFilter = 'CONFIDENTIAL'),
+                onSelected: (_) {
+                  setState(() => _modeFilter = 'CONFIDENTIAL');
+                  unawaited(_refreshFromServer());
+                },
               ),
             ],
           ),
         ),
         const SizedBox(height: 10),
 
-        // Horizontal Case Selector Cards
-        ...filtered.map((item) {
-          final isSelected = item.id == selected.id;
-          return Container(
-            margin: const EdgeInsets.only(bottom: 8),
+        if (filtered.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: isSelected ? const Color(0xFFF7ECFC) : Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: isSelected
-                    ? AppColors.primaryPurple
-                    : AppColors.borderSubtle,
-                width: isSelected ? 1.8 : 1.0,
-              ),
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: AppColors.borderSubtle),
             ),
-            child: Material(
-              color: Colors.transparent,
-              borderRadius: BorderRadius.circular(16),
-              clipBehavior: Clip.antiAlias,
+            child: const Column(
+              children: [
+                Icon(
+                  Icons.inbox_rounded,
+                  size: 36,
+                  color: AppColors.primaryPurple,
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'No Complaints in Queue (0 Database Records)',
+                  style: AppTypography.cardTitle,
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'No fabricated complaints are shown when the database is empty. Submit a report from the Discreet Complaint Wizard, then tap Sync Queue.',
+                  textAlign: TextAlign.center,
+                  style: AppTypography.subtitle,
+                ),
+              ],
+            ),
+          )
+        else ...[
+          ...filtered.map((item) {
+            final isSelected = item.referenceNumber == selected?.referenceNumber;
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              decoration: BoxDecoration(
+                color: isSelected ? const Color(0xFFF7ECFC) : Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: isSelected
+                      ? AppColors.primaryPurple
+                      : AppColors.borderSubtle,
+                  width: isSelected ? 1.8 : 1.0,
+                ),
+              ),
               child: ListTile(
-                onTap: () => setState(() => _selectedComplaintId = item.id),
+                onTap: () =>
+                    setState(() => _selectedComplaintRef = item.referenceNumber),
                 title: Row(
                   children: [
-                    Text(item.referenceNumber, style: AppTypography.monoToken),
+                    Text(
+                      item.referenceNumber,
+                      style: AppTypography.technicalToken,
+                    ),
                     const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(
@@ -647,270 +843,322 @@ class _ComplaintAdminConsoleScreenState
                   ],
                 ),
                 subtitle: Text(
-                  '${_controller.categoryByCode(item.categoryCode).label} • ${item.reportingMode.badgeLabel} • ${item.severityPriority}',
+                  '${item.categoryTitle} • ${item.reportingMode.badgeLabel} • ${item.severityPriority}',
                   style: const TextStyle(fontSize: 11.5),
                 ),
                 trailing: const Icon(Icons.chevron_right_rounded),
               ),
-            ),
-          );
-        }),
-        const SizedBox(height: 14),
+            );
+          }),
+          const SizedBox(height: 14),
 
-        // Screen 34 — Selected Case Inspector with Strict PII Masking
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: AppColors.primaryPurple, width: 1.4),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Active Case: ${selected.referenceNumber}',
-                    style: AppTypography.cardTitle,
-                  ),
-                  Text(
-                    'SLA: ${selected.slaTargetHours}h',
-                    style: AppTypography.monoToken,
-                  ),
-                ],
+          if (selected != null)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: AppColors.primaryPurple, width: 1.4),
               ),
-              const SizedBox(height: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Active Case: ${selected.referenceNumber}',
+                        style: AppTypography.cardTitle,
+                      ),
+                      Text(
+                        'SLA: ${selected.slaTargetHours}h',
+                        style: AppTypography.technicalToken,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
 
-              // Identity / PII Masking Box (Proves SRS 7.2 & 7.6)
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color:
-                      selected.reportingMode == ComplaintReportingMode.anonymous
-                      ? const Color(0xFFE6F5EE)
-                      : const Color(0xFFFFF3E0),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.shield_rounded,
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
                       color:
                           selected.reportingMode ==
                               ComplaintReportingMode.anonymous
-                          ? const Color(0xFF1F6E50)
-                          : const Color(0xFF9C5708),
+                          ? const Color(0xFFE6F5EE)
+                          : const Color(0xFFFFF3E0),
+                      borderRadius: BorderRadius.circular(14),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        selected.reportingMode ==
-                                ComplaintReportingMode.anonymous
-                            ? 'ANONYMOUS RECORD: Complainant User ID, Name & Phone are NULL in database. Identity cannot be unmasked by any role.'
-                            : _controller.canViewConfidentialContact
-                            ? 'CONFIDENTIAL RECORD (Senior Clearance): ${selected.maskedConfidentialContact ?? "Verified Member"} • Never visible to reported user.'
-                            : 'CONFIDENTIAL RECORD (Standard Moderator View): [REDACTED — Requires SENIOR_SAFETY_REVIEWER Clearance]',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.shield_rounded,
+                          color:
+                              selected.reportingMode ==
+                                  ComplaintReportingMode.anonymous
+                              ? const Color(0xFF1F6E50)
+                              : const Color(0xFF9C5708),
                         ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(selected.description, style: AppTypography.bodyRegular),
-              const SizedBox(height: 8),
-              Text(
-                'Window: ${selected.incidentDateWindow} • Coarse Area: ${selected.generalAreaText}',
-                style: AppTypography.subtitle,
-              ),
-              const SizedBox(height: 12),
-
-              // Admin Action Buttons Row (Modals 35, 37, 39, 40)
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  FilledButton.icon(
-                    key: const Key('m5-admin-update-status-button'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.primaryPurple,
-                    ),
-                    onPressed: () => _openStatusAndNotesModal(selected),
-                    icon: const Icon(Icons.edit_note_rounded, size: 17),
-                    label: const Text('Update Status & Notes'),
-                  ),
-                  OutlinedButton.icon(
-                    key: const Key('m5-admin-assign-reviewer-button'),
-                    onPressed: () => _openAssignmentAndSeverityModal(selected),
-                    icon: const Icon(Icons.assignment_ind_rounded, size: 17),
-                    label: const Text('Assign & Priority'),
-                  ),
-                  OutlinedButton.icon(
-                    key: const Key('m5-admin-merge-abuse-button'),
-                    onPressed: () => _openDuplicateAndAbuseModal(selected),
-                    icon: const Icon(Icons.merge_type_rounded, size: 17),
-                    label: const Text('Merge / Anti-Abuse'),
-                  ),
-                ],
-              ),
-              const Divider(height: 24),
-
-              // Modal 36 — Controlled Blurred-by-Default Evidence Vault
-              Text(
-                'Controlled Evidence Vault (${selected.evidenceFiles.length} Scrubbed Files)',
-                style: AppTypography.bodyMedium.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 6),
-              ...selected.evidenceFiles.map((ev) {
-                final isUnblurred = _unblurredEvidenceIds.contains(ev.id);
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFBF6FD),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AppColors.borderSubtle),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              '${ev.sanitizedFileName} (${ev.formattedSize})',
-                              style: AppTypography.monoToken,
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            selected.reportingMode ==
+                                    ComplaintReportingMode.anonymous
+                                ? 'ANONYMOUS RECORD: Complainant User ID, Name & Phone are NULL in database.'
+                                : _controller.canViewConfidentialContact
+                                ? 'CONFIDENTIAL RECORD (Senior Clearance): ${selected.maskedConfidentialContact ?? "Protected Vault"} • Hidden from Target.'
+                                : 'CONFIDENTIAL RECORD (Standard Moderator View): [REDACTED — Requires Senior Reviewer Clearance]',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
-                          TextButton.icon(
-                            onPressed: () {
-                              setState(() {
-                                if (isUnblurred) {
-                                  _unblurredEvidenceIds.remove(ev.id);
-                                } else {
-                                  _unblurredEvidenceIds.add(ev.id);
-                                  _controller.logAdminEvidenceInspection(
-                                    complaintId: selected.id,
-                                    fileName: ev.sanitizedFileName,
-                                    actionType: 'ADMIN_UNBLURRED_EVIDENCE_VIEW',
-                                  );
-                                }
-                              });
-                            },
-                            icon: Icon(
-                              isUnblurred
-                                  ? Icons.visibility_off_rounded
-                                  : Icons.visibility_rounded,
-                              size: 16,
-                            ),
-                            label: Text(
-                              isUnblurred
-                                  ? 'Re-Blur Preview'
-                                  : 'Unblur (Audited)',
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(selected.description, style: AppTypography.bodyRegular),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Window: ${selected.incidentDateWindow} • Area: ${selected.generalAreaText}',
+                    style: AppTypography.subtitle,
+                  ),
+                  const SizedBox(height: 12),
+
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      FilledButton.icon(
+                        key: const Key('m5-admin-update-status-button'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.primaryPurple,
+                        ),
+                        onPressed: () => _openStatusAndNotesModal(selected),
+                        icon: const Icon(Icons.edit_note_rounded, size: 17),
+                        label: const Text('Update Status & Notes'),
+                      ),
+                      OutlinedButton.icon(
+                        key: const Key('m5-admin-assign-reviewer-button'),
+                        onPressed: () =>
+                            _openAssignmentAndSeverityModal(selected),
+                        icon: const Icon(
+                          Icons.assignment_ind_rounded,
+                          size: 17,
+                        ),
+                        label: const Text('Assign & Priority'),
+                      ),
+                      OutlinedButton.icon(
+                        key: const Key('m5-admin-merge-abuse-button'),
+                        onPressed: () => _openDuplicateAndAbuseModal(selected),
+                        icon: const Icon(Icons.merge_type_rounded, size: 17),
+                        label: const Text('Merge / Anti-Abuse'),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 24),
+
+                  Text(
+                    'Controlled Evidence Vault (${selected.evidenceFiles.length} Scrubbed Files)',
+                    style: AppTypography.bodyMedium.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  ...selected.evidenceFiles.map((ev) {
+                    final wm = _unblurredEvidenceWatermarks[ev.id];
+                    final isUnblurred = wm != null;
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFBF6FD),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: AppColors.borderSubtle),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  '${ev.sanitizedFileName} (${ev.formattedSize})',
+                                  style: AppTypography.technicalToken,
+                                ),
+                              ),
+                              TextButton.icon(
+                                onPressed: ev.isPurged
+                                    ? null
+                                    : () async {
+                                        if (isUnblurred) {
+                                          setState(() {
+                                            _unblurredEvidenceWatermarks.remove(
+                                              ev.id,
+                                            );
+                                          });
+                                          return;
+                                        }
+                                        try {
+                                          final stamp = await _controller
+                                              .adminAccessEvidenceOnServer(
+                                                referenceNumber:
+                                                    selected.referenceNumber,
+                                                evidenceId: ev.id,
+                                                action: 'REVEAL_VIEWER',
+                                                justificationReason:
+                                                    'Safety reviewer verification of complaint attachment',
+                                              );
+                                          if (!mounted) return;
+                                          setState(() {
+                                            _unblurredEvidenceWatermarks[ev
+                                                    .id] =
+                                                stamp;
+                                          });
+                                        } on BackendApiException catch (err) {
+                                          if (!mounted) return;
+                                          setState(
+                                            () => _consoleError = err.message,
+                                          );
+                                        }
+                                      },
+                                icon: Icon(
+                                  isUnblurred
+                                      ? Icons.visibility_off_rounded
+                                      : Icons.visibility_rounded,
+                                  size: 16,
+                                ),
+                                label: Text(
+                                  ev.isPurged
+                                      ? 'Purged'
+                                      : isUnblurred
+                                      ? 'Re-Blur'
+                                      : 'Unblur (Audited)',
+                                ),
+                              ),
+                            ],
+                          ),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                SizedBox(
+                                  height: 90,
+                                  width: double.infinity,
+                                  child: Image.asset(
+                                    AppAssets.m5EvidenceVaultExif,
+                                    fit: BoxFit.cover,
+                                  ),
+                                ),
+                                if (!isUnblurred)
+                                  Positioned.fill(
+                                    child: BackdropFilter(
+                                      filter: ImageFilter.blur(
+                                        sigmaX: 10,
+                                        sigmaY: 10,
+                                      ),
+                                      child: Container(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.35,
+                                        ),
+                                        alignment: Alignment.center,
+                                        child: const Text(
+                                          'BLURRED BY DEFAULT • TAP UNBLUR TO LOG ACCESS',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10.5,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                else
+                                  Container(
+                                    padding: const EdgeInsets.all(6),
+                                    color: Colors.black54,
+                                    child: Text(
+                                      wm,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 10,
+                                      ),
+                                    ),
+                                  ),
+                              ],
                             ),
                           ),
                         ],
                       ),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Stack(
-                          alignment: Alignment.center,
+                    );
+                  }),
+                  const Divider(height: 22),
+
+                  Text(
+                    'Private Internal Reviewer Notes (${selected.internalNotes.length}) • Hidden from Complainant',
+                    style: AppTypography.bodyMedium.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: const Color(0xFF8C1D40),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  if (selected.internalNotes.isEmpty)
+                    const Text(
+                      'No internal notes visible for current role.',
+                      style: AppTypography.subtitle,
+                    )
+                  else
+                    ...selected.internalNotes.map(
+                      (n) => Container(
+                        margin: const EdgeInsets.only(bottom: 6),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF4F7),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFF3C6D3)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            SizedBox(
-                              height: 90,
-                              width: double.infinity,
-                              child: Image.asset(
-                                AppAssets.module5EvidenceVaultScrubber,
-                                fit: BoxFit.cover,
+                            Text(
+                              '${n.authorLabel} • ${n.createdAtLabel}',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF8C1D40),
                               ),
                             ),
-                            if (!isUnblurred)
-                              Positioned.fill(
-                                child: BackdropFilter(
-                                  filter: ImageFilter.blur(
-                                    sigmaX: 10,
-                                    sigmaY: 10,
-                                  ),
-                                  child: Container(
-                                    color: Colors.black.withValues(alpha: 0.35),
-                                    alignment: Alignment.center,
-                                    child: const Text(
-                                      'BLURRED BY DEFAULT • TAP UNBLUR TO LOG ACCESS',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 10.5,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
+                            const SizedBox(height: 3),
+                            Text(n.note, style: const TextStyle(fontSize: 12)),
                           ],
                         ),
                       ),
-                    ],
-                  ),
-                );
-              }),
-              const Divider(height: 22),
-
-              // Private Internal Reviewer Notes (Strictly Admin-Only)
-              Text(
-                'Private Internal Reviewer Notes (${selected.internalNotes.length}) • Hidden from Complainant',
-                style: AppTypography.bodyMedium.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: const Color(0xFF8C1D40),
-                ),
+                    ),
+                ],
               ),
-              const SizedBox(height: 6),
-              if (selected.internalNotes.isEmpty)
-                const Text(
-                  'No internal notes recorded yet.',
-                  style: AppTypography.subtitle,
-                )
-              else
-                ...selected.internalNotes.map(
-                  (n) => Container(
-                    margin: const EdgeInsets.only(bottom: 6),
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFF4F7),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFF3C6D3)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${n.authorLabel} • ${n.createdAtLabel}',
-                          style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF8C1D40),
-                          ),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(n.note, style: const TextStyle(fontSize: 12)),
-                      ],
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
+            ),
+        ],
       ],
     );
   }
 
   /// Screen 38 — Immutable SHA-256 Case Audit History
-  Widget _buildImmutableAuditView(DiscreetComplaintModel selected) {
+  Widget _buildImmutableAuditView(DiscreetComplaintModel? selected) {
+    if (selected == null) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppColors.borderSubtle),
+        ),
+        child: const Text(
+          'Immutable Case Audit History: Select or sync a complaint in Tab 1 to inspect its SHA-256 audit chain.',
+          style: AppTypography.bodyRegular,
+        ),
+      );
+    }
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -946,7 +1194,12 @@ class _ComplaintAdminConsoleScreenState
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(entry.action, style: AppTypography.monoToken),
+                      Expanded(
+                        child: Text(
+                          entry.action,
+                          style: AppTypography.technicalToken,
+                        ),
+                      ),
                       Text(entry.timestampLabel, style: AppTypography.caption),
                     ],
                   ),
@@ -961,7 +1214,7 @@ class _ComplaintAdminConsoleScreenState
                   const SizedBox(height: 2),
                   Text(entry.detail, style: AppTypography.bodyRegular),
                   const SizedBox(height: 4),
-                  Text(entry.integrityHash, style: AppTypography.monoToken),
+                  Text(entry.integrityHash, style: AppTypography.technicalHash),
                 ],
               ),
             ),
@@ -999,27 +1252,12 @@ class _ComplaintAdminConsoleScreenState
                 '• Ephemeral Blinded Anti-Spam Hash Expiry: ${policy.scrubIpLogsAfterHours} hours',
                 style: AppTypography.bodyRegular.copyWith(height: 1.45),
               ),
-              const SizedBox(height: 8),
-              Material(
-                color: Colors.transparent,
-                child: SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text(
-                    'Allow Complainant Immediate Media Purge',
-                    style: AppTypography.bodyMedium,
-                  ),
-                  value: policy.allowUserImmediateMediaPurge,
-                  onChanged: (val) => _controller.updateRetentionPolicy(
-                    policy.copyWith(allowUserImmediateMediaPurge: val),
-                  ),
-                ),
-              ),
             ],
           ),
         ),
         const SizedBox(height: 14),
         const Text(
-          'Configurable Complaint Categories (SRS 7.3 — 10 Categories)',
+          'Configurable Complaint Categories (SRS 7.2 — 10 Categories)',
           style: AppTypography.cardTitle,
         ),
         const SizedBox(height: 8),
@@ -1031,20 +1269,20 @@ class _ComplaintAdminConsoleScreenState
               borderRadius: BorderRadius.circular(14),
               border: Border.all(color: AppColors.borderSubtle),
             ),
-            child: Material(
-              color: Colors.transparent,
-              borderRadius: BorderRadius.circular(14),
-              clipBehavior: Clip.antiAlias,
-              child: SwitchListTile(
-                title: Text(
-                  '${cat.label} (${cat.defaultSeverity})',
-                  style: AppTypography.bodyMedium,
-                ),
-                subtitle: Text(cat.subtitle, style: AppTypography.subtitle),
-                value: cat.enabled,
-                onChanged: (v) =>
-                    _controller.toggleCategoryEnabled(cat.code, v),
+            child: SwitchListTile(
+              title: Text(
+                '${cat.label} (${cat.defaultPriority} • ${cat.defaultSeverity})',
+                style: AppTypography.bodyMedium,
               ),
+              subtitle: Text(cat.subtitle, style: AppTypography.subtitle),
+              value: cat.enabled,
+              onChanged: (v) async {
+                try {
+                  await _controller.toggleCategoryEnabledOnServer(cat, v);
+                } on BackendApiException catch (err) {
+                  if (mounted) setState(() => _consoleError = err.message);
+                }
+              },
             ),
           ),
         ),

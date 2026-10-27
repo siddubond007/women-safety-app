@@ -8,6 +8,7 @@ import {
   Max,
   MaxLength,
   Min,
+  MinLength,
 } from "class-validator";
 
 export class CheckDescriptionPiiDto {
@@ -30,7 +31,8 @@ export class ScrubEvidenceMetadataDto {
 
   @IsInt()
   @IsOptional()
-  @Min(0)
+  @Min(1)
+  @Max(15 * 1024 * 1024)
   byteSize?: number;
 
   @IsString()
@@ -41,13 +43,18 @@ export class ScrubEvidenceMetadataDto {
   @IsBoolean()
   @IsOptional()
   visualBlurApplied?: boolean;
+
+  /** Optional base64-encoded file payload for real binary EXIF/chunk scrubbing */
+  @IsString()
+  @IsOptional()
+  base64Data?: string;
 }
 
 export class SubmitDiscreetComplaintDto {
   @IsString()
-  @IsOptional()
+  @IsNotEmpty()
   @MaxLength(24)
-  reportingMode?: string; // 'ANONYMOUS' | 'CONFIDENTIAL'
+  reportingMode!: string; // 'ANONYMOUS' | 'CONFIDENTIAL'
 
   @IsString()
   @IsNotEmpty()
@@ -66,6 +73,7 @@ export class SubmitDiscreetComplaintDto {
 
   @IsString()
   @IsNotEmpty()
+  @MinLength(20)
   @MaxLength(4000)
   description!: string;
 
@@ -139,14 +147,27 @@ export class SubmitDiscreetComplaintDto {
   clientRateLimitHint?: string;
 }
 
-export class AddComplainantReplyDto {
+export class TrackComplaintLookupDto {
   @IsString()
-  @IsOptional()
-  @MaxLength(64)
-  passkey?: string;
+  @IsNotEmpty()
+  @MaxLength(80)
+  referenceNumber!: string;
 
   @IsString()
   @IsNotEmpty()
+  @MaxLength(64)
+  passkey!: string;
+}
+
+export class AddComplainantReplyDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(64)
+  passkey!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(2)
   @MaxLength(2000)
   message!: string;
 
@@ -157,9 +178,9 @@ export class AddComplainantReplyDto {
 
 export class SubmitComplaintAppealDto {
   @IsString()
-  @IsOptional()
+  @IsNotEmpty()
   @MaxLength(64)
-  passkey?: string;
+  passkey!: string;
 
   @IsString()
   @IsNotEmpty()
@@ -168,12 +189,20 @@ export class SubmitComplaintAppealDto {
 
   @IsString()
   @IsNotEmpty()
+  @MinLength(10)
   @MaxLength(2000)
   appealDescription!: string;
 
   @IsArray()
   @IsOptional()
   additionalEvidenceFiles?: Array<Record<string, unknown>>;
+}
+
+export class PurgeComplainantMediaDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(64)
+  passkey!: string;
 }
 
 export class AssignAndClassifyComplaintDto {
@@ -231,6 +260,7 @@ export class UpdateComplaintStatusDto {
 export class AddComplaintInternalNoteDto {
   @IsString()
   @IsNotEmpty()
+  @MinLength(3)
   @MaxLength(2000)
   noteText!: string;
 
@@ -253,8 +283,14 @@ export class AccessComplaintEvidenceDto {
 
   @IsString()
   @IsNotEmpty()
+  @MinLength(10)
   @MaxLength(500)
   justificationReason!: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(40)
+  viewerRole?: string;
 }
 
 export class MergeDuplicateComplaintsDto {
@@ -275,6 +311,11 @@ export class MergeDuplicateComplaintsDto {
   @IsOptional()
   @MaxLength(500)
   notes?: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(40)
+  viewerRole?: string;
 }
 
 export class HandleMaliciousComplaintDto {
@@ -291,8 +332,14 @@ export class HandleMaliciousComplaintDto {
 
   @IsString()
   @IsNotEmpty()
+  @MinLength(5)
   @MaxLength(500)
   reason!: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(40)
+  viewerRole?: string;
 }
 
 export class UpsertComplaintCategoryConfigDto {
@@ -333,7 +380,7 @@ export class UpsertComplaintCategoryConfigDto {
 
   @IsString()
   @IsOptional()
-  @MaxLength(2000)
+  @MaxLength(1000)
   safetyGuidanceText?: string;
 
   @IsString()
@@ -350,21 +397,31 @@ export class UpsertComplaintCategoryConfigDto {
   @Min(1)
   @Max(100)
   displayOrder?: number;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(40)
+  viewerRole?: string;
 }
 
 export class UpdateComplaintRetentionPolicyDto {
   @IsInt()
   @Min(7)
-  @Max(365)
+  @Max(3650)
   closedEvidenceRetentionDays!: number;
 
   @IsInt()
   @Min(7)
-  @Max(365)
+  @Max(3650)
   rejectedReportRetentionDays!: number;
 
   @IsInt()
   @Min(1)
-  @Max(90)
+  @Max(365)
   technicalRateLimitLogDays!: number;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(40)
+  viewerRole?: string;
 }

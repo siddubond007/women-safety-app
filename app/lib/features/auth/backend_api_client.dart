@@ -100,32 +100,63 @@ class BackendApiClient {
         .resolve(path.replaceFirst(RegExp(r'^/+'), ''));
   }
 
-  Future<Map<String, dynamic>> get(String path, {bool authenticated = false}) =>
-      _send('GET', path, authenticated: authenticated);
+  Future<Map<String, dynamic>> get(
+    String path, {
+    bool authenticated = false,
+    Map<String, String>? headers,
+  }) => _send('GET', path, authenticated: authenticated, headers: headers);
 
   Future<Map<String, dynamic>> post(
     String path, {
     Map<String, Object?> body = const <String, Object?>{},
     bool authenticated = false,
-  }) => _send('POST', path, body: body, authenticated: authenticated);
+    Map<String, String>? headers,
+  }) => _send(
+    'POST',
+    path,
+    body: body,
+    authenticated: authenticated,
+    headers: headers,
+  );
 
   Future<Map<String, dynamic>> put(
     String path, {
     Map<String, Object?> body = const <String, Object?>{},
     bool authenticated = false,
-  }) => _send('PUT', path, body: body, authenticated: authenticated);
+    Map<String, String>? headers,
+  }) => _send(
+    'PUT',
+    path,
+    body: body,
+    authenticated: authenticated,
+    headers: headers,
+  );
 
   Future<Map<String, dynamic>> patch(
     String path, {
     Map<String, Object?> body = const <String, Object?>{},
     bool authenticated = false,
-  }) => _send('PATCH', path, body: body, authenticated: authenticated);
+    Map<String, String>? headers,
+  }) => _send(
+    'PATCH',
+    path,
+    body: body,
+    authenticated: authenticated,
+    headers: headers,
+  );
 
   Future<Map<String, dynamic>> delete(
     String path, {
     Map<String, Object?>? body,
     bool authenticated = false,
-  }) => _send('DELETE', path, body: body, authenticated: authenticated);
+    Map<String, String>? headers,
+  }) => _send(
+    'DELETE',
+    path,
+    body: body,
+    authenticated: authenticated,
+    headers: headers,
+  );
 
   Future<Map<String, dynamic>> postMultipart(
     String path, {
@@ -274,6 +305,7 @@ class BackendApiClient {
     String path, {
     Map<String, Object?>? body,
     bool authenticated = false,
+    Map<String, String>? headers,
   }) async {
     var requestStage = 'opening connection';
     int? responseStatusCode;
@@ -283,6 +315,11 @@ class BackendApiClient {
           .timeout(const Duration(seconds: 12));
       requestStage = 'preparing request';
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      if (headers != null) {
+        headers.forEach((key, value) {
+          request.headers.set(key, value);
+        });
+      }
       if (authenticated) {
         final token = await readAccessToken();
         if (token == null || token.isEmpty) {

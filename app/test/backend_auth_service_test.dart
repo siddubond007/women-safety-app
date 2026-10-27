@@ -26,6 +26,7 @@ class _FakeBackendApiClient extends BackendApiClient {
   Future<Map<String, dynamic>> get(
     String path, {
     bool authenticated = false,
+    Map<String, String>? headers,
   }) async {
     getRequests.add((path, authenticated));
     if (meError != null) throw meError!;
@@ -37,6 +38,7 @@ class _FakeBackendApiClient extends BackendApiClient {
     String path, {
     Map<String, Object?> body = const <String, Object?>{},
     bool authenticated = false,
+    Map<String, String>? headers,
   }) async {
     postRequests.add((path, authenticated));
     if (logoutError != null) throw logoutError!;

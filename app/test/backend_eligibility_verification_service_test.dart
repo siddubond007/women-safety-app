@@ -22,6 +22,7 @@ class _FakeEligibilityApiClient extends BackendApiClient {
   Future<Map<String, dynamic>> get(
     String path, {
     bool authenticated = false,
+    Map<String, String>? headers,
   }) async {
     getRequests.add((path: path, authenticated: authenticated));
     return getResponses[path] ?? const <String, dynamic>{};
@@ -32,6 +33,7 @@ class _FakeEligibilityApiClient extends BackendApiClient {
     String path, {
     Map<String, Object?> body = const <String, Object?>{},
     bool authenticated = false,
+    Map<String, String>? headers,
   }) async {
     postRequests.add((
       path: path,
