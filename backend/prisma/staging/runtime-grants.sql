@@ -52,6 +52,29 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   public.moderation_decisions
 TO sakhi_staging_app;
 
+-- Module 5 discreet complaints: allow durable complaint submission and review.
+-- Do not grant DELETE on complaints; retention/purge must use explicit audited workflows.
+GRANT SELECT, INSERT, UPDATE ON TABLE
+  public.discreet_complaints
+TO sakhi_staging_app;
+
+-- Complaint categories and retention controls are read during startup and updated
+-- only by the application service's validated configuration paths.
+GRANT SELECT, INSERT, UPDATE ON TABLE
+  public.complaint_category_configs,
+  public.complaint_retention_policies
+TO sakhi_staging_app;
+
+-- Module 10/11 admin RBAC and platform configuration persistence.
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
+  public.admin_staff_accounts
+TO sakhi_staging_app;
+
+GRANT SELECT, INSERT, UPDATE ON TABLE
+  public.business_directory_listings,
+  public.platform_config_settings
+TO sakhi_staging_app;
+
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO sakhi_staging_app;
 GRANT USAGE ON TYPE
   public.account_status,
