@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node dist/main.js",
     "start:dev": "npm run build && node dist/main.js",
-    "build": "prisma generate && tsc -p tsconfig.build.json",
+    "build": "node scripts/build.mjs",
     "typecheck": "prisma generate && tsc --noEmit -p tsconfig.json",
     "test": "prisma generate && vitest run",
     "test:watch": "vitest",

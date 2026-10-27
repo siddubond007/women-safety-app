@@ -7,7 +7,7 @@ services:
     plan: free
     region: singapore
     rootDir: backend
-    buildCommand: npm ci --include=dev && npm run build
+    buildCommand: SAKHI_ENV=dev npm ci --include=dev && SAKHI_ENV=dev npm run build
     startCommand: npm start
     healthCheckPath: /api/v1/health/ready
     envVars:
