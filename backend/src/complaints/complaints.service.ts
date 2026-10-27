@@ -1002,7 +1002,26 @@ export class ComplaintsService {
     } catch (error) {
       const topLevel =
         error && typeof error === "object"
-          ? (error as { code?: unknown; cause?: unknown })
+          ? (error as {
+              code?: unknown;
+              cause?: unknown;
+              meta?: unknown;
+              originalCode?: unknown;
+              sqlState?: unknown;
+              databaseErrorCode?: unknown;
+            })
+          : undefined;
+      const meta =
+        topLevel?.meta && typeof topLevel.meta === "object"
+          ? (topLevel.meta as Record<string, unknown>)
+          : undefined;
+      const adapterMeta =
+        meta?.driverAdapterError && typeof meta.driverAdapterError === "object"
+          ? (meta.driverAdapterError as Record<string, unknown>)
+          : undefined;
+      const adapterCause =
+        adapterMeta?.cause && typeof adapterMeta.cause === "object"
+          ? (adapterMeta.cause as Record<string, unknown>)
           : undefined;
       const nested =
         topLevel?.cause && typeof topLevel.cause === "object"
@@ -1016,9 +1035,21 @@ export class ComplaintsService {
             : undefined;
       const errorMessage =
         error instanceof Error ? error.message : "";
-      const driverCode = errorMessage.match(
-        /Database error\. Code: ([A-Z0-9]+)\. Message:/,
-      )?.[1];
+      const driverCode =
+        [
+          topLevel?.originalCode,
+          topLevel?.sqlState,
+          topLevel?.databaseErrorCode,
+          adapterMeta?.code,
+          adapterMeta?.sqlState,
+          adapterMeta?.originalCode,
+          adapterCause?.code,
+          adapterCause?.sqlState,
+          adapterCause?.originalCode,
+          errorMessage.match(/Database error\. Code: ([A-Z0-9]+)\. Message:/)?.[1],
+          errorMessage.match(/SQLSTATE\s*[:=]?\s*([0-9A-Z]{5})/i)?.[1],
+          errorMessage.match(/Code\s*[:=]\s*([0-9A-Z]{5})\b/)?.[1],
+        ].find((candidate) => typeof candidate === "string");
 
       // Log only a safe error classification. Never log the request body,
       // database URL, complaint description, reporter identity, or passkey.
@@ -1028,6 +1059,8 @@ export class ComplaintsService {
           errorType: error instanceof Error ? error.name : typeof error,
           databaseErrorCode: diagnosticCode ?? null,
           driverCode: driverCode ?? null,
+          metadataKeys: meta ? Object.keys(meta).sort() : [],
+          adapterMetadataKeys: adapterMeta ? Object.keys(adapterMeta).sort() : [],
           persistenceStep,
           transactionSupported: typeof anyPrisma.$transaction === "function",
         }),
