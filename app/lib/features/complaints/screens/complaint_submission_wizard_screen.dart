@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -59,14 +60,14 @@ class _ComplaintSubmissionWizardScreenState
 
   final TextEditingController _customCategoryCtrl = TextEditingController();
   final TextEditingController _descriptionCtrl = TextEditingController();
+  final TextEditingController _generalAreaCtrl = TextEditingController();
   final TextEditingController _linkedProfileCtrl = TextEditingController();
   final TextEditingController _linkedPostCtrl = TextEditingController();
   final TextEditingController _linkedBusinessCtrl = TextEditingController();
 
   String _approximateDateLabel = 'Today / Within the last 24 hours';
-  String _approximateTimeWindow = 'Evening (5 PM – 9 PM)';
+  String _approximateTimeWindow = 'Evening (5 PM â€“ 9 PM)';
   String _locationType = 'COARSE_AREA';
-  String _generalAreaText = 'Online / Inside Sakhi App';
   bool _wantsFollowUp = true;
   String _discreetNotificationMode = 'SILENT_VAULT_ONLY';
 
@@ -113,6 +114,7 @@ class _ComplaintSubmissionWizardScreenState
   void dispose() {
     _customCategoryCtrl.dispose();
     _descriptionCtrl.dispose();
+    _generalAreaCtrl.dispose();
     _linkedProfileCtrl.dispose();
     _linkedPostCtrl.dispose();
     _linkedBusinessCtrl.dispose();
@@ -143,6 +145,10 @@ class _ComplaintSubmissionWizardScreenState
       if (cat.code == 'other' && _customCategoryCtrl.text.trim().length < 3) {
         return 'Please enter a custom category description (at least 3 characters) when selecting "Other".';
       }
+      if (_customCategoryCtrl.text.trim().isNotEmpty &&
+          RegExp(r'^[\d\s.,+-]+$').hasMatch(_customCategoryCtrl.text.trim())) {
+        return 'Category details must include words and cannot be numbers only.';
+      }
       return null;
     }
     if (step == 2) {
@@ -153,8 +159,15 @@ class _ComplaintSubmissionWizardScreenState
       if (cleanDesc.length < 20) {
         return 'Please provide at least 20 characters describing what happened (${cleanDesc.length}/20 typed).';
       }
+      if (RegExp(r'^[\d\s.,+-]+$').hasMatch(cleanDesc)) {
+        return 'Please describe what happened in wordsâ€”numbers-only input is not allowed.';
+      }
       if (cleanDesc.length > 4000) {
         return 'Incident description cannot exceed 4,000 characters.';
+      }
+      final cleanLoc = _generalAreaCtrl.text.trim();
+      if (cleanLoc.isNotEmpty && RegExp(r'^[\d\s.,+-]+$').hasMatch(cleanLoc)) {
+        return 'General incident location must include a neighbourhood or city name and cannot be numbers only.';
       }
       return null;
     }
@@ -278,7 +291,11 @@ class _ComplaintSubmissionWizardScreenState
         locationType: _locationType,
         generalAreaText: _locationType == 'PREFER_NOT_TO_SAY'
             ? null
-            : _generalAreaText,
+            : (_generalAreaCtrl.text.trim().isNotEmpty
+                  ? _generalAreaCtrl.text.trim()
+                  : (_locationType == 'ONLINE_IN_APP'
+                        ? 'Online / Inside Sakhi App'
+                        : 'Coarse Area Not Specified')),
         supportingLinks: List<String>.from(_supportingLinks),
         linkedPostId: _linkedPostCtrl.text.trim().isEmpty
             ? null
@@ -308,8 +325,7 @@ class _ComplaintSubmissionWizardScreenState
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _validationError =
-            'Could not submit complaint to backend server. Check your connection and try again.';
+        _validationError = 'Could not submit complaint to backend server. Check your connection and try again.';
       });
     } finally {
       if (mounted) {
@@ -361,8 +377,7 @@ class _ComplaintSubmissionWizardScreenState
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _validationError =
-            'Could not pick or scrub the selected image. Verify permissions and backend connectivity.';
+        _validationError = 'Could not pick or scrub the selected image. Verify permissions and backend connectivity.';
       });
     } finally {
       if (mounted) {
@@ -441,8 +456,7 @@ class _ComplaintSubmissionWizardScreenState
                   maxLines: 4,
                   decoration: const InputDecoration(
                     labelText: 'Transcript / Document Excerpt Bytes *',
-                    hintText:
-                        'Paste chat transcript or document content to hash & scrub on backend...',
+                    hintText: 'Paste chat transcript or document content to hash & scrub on backend...',
                   ),
                 ),
               ],
@@ -467,8 +481,7 @@ class _ComplaintSubmissionWizardScreenState
       final rawContent = contentCtrl.text.trim();
       if (rawName.isEmpty || rawContent.isEmpty) {
         setState(() {
-          _validationError =
-              'Both a file name and non-empty content are required to upload evidence.';
+          _validationError = 'Both a file name and non-empty content are required to upload evidence.';
         });
       } else {
         setState(() {
@@ -496,7 +509,7 @@ class _ComplaintSubmissionWizardScreenState
     contentCtrl.dispose();
   }
 
-  /// Modal 11 — Real-Time Identity-Reveal Warning & One-Tap Auto-Redaction Modal
+  /// Modal 11 â€” Real-Time Identity-Reveal Warning & One-Tap Auto-Redaction Modal
   Future<String?> _showPiiWarningModal(PiiCheckResultModel piiCheck) {
     return showDialog<String>(
       context: context,
@@ -539,7 +552,7 @@ class _ComplaintSubmissionWizardScreenState
                     border: Border.all(color: const Color(0xFFF2C57C)),
                   ),
                   child: Text(
-                    '• ${item.type}: "${item.snippet}" → ${item.replacement}',
+                    'â€¢ ${item.type}: "${item.snippet}" â†’ ${item.replacement}',
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
@@ -574,7 +587,7 @@ class _ComplaintSubmissionWizardScreenState
     );
   }
 
-  /// Dialog 19 — Final Pre-Submission Confirmation Dialog
+  /// Dialog 19 â€” Final Pre-Submission Confirmation Dialog
   Future<bool?> _showFinalSubmissionConfirmDialog() {
     final cat = _controller.categoryByCode(_selectedCategoryCode);
     return showDialog<bool>(
@@ -603,10 +616,10 @@ class _ComplaintSubmissionWizardScreenState
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '• Mode: ${_reportingMode.title}\n'
-              '• Category: ${cat.label}\n'
-              '• Evidence Files: ${_evidenceFiles.length} (EXIF & GPS stripped)\n'
-              '• Reported Party Visibility: Hidden (Never disclosed)',
+              'â€¢ Mode: ${_reportingMode.title}\n'
+              'â€¢ Category: ${cat.label}\n'
+              'â€¢ Evidence Files: ${_evidenceFiles.length} (EXIF & GPS stripped)\n'
+              'â€¢ Reported Party Visibility: Hidden (Never disclosed)',
               style: AppTypography.bodyRegular.copyWith(height: 1.45),
             ),
             const SizedBox(height: 10),
@@ -654,11 +667,11 @@ class _ComplaintSubmissionWizardScreenState
     }
 
     const stepTitles = <String>[
-      'Step 1 of 5 • Reporting Mode',
-      'Step 2 of 5 • Complaint Category',
-      'Step 3 of 5 • Incident Details & Privacy Guard',
-      'Step 4 of 5 • Evidence Vault & EXIF Scrubber',
-      'Step 5 of 5 • Updates & Final Review',
+      'Step 1 of 5 â€¢ Reporting Mode',
+      'Step 2 of 5 â€¢ Complaint Category',
+      'Step 3 of 5 â€¢ Incident Details & Privacy Guard',
+      'Step 4 of 5 â€¢ Evidence Vault & EXIF Scrubber',
+      'Step 5 of 5 â€¢ Updates & Final Review',
     ];
 
     return Scaffold(
@@ -882,7 +895,7 @@ class _ComplaintSubmissionWizardScreenState
     );
   }
 
-  /// Screens 04 & 05 — Step 1: Reporting Mode Selection (Anonymous vs Confidential)
+  /// Screens 04 & 05 â€” Step 1: Reporting Mode Selection (Anonymous vs Confidential)
   Widget _buildStep1ReportingMode() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -904,7 +917,7 @@ class _ComplaintSubmissionWizardScreenState
           highlights: const <String>[
             'No account ID, phone number, or profile name stored on the complaint record',
             'Server issues a Reference Token (#SKH-ANON-...) and Passkey for two-way updates',
-            'Note: Minimal blinded rate-limit bucket logs exist for anti-spam protection (SRS 7.4)',
+            'Protected with an anonymous security check to prevent spam without linking your profile',
           ],
         ),
         const SizedBox(height: 12),
@@ -945,9 +958,7 @@ class _ComplaintSubmissionWizardScreenState
             );
           },
           icon: const Icon(Icons.info_outline_rounded, size: 18),
-          label: const Text(
-            'Compare Modes & Technical Log Disclosure (SRS 7.4)',
-          ),
+          label: const Text('Compare Anonymous vs. Confidential Privacy'),
         ),
       ],
     );
@@ -1074,7 +1085,7 @@ class _ComplaintSubmissionWizardScreenState
     );
   }
 
-  /// Screens 07, 08 & Modal 09 — Step 2: Configurable 10-Category Selection Grid
+  /// Screens 07, 08 & Modal 09 â€” Step 2: Configurable 10-Category Selection Grid
   Widget _buildStep2CategoryGrid() {
     final categories = _controller.enabledCategories;
     final selectedCat = _controller.categoryByCode(_selectedCategoryCode);
@@ -1088,7 +1099,7 @@ class _ComplaintSubmissionWizardScreenState
         ),
         const SizedBox(height: 4),
         const Text(
-          'Select one of the 10 SRS 7.2 categories below. Tap the ⓘ icon on any card for safety & helpline guidance.',
+          'Select the category that best fits your concern. Tap the â“˜ icon on any card for safety & helpline guidance.',
           style: AppTypography.subtitle,
         ),
         const SizedBox(height: 14),
@@ -1246,8 +1257,7 @@ class _ComplaintSubmissionWizardScreenState
                   labelText: selectedCat.code == 'other'
                       ? 'Specify custom category details (Required) *'
                       : 'Optional sub-category / POSH or business context',
-                  hintText:
-                      'e.g., Unsolicited messages in community circle',
+                  hintText: 'e.g., Unsolicited messages in community circle',
                 ),
               ),
               const SizedBox(height: 12),
@@ -1262,25 +1272,29 @@ class _ComplaintSubmissionWizardScreenState
               const SizedBox(height: 6),
               Wrap(
                 spacing: 8,
-                children: <Map<String, String>>[
-                  {'code': 'PAST_INCIDENT', 'label': 'Past Incident'},
-                  {'code': 'REPEATED_PATTERN', 'label': 'Repeated Pattern'},
-                  {'code': 'HAPPENING_NOW', 'label': 'Happening Now (Urgent)'},
-                ].map((u) {
-                  final active = _urgencyLevel == u['code'];
-                  return ChoiceChip(
-                    label: Text(u['label']!),
-                    selected: active,
-                    selectedColor: AppColors.primaryPurple,
-                    labelStyle: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: active ? Colors.white : AppColors.textPrimary,
-                    ),
-                    onSelected: (_) =>
-                        setState(() => _urgencyLevel = u['code']!),
-                  );
-                }).toList(),
+                children:
+                    <Map<String, String>>[
+                      {'code': 'PAST_INCIDENT', 'label': 'Past Incident'},
+                      {'code': 'REPEATED_PATTERN', 'label': 'Repeated Pattern'},
+                      {
+                        'code': 'HAPPENING_NOW',
+                        'label': 'Happening Now (Urgent)',
+                      },
+                    ].map((u) {
+                      final active = _urgencyLevel == u['code'];
+                      return ChoiceChip(
+                        label: Text(u['label']!),
+                        selected: active,
+                        selectedColor: AppColors.primaryPurple,
+                        labelStyle: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: active ? Colors.white : AppColors.textPrimary,
+                        ),
+                        onSelected: (_) =>
+                            setState(() => _urgencyLevel = u['code']!),
+                      );
+                    }).toList(),
               ),
             ],
           ),
@@ -1289,7 +1303,7 @@ class _ComplaintSubmissionWizardScreenState
     );
   }
 
-  /// Modal 09 — Category Safety & POSH Guidance Popup Modal
+  /// Modal 09 â€” Category Safety & POSH Guidance Popup Modal
   void _showCategorySafetyGuidanceModal(ComplaintCategoryInfo cat) {
     showDialog<void>(
       context: context,
@@ -1302,7 +1316,7 @@ class _ComplaintSubmissionWizardScreenState
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                '${cat.label} • Safety Guidance',
+                '${cat.label} â€¢ Safety Guidance',
                 style: AppTypography.editorialSection.copyWith(fontSize: 18),
               ),
             ),
@@ -1353,12 +1367,27 @@ class _ComplaintSubmissionWizardScreenState
     );
   }
 
-  /// Screens 10, Modal 11, Sheet 12, Modal 13 — Step 3: Incident Description, Date Window & Coarse Location
+  /// Step 3: Incident Description, Separate Approximate Date & Time of Day, and General Location
   Widget _buildStep3IncidentDetails() {
     final piiPreview = _controller.analyzeTextForSelfIdentifyingClues(
       _descriptionCtrl.text,
     );
     final charCount = _descriptionCtrl.text.trim().length;
+
+    const datePresets = <String>[
+      'Today / Within the last 24 hours',
+      'Yesterday',
+      'Earlier This Week',
+      'Last Week',
+      'Earlier This Month',
+    ];
+    const timePresets = <String>[
+      'Morning (6 AM â€“ 12 PM)',
+      'Afternoon (12 PM â€“ 5 PM)',
+      'Evening (5 PM â€“ 9 PM)',
+      'Night (9 PM â€“ 6 AM)',
+      'Prefer Not to Specify Time',
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1369,7 +1398,7 @@ class _ComplaintSubmissionWizardScreenState
         ),
         const SizedBox(height: 4),
         const Text(
-          'Enter at least 20 characters describing what happened. Our live PII Guard watches for accidental self-identifying phone numbers, emails, or door numbers.',
+          'Write at least 20 characters in your own words. Our live Privacy Guard warns you if you accidentally type your own phone number, email, or door number.',
           style: AppTypography.subtitle,
         ),
         const SizedBox(height: 14),
@@ -1384,8 +1413,17 @@ class _ComplaintSubmissionWizardScreenState
           decoration: InputDecoration(
             labelText: 'Incident Description (Required, min 20 chars) *',
             helperText: '$charCount / 20 minimum characters',
-            hintText:
-                'Describe the messages, behaviour, or safety concern without typing your own phone number or flat number...',
+            hintText: 'Describe the messages, behaviour, or safety concern in words without typing your own phone number or flat number...',
+            suffixIcon: _descriptionCtrl.text.isNotEmpty
+                ? IconButton(
+                    tooltip: 'Clear description',
+                    icon: const Icon(Icons.clear_rounded, size: 18),
+                    onPressed: () {
+                      _descriptionCtrl.clear();
+                      setState(() {});
+                    },
+                  )
+                : null,
           ),
         ),
         const SizedBox(height: 10),
@@ -1417,8 +1455,8 @@ class _ComplaintSubmissionWizardScreenState
               Expanded(
                 child: Text(
                   piiPreview.hasPotentialPii
-                      ? '${piiPreview.detectedItems.length} self-identifying clue(s) detected in text. Tap "Auto-Redact" to strip your personal info.'
-                      : 'Zero self-identifying phone/email/ID patterns detected in your description.',
+                      ? '${piiPreview.detectedItems.length} personal detail(s) detected in your text. Tap "Auto-Redact" to hide them.'
+                      : 'No personal phone numbers, emails, or flat numbers detected in your description.',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
@@ -1441,213 +1479,294 @@ class _ComplaintSubmissionWizardScreenState
             ],
           ),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 16),
 
-        // Sheet 12 — Approximate Date & Time Window Picker Row
-        _PickerSelectionCard(
+        // 1. Separate Approximate Incident Date Section
+        Container(
           key: const Key('m5-open-date-window-sheet'),
-          icon: Icons.calendar_today_rounded,
-          title: 'Incident Date & Approximate Time Window',
-          valueText: '$_approximateDateLabel • $_approximateTimeWindow',
-          subtitle: 'Approximate window prevents exact timestamp correlation',
-          onTap: _openDateWindowSheet,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppColors.borderSubtle),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(
+                        Icons.calendar_today_rounded,
+                        size: 18,
+                        color: AppColors.primaryPurple,
+                      ),
+                      SizedBox(width: 8),
+                      Text(
+                        '1. Approximate Incident Date',
+                        style: AppTypography.cardTitle,
+                      ),
+                    ],
+                  ),
+                  TextButton.icon(
+                    onPressed: _pickCalendarIncidentDate,
+                    icon: const Icon(Icons.edit_calendar_rounded, size: 16),
+                    label: const Text('Calendar'),
+                  ),
+                ],
+              ),
+              Text(
+                'Selected: $_approximateDateLabel',
+                style: AppTypography.subtitle.copyWith(
+                  color: AppColors.primaryPurple,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: datePresets.map((preset) {
+                  final active = _approximateDateLabel == preset;
+                  return ChoiceChip(
+                    label: Text(preset),
+                    selected: active,
+                    selectedColor: AppColors.primaryPurple,
+                    labelStyle: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: active ? Colors.white : AppColors.textPrimary,
+                    ),
+                    onSelected: (_) =>
+                        setState(() => _approximateDateLabel = preset),
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 12),
 
-        // Modal 13 — Coarse 5 km General Area Picker Row (Never Live Home GPS)
-        _PickerSelectionCard(
+        // 2. Separate Approximate Time of Day Section
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppColors.borderSubtle),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                children: [
+                  Icon(
+                    Icons.schedule_rounded,
+                    size: 18,
+                    color: AppColors.primaryPurple,
+                  ),
+                  SizedBox(width: 8),
+                  Text(
+                    '2. Approximate Time of Day',
+                    style: AppTypography.cardTitle,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Choosing a broad time window prevents exact chat-timestamp matching.',
+                style: AppTypography.subtitle,
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: timePresets.map((slot) {
+                  final active = _approximateTimeWindow == slot;
+                  return ChoiceChip(
+                    label: Text(slot),
+                    selected: active,
+                    selectedColor: AppColors.primaryPurple,
+                    labelStyle: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: active ? Colors.white : AppColors.textPrimary,
+                    ),
+                    onSelected: (_) =>
+                        setState(() => _approximateTimeWindow = slot),
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // 3. General Incident Location (Empty Input Box + Clear X Button + Non-Editable Hint Banner)
+        Container(
           key: const Key('m5-open-coarse-location-modal'),
-          icon: Icons.location_city_rounded,
-          title: 'General Location / Neighbourhood (Optional)',
-          valueText: '$_locationType • $_generalAreaText',
-          subtitle: 'Coarse ~5 km area only • Never captures exact home GPS',
-          onTap: _openCoarseLocationModal,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppColors.borderSubtle),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                children: [
+                  Icon(
+                    Icons.location_city_rounded,
+                    size: 18,
+                    color: AppColors.primaryPurple,
+                  ),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '3. General Incident Location (Optional)',
+                      style: AppTypography.cardTitle,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF5EBF9),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(
+                      Icons.info_outline_rounded,
+                      size: 16,
+                      color: AppColors.primaryPurple,
+                    ),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Sakhi never captures your home GPS here. Share only a general neighbourhood or city (~5 km area), or select "Online / Inside Sakhi App".',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          height: 1.35,
+                          color: AppColors.primaryPurple,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children:
+                    <Map<String, String>>[
+                      {
+                        'code': 'COARSE_AREA',
+                        'label': 'Neighbourhood / City (~5 km)',
+                      },
+                      {
+                        'code': 'ONLINE_IN_APP',
+                        'label': 'Online / Inside Sakhi App',
+                      },
+                      {
+                        'code': 'PREFER_NOT_TO_SAY',
+                        'label': 'Prefer Not to Share',
+                      },
+                    ].map((loc) {
+                      final active = _locationType == loc['code'];
+                      return ChoiceChip(
+                        label: Text(loc['label']!),
+                        selected: active,
+                        selectedColor: AppColors.primaryPurple,
+                        labelStyle: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          color: active ? Colors.white : AppColors.textPrimary,
+                        ),
+                        onSelected: (_) {
+                          setState(() {
+                            _locationType = loc['code']!;
+                            if (_locationType == 'PREFER_NOT_TO_SAY') {
+                              _generalAreaCtrl.clear();
+                            }
+                          });
+                        },
+                      );
+                    }).toList(),
+              ),
+              if (_locationType != 'PREFER_NOT_TO_SAY') ...[
+                const SizedBox(height: 10),
+                TextField(
+                  key: const Key('m5-general-location-input'),
+                  controller: _generalAreaCtrl,
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
+                    labelText: _locationType == 'ONLINE_IN_APP'
+                        ? 'Which circle, group, or online space? (Optional)'
+                        : 'General neighbourhood or city name (Optional)',
+                    hintText: _locationType == 'ONLINE_IN_APP'
+                        ? 'e.g., Bengaluru Tech Circle or Direct Messages'
+                        : 'e.g., Indiranagar, Bengaluru (approx. 5 km area)',
+                    suffixIcon: _generalAreaCtrl.text.isNotEmpty
+                        ? IconButton(
+                            key: const Key('m5-clear-location-button'),
+                            tooltip: 'Clear location text',
+                            icon: const Icon(Icons.close_rounded, size: 18),
+                            onPressed: () {
+                              _generalAreaCtrl.clear();
+                              setState(() {});
+                            },
+                          )
+                        : null,
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
       ],
     );
   }
 
-  /// Sheet 12 — Approximate Date & Time Window Picker Bottom Sheet
-  Future<void> _openDateWindowSheet() async {
-    const datePresets = <String>[
-      'Today / Within the last 24 hours',
-      'Yesterday',
-      'Earlier This Week',
-      'Last Week',
-      'Earlier This Month',
-    ];
-    const windowPresets = <String>[
-      'Morning (6 AM – 12 PM)',
-      'Afternoon (12 PM – 5 PM)',
-      'Evening (5 PM – 9 PM)',
-      'Night (9 PM – 6 AM)',
-      'Prefer Not to Specify Window',
-    ];
-    var tempDate = _approximateDateLabel;
-    var tempWindow = _approximateTimeWindow;
-
-    final saved = await showModalBottomSheet<bool>(
+  Future<void> _pickCalendarIncidentDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: const Color(0xFFFFF9FC),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setModalState) => SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Select Approximate Incident Date & Window',
-                  style: AppTypography.editorialSection.copyWith(fontSize: 18),
-                ),
-                const SizedBox(height: 6),
-                DropdownButtonFormField<String>(
-                  initialValue: datePresets.contains(tempDate)
-                      ? tempDate
-                      : datePresets.first,
-                  decoration: const InputDecoration(
-                    labelText: 'Approximate Date (Past or Today only)',
-                  ),
-                  items: datePresets
-                      .map(
-                        (d) => DropdownMenuItem(value: d, child: Text(d)),
-                      )
-                      .toList(),
-                  onChanged: (v) {
-                    if (v != null) setModalState(() => tempDate = v);
-                  },
-                ),
-                const SizedBox(height: 10),
-                DropdownButtonFormField<String>(
-                  initialValue: windowPresets.contains(tempWindow)
-                      ? tempWindow
-                      : windowPresets[2],
-                  decoration: const InputDecoration(
-                    labelText: 'Approximate Time Window',
-                  ),
-                  items: windowPresets
-                      .map(
-                        (w) => DropdownMenuItem(value: w, child: Text(w)),
-                      )
-                      .toList(),
-                  onChanged: (v) {
-                    if (v != null) setModalState(() => tempWindow = v);
-                  },
-                ),
-                const SizedBox(height: 14),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: () => Navigator.of(ctx).pop(true),
-                    child: const Text('Save Date & Time Window'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+      initialDate: now,
+      firstDate: DateTime(2020),
+      lastDate: now,
+      helpText: 'Select Approximate Incident Date (Past or Today)',
     );
-    if (saved == true && mounted) {
+    if (picked != null && mounted) {
+      final months = <String>[
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
+      ];
       setState(() {
-        _approximateDateLabel = tempDate;
-        _approximateTimeWindow = tempWindow;
+        _approximateDateLabel =
+            '${picked.day.toString().padLeft(2, '0')} ${months[picked.month - 1]} ${picked.year}';
       });
     }
   }
 
-  /// Modal 13 — Coarse 5 km General Location Picker Modal
-  Future<void> _openCoarseLocationModal() async {
-    final customAreaCtrl = TextEditingController(text: _generalAreaText);
-    var tempLocType = _locationType;
-
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setModalState) => AlertDialog(
-          backgroundColor: const Color(0xFFFFF9FC),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-          ),
-          title: Text(
-            'Coarse 5 km Area (Zero Home GPS)',
-            style: AppTypography.editorialSection.copyWith(fontSize: 18),
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Module 5 never records your precise home coordinates. Choose how much location context to share:',
-                  style: AppTypography.subtitle,
-                ),
-                const SizedBox(height: 10),
-                DropdownButtonFormField<String>(
-                  initialValue: tempLocType,
-                  decoration: const InputDecoration(labelText: 'Location Scope'),
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'ONLINE_IN_APP',
-                      child: Text('Online / Inside Sakhi App Only'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'COARSE_AREA',
-                      child: Text('Coarse 5 km Neighbourhood / City'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'PREFER_NOT_TO_SAY',
-                      child: Text('Prefer Not to Share Location'),
-                    ),
-                  ],
-                  onChanged: (v) {
-                    if (v != null) setModalState(() => tempLocType = v);
-                  },
-                ),
-                const SizedBox(height: 10),
-                if (tempLocType != 'PREFER_NOT_TO_SAY')
-                  TextField(
-                    controller: customAreaCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'General neighbourhood or city label',
-                      hintText: 'e.g., Indiranagar, Bengaluru (~5 km zone)',
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('Save Location Preference'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (saved == true && mounted) {
-      setState(() {
-        _locationType = tempLocType;
-        _generalAreaText = tempLocType == 'PREFER_NOT_TO_SAY'
-            ? 'Prefer Not to Say'
-            : (customAreaCtrl.text.trim().isEmpty
-                  ? 'Online / Inside Sakhi App'
-                  : customAreaCtrl.text.trim());
-      });
-    }
-    customAreaCtrl.dispose();
-  }
-
-  /// Screens 14, Modal 15, Sheet 16, Modal 17 — Step 4: Evidence Vault & EXIF Scrubber
+  /// Screens 14, Modal 15, Sheet 16, Modal 17 â€” Step 4: Evidence Vault & EXIF Scrubber
   Widget _buildStep4EvidenceVault() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1763,7 +1882,7 @@ class _ComplaintSubmissionWizardScreenState
               border: Border.all(color: AppColors.borderSubtle),
             ),
             child: const Text(
-              'No evidence files attached yet. Attachments are optional—pick a photo/screenshot or attach a transcript above if you have supporting proof.',
+              'No evidence files attached yet. Attachments are optionalâ€”pick a photo/screenshot or attach a transcript above if you have supporting proof.',
               style: AppTypography.subtitle,
             ),
           )
@@ -1803,7 +1922,7 @@ class _ComplaintSubmissionWizardScreenState
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          '${ev.formattedSize} • ${ev.removedTags.length} metadata tags stripped',
+                          '${ev.formattedSize} â€¢ ${ev.removedTags.length} metadata tags stripped',
                           style: AppTypography.subtitle.copyWith(
                             fontSize: 11.5,
                           ),
@@ -1829,7 +1948,7 @@ class _ComplaintSubmissionWizardScreenState
           ),
         const SizedBox(height: 14),
 
-        // Modal 17 — Supporting Links & In-App Post/Profile/Business Linker
+        // Modal 17 â€” Supporting Links & In-App Post/Profile/Business Linker
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
@@ -1900,7 +2019,7 @@ class _ComplaintSubmissionWizardScreenState
     );
   }
 
-  /// Modal 15 — Evidence Safety Guidance Modal
+  /// Modal 15 â€” Evidence Safety Guidance Modal
   void _showEvidenceSafetyGuidanceModal() {
     showDialog<void>(
       context: context,
@@ -1934,7 +2053,7 @@ class _ComplaintSubmissionWizardScreenState
     );
   }
 
-  /// Sheet 16 — Automatic EXIF Metadata Scrubber & Visual Blur Inspection Sheet
+  /// Sheet 16 â€” Automatic EXIF Metadata Scrubber & Visual Blur Inspection Sheet
   void _openExifScrubberInspectionSheet(SanitizedEvidenceFileModel ev) {
     showModalBottomSheet<void>(
       context: context,
@@ -1961,7 +2080,7 @@ class _ComplaintSubmissionWizardScreenState
               ),
               const SizedBox(height: 4),
               Text(
-                'SHA-256 Integrity Hash: ${ev.sha256Hash.length > 28 ? '${ev.sha256Hash.substring(0, 28)}…' : ev.sha256Hash}',
+                'SHA-256 Integrity Hash: ${ev.sha256Hash.length > 28 ? '${ev.sha256Hash.substring(0, 28)}â€¦' : ev.sha256Hash}',
                 style: AppTypography.technicalHash,
               ),
               const SizedBox(height: 12),
@@ -2000,7 +2119,7 @@ class _ComplaintSubmissionWizardScreenState
                 width: double.infinity,
                 child: FilledButton(
                   onPressed: () => Navigator.of(ctx).pop(),
-                  child: const Text('Verified • Close Inspector'),
+                  child: const Text('Verified â€¢ Close Inspector'),
                 ),
               ),
             ],
@@ -2010,7 +2129,7 @@ class _ComplaintSubmissionWizardScreenState
     );
   }
 
-  /// Modal 17 — Supporting Links & In-App Reference Modal (Validates URL before adding!)
+  /// Modal 17 â€” Supporting Links & In-App Reference Modal (Validates URL before adding!)
   Future<void> _openSupportingLinksModal() async {
     final linkCtrl = TextEditingController();
     String? modalError;
@@ -2031,8 +2150,7 @@ class _ComplaintSubmissionWizardScreenState
               TextField(
                 controller: linkCtrl,
                 decoration: InputDecoration(
-                  labelText:
-                      'https://, http://, or sakhi:// Reference Link *',
+                  labelText: 'https://, http://, or sakhi:// Reference Link *',
                   hintText: 'https://... or sakhi://post/123',
                   errorText: modalError,
                 ),
@@ -2047,10 +2165,9 @@ class _ComplaintSubmissionWizardScreenState
             FilledButton(
               onPressed: () {
                 final candidate = linkCtrl.text.trim();
-                final err =
-                    SakhiComplaintController.validateSupportingLinkUrl(
-                      candidate,
-                    );
+                final err = SakhiComplaintController.validateSupportingLinkUrl(
+                  candidate,
+                );
                 if (err != null) {
                   setModalState(() => modalError = err);
                   return;
@@ -2069,7 +2186,7 @@ class _ComplaintSubmissionWizardScreenState
     }
   }
 
-  /// Screen 18 — Step 5: Updates Preference & Pre-Submission Summary Review
+  /// Screen 18 â€” Step 5: Updates Preference & Pre-Submission Summary Review
   Widget _buildStep5PreSubmissionReview() {
     final cat = _controller.categoryByCode(_selectedCategoryCode);
     return Column(
@@ -2176,12 +2293,21 @@ class _ComplaintSubmissionWizardScreenState
               _buildSummaryLine('Category', '${cat.label} ($_urgencyLevel)'),
               _buildSummaryLine(
                 'Incident Window',
-                '$_approximateDateLabel • $_approximateTimeWindow',
+                '$_approximateDateLabel â€¢ $_approximateTimeWindow',
               ),
-              _buildSummaryLine('Location Scope', '$_locationType ($_generalAreaText)'),
+              _buildSummaryLine(
+                'Location Scope',
+                _locationType == 'PREFER_NOT_TO_SAY'
+                    ? 'Prefer Not to Share'
+                    : (_generalAreaCtrl.text.trim().isNotEmpty
+                          ? _generalAreaCtrl.text.trim()
+                          : (_locationType == 'ONLINE_IN_APP'
+                                ? 'Online / Inside Sakhi App'
+                                : 'General Area Not Specified')),
+              ),
               _buildSummaryLine(
                 'Scrubbed Evidence',
-                '${_evidenceFiles.length} file(s) • EXIF GPS Removed',
+                '${_evidenceFiles.length} file(s) â€¢ EXIF GPS Removed',
               ),
               _buildSummaryLine(
                 'Supporting Links',
@@ -2189,7 +2315,7 @@ class _ComplaintSubmissionWizardScreenState
               ),
               _buildSummaryLine(
                 'Reported User Visibility',
-                'Hidden (SRS 7.4 Enforced)',
+                'Hidden (Never Disclosed)',
               ),
             ],
           ),
@@ -2230,7 +2356,7 @@ class _ComplaintSubmissionWizardScreenState
     );
   }
 
-  /// Screen 20 & Modal 21 — Server-Confirmed Complaint Receipt Screen
+  /// Screen 20 & Modal 21 â€” Server-Confirmed Complaint Receipt Screen
   Widget _buildSubmittedReceiptScreen(DiscreetComplaintModel receipt) {
     return Scaffold(
       backgroundColor: const Color(0xFFFFF8FB),
@@ -2313,7 +2439,7 @@ class _ComplaintSubmissionWizardScreenState
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
-                        '${receipt.reportingMode.badgeLabel} • STATUS: ${receipt.status.label.toUpperCase()}',
+                        '${receipt.reportingMode.badgeLabel} â€¢ STATUS: ${receipt.status.label.toUpperCase()}',
                         style: const TextStyle(
                           fontSize: 10.5,
                           fontWeight: FontWeight.w800,
@@ -2340,7 +2466,7 @@ class _ComplaintSubmissionWizardScreenState
                     ),
                     const SizedBox(height: 6),
                     const Text(
-                      'Save both your Reference Number and Passkey—they are required to check status updates or reply.',
+                      'Save both your Reference Number and Passkeyâ€”they are required to check status updates or reply.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 11.5,
@@ -2428,7 +2554,7 @@ class _ComplaintSubmissionWizardScreenState
     );
   }
 
-  /// Modal 21 — Save Discreet Reference Backup Modal (Camouflaged as a Daily Wellness Quote Card)
+  /// Modal 21 â€” Save Discreet Reference Backup Modal (Camouflaged as a Daily Wellness Quote Card)
   void _showDisguisedWellnessBackupModal(DiscreetComplaintModel receipt) {
     showDialog<void>(
       context: context,
@@ -2465,7 +2591,7 @@ class _ComplaintSubmissionWizardScreenState
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '“Peace begins the moment you choose to honour your own boundaries.”',
+                    'â€œPeace begins the moment you choose to honour your own boundaries.â€',
                     textAlign: TextAlign.center,
                     style: AppTypography.editorialQuote,
                   ),
@@ -2502,83 +2628,6 @@ class _ComplaintSubmissionWizardScreenState
             label: const Text('Copy Disguised Serial'),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _PickerSelectionCard extends StatelessWidget {
-  const _PickerSelectionCard({
-    super.key,
-    required this.icon,
-    required this.title,
-    required this.valueText,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String title;
-  final String valueText;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.borderSubtle),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: const BoxDecoration(
-                  color: AppColors.pastelLavender,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(icon, color: AppColors.primaryPurple, size: 20),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title, style: AppTypography.subtitle),
-                    const SizedBox(height: 2),
-                    Text(
-                      valueText,
-                      style: AppTypography.bodyMedium.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: AppColors.textMuted,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(
-                Icons.chevron_right_rounded,
-                color: AppColors.primaryPurple,
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

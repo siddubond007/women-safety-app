@@ -207,16 +207,189 @@ class _HomeScreenState extends State<HomeScreen> {
                         onTap: _openEligibilityVerification,
                       ),
                       const SizedBox(height: 10),
-                      ForYouItemCard(
+                      Container(
                         key: const Key('home-discreet-complaint-card'),
-                        icon: Icons.shield_moon_rounded,
-                        iconColor: AppColors.primaryPurple,
-                        iconBgColor: AppColors.pastelPink,
-                        title: 'Discreet & Anonymous Complaint Hub',
-                        subtitle: 'File an anonymous/confidential report or track by #SKH reference token',
-                        badgeText: 'Safe Voice',
-                        flowerType: SakhiFlowerType.cherryBlossom,
-                        onTap: () => _openRoute(AppRoutes.discreetComplaintHub),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Color(0xFFFFF0F6),
+                              Color(0xFFF5E6FA),
+                              Color(0xFFEDE0F6),
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(22),
+                          border: Border.all(
+                            color: const Color(0xFFDCC0E8),
+                            width: 1.4,
+                          ),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x145A1868),
+                              blurRadius: 16,
+                              offset: Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(22),
+                          onTap: () =>
+                              _openRoute(AppRoutes.discreetComplaintHub),
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(18),
+                                      child: SizedBox(
+                                        width: 88,
+                                        height: 88,
+                                        child: Image.asset(
+                                          AppAssets.m5HeroSafeVoice,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, _, _) => Container(
+                                            color: AppColors.pastelLavender,
+                                            child: const Icon(
+                                              Icons.shield_moon_rounded,
+                                              size: 38,
+                                              color: AppColors.primaryPurple,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 14),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 9,
+                                              vertical: 3.5,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: Colors.white.withValues(
+                                                alpha: 0.9,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
+                                            ),
+                                            child: const Text(
+                                              '100% PRIVATE • SAFE VOICE',
+                                              style: TextStyle(
+                                                fontSize: 9.5,
+                                                fontWeight: FontWeight.w800,
+                                                letterSpacing: 0.5,
+                                                color: AppColors.primaryPurple,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            'Report a Safety Concern',
+                                            style: AppTypography.cardTitle
+                                                .copyWith(
+                                                  fontSize: 16,
+                                                  height: 1.2,
+                                                ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            'Privately report harassment, stalking, cyberbullying, or workplace issues—anonymously or confidentially.',
+                                            style: AppTypography.subtitle
+                                                .copyWith(
+                                                  fontSize: 12,
+                                                  height: 1.35,
+                                                ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: FilledButton.icon(
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor:
+                                              AppColors.primaryPurple,
+                                          foregroundColor: Colors.white,
+                                          padding: const EdgeInsets.symmetric(
+                                            vertical: 10,
+                                          ),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              999,
+                                            ),
+                                          ),
+                                        ),
+                                        onPressed: () => _openRoute(
+                                          AppRoutes.discreetComplaintHub,
+                                        ),
+                                        icon: const Icon(
+                                          Icons.shield_outlined,
+                                          size: 16,
+                                        ),
+                                        label: const Text(
+                                          'Report Safely',
+                                          style: TextStyle(
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor:
+                                              AppColors.primaryPurple,
+                                          backgroundColor: Colors.white
+                                              .withValues(alpha: 0.85),
+                                          side: const BorderSide(
+                                            color: AppColors.primaryPurple,
+                                          ),
+                                          padding: const EdgeInsets.symmetric(
+                                            vertical: 10,
+                                          ),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              999,
+                                            ),
+                                          ),
+                                        ),
+                                        onPressed: () => _openRoute(
+                                          AppRoutes.complaintTracker,
+                                        ),
+                                        icon: const Icon(
+                                          Icons.manage_search_rounded,
+                                          size: 16,
+                                        ),
+                                        label: const Text(
+                                          'Track My Report',
+                                          style: TextStyle(
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                       ),
                       const SizedBox(height: 22),
                       SakhiSectionHeader(

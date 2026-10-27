@@ -17,6 +17,12 @@ import {
   REGISTRATION_POLICY_MIN_ALLOWED_AGE,
 } from "../auth/auth.service.js";
 import { StagingTestAdminService } from "../staging-test-admin/staging-test-admin.service.js";
+import {
+  ADMIN_ROLE_DEFINITIONS,
+  SakhiAdminRbacRegistry,
+  type AuthenticatedAdminPrincipal,
+  type GranularRolePermissions,
+} from "./admin-rbac.helper.js";
 import type { ManualEligibilityDecisionDto } from "./admin-review.dto.js";
 import type { DevelopmentMemberStateDto } from "./admin-member-state.dto.js";
 
@@ -105,17 +111,26 @@ export class AdminReviewService {
     return label && label.length <= 80 ? label : "Local Eligibility Reviewer";
   }
 
-  private assertReviewer(provided?: string): string {
+  public resolveAdminPrincipal(provided?: string): AuthenticatedAdminPrincipal {
+    if (provided?.trim()) {
+      const staffMatch = SakhiAdminRbacRegistry.findStaffByToken(provided.trim());
+      if (staffMatch) {
+        return SakhiAdminRbacRegistry.principalFromStaff(staffMatch);
+      }
+    }
     if (
       process.env.NODE_ENV === "production" &&
       process.env.SAKHI_ENV === "staging"
     ) {
       if (
         provided?.startsWith("full-admin.") ||
+        provided?.startsWith("staff-admin.") ||
         provided?.startsWith("test-access.") ||
         (!this.stagingAdminReviewEnabled() && this.stagingFullAdminEnabled())
       ) {
-        return StagingTestAdminService.assertFullAdminSessionToken(provided);
+        return StagingTestAdminService.resolvePrincipalFromSessionToken(
+          provided,
+        );
       }
     }
     const expected = this.configuredToken();
@@ -138,7 +153,16 @@ export class AdminReviewService {
         "The reviewer token is invalid or expired.",
       );
     }
-    return this.reviewerLabel();
+    return SakhiAdminRbacRegistry.getSuperAdminPrincipal(this.reviewerLabel());
+  }
+
+  private assertReviewer(provided?: string): string {
+    const principal = this.resolveAdminPrincipal(provided);
+    if (principal.role === "SUPER_ADMIN" && principal.staffId === "SUPER-ADMIN-MASTER") {
+      // Preserve exact label expected by existing unit tests
+      return principal.fullName;
+    }
+    return principal.reviewerLabel;
   }
 
   session(token?: string) {
@@ -2460,5 +2484,209 @@ export class AdminReviewService {
         updatedAt: updated.updatedAt.toISOString(),
       };
     });
+  }
+
+  // ===========================================================================
+  // Module 10 & 11: Real Role-Based Admin Staff Governance, Business Directory
+  // & Global Platform Config (SRS Sections 12.1–12.10)
+  // ===========================================================================
+
+  async rbacProfile(token?: string) {
+    await SakhiAdminRbacRegistry.ensureHydrated(this.prisma);
+    const principal = this.resolveAdminPrincipal(token);
+    const isStaging =
+      this.stagingAdminReviewEnabled() ||
+      (process.env.NODE_ENV === "production" &&
+        process.env.SAKHI_ENV === "staging");
+    return {
+      authenticated: true as const,
+      mode: isStaging
+        ? ("staging_test_only" as const)
+        : ("local_dev_test_only" as const),
+      ...principal,
+      roleDefinitions: ADMIN_ROLE_DEFINITIONS,
+    };
+  }
+
+  async listAdminStaff(token?: string) {
+    await SakhiAdminRbacRegistry.ensureHydrated(this.prisma);
+    const principal = this.resolveAdminPrincipal(token);
+    SakhiAdminRbacRegistry.assertRouteAccess(
+      principal,
+      ["SUPER_ADMIN"],
+      "Admin Users & RBAC Governance",
+    );
+    const staff = SakhiAdminRbacRegistry.listStaff();
+    return {
+      principal,
+      roleDefinitions: ADMIN_ROLE_DEFINITIONS,
+      staff,
+      authorisedComplaintReviewers:
+        SakhiAdminRbacRegistry.listAuthorisedComplaintReviewers(),
+    };
+  }
+
+  async createAdminStaff(
+    body: {
+      fullName: string;
+      email: string;
+      role: string;
+      customAccessToken?: string;
+      isAuthorisedComplaintReviewer?: boolean;
+      clearanceLevel?: string;
+      permissions?: Partial<GranularRolePermissions>;
+    },
+    token?: string,
+  ) {
+    await SakhiAdminRbacRegistry.ensureHydrated(this.prisma);
+    const principal = this.resolveAdminPrincipal(token);
+    SakhiAdminRbacRegistry.assertRouteAccess(
+      principal,
+      ["SUPER_ADMIN"],
+      "Creating Admin Staff Accounts",
+    );
+    const created = await SakhiAdminRbacRegistry.createStaffAccount(
+      this.prisma,
+      body,
+      principal.reviewerLabel,
+    );
+    return {
+      created: true,
+      staff: created.staff,
+      issuedAccessToken: created.issuedAccessToken,
+      authorisedComplaintReviewers:
+        SakhiAdminRbacRegistry.listAuthorisedComplaintReviewers(),
+    };
+  }
+
+  async updateAdminStaff(
+    staffId: string,
+    body: {
+      fullName?: string;
+      role?: string;
+      status?: string;
+      isAuthorisedComplaintReviewer?: boolean;
+      clearanceLevel?: string;
+      permissions?: Partial<GranularRolePermissions>;
+      regenerateToken?: boolean;
+      customAccessToken?: string;
+    },
+    token?: string,
+  ) {
+    await SakhiAdminRbacRegistry.ensureHydrated(this.prisma);
+    const principal = this.resolveAdminPrincipal(token);
+    SakhiAdminRbacRegistry.assertRouteAccess(
+      principal,
+      ["SUPER_ADMIN"],
+      "Updating Admin Staff Accounts",
+    );
+    const updated = await SakhiAdminRbacRegistry.updateStaffAccount(
+      this.prisma,
+      staffId,
+      body,
+      principal.reviewerLabel,
+    );
+    return {
+      updated: true,
+      staff: updated.staff,
+      issuedAccessToken: updated.issuedAccessToken,
+      authorisedComplaintReviewers:
+        SakhiAdminRbacRegistry.listAuthorisedComplaintReviewers(),
+    };
+  }
+
+  async deleteAdminStaff(staffId: string, token?: string) {
+    await SakhiAdminRbacRegistry.ensureHydrated(this.prisma);
+    const principal = this.resolveAdminPrincipal(token);
+    SakhiAdminRbacRegistry.assertRouteAccess(
+      principal,
+      ["SUPER_ADMIN"],
+      "Deleting Admin Staff Accounts",
+    );
+    return SakhiAdminRbacRegistry.deleteStaffAccount(
+      this.prisma,
+      staffId,
+      principal.reviewerLabel,
+    );
+  }
+
+  async getPlatformConfig(token?: string) {
+    await SakhiAdminRbacRegistry.ensureHydrated(this.prisma);
+    this.resolveAdminPrincipal(token);
+    const config = await SakhiAdminRbacRegistry.getPlatformConfig(this.prisma);
+    return {
+      config,
+      roleDefinitions: ADMIN_ROLE_DEFINITIONS,
+    };
+  }
+
+  async updatePlatformConfig(
+    body: Record<string, unknown>,
+    token?: string,
+  ) {
+    await SakhiAdminRbacRegistry.ensureHydrated(this.prisma);
+    const principal = this.resolveAdminPrincipal(token);
+    SakhiAdminRbacRegistry.assertRouteAccess(
+      principal,
+      ["SUPER_ADMIN"],
+      "Global Platform Configuration & Feature Flags",
+    );
+    const config = await SakhiAdminRbacRegistry.updatePlatformConfig(
+      this.prisma,
+      body,
+      principal.reviewerLabel,
+    );
+    return {
+      updated: true,
+      config,
+    };
+  }
+
+  async listBusinesses(token?: string) {
+    await SakhiAdminRbacRegistry.ensureHydrated(this.prisma);
+    const principal = this.resolveAdminPrincipal(token);
+    SakhiAdminRbacRegistry.assertRouteAccess(
+      principal,
+      ["SUPER_ADMIN", "BUSINESS_ADMIN"],
+      "Business & Marketplace Management",
+    );
+    return SakhiAdminRbacRegistry.listBusinesses(this.prisma);
+  }
+
+  async upsertBusiness(body: Record<string, unknown>, token?: string) {
+    await SakhiAdminRbacRegistry.ensureHydrated(this.prisma);
+    const principal = this.resolveAdminPrincipal(token);
+    SakhiAdminRbacRegistry.assertRouteAccess(
+      principal,
+      ["SUPER_ADMIN", "BUSINESS_ADMIN"],
+      "Business Directory Management",
+    );
+    const business = await SakhiAdminRbacRegistry.upsertBusinessListing(
+      this.prisma,
+      body,
+      principal.reviewerLabel,
+    );
+    return { saved: true, business };
+  }
+
+  async reviewBusiness(
+    businessId: string,
+    body: Record<string, unknown>,
+    token?: string,
+  ) {
+    await SakhiAdminRbacRegistry.ensureHydrated(this.prisma);
+    const principal = this.resolveAdminPrincipal(token);
+    SakhiAdminRbacRegistry.assertRouteAccess(
+      principal,
+      ["SUPER_ADMIN", "BUSINESS_ADMIN"],
+      "Business Verification & Moderation",
+    );
+    const business = await SakhiAdminRbacRegistry.reviewBusinessListing(
+      this.prisma,
+      businessId,
+      body as any,
+      principal.reviewerLabel,
+    );
+    return { updated: true, business };
   }
 }

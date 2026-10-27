@@ -78,7 +78,7 @@ describe("StagingTestAdminService", () => {
     });
   });
 
-  it("issues a separate full-admin session while rejecting test-only sessions for privileged routes", () => {
+  it("issues a separate full-admin session while rejecting test-only sessions for privileged routes", async () => {
     const { service } = makeService();
     const fullToken = "full-staging-admin-secret-token-is-over-32-chars";
     expect(service.session(fullToken)).toMatchObject({
@@ -87,7 +87,7 @@ describe("StagingTestAdminService", () => {
       mode: "staging_full_admin",
     });
     const fullSession = service.createSessionToken(fullToken);
-    expect(service.sessionFromToken(fullSession.value)).toMatchObject({
+    expect(await service.sessionFromToken(fullSession.value)).toMatchObject({
       authenticated: true,
       reviewerLabel: "Staging Super Admin",
       mode: "staging_full_admin",
@@ -97,17 +97,17 @@ describe("StagingTestAdminService", () => {
     expect(() => StagingTestAdminService.assertFullAdminSessionToken(testSession.value)).toThrow(/full staging-admin access/i);
   });
 
-  it("issues an expiring signed session token instead of using the reviewer secret as a session credential", () => {
+  it("issues an expiring signed session token instead of using the reviewer secret as a session credential", async () => {
     const { service } = makeService();
     const token = "test-only-secret-token-that-is-over-32-chars";
     const session = service.createSessionToken(token);
 
-    expect(service.sessionFromToken(session.value)).toMatchObject({
+    expect(await service.sessionFromToken(session.value)).toMatchObject({
       authenticated: true,
       reviewerLabel: "Friend Testing Reviewer",
       mode: "staging_test_access_only",
     });
-    expect(() => service.sessionFromToken(token)).toThrow(/session is invalid/i);
+    await expect(service.sessionFromToken(token)).rejects.toThrow(/session is invalid/i);
     expect(() => service.assertAdminOrigin("https://untrusted.example")).toThrow(/configured Super Admin origin/i);
     expect(() => service.assertAdminOrigin(undefined)).toThrow(/configured Super Admin origin/i);
     expect(() => service.assertAdminOrigin("https://sakhi-staging-admin.onrender.com")).not.toThrow();

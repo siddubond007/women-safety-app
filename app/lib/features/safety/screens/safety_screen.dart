@@ -6,7 +6,6 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../../core/widgets/sakhi_botanical_flower.dart';
 import '../../../core/widgets/sakhi_quote_loader.dart';
-import '../../complaints/screens/complaint_admin_console_screen.dart';
 import '../../complaints/screens/complaint_tracking_screens.dart';
 import '../../complaints/screens/discreet_complaint_hub_screen.dart';
 import '../models/safety_models.dart';
@@ -519,7 +518,7 @@ class _SafetyScreenState extends State<SafetyScreen>
                                           ),
                                           SizedBox(height: 2),
                                           Text(
-                                            'Module 5 • Report harassment, stalking, POSH or fake accounts with 100% anonymity & EXIF scrubbing',
+                                            'Report harassment, stalking, cyberbullying, or workplace concerns privately and safely.',
                                             style: TextStyle(
                                               fontSize: 12,
                                               color: SakhiModule4Colors.textSecondary,
@@ -553,15 +552,7 @@ class _SafetyScreenState extends State<SafetyScreen>
                                         const ComplaintTrackingLookupScreen(),
                                       ),
                                       icon: const Icon(Icons.manage_search_rounded, size: 16),
-                                      label: const Text('Track by #SKH Token'),
-                                    ),
-                                    TextButton.icon(
-                                      key: const Key('safety-open-complaint-admin-button'),
-                                      onPressed: () => _openScreen(
-                                        const ComplaintAdminConsoleScreen(),
-                                      ),
-                                      icon: const Icon(Icons.admin_panel_settings_outlined, size: 16),
-                                      label: const Text('Admin Console'),
+                                      label: const Text('Track My Report'),
                                     ),
                                   ],
                                 ),

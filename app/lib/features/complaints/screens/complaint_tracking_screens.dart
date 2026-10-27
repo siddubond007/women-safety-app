@@ -10,7 +10,7 @@ import '../services/complaint_controller.dart';
 import 'discreet_complaint_hub_screen.dart';
 
 /// Screens 23 through 32 — Discreet Complaint Tracking Lookup (Passkey-Protected),
-/// Read-Only 7-Stage Status Timeline (SRS 7.5), Two-Way Encrypted Reply Modal (Modal 27),
+/// Read-Only 7-Stage Status Timeline (Safety Policy), Two-Way Encrypted Reply Modal (Modal 27),
 /// Appeal Modal (Modal 32), and DPDP Immediate Evidence Media Purge (SRS 13.14).
 class ComplaintTrackingLookupScreen extends StatefulWidget {
   const ComplaintTrackingLookupScreen({
@@ -274,7 +274,7 @@ class _ComplaintTrackingLookupScreenState
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Your appeal is routed to an independent Senior Escalation Reviewer (#EL-01):',
+                  'Your appeal is routed to an independent Senior Escalation Officer for a fresh review:',
                   style: AppTypography.subtitle,
                 ),
                 const SizedBox(height: 10),
@@ -356,7 +356,7 @@ class _ComplaintTrackingLookupScreenState
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Appeal confirmed by server! Case escalated to Senior Escalation Lead (#EL-01).',
+            'Appeal submitted! Your report has been escalated for independent review.',
           ),
         ),
       );
@@ -421,7 +421,7 @@ class _ComplaintTrackingLookupScreenState
                               ),
                             ),
                             const Text(
-                              'SRS 7.5 • Passkey-Protected Reference Lookup',
+                              'Private Reference & Passkey Lookup',
                               style: AppTypography.subtitle,
                             ),
                           ],
@@ -565,9 +565,9 @@ class _ComplaintTrackingLookupScreenState
                     ),
 
                   if (item != null) ...[
-                    // Read-Only 7-Stage SRS 7.5 Status Timeline
+                    // Read-Only 7-Stage Safety Policy Status Timeline
                     const Text(
-                      'Official SRS Section 7.5 Status Timeline (Server-Verified):',
+                      'Live Report Status Timeline:',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w800,

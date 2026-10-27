@@ -521,16 +521,42 @@ class SakhiComplaintController extends ChangeNotifier {
 
     try {
       final locallyStripped = stripClientBinaryMetadata(fileBytes);
-      final response = await _apiClient.post(
-        'complaints/scrub-metadata',
-        body: <String, Object?>{
-          'originalFileName': originalFileName.trim(),
-          'contentType': cleanMime,
-          'byteSize': locallyStripped.length,
-          'visualBlurApplied': visualBlurApplied,
-          'base64Data': base64Encode(locallyStripped),
-        },
-      );
+      Map<String, dynamic> response;
+      try {
+        response = await _apiClient.postMultipart(
+          'complaints/evidence-upload',
+          fileBytes: locallyStripped,
+          fileName: originalFileName.trim(),
+          contentType: cleanMime,
+          fields: <String, String>{
+            'visualBlurApplied': visualBlurApplied ? 'true' : 'false',
+          },
+          authenticated: false,
+        );
+      } catch (_) {
+        response = await _apiClient.post(
+          'complaints/scrub-metadata',
+          body: <String, Object?>{
+            'originalFileName': originalFileName.trim(),
+            'contentType': cleanMime,
+            'byteSize': locallyStripped.length,
+            'visualBlurApplied': visualBlurApplied,
+            'base64Data': base64Encode(locallyStripped),
+          },
+        );
+      }
+      if (response['sanitizedFile'] is! Map<String, dynamic>) {
+        response = await _apiClient.post(
+          'complaints/scrub-metadata',
+          body: <String, Object?>{
+            'originalFileName': originalFileName.trim(),
+            'contentType': cleanMime,
+            'byteSize': locallyStripped.length,
+            'visualBlurApplied': visualBlurApplied,
+            'base64Data': base64Encode(locallyStripped),
+          },
+        );
+      }
       final sanitizedJson = response['sanitizedFile'];
       if (sanitizedJson is! Map<String, dynamic>) {
         throw const BackendApiException(
@@ -600,6 +626,33 @@ class SakhiComplaintController extends ChangeNotifier {
         code: 'description_too_short',
         message:
             'Please provide an incident description of at least 20 non-whitespace characters.',
+      );
+    }
+    if (RegExp(r'^[\d\s.,+-]+$').hasMatch(cleanDesc)) {
+      throw const BackendApiException(
+        statusCode: 400,
+        code: 'description_numbers_only',
+        message:
+            'Please describe what happened in words—numbers-only input is not allowed.',
+      );
+    }
+    if (customCategoryNote != null &&
+        customCategoryNote.trim().isNotEmpty &&
+        RegExp(r'^[\d\s.,+-]+$').hasMatch(customCategoryNote.trim())) {
+      throw const BackendApiException(
+        statusCode: 400,
+        code: 'custom_category_numbers_only',
+        message: 'Category details must include words and cannot be numbers only.',
+      );
+    }
+    if (generalAreaText != null &&
+        generalAreaText.trim().isNotEmpty &&
+        RegExp(r'^[\d\s.,+-]+$').hasMatch(generalAreaText.trim())) {
+      throw const BackendApiException(
+        statusCode: 400,
+        code: 'location_numbers_only',
+        message:
+            'General location must include a neighbourhood or city name and cannot be numbers only.',
       );
     }
     if (!acknowledgedNonPoliceLegalNotice) {

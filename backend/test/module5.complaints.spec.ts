@@ -375,12 +375,17 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
     const modQueue = await service.adminDashboardAndQueue("ADMIN2026TEST", {
       viewerRole: "STANDARD_MODERATOR",
     });
-    expect(modQueue.complaints[0].generalLocationLabel).toBe(
+    const firstModeratedComplaint = modQueue.complaints[0];
+    expect(firstModeratedComplaint).toBeDefined();
+    if (!firstModeratedComplaint) {
+      throw new Error("Expected the first complaint in the moderator queue.");
+    }
+    expect(firstModeratedComplaint.generalLocationLabel).toBe(
       "[Location Masked for Ordinary Moderator Role]",
     );
-    expect(modQueue.complaints[0].internalNotes).toEqual([]);
-    expect(modQueue.complaints[0]).not.toHaveProperty("passkeyDigest");
-    expect(modQueue.complaints[0]).not.toHaveProperty("disguisedBackupSerial");
+    expect(firstModeratedComplaint.internalNotes).toEqual([]);
+    expect(firstModeratedComplaint).not.toHaveProperty("passkeyDigest");
+    expect(firstModeratedComplaint).not.toHaveProperty("disguisedBackupSerial");
 
     // A caller cannot elevate its role through the viewerRole query parameter.
     const elevationAttemptQueue = await service.adminDashboardAndQueue(
@@ -465,5 +470,139 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
     );
     expect(purged.purged).toBe(true);
     expect(purged.complaint.mediaPurgedAt).toBeTruthy();
+  });
+});
+
+describe("Module 5 & Module 10 RBAC — Real Admin Staff, Two-Way Messages & Open P1 Metrics", () => {
+  it("populates authorisedReviewers from real database AdminStaffAccount rows (zero fake Meera/Kavita/Anjali) and enforces 5-role boundaries", async () => {
+    const { service, prisma } = createTestService();
+    const { SakhiAdminRbacRegistry } = await import(
+      "../src/admin-review/admin-rbac.helper.js"
+    );
+    SakhiAdminRbacRegistry.resetForTesting();
+
+    // Initially only the Master Super Admin seat exists (zero fake reviewers)
+    const initialDash = await service.adminDashboardAndQueue("ADMIN2026TEST");
+    expect(initialDash.authorisedReviewers).toHaveLength(1);
+    expect(initialDash.authorisedReviewers[0]?.name).toContain("Super Admin");
+    expect(
+      JSON.stringify(initialDash.authorisedReviewers),
+    ).not.toContain("Meera Krishnan");
+
+    // Create a Role 3 Authorised Complaint Reviewer and a Role 2 Content Moderator
+    const reviewerStaff = await SakhiAdminRbacRegistry.createStaffAccount(
+      prisma as unknown as PrismaService,
+      {
+        fullName: "Priya Nair",
+        email: "priya.nair@sakhi.org.in",
+        role: "COMPLAINT_REVIEWER",
+      },
+      "Sakhi Super Admin",
+    );
+    const moderatorStaff = await SakhiAdminRbacRegistry.createStaffAccount(
+      prisma as unknown as PrismaService,
+      {
+        fullName: "Sneha Reddy",
+        email: "sneha.reddy@sakhi.org.in",
+        role: "CONTENT_MODERATOR",
+      },
+      "Sakhi Super Admin",
+    );
+
+    // Role 2 Content Moderator is strictly blocked from accessing Discreet Complaints (SRS 7.4)
+    await expect(
+      service.adminDashboardAndQueue(moderatorStaff.issuedAccessToken),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    // Role 3 Authorised Complaint Reviewer can access the queue and appears in authorisedReviewers
+    const staffDash = await service.adminDashboardAndQueue(
+      reviewerStaff.issuedAccessToken,
+    );
+    expect(
+      staffDash.authorisedReviewers.some((r) => r.name.includes("Priya Nair")),
+    ).toBe(true);
+
+    // Role 3 Authorised Complaint Reviewer cannot alter global DPDP retention policy (Super Admin only)
+    await expect(
+      service.adminUpdateRetentionPolicy(reviewerStaff.issuedAccessToken, {
+        closedEvidenceRetentionDays: 60,
+        rejectedReportRetentionDays: 20,
+        technicalRateLimitLogDays: 7,
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("delivers user follow-up replies & appeals to admin, supports direct reviewer replies, and counts only open P1 complaints in urgentP1Count", async () => {
+    const { service } = createTestService();
+
+    // Reject numbers-only description and numbers-only location
+    await expect(
+      service.submitComplaint(undefined, {
+        reportingMode: "ANONYMOUS",
+        categorySlug: "harassment",
+        description: "123456789012345678901234567890",
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    await expect(
+      service.submitComplaint(undefined, {
+        reportingMode: "ANONYMOUS",
+        categorySlug: "harassment",
+        description:
+          "Repeated harassing messages sent inside the community group.",
+        generalLocationLabel: "999999",
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    // Submit a valid urgent P1 complaint
+    const created = await service.submitComplaint(undefined, {
+      reportingMode: "ANONYMOUS",
+      categorySlug: "harassment",
+      urgency: "HAPPENING_NOW",
+      description:
+        "Repeated harassing messages sent inside the community group.",
+    });
+
+    // User sends a follow-up message
+    await service.addComplainantReply(created.referenceNumber, {
+      passkey: created.passkey,
+      message: "Please reopen or review the new screenshot I attached.",
+    });
+
+    // Admin sends a direct reply to the complainant
+    await service.adminSendMessageToComplainant(
+      "ADMIN2026TEST",
+      created.referenceNumber,
+      {
+        message: "We have received your message and are reviewing the account.",
+      },
+    );
+
+    const openDash = await service.adminDashboardAndQueue("ADMIN2026TEST");
+    expect(openDash.metrics.openComplaintsCount).toBe(1);
+    expect(openDash.metrics.urgentP1Count).toBe(1);
+    expect(openDash.complaints[0]?.complainantMessages).toHaveLength(2);
+    expect(openDash.complaints[0]?.complainantMessages[0]?.message).toContain(
+      "Please reopen",
+    );
+    expect(openDash.complaints[0]?.complainantMessages[1]?.message).toContain(
+      "We have received your message",
+    );
+
+    // Transition UNDER_REVIEW -> CLOSED and verify urgentP1Count drops to 0!
+    await service.adminUpdateStatusAndEscalate(
+      "ADMIN2026TEST",
+      created.referenceNumber,
+      { status: "UNDER_REVIEW" },
+    );
+    await service.adminUpdateStatusAndEscalate(
+      "ADMIN2026TEST",
+      created.referenceNumber,
+      { status: "CLOSED", publicMessageToComplainant: "Resolved." },
+    );
+
+    const closedDash = await service.adminDashboardAndQueue("ADMIN2026TEST");
+    expect(closedDash.metrics.openComplaintsCount).toBe(0);
+    expect(closedDash.metrics.urgentP1Count).toBe(0);
   });
 });

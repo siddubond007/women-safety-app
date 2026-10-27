@@ -27,13 +27,7 @@ export class StagingTestAdminController {
     @Headers("origin") origin: string | undefined,
   ) {
     this.stagingAdmin.assertAdminOrigin(origin);
-    const session = this.stagingAdmin.session(dto.token);
-    const sessionToken = this.stagingAdmin.createSessionToken(dto.token);
-    return {
-      ...session,
-      sessionToken: sessionToken.value,
-      sessionExpiresAt: sessionToken.expiresAt.toISOString(),
-    };
+    return this.stagingAdmin.loginWithToken(dto.token);
   }
 
   @Get("session")

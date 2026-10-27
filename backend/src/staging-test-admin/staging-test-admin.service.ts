@@ -8,6 +8,11 @@ import {
 } from "@nestjs/common";
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { PrismaService } from "../database/prisma.service.js";
+import {
+  ADMIN_ROLE_DEFINITIONS,
+  SakhiAdminRbacRegistry,
+  type AuthenticatedAdminPrincipal,
+} from "../admin-review/admin-rbac.helper.js";
 import type { StagingTestAccessDecisionDto } from "./staging-test-admin.dto.js";
 
 const APPROVED_ACTION = "staging.test_access.approved";
@@ -35,7 +40,7 @@ function requireTestAdminSecret(): string {
   return secret;
 }
 
-function getFullAdminSecret(): string | null {
+export function getFullAdminSecret(): string | null {
   if (
     process.env.SAKHI_ENV !== "staging" ||
     process.env.NODE_ENV !== "production" ||
@@ -57,8 +62,31 @@ function reviewerLabelForScope(scope: StagingAdminScope): string {
 function verifyStagingSession(
   sessionToken?: string,
   requiredScope?: StagingAdminScope,
-): { scope: StagingAdminScope; reviewerLabel: string } {
+): {
+  scope: StagingAdminScope;
+  reviewerLabel: string;
+  principal?: AuthenticatedAdminPrincipal;
+} {
   assertStagingEnvironment();
+  const fullSecret = getFullAdminSecret() ?? "sakhi-rbac-default-secret";
+  if (sessionToken?.startsWith("staff-admin.")) {
+    const staff = SakhiAdminRbacRegistry.verifySignedStaffSessionToken(
+      sessionToken,
+      fullSecret,
+    );
+    if (!staff) {
+      throw new UnauthorizedException(
+        "The staging staff admin session is invalid or expired. Sign in again.",
+      );
+    }
+    const principal = SakhiAdminRbacRegistry.principalFromStaff(staff);
+    return {
+      scope: "full-admin",
+      reviewerLabel: principal.reviewerLabel,
+      principal,
+    };
+  }
+
   const parts = sessionToken?.split(".") ?? [];
   const scope = parts[0];
   if (
@@ -83,8 +111,8 @@ function verifyStagingSession(
   }
 
   const testSecret = process.env.SAKHI_STAGING_TEST_ADMIN_TOKEN?.trim() ?? "";
-  const fullSecret = getFullAdminSecret() ?? "";
-  const secret = scope === "test-access" ? testSecret : fullSecret;
+  const rawFullSecret = getFullAdminSecret() ?? "";
+  const secret = scope === "test-access" ? testSecret : rawFullSecret;
   if (
     secret.length < 32 ||
     (scope === "test-access" && process.env.SAKHI_STAGING_TEST_ADMIN_ENABLED !== "true") ||
@@ -101,7 +129,15 @@ function verifyStagingSession(
   if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
     throw new UnauthorizedException("The staging admin session is invalid. Sign in again.");
   }
-  return { scope, reviewerLabel: reviewerLabelForScope(scope) };
+  const label = reviewerLabelForScope(scope);
+  return {
+    scope,
+    reviewerLabel: label,
+    principal:
+      scope === "full-admin"
+        ? SakhiAdminRbacRegistry.getSuperAdminPrincipal(label)
+        : undefined,
+  };
 }
 
 @Injectable()
@@ -149,6 +185,75 @@ export class StagingTestAdminService {
     }
   }
 
+  async loginWithToken(token?: string) {
+    await SakhiAdminRbacRegistry.ensureHydrated(this.prisma);
+    const clean = token?.trim() ?? "";
+    if (!clean) {
+      throw new UnauthorizedException("A staging admin or staff token is required.");
+    }
+    const fullSecret = getFullAdminSecret() ?? "sakhi-rbac-default-secret";
+    const staffMatch = SakhiAdminRbacRegistry.findStaffByToken(clean, fullSecret);
+    if (staffMatch) {
+      staffMatch.lastLoginAt = new Date().toISOString();
+      const principal = SakhiAdminRbacRegistry.principalFromStaff(staffMatch);
+      const signed = SakhiAdminRbacRegistry.createSignedStaffSessionToken(
+        staffMatch,
+        fullSecret,
+      );
+      return {
+        authenticated: true as const,
+        reviewerLabel: principal.reviewerLabel,
+        staffId: principal.staffId,
+        staffCode: principal.staffCode,
+        fullName: principal.fullName,
+        email: principal.email,
+        role: principal.role,
+        roleTitle: principal.roleTitle,
+        badgeLabel: principal.badgeLabel,
+        clearanceLevel: principal.clearanceLevel,
+        isAuthorisedComplaintReviewer: principal.isAuthorisedComplaintReviewer,
+        permissions: principal.permissions,
+        allowedRoutes: principal.allowedRoutes,
+        mode: "staging_full_admin" as const,
+        message: `Signed in as ${principal.roleTitle} (${principal.staffCode}). Role-based workspace permissions are active.`,
+        sessionToken: signed.value,
+        sessionExpiresAt: signed.expiresAt.toISOString(),
+      };
+    }
+
+    const session = this.session(clean);
+    const sessionToken = this.createSessionToken(clean);
+    const superPrincipal = SakhiAdminRbacRegistry.getSuperAdminPrincipal(
+      session.reviewerLabel,
+    );
+    return {
+      ...session,
+      ...(session.mode === "staging_full_admin"
+        ? {
+            staffId: superPrincipal.staffId,
+            staffCode: superPrincipal.staffCode,
+            fullName: superPrincipal.fullName,
+            email: superPrincipal.email,
+            role: superPrincipal.role,
+            roleTitle: superPrincipal.roleTitle,
+            badgeLabel: superPrincipal.badgeLabel,
+            clearanceLevel: superPrincipal.clearanceLevel,
+            isAuthorisedComplaintReviewer: true,
+            permissions: superPrincipal.permissions,
+            allowedRoutes: superPrincipal.allowedRoutes,
+          }
+        : {
+            role: "VERIFICATION_ADMIN" as const,
+            roleTitle: "Staging Test Access Reviewer",
+            badgeLabel: "Test Access Only",
+            allowedRoutes: ["/test-access"],
+            permissions: ADMIN_ROLE_DEFINITIONS.VERIFICATION_ADMIN.defaultPermissions,
+          }),
+      sessionToken: sessionToken.value,
+      sessionExpiresAt: sessionToken.expiresAt.toISOString(),
+    };
+  }
+
   session(token?: string) {
     const credential = this.assertMasterCredential(token);
     const fullAdmin = credential.scope === "full-admin";
@@ -188,15 +293,52 @@ export class StagingTestAdminService {
     return verifyStagingSession(sessionToken, "full-admin").reviewerLabel;
   }
 
-  sessionFromToken(sessionToken?: string) {
+  static resolvePrincipalFromSessionToken(
+    sessionToken?: string,
+  ): AuthenticatedAdminPrincipal {
+    const verified = verifyStagingSession(sessionToken, "full-admin");
+    return (
+      verified.principal ??
+      SakhiAdminRbacRegistry.getSuperAdminPrincipal(verified.reviewerLabel)
+    );
+  }
+
+  async sessionFromToken(sessionToken?: string) {
+    await SakhiAdminRbacRegistry.ensureHydrated(this.prisma);
     const credential = this.assertSessionToken(sessionToken);
     const fullAdmin = credential.scope === "full-admin";
+    const principal =
+      credential.principal ??
+      SakhiAdminRbacRegistry.getSuperAdminPrincipal(credential.reviewerLabel);
     return {
       authenticated: true as const,
       reviewerLabel: credential.reviewerLabel,
+      ...(fullAdmin
+        ? {
+            staffId: principal.staffId,
+            staffCode: principal.staffCode,
+            fullName: principal.fullName,
+            email: principal.email,
+            role: principal.role,
+            roleTitle: principal.roleTitle,
+            badgeLabel: principal.badgeLabel,
+            clearanceLevel: principal.clearanceLevel,
+            isAuthorisedComplaintReviewer:
+              principal.isAuthorisedComplaintReviewer,
+            permissions: principal.permissions,
+            allowedRoutes: principal.allowedRoutes,
+          }
+        : {
+            role: "VERIFICATION_ADMIN" as const,
+            roleTitle: "Staging Test Access Reviewer",
+            badgeLabel: "Test Access Only",
+            allowedRoutes: ["/test-access"],
+            permissions:
+              ADMIN_ROLE_DEFINITIONS.VERIFICATION_ADMIN.defaultPermissions,
+          }),
       mode: fullAdmin ? ("staging_full_admin" as const) : ("staging_test_access_only" as const),
       message: fullAdmin
-        ? "Full staging-admin session. Administrative actions affect the hosted staging environment only; test-access grants remain separate from real eligibility decisions."
+        ? `Active ${principal.roleTitle} session.`
         : "This reviewer can grant app-feature access for staging tests only. It cannot certify phone ownership or real eligibility.",
     };
   }

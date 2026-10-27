@@ -12,7 +12,6 @@ import '../../../core/widgets/sakhi_quote_loader.dart';
 import '../../safety/screens/safety_screen.dart';
 import '../models/complaint_models.dart';
 import '../services/complaint_controller.dart';
-import 'complaint_admin_console_screen.dart';
 import 'complaint_submission_wizard_screen.dart';
 import 'complaint_tracking_screens.dart';
 
@@ -104,14 +103,6 @@ class _DiscreetComplaintHubScreenState
     );
   }
 
-  void _openAdminConsole() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => const ComplaintAdminConsoleScreen(),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -149,7 +140,7 @@ class _DiscreetComplaintHubScreenState
                               ),
                             ),
                             Text(
-                              'Module 5 • Anonymous & Confidential Safety Desk',
+                              'Private & Anonymous Safety Support',
                               style: AppTypography.caption.copyWith(
                                 color: AppColors.primaryPurple,
                                 fontWeight: FontWeight.w700,
@@ -368,11 +359,11 @@ class _DiscreetComplaintHubScreenState
                                     ),
                                     _SanctuaryFeaturePill(
                                       icon: Icons.auto_fix_high_rounded,
-                                      label: 'Auto EXIF & GPS Scrubber',
+                                      label: 'Photo Location Removed',
                                     ),
                                     _SanctuaryFeaturePill(
                                       icon: Icons.lock_clock_rounded,
-                                      label: 'Server-Issued #SKH Reference',
+                                      label: 'Private Tracking Code',
                                     ),
                                   ],
                                 ),
@@ -421,7 +412,7 @@ class _DiscreetComplaintHubScreenState
                   ),
                   const SizedBox(height: 14),
 
-                  // SRS 7.2 Mandatory Legal / Non-FIR Notice Banner (Tappable -> Modal 03)
+                  // Safety Policy Mandatory Legal / Non-FIR Notice Banner (Tappable -> Modal 03)
                   InkWell(
                     key: const Key('m5-legal-disclaimer-banner'),
                     borderRadius: BorderRadius.circular(18),
@@ -505,10 +496,10 @@ class _DiscreetComplaintHubScreenState
                       Expanded(
                         child: _ModePreviewCard(
                           key: const Key('m5-hub-anonymous-mode-card'),
-                          badge: 'PROFILE DETACHED',
+                          badge: '100% ANONYMOUS',
                           title: 'Anonymous Mode',
                           subtitle:
-                              'No account ID, name, or phone stored on complaint. Track via server-issued #SKH-ANON token.',
+                              'Your name, phone number, and profile are never attached. Track updates with a private code.',
                           illustrationAsset: AppAssets.m5AnonymousShield,
                           accentColor: AppColors.primaryPurple,
                           buttonLabel: 'File Anonymous',
@@ -586,7 +577,7 @@ class _DiscreetComplaintHubScreenState
                                   ),
                                   SizedBox(height: 3),
                                   Text(
-                                    'Look up your server-issued #SKH Reference Number and Passkey to check status, reply, appeal, or purge media.',
+                                    'Enter your Reference Number and Passkey to check status updates, send a reply, request a reopen, or delete attachments.',
                                     style: AppTypography.subtitle,
                                   ),
                                 ],
@@ -671,9 +662,9 @@ class _DiscreetComplaintHubScreenState
                     icon: Icons.verified_user_outlined,
                     iconBg: const Color(0xFFE6F5EE),
                     iconColor: const Color(0xFF1F6E50),
-                    title: 'How Sakhi Protects Your Identity (SRS 7.4)',
+                    title: 'How Sakhi Protects Your Privacy',
                     subtitle:
-                        'View our clear explanation of what is hidden, what minimal anti-abuse bucket logs exist, and EXIF scrubbing.',
+                        'See exactly what is kept private in Anonymous vs. Confidential mode and how photo location data is removed.',
                     trailingLabel: 'Inspect',
                     onTap: () {
                       showModalBottomSheet<void>(
@@ -688,19 +679,7 @@ class _DiscreetComplaintHubScreenState
                   ),
                   const SizedBox(height: 12),
 
-                  // Role-Restricted Admin Complaint Console Entry Card (Screens 33–40)
-                  _ActionNavigationCard(
-                    key: const Key('m5-open-admin-console-card'),
-                    icon: Icons.admin_panel_settings_rounded,
-                    iconBg: const Color(0xFFF3E4F8),
-                    iconColor: AppColors.primaryPurple,
-                    title: 'Admin Complaint Console (Token-Authenticated)',
-                    subtitle:
-                        'Requires reviewer token: PII masking, blurred evidence vault, internal notes, audit log & category config.',
-                    trailingLabel: 'Open Console',
-                    onTap: _openAdminConsole,
-                  ),
-                  const SizedBox(height: 16),
+
 
                   SakhiQuoteLoader.banner(
                     statusLabel:
@@ -957,7 +936,7 @@ class _ActionNavigationCard extends StatelessWidget {
   }
 }
 
-/// Modal 03 — Legal & Emergency Channels Disclaimer Bottom Sheet (SRS 7.2)
+/// Modal 03 — Legal & Emergency Channels Disclaimer Bottom Sheet (Safety Policy)
 class LegalEmergencyDisclaimerSheet extends StatelessWidget {
   const LegalEmergencyDisclaimerSheet({super.key});
 
@@ -1054,7 +1033,7 @@ class LegalEmergencyDisclaimerSheet extends StatelessWidget {
                         ),
                       ),
                       const Text(
-                        'Mandatory SRS Section 7.2 Transparency Notice',
+                        'Important Emergency & Legal Guidance',
                         style: AppTypography.subtitle,
                       ),
                     ],
@@ -1187,7 +1166,7 @@ class LegalEmergencyDisclaimerSheet extends StatelessWidget {
   }
 }
 
-/// Sheet 06 — Anonymity & Technical Logs Transparency Bottom Sheet (SRS 7.4)
+/// Sheet 06 — Anonymity & Technical Logs Transparency Bottom Sheet (Safety Policy)
 class AnonymityTransparencyBottomSheet extends StatelessWidget {
   const AnonymityTransparencyBottomSheet({super.key});
 
@@ -1239,7 +1218,7 @@ class AnonymityTransparencyBottomSheet extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Per SRS Section 7.4, Sakhi never makes misleading privacy promises. Here is the exact technical boundary between Anonymous and Confidential modes:',
+              'Here is a clear comparison of how your privacy is protected in Anonymous Mode versus Confidential Mode:',
               style: AppTypography.subtitle,
             ),
             const SizedBox(height: 14),
@@ -1277,7 +1256,7 @@ class AnonymityTransparencyBottomSheet extends StatelessWidget {
                 border: Border.all(color: const Color(0xFFB7E1CB)),
               ),
               child: const Text(
-                'Honest Technical Disclosure (SRS 7.4): While Anonymous Mode detaches your Sakhi account ID from the complaint record, standard server-level transport logs and a blinded anti-abuse bucket hash are retained temporarily for rate-limiting and security compliance, and specific details you write in your description or screenshots could still allow someone to infer context.',
+                'Privacy Note: In Anonymous Mode, your Sakhi account is never linked to your report. To prevent spam, a temporary anonymous security hash is used, and our privacy guard warns you if you accidentally type your own phone number or address in the description.',
                 style: TextStyle(
                   fontSize: 12,
                   height: 1.4,

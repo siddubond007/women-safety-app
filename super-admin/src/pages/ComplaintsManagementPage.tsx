@@ -8,17 +8,21 @@ import {
   FileClock,
   GitMerge,
   Lock,
+  MessageSquare,
   MessageSquareWarning,
   Plus,
   RefreshCw,
   Search,
+  Send,
   Settings2,
   ShieldAlert,
   UserCheck,
 } from "lucide-react";
+import { Link } from "react-router-dom";
 import { StatusPill } from "../components/StatusPill";
 import { SakhiQuoteLoader } from "../components/SakhiQuoteLoader";
 import { adminApi } from "../services/api/adminApi";
+import { adminAuthService } from "../services/auth/adminAuthService";
 
 interface SanitizedEvidenceFile {
   id: string;
@@ -40,6 +44,7 @@ interface ComplainantMessageItem {
   senderRole: string;
   senderLabel: string;
   message: string;
+  attachedFiles?: SanitizedEvidenceFile[];
   createdAt: string;
 }
 
@@ -66,7 +71,7 @@ interface ComplaintAuditEntry {
 interface ComplaintItem {
   id: string;
   referenceNumber: string;
-  disguisedBackupSerial: string;
+  disguisedBackupSerial?: string;
   reportingMode: "ANONYMOUS" | "CONFIDENTIAL";
   confidentialAccountVaultStatus?: string;
   blindedRateLimitBucket: string;
@@ -149,7 +154,13 @@ interface ComplaintsDashboardPayload {
     updatedBy?: string;
     updatedAt?: string;
   };
-  authorisedReviewers: Array<{ id: string; name: string; clearance: string }>;
+  authorisedReviewers: Array<{
+    id: string;
+    staffCode?: string;
+    name: string;
+    role?: string;
+    clearance: string;
+  }>;
 }
 
 const ALL_STATUSES = [
@@ -196,20 +207,94 @@ const VALID_NEXT_STATUSES: Record<string, string[]> = {
   REJECTED_WITH_REASON: ["ESCALATED", "UNDER_REVIEW"],
 };
 
+const STATUS_LABELS: Record<string, string> = {
+  SUBMITTED: "Submitted",
+  UNDER_REVIEW: "Under Review",
+  ADDITIONAL_INFO_REQUIRED: "Additional Info Required",
+  ESCALATED: "Escalated",
+  ACTION_TAKEN: "Action Taken",
+  CLOSED: "Closed",
+  REJECTED_WITH_REASON: "Rejected with Reason",
+};
+
+const PRIORITY_LABELS: Record<string, string> = {
+  P1_URGENT: "P1 Urgent",
+  P2_HIGH: "P2 High",
+  P3_STANDARD: "P3 Standard",
+  P4_ROUTINE: "P4 Routine",
+};
+
+const SEVERITY_LABELS: Record<string, string> = {
+  S1_CRITICAL: "S1 Critical",
+  S2_HIGH: "S2 High",
+  S3_MODERATE: "S3 Moderate",
+  S4_LOW: "S4 Low",
+};
+
+function formatStatusLabel(status: string): string {
+  return (
+    STATUS_LABELS[status] ??
+    status
+      .replace(/_/g, " ")
+      .toLowerCase()
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+  );
+}
+
+function formatPriorityLabel(priority: string): string {
+  return (
+    PRIORITY_LABELS[priority] ??
+    priority
+      .replace(/_/g, " ")
+      .toLowerCase()
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+  );
+}
+
+function formatSeverityLabel(severity: string): string {
+  return (
+    SEVERITY_LABELS[severity] ??
+    severity
+      .replace(/_/g, " ")
+      .toLowerCase()
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+  );
+}
+
+function formatCleanText(raw?: string | null): string {
+  if (!raw) return "";
+  return raw.replace(/_/g, " ");
+}
+
+function formatMessageTime(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-IN", {
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(iso));
+  } catch {
+    return iso;
+  }
+}
+
 export function ComplaintsManagementPage() {
+  const adminProfile = adminAuthService.getProfile();
+  const isSuperAdmin = adminProfile.role === "SUPER_ADMIN";
+
   const [data, setData] = useState<ComplaintsDashboardPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
-  // Active sub-module tab (matching Screens 33-40)
+  // Active sub-module tab
   const [activeTab, setActiveTab] = useState<
     "queue" | "vault" | "duplicates" | "malicious" | "config"
   >("queue");
 
-  // Filters, Pagination & Role Clearance (SRS 7.4 & 7.6 RBAC)
-  const [viewerRole, setViewerRole] = useState<string>("SENIOR_REVIEWER");
+  // Filters & Pagination
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [priorityFilter, setPriorityFilter] = useState<string>("ALL");
   const [modeFilter, setModeFilter] = useState<string>("ALL");
@@ -219,11 +304,12 @@ export function ComplaintsManagementPage() {
   const [selectedRef, setSelectedRef] = useState<string>("");
 
   // Case Action States
-  const [selectedReviewerId, setSelectedReviewerId] = useState("SR-04");
+  const [selectedReviewerId, setSelectedReviewerId] = useState("SA-01");
   const [selectedSeverity, setSelectedSeverity] = useState("S2_HIGH");
   const [selectedPriority, setSelectedPriority] = useState("P1_URGENT");
   const [nextStatus, setNextStatus] = useState("UNDER_REVIEW");
   const [publicMessage, setPublicMessage] = useState("");
+  const [directReplyText, setDirectReplyText] = useState("");
   const [rejectionCode, setRejectionCode] = useState("#OUTSIDE-SCOPE-COMMERCIAL");
   const [internalNoteText, setInternalNoteText] = useState("");
   const [noteVisibilityRole, setNoteVisibilityRole] = useState("SENIOR_REVIEWER");
@@ -254,6 +340,26 @@ export function ComplaintsManagementPage() {
   const [rejectedRetentionDays, setRejectedRetentionDays] = useState(30);
   const [logRetentionDays, setLogRetentionDays] = useState(14);
 
+  const syncComplaintEditor = useCallback(
+    (
+      complaint: ComplaintItem,
+      reviewersList?: ComplaintsDashboardPayload["authorisedReviewers"],
+    ) => {
+      setSelectedSeverity(complaint.severity || "S2_HIGH");
+      setSelectedPriority(complaint.priority || "P1_URGENT");
+      if (complaint.assignedReviewerId) {
+        setSelectedReviewerId(complaint.assignedReviewerId);
+      } else if (reviewersList && reviewersList.length > 0) {
+        setSelectedReviewerId(reviewersList[0].id);
+      }
+      const allowed = VALID_NEXT_STATUSES[complaint.status] ?? ALL_STATUSES;
+      setNextStatus((current) =>
+        allowed.includes(current) ? current : (allowed[0] ?? "UNDER_REVIEW"),
+      );
+    },
+    [],
+  );
+
   const loadDashboard = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -266,7 +372,6 @@ export function ComplaintsManagementPage() {
         search: searchQuery.trim(),
         page: String(page),
         pageSize: "20",
-        viewerRole,
       });
       const res = await adminApi<ComplaintsDashboardPayload>(
         `/admin-review/complaints?${qs.toString()}`,
@@ -282,6 +387,7 @@ export function ComplaintsManagementPage() {
         if (!currentExists) {
           setSelectedRef(activeCase.referenceNumber);
         }
+        syncComplaintEditor(activeCase, res.authorisedReviewers);
         setMergePrimaryRef((prev) => prev || activeCase.referenceNumber);
         setMaliciousTargetRef((prev) => prev || activeCase.referenceNumber);
       } else {
@@ -306,12 +412,12 @@ export function ComplaintsManagementPage() {
     categoryFilter,
     searchQuery,
     page,
-    viewerRole,
     selectedRef,
+    syncComplaintEditor,
   ]);
 
   useEffect(() => {
-    void loadDashboard();
+    void Promise.resolve().then(loadDashboard);
   }, [loadDashboard]);
 
   const selectedComplaint = useMemo(() => {
@@ -321,19 +427,6 @@ export function ComplaintsManagementPage() {
       data.complaints[0]
     );
   }, [data, selectedRef]);
-
-  useEffect(() => {
-    if (!selectedComplaint) return;
-    setSelectedSeverity(selectedComplaint.severity || "S2_HIGH");
-    setSelectedPriority(selectedComplaint.priority || "P1_URGENT");
-    if (selectedComplaint.assignedReviewerId) {
-      setSelectedReviewerId(selectedComplaint.assignedReviewerId);
-    }
-    const allowed = VALID_NEXT_STATUSES[selectedComplaint.status] ?? ALL_STATUSES;
-    if (!allowed.includes(nextStatus)) {
-      setNextStatus(allowed[0] ?? "UNDER_REVIEW");
-    }
-  }, [selectedComplaint, nextStatus]);
 
   async function handleAssignAndClassify() {
     if (!selectedComplaint || !data) return;
@@ -358,7 +451,7 @@ export function ComplaintsManagementPage() {
         },
       );
       setNotice(
-        `Assigned ${selectedComplaint.referenceNumber} to ${rev.name} (${selectedSeverity} • ${selectedPriority}). Audit log appended.`,
+        `Assigned ${selectedComplaint.referenceNumber} to ${rev.name} (${formatSeverityLabel(selectedSeverity)} • ${formatPriorityLabel(selectedPriority)}).`,
       );
       await loadDashboard();
     } catch (err) {
@@ -372,6 +465,40 @@ export function ComplaintsManagementPage() {
     }
   }
 
+  async function handleSendDirectMessageToComplainant() {
+    if (!selectedComplaint) return;
+    const clean = directReplyText.trim();
+    if (clean.length < 2) {
+      setError("Enter a message of at least 2 characters for the complainant.");
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    setNotice("");
+    try {
+      await adminApi(
+        `/admin-review/complaints/${encodeURIComponent(selectedComplaint.referenceNumber)}/messages`,
+        {
+          method: "POST",
+          body: { message: clean },
+        },
+      );
+      setDirectReplyText("");
+      setNotice(
+        `Sent encrypted response to complainant on ${selectedComplaint.referenceNumber}. They can view it immediately in Track My Report.`,
+      );
+      await loadDashboard();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to send message to complainant.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   async function handleUpdateStatus() {
     if (!selectedComplaint) return;
     if (
@@ -379,7 +506,7 @@ export function ComplaintsManagementPage() {
       publicMessage.trim().length < 5
     ) {
       setError(
-        "Please enter a follow-up question for the complainant before setting status to ADDITIONAL_INFO_REQUIRED.",
+        "Please enter a follow-up question for the complainant before setting status to Additional Info Required.",
       );
       return;
     }
@@ -389,7 +516,7 @@ export function ComplaintsManagementPage() {
       !publicMessage.trim()
     ) {
       setError(
-        "Rejected complaints require a rejection reason code or explanation (SRS 7.5).",
+        "Rejected complaints require a rejection reason code or explanation.",
       );
       return;
     }
@@ -422,7 +549,7 @@ export function ComplaintsManagementPage() {
       );
       setPublicMessage("");
       setNotice(
-        `Updated ${selectedComplaint.referenceNumber} status to ${nextStatus} and logged SHA-256 audit entry.`,
+        `Updated ${selectedComplaint.referenceNumber} status to ${formatStatusLabel(nextStatus)} and logged SHA-256 audit entry.`,
       );
       await loadDashboard();
     } catch (err) {
@@ -491,7 +618,6 @@ export function ComplaintsManagementPage() {
             evidenceId,
             action,
             justificationReason: exportReason.trim(),
-            viewerRole,
           },
         },
       );
@@ -500,7 +626,7 @@ export function ComplaintsManagementPage() {
         [evidenceId]: res.watermarkOverlayText,
       }));
       setNotice(
-        `Controlled Evidence ${action} authorized & logged in immutable audit trail.`,
+        `Controlled Evidence ${action === "REVEAL_VIEWER" ? "Reveal" : "Watermarked Export"} authorized & logged in immutable audit trail.`,
       );
       await loadDashboard();
     } catch (err) {
@@ -540,7 +666,6 @@ export function ComplaintsManagementPage() {
           primaryReferenceNumber: primary,
           duplicateReferenceNumbers: dupList,
           clusterId: mergeClusterId.trim() || undefined,
-          viewerRole,
         },
       });
       setNotice(
@@ -581,7 +706,6 @@ export function ComplaintsManagementPage() {
             action: "THROTTLE_BLINDED_BUCKET",
             cooldownHours: maliciousCooldownHours,
             reason: maliciousReason.trim(),
-            viewerRole,
           },
         },
       );
@@ -611,7 +735,6 @@ export function ComplaintsManagementPage() {
           closedEvidenceRetentionDays: closedRetentionDays,
           rejectedReportRetentionDays: rejectedRetentionDays,
           technicalRateLimitLogDays: logRetentionDays,
-          viewerRole,
         },
       });
       setNotice(
@@ -646,11 +769,10 @@ export function ComplaintsManagementPage() {
           legalHelplineNote: cat.legalHelplineNote,
           isEnabled: !cat.isEnabled,
           displayOrder: cat.displayOrder,
-          viewerRole,
         },
       });
       setNotice(
-        `Category "${cat.name}" is now ${!cat.isEnabled ? "ENABLED" : "DISABLED"} for mobile complaint submissions.`,
+        `Category "${cat.name}" is now ${!cat.isEnabled ? "Enabled" : "Disabled"} for mobile complaint submissions.`,
       );
       await loadDashboard();
     } catch (err) {
@@ -691,14 +813,13 @@ export function ComplaintsManagementPage() {
           defaultPriority: "P2_HIGH",
           defaultSeverity: "S2_HIGH",
           isEnabled: true,
-          viewerRole,
         },
       });
       setNewCatName("");
       setNewCatDesc("");
       setNewCatGuidance("");
       setNotice(
-        `Saved configurable category "${slug}" — synced live to mobile complaint intake.`,
+        `Saved configurable category "${newCatName.trim()}" — synced live to mobile complaint intake.`,
       );
       await loadDashboard();
     } catch (err) {
@@ -712,7 +833,7 @@ export function ComplaintsManagementPage() {
 
   if (loading && !data) {
     return (
-      <SakhiQuoteLoader statusLabel="Loading real Module 5 Complaint Management Console from backend..." />
+      <SakhiQuoteLoader statusLabel="Loading Discreet & Anonymous Complaint Management Console..." />
     );
   }
 
@@ -736,46 +857,80 @@ export function ComplaintsManagementPage() {
     totalPages: 1,
   };
 
+  const visibleTabs = [
+    {
+      id: "queue",
+      label: "1. Triage Queue & Case Workflow",
+      icon: MessageSquareWarning,
+    },
+    { id: "vault", label: "2. Controlled Evidence Vault", icon: Lock },
+    {
+      id: "duplicates",
+      label: "3. Duplicate & Cluster Merge",
+      icon: GitMerge,
+    },
+    {
+      id: "malicious",
+      label: "4. Malicious-Report & Abuse Guard",
+      icon: ShieldAlert,
+    },
+    ...(isSuperAdmin
+      ? [
+          {
+            id: "config",
+            label: "5. Categories & Retention Policy",
+            icon: Settings2,
+          },
+        ]
+      : []),
+  ];
+
   return (
-    <div className="page-stack">
-      {/* Top Header & Mandatory Legal Non-FIR Guardrail */}
+    <div
+      className="page-stack"
+      style={{ display: "flex", flexDirection: "column", gap: "24px" }}
+    >
+      {/* Top Header */}
       <section className="hero-card">
         <div className="hero-copy">
           <div className="eyebrow-row">
-            <StatusPill tone="rose">MODULE 5 • SRS SECTIONS 7.1–7.6 &amp; 12.5</StatusPill>
-            <StatusPill tone="green">Real Database Persistence &amp; RBAC Active</StatusPill>
+            <StatusPill tone="rose">
+              DISCREET &amp; ANONYMOUS COMPLAINT DESK
+            </StatusPill>
+            <StatusPill tone="green">
+              Real Database Persistence &amp; RBAC Active
+            </StatusPill>
           </div>
           <h1>Discreet &amp; Anonymous Complaint Management Console</h1>
           <p>
-            Role-restricted triage queue for Anonymous (<code>#SKH-ANON</code>) and Confidential (<code>#SKH-CONF</code>) safety complaints. Ordinary moderators never see device, location, or account metadata, and cannot unblur evidence or change retention settings.
+            Role-restricted triage queue for Anonymous (<code>#SKH-ANON</code>)
+            and Confidential (<code>#SKH-CONF</code>) safety complaints.
+            Ordinary content moderators are strictly blocked from this queue.
           </p>
         </div>
         <div
           className="hero-actions"
-          style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}
+          style={{
+            display: "flex",
+            gap: "12px",
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
         >
-          <label style={{ fontSize: "12px", fontWeight: 700, color: "#52345f" }}>
-            RBAC Clearance:&nbsp;
-            <select
-              value={viewerRole}
-              onChange={(e) => {
-                setViewerRole(e.target.value);
-                setPage(1);
-              }}
-              style={{
-                padding: "8px 12px",
-                borderRadius: "8px",
-                border: "1px solid #dcc8e6",
-                fontWeight: 700,
-              }}
-            >
-              <option value="SENIOR_REVIEWER">Senior Safety Reviewer (#SR-04)</option>
-              <option value="SUPER_ADMIN">Super Admin Escalation Lead (#EL-01)</option>
-              <option value="STANDARD_MODERATOR">
-                Ordinary Moderator (PII &amp; Location Masked)
-              </option>
-            </select>
-          </label>
+          <div
+            style={{
+              padding: "8px 14px",
+              borderRadius: "10px",
+              background: "#f8f1fb",
+              border: "1px solid #dcc8e6",
+              fontSize: "12.5px",
+              fontWeight: 700,
+              color: "#52345f",
+            }}
+          >
+            Signed in as: {adminProfile.fullName} ({adminProfile.staffCode} •{" "}
+            {adminProfile.badgeLabel})
+          </div>
           <button
             className="secondary-button"
             type="button"
@@ -820,22 +975,24 @@ export function ComplaintsManagementPage() {
         </div>
       )}
 
-      {/* Real Database KPI Metrics Row */}
+      {/* Real Database KPI Metrics Row with Generous Spacing */}
       <section
         className="stats-grid"
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-          gap: "14px",
+          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+          gap: "18px",
+          marginBottom: "4px",
         }}
       >
         <article
           className="stat-card"
           style={{
             background: "#fff",
-            padding: "18px",
-            borderRadius: "14px",
+            padding: "20px",
+            borderRadius: "16px",
             border: "1px solid #eee7ee",
+            boxShadow: "0 4px 14px rgba(82, 52, 95, 0.04)",
           }}
         >
           <span style={{ fontSize: "12px", color: "#877b8b", fontWeight: 700 }}>
@@ -843,75 +1000,113 @@ export function ComplaintsManagementPage() {
           </span>
           <div
             style={{
-              fontSize: "28px",
-              fontWeight: 800,
-              color: "#31263a",
-              marginTop: "6px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "10px",
+              marginTop: "10px",
             }}
           >
-            {metrics.openComplaintsCount}{" "}
-            <StatusPill tone="urgent">{metrics.urgentP1Count} Urgent P1</StatusPill>
+            <strong
+              style={{
+                fontSize: "30px",
+                fontWeight: 800,
+                color: "#31263a",
+              }}
+            >
+              {metrics.openComplaintsCount}
+            </strong>
+            <StatusPill
+              tone={metrics.urgentP1Count > 0 ? "urgent" : "green"}
+            >
+              {metrics.urgentP1Count} Open Urgent P1
+            </StatusPill>
           </div>
         </article>
+
         <article
           className="stat-card"
           style={{
             background: "#fff",
-            padding: "18px",
-            borderRadius: "14px",
+            padding: "20px",
+            borderRadius: "16px",
             border: "1px solid #eee7ee",
+            boxShadow: "0 4px 14px rgba(82, 52, 95, 0.04)",
           }}
         >
           <span style={{ fontSize: "12px", color: "#877b8b", fontWeight: 700 }}>
-            TOTAL / ANON VS CONF
+            TOTAL / ANONYMOUS VS CONFIDENTIAL
           </span>
           <div
             style={{
-              fontSize: "28px",
-              fontWeight: 800,
-              color: "#52345f",
-              marginTop: "6px",
+              display: "flex",
+              alignItems: "baseline",
+              gap: "8px",
+              marginTop: "10px",
+              flexWrap: "wrap",
             }}
           >
-            {metrics.totalComplaints}{" "}
-            <small style={{ fontSize: "13px", color: "#877b8b" }}>
-              ({metrics.anonymousPercentage}% Anon / {metrics.confidentialPercentage}% Conf)
+            <strong
+              style={{
+                fontSize: "30px",
+                fontWeight: 800,
+                color: "#52345f",
+              }}
+            >
+              {metrics.totalComplaints}
+            </strong>
+            <small style={{ fontSize: "13px", color: "#877b8b", fontWeight: 600 }}>
+              ({metrics.anonymousPercentage}% Anonymous /{" "}
+              {metrics.confidentialPercentage}% Confidential)
             </small>
           </div>
         </article>
+
         <article
           className="stat-card"
           style={{
             background: "#fff",
-            padding: "18px",
-            borderRadius: "14px",
+            padding: "20px",
+            borderRadius: "16px",
             border: "1px solid #eee7ee",
+            boxShadow: "0 4px 14px rgba(82, 52, 95, 0.04)",
           }}
         >
           <span style={{ fontSize: "12px", color: "#877b8b", fontWeight: 700 }}>
-            DUPLICATE CLUSTERS (SRS 7.6)
+            DUPLICATE CLUSTERS &amp; SAFEGUARDS
           </span>
           <div
             style={{
-              fontSize: "28px",
-              fontWeight: 800,
-              color: "#9a6918",
-              marginTop: "6px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "10px",
+              marginTop: "10px",
             }}
           >
-            {metrics.duplicateClustersCount}{" "}
+            <strong
+              style={{
+                fontSize: "30px",
+                fontWeight: 800,
+                color: "#9a6918",
+              }}
+            >
+              {metrics.duplicateClustersCount}
+            </strong>
             <StatusPill tone="amber">
               {metrics.flaggedMaliciousAbuseCount} Abuse Flagged
             </StatusPill>
           </div>
         </article>
+
         <article
           className="stat-card"
           style={{
             background: "#fff",
-            padding: "18px",
-            borderRadius: "14px",
+            padding: "20px",
+            borderRadius: "16px",
             border: "1px solid #eee7ee",
+            boxShadow: "0 4px 14px rgba(82, 52, 95, 0.04)",
           }}
         >
           <span style={{ fontSize: "12px", color: "#877b8b", fontWeight: 700 }}>
@@ -919,51 +1114,38 @@ export function ComplaintsManagementPage() {
           </span>
           <div
             style={{
-              fontSize: "28px",
-              fontWeight: 800,
-              color: "#39785c",
-              marginTop: "6px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "10px",
+              marginTop: "10px",
             }}
           >
-            {metrics.medianTriageHours} hrs{" "}
+            <strong
+              style={{
+                fontSize: "30px",
+                fontWeight: 800,
+                color: "#39785c",
+              }}
+            >
+              {metrics.medianTriageHours} hrs
+            </strong>
             <StatusPill tone="green">Live Metric</StatusPill>
           </div>
         </article>
       </section>
 
-      {/* 5 Sub-Module Navigation Tabs */}
+      {/* Sub-Module Navigation Tabs with Generous Bottom Padding */}
       <div
         style={{
           display: "flex",
-          gap: "10px",
+          gap: "12px",
           flexWrap: "wrap",
           borderBottom: "1px solid #eee7ee",
-          paddingBottom: "12px",
+          paddingBottom: "16px",
         }}
       >
-        {[
-          {
-            id: "queue",
-            label: "1. Triage Queue & Case Workflow",
-            icon: MessageSquareWarning,
-          },
-          { id: "vault", label: "2. Controlled Evidence Vault", icon: Lock },
-          {
-            id: "duplicates",
-            label: "3. Duplicate & Cluster Merge",
-            icon: GitMerge,
-          },
-          {
-            id: "malicious",
-            label: "4. Malicious-Report & Abuse Guard",
-            icon: ShieldAlert,
-          },
-          {
-            id: "config",
-            label: "5. Categories & Retention Policy",
-            icon: Settings2,
-          },
-        ].map((tab) => {
+        {visibleTabs.map((tab) => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;
           return (
@@ -975,13 +1157,14 @@ export function ComplaintsManagementPage() {
                 display: "inline-flex",
                 alignItems: "center",
                 gap: "8px",
-                padding: "10px 16px",
+                padding: "11px 18px",
                 borderRadius: "999px",
                 border: active ? "2px solid #631d76" : "1px solid #e5d8e8",
                 background: active ? "#631d76" : "#fff",
                 color: active ? "#fff" : "#52345f",
                 fontWeight: 700,
                 fontSize: "13px",
+                cursor: "pointer",
               }}
             >
               <Icon size={15} />
@@ -996,8 +1179,8 @@ export function ComplaintsManagementPage() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: selectedComplaint ? "1.15fr 1fr" : "1fr",
-            gap: "20px",
+            gridTemplateColumns: selectedComplaint ? "1.1fr 1.05fr" : "1fr",
+            gap: "24px",
             alignItems: "start",
           }}
         >
@@ -1005,9 +1188,9 @@ export function ComplaintsManagementPage() {
           <div
             style={{
               background: "#fff",
-              borderRadius: "16px",
+              borderRadius: "18px",
               border: "1px solid #eee7ee",
-              padding: "20px",
+              padding: "22px",
             }}
           >
             <div
@@ -1015,7 +1198,7 @@ export function ComplaintsManagementPage() {
                 display: "flex",
                 gap: "10px",
                 flexWrap: "wrap",
-                marginBottom: "16px",
+                marginBottom: "18px",
               }}
             >
               <div
@@ -1058,7 +1241,7 @@ export function ComplaintsManagementPage() {
                 <option value="ALL">All 7 Statuses</option>
                 {ALL_STATUSES.map((st) => (
                   <option key={st} value={st}>
-                    {st}
+                    {formatStatusLabel(st)}
                   </option>
                 ))}
               </select>
@@ -1141,17 +1324,21 @@ export function ComplaintsManagementPage() {
                 </p>
               </div>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
                 {complaints.map((item) => {
                   const isSelected =
                     item.referenceNumber === selectedComplaint?.referenceNumber;
+                  const msgCount = item.complainantMessages?.length ?? 0;
                   return (
                     <div
                       key={item.id}
-                      onClick={() => setSelectedRef(item.referenceNumber)}
+                      onClick={() => {
+                        setSelectedRef(item.referenceNumber);
+                        syncComplaintEditor(item, data?.authorisedReviewers);
+                      }}
                       style={{
-                        padding: "16px",
-                        borderRadius: "14px",
+                        padding: "18px",
+                        borderRadius: "16px",
                         border: isSelected
                           ? "2px solid #631d76"
                           : "1px solid #eee7ee",
@@ -1165,7 +1352,8 @@ export function ComplaintsManagementPage() {
                           justifyContent: "space-between",
                           alignItems: "center",
                           gap: "8px",
-                          marginBottom: "8px",
+                          flexWrap: "wrap",
+                          marginBottom: "10px",
                         }}
                       >
                         <div
@@ -1179,7 +1367,7 @@ export function ComplaintsManagementPage() {
                           <strong
                             style={{
                               fontFamily: "monospace",
-                              fontSize: "14px",
+                              fontSize: "14.5px",
                               color: "#31263a",
                             }}
                           >
@@ -1192,15 +1380,23 @@ export function ComplaintsManagementPage() {
                                 : "rose"
                             }
                           >
-                            {item.reportingMode}
+                            {item.reportingMode === "ANONYMOUS"
+                              ? "Anonymous"
+                              : "Confidential"}
                           </StatusPill>
                           <StatusPill
                             tone={
                               item.priority === "P1_URGENT" ? "urgent" : "amber"
                             }
                           >
-                            {item.priority} • {item.severity}
+                            {formatPriorityLabel(item.priority)} •{" "}
+                            {formatSeverityLabel(item.severity)}
                           </StatusPill>
+                          {msgCount > 0 && (
+                            <StatusPill tone="green">
+                              {msgCount} Message{msgCount === 1 ? "" : "s"}
+                            </StatusPill>
+                          )}
                         </div>
                         <StatusPill
                           tone={
@@ -1211,15 +1407,15 @@ export function ComplaintsManagementPage() {
                                 : "rose"
                           }
                         >
-                          {item.status}
+                          {formatStatusLabel(item.status)}
                         </StatusPill>
                       </div>
                       <div
                         style={{
                           fontWeight: 700,
-                          fontSize: "14px",
+                          fontSize: "14.5px",
                           color: "#31263a",
-                          marginBottom: "4px",
+                          marginBottom: "6px",
                         }}
                       >
                         {item.categoryTitle}{" "}
@@ -1229,10 +1425,10 @@ export function ComplaintsManagementPage() {
                       </div>
                       <p
                         style={{
-                          margin: "0 0 8px 0",
-                          fontSize: "12.5px",
+                          margin: "0 0 10px 0",
+                          fontSize: "13px",
                           color: "#6e6275",
-                          lineHeight: 1.45,
+                          lineHeight: 1.5,
                         }}
                       >
                         {item.description}
@@ -1241,18 +1437,26 @@ export function ComplaintsManagementPage() {
                         style={{
                           display: "flex",
                           justifyContent: "space-between",
-                          fontSize: "11.5px",
+                          flexWrap: "wrap",
+                          gap: "8px",
+                          fontSize: "12px",
                           color: "#877b8b",
                         }}
                       >
                         <span>
                           Identity Vault:{" "}
                           <strong>
-                            {item.confidentialAccountVaultStatus ?? "Protected"}
+                            {formatCleanText(
+                              item.confidentialAccountVaultStatus ?? "Protected",
+                            )}
                           </strong>
                         </span>
                         <span>
-                          Evidence:{" "}
+                          Assigned:{" "}
+                          <strong>
+                            {item.assignedReviewerName ?? "Unassigned"}
+                          </strong>{" "}
+                          • Evidence:{" "}
                           <strong>
                             {item.evidenceFiles.length} Scrubbed File(s)
                           </strong>
@@ -1270,8 +1474,8 @@ export function ComplaintsManagementPage() {
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
-                marginTop: "16px",
-                paddingTop: "12px",
+                marginTop: "18px",
+                paddingTop: "14px",
                 borderTop: "1px solid #f0e8f3",
                 fontSize: "12.5px",
                 color: "#6e6275",
@@ -1305,14 +1509,14 @@ export function ComplaintsManagementPage() {
 
           {/* Right Column: Selected Case Inspector */}
           {selectedComplaint && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              {/* Card 1: Assignment & Severity Classification */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
+              {/* Card 1: Assignment & Severity Classification (Real DB Reviewers Only!) */}
               <div
                 style={{
                   background: "#fff",
-                  borderRadius: "16px",
+                  borderRadius: "18px",
                   border: "1px solid #eee7ee",
-                  padding: "20px",
+                  padding: "22px",
                 }}
               >
                 <div
@@ -1320,10 +1524,12 @@ export function ComplaintsManagementPage() {
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
-                    marginBottom: "12px",
+                    flexWrap: "wrap",
+                    gap: "8px",
+                    marginBottom: "14px",
                   }}
                 >
-                  <h3 style={{ margin: 0, fontSize: "16px" }}>
+                  <h3 style={{ margin: 0, fontSize: "16.5px" }}>
                     <UserCheck
                       size={16}
                       style={{ verticalAlign: "middle", marginRight: "6px" }}
@@ -1331,27 +1537,42 @@ export function ComplaintsManagementPage() {
                     Assign Reviewer &amp; Classify (
                     {selectedComplaint.referenceNumber})
                   </h3>
-                  <StatusPill tone="green">SRS 7.6 RBAC</StatusPill>
+                  {isSuperAdmin ? (
+                    <Link
+                      to="/admin-users"
+                      style={{
+                        fontSize: "12px",
+                        fontWeight: 700,
+                        color: "#631d76",
+                        textDecoration: "underline",
+                      }}
+                    >
+                      + Add / Manage Reviewers
+                    </Link>
+                  ) : (
+                    <StatusPill tone="green">Authorised Officer</StatusPill>
+                  )}
                 </div>
                 <div
                   style={{
                     display: "grid",
                     gridTemplateColumns: "1fr 1fr",
-                    gap: "10px",
-                    marginBottom: "12px",
+                    gap: "12px",
+                    marginBottom: "14px",
                   }}
                 >
-                  <label style={{ fontSize: "12px", fontWeight: 700 }}>
-                    Authorised Reviewer
+                  <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
+                    Authorised Reviewer (Real DB Accounts)
                     <select
                       value={selectedReviewerId}
                       onChange={(e) => setSelectedReviewerId(e.target.value)}
                       style={{
                         width: "100%",
-                        marginTop: "4px",
-                        padding: "8px",
-                        borderRadius: "8px",
+                        marginTop: "6px",
+                        padding: "9px 10px",
+                        borderRadius: "10px",
                         border: "1px solid #dcd0e0",
+                        fontWeight: 600,
                       }}
                     >
                       {(data?.authorisedReviewers ?? []).map((r) => (
@@ -1361,38 +1582,40 @@ export function ComplaintsManagementPage() {
                       ))}
                     </select>
                   </label>
-                  <label style={{ fontSize: "12px", fontWeight: 700 }}>
+                  <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
                     Severity &amp; Priority
-                    <div style={{ display: "flex", gap: "6px", marginTop: "4px" }}>
+                    <div style={{ display: "flex", gap: "8px", marginTop: "6px" }}>
                       <select
                         value={selectedSeverity}
                         onChange={(e) => setSelectedSeverity(e.target.value)}
                         style={{
                           flex: 1,
-                          padding: "8px",
-                          borderRadius: "8px",
+                          padding: "9px 10px",
+                          borderRadius: "10px",
                           border: "1px solid #dcd0e0",
+                          fontWeight: 600,
                         }}
                       >
-                        <option value="S1_CRITICAL">S1: Critical</option>
-                        <option value="S2_HIGH">S2: High</option>
-                        <option value="S3_MODERATE">S3: Moderate</option>
-                        <option value="S4_LOW">S4: Low</option>
+                        <option value="S1_CRITICAL">S1 Critical</option>
+                        <option value="S2_HIGH">S2 High</option>
+                        <option value="S3_MODERATE">S3 Moderate</option>
+                        <option value="S4_LOW">S4 Low</option>
                       </select>
                       <select
                         value={selectedPriority}
                         onChange={(e) => setSelectedPriority(e.target.value)}
                         style={{
                           flex: 1,
-                          padding: "8px",
-                          borderRadius: "8px",
+                          padding: "9px 10px",
+                          borderRadius: "10px",
                           border: "1px solid #dcd0e0",
+                          fontWeight: 600,
                         }}
                       >
-                        <option value="P1_URGENT">P1 (&lt;4h)</option>
-                        <option value="P2_HIGH">P2 (&lt;12h)</option>
-                        <option value="P3_STANDARD">P3 (&lt;24h)</option>
-                        <option value="P4_ROUTINE">P4 (&lt;72h)</option>
+                        <option value="P1_URGENT">P1 Urgent (&lt;4h)</option>
+                        <option value="P2_HIGH">P2 High (&lt;12h)</option>
+                        <option value="P3_STANDARD">P3 Standard (&lt;24h)</option>
+                        <option value="P4_ROUTINE">P4 Routine (&lt;72h)</option>
                       </select>
                     </div>
                   </label>
@@ -1403,46 +1626,223 @@ export function ComplaintsManagementPage() {
                   onClick={() => void handleAssignAndClassify()}
                   style={{
                     width: "100%",
-                    padding: "10px",
+                    padding: "11px",
                     borderRadius: "999px",
                     border: 0,
                     background: "#631d76",
                     color: "#fff",
                     fontWeight: 700,
+                    cursor: "pointer",
                   }}
                 >
                   Save Assignment &amp; Classification
                 </button>
               </div>
 
-              {/* Card 2: Enforced 7-Status Transition & Complainant Update */}
+              {/* Card 2: Complainant Two-Way Messages & Appeal Requests (FIXED FLAW #1!) */}
               <div
                 style={{
                   background: "#fff",
-                  borderRadius: "16px",
-                  border: "1px solid #eee7ee",
-                  padding: "20px",
+                  borderRadius: "18px",
+                  border: "2px solid #d8b4e8",
+                  padding: "22px",
                 }}
               >
-                <h3 style={{ margin: "0 0 6px 0", fontSize: "16px" }}>
-                  Update Status (Current: {selectedComplaint.status})
-                </h3>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: "10px",
+                  }}
+                >
+                  <h3 style={{ margin: 0, fontSize: "16.5px", color: "#4a155b" }}>
+                    <MessageSquare
+                      size={16}
+                      style={{ verticalAlign: "middle", marginRight: "6px" }}
+                    />
+                    Complainant Two-Way Messages &amp; Appeal Thread (
+                    {selectedComplaint.complainantMessages?.length ?? 0})
+                  </h3>
+                  <StatusPill tone="rose">Encrypted Thread</StatusPill>
+                </div>
                 <p
                   style={{
-                    margin: "0 0 10px 0",
-                    fontSize: "12px",
+                    margin: "0 0 12px 0",
+                    fontSize: "12.5px",
                     color: "#6e6275",
                   }}
                 >
-                  Valid transitions from {selectedComplaint.status} are highlighted
-                  below and enforced on the backend:
+                  All follow-up replies, clarifications, and reopen/appeal
+                  reasons sent by the user for{" "}
+                  <strong>{selectedComplaint.referenceNumber}</strong> appear
+                  below in real time:
+                </p>
+
+                {(!selectedComplaint.complainantMessages ||
+                  selectedComplaint.complainantMessages.length === 0) ? (
+                  <div
+                    style={{
+                      padding: "16px",
+                      borderRadius: "12px",
+                      background: "#fdf9fc",
+                      border: "1px dashed #dcc8e6",
+                      fontSize: "12.5px",
+                      color: "#6e6275",
+                      marginBottom: "12px",
+                    }}
+                  >
+                    No follow-up messages or appeals have been sent on this
+                    report yet. You can send a message to the complainant below.
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "10px",
+                      maxHeight: "280px",
+                      overflowY: "auto",
+                      marginBottom: "14px",
+                      paddingRight: "4px",
+                    }}
+                  >
+                    {selectedComplaint.complainantMessages.map((msg) => {
+                      const isReviewer = msg.senderRole === "SAFETY_REVIEWER";
+                      const isAppeal = msg.senderLabel
+                        .toLowerCase()
+                        .includes("appeal");
+                      return (
+                        <div
+                          key={msg.id}
+                          style={{
+                            padding: "12px 14px",
+                            borderRadius: "14px",
+                            background: isAppeal
+                              ? "#fff4f6"
+                              : isReviewer
+                                ? "#f6ecfa"
+                                : "#eefaf3",
+                            border: isAppeal
+                              ? "1px solid #f3b4c4"
+                              : isReviewer
+                                ? "1px solid #dec4ea"
+                                : "1px solid #bce3cc",
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              gap: "8px",
+                              marginBottom: "6px",
+                              fontSize: "12px",
+                            }}
+                          >
+                            <strong
+                              style={{
+                                color: isAppeal
+                                  ? "#a61e42"
+                                  : isReviewer
+                                    ? "#631d76"
+                                    : "#1f6e4e",
+                              }}
+                            >
+                              {formatCleanText(msg.senderLabel)}
+                            </strong>
+                            <span style={{ color: "#877b8b", fontSize: "11.5px" }}>
+                              {formatMessageTime(msg.createdAt)}
+                            </span>
+                          </div>
+                          <div
+                            style={{
+                              fontSize: "13.5px",
+                              color: "#31263a",
+                              lineHeight: 1.45,
+                              whiteSpace: "pre-wrap",
+                            }}
+                          >
+                            {msg.message}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <input
+                    value={directReplyText}
+                    onChange={(e) => setDirectReplyText(e.target.value)}
+                    placeholder="Write a direct encrypted reply to the complainant..."
+                    style={{
+                      flex: 1,
+                      padding: "10px 14px",
+                      borderRadius: "999px",
+                      border: "1px solid #d6c2df",
+                      fontSize: "13px",
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        void handleSendDirectMessageToComplainant();
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={submitting}
+                    onClick={() => void handleSendDirectMessageToComplainant()}
+                    style={{
+                      padding: "10px 18px",
+                      borderRadius: "999px",
+                      border: 0,
+                      background: "#631d76",
+                      color: "#fff",
+                      fontWeight: 700,
+                      fontSize: "12.5px",
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                    }}
+                  >
+                    <Send size={14} /> Send Reply
+                  </button>
+                </div>
+              </div>
+
+              {/* Card 3: Enforced 7-Status Transition (Clean Human Labels, Zero Underscores!) */}
+              <div
+                style={{
+                  background: "#fff",
+                  borderRadius: "18px",
+                  border: "1px solid #eee7ee",
+                  padding: "22px",
+                }}
+              >
+                <h3 style={{ margin: "0 0 6px 0", fontSize: "16.5px" }}>
+                  Update Status (Current:{" "}
+                  {formatStatusLabel(selectedComplaint.status)})
+                </h3>
+                <p
+                  style={{
+                    margin: "0 0 12px 0",
+                    fontSize: "12.5px",
+                    color: "#6e6275",
+                  }}
+                >
+                  Valid transitions from{" "}
+                  <strong>{formatStatusLabel(selectedComplaint.status)}</strong>{" "}
+                  are shown below:
                 </p>
                 <div
                   style={{
                     display: "flex",
-                    gap: "6px",
+                    gap: "8px",
                     flexWrap: "wrap",
-                    marginBottom: "12px",
+                    marginBottom: "14px",
                   }}
                 >
                   {(
@@ -1453,10 +1853,11 @@ export function ComplaintsManagementPage() {
                       type="button"
                       onClick={() => setNextStatus(st)}
                       style={{
-                        padding: "6px 11px",
+                        padding: "8px 14px",
                         borderRadius: "999px",
-                        fontSize: "11.5px",
+                        fontSize: "12.5px",
                         fontWeight: 700,
+                        cursor: "pointer",
                         border:
                           nextStatus === st
                             ? "2px solid #b94776"
@@ -1465,7 +1866,7 @@ export function ComplaintsManagementPage() {
                         color: nextStatus === st ? "#9b315d" : "#52345f",
                       }}
                     >
-                      {st}
+                      {formatStatusLabel(st)}
                     </button>
                   ))}
                 </div>
@@ -1473,13 +1874,13 @@ export function ComplaintsManagementPage() {
                   <input
                     value={rejectionCode}
                     onChange={(e) => setRejectionCode(e.target.value)}
-                    placeholder="Mandatory Rejection Reason Code (SRS 7.5)"
+                    placeholder="Mandatory Rejection Reason Code"
                     style={{
                       width: "100%",
-                      padding: "8px 12px",
-                      borderRadius: "8px",
+                      padding: "9px 12px",
+                      borderRadius: "10px",
                       border: "1px solid #e2d4e6",
-                      marginBottom: "8px",
+                      marginBottom: "10px",
                       fontSize: "13px",
                     }}
                   />
@@ -1489,16 +1890,16 @@ export function ComplaintsManagementPage() {
                   onChange={(e) => setPublicMessage(e.target.value)}
                   placeholder={
                     nextStatus === "ADDITIONAL_INFO_REQUIRED"
-                      ? "Required: Enter encrypted follow-up question for complainant..."
-                      : "Optional encrypted status message to Complainant Reference Token..."
+                      ? "Required: Enter follow-up question for complainant..."
+                      : "Optional status update message for the complainant..."
                   }
                   rows={2}
                   style={{
                     width: "100%",
-                    padding: "10px",
+                    padding: "10px 12px",
                     borderRadius: "10px",
                     border: "1px solid #e2d4e6",
-                    marginBottom: "10px",
+                    marginBottom: "12px",
                     fontSize: "13px",
                   }}
                 />
@@ -1508,28 +1909,29 @@ export function ComplaintsManagementPage() {
                   onClick={() => void handleUpdateStatus()}
                   style={{
                     width: "100%",
-                    padding: "10px",
+                    padding: "11px",
                     borderRadius: "999px",
                     border: 0,
                     background: "#b94776",
                     color: "#fff",
                     fontWeight: 700,
+                    cursor: "pointer",
                   }}
                 >
-                  Commit Status Transition ({nextStatus})
+                  Commit Status Transition ({formatStatusLabel(nextStatus)})
                 </button>
               </div>
 
-              {/* Card 3: Separated Private Internal Notes & Immutable Audit Trail */}
+              {/* Card 4: Separated Private Internal Notes & Immutable Audit Trail */}
               <div
                 style={{
                   background: "#fff",
-                  borderRadius: "16px",
+                  borderRadius: "18px",
                   border: "1px solid #eee7ee",
-                  padding: "20px",
+                  padding: "22px",
                 }}
               >
-                <h3 style={{ margin: "0 0 8px 0", fontSize: "16px" }}>
+                <h3 style={{ margin: "0 0 8px 0", fontSize: "16.5px" }}>
                   <Lock
                     size={15}
                     style={{ verticalAlign: "middle", marginRight: "6px" }}
@@ -1547,7 +1949,7 @@ export function ComplaintsManagementPage() {
                     borderRadius: "10px",
                     border: "1px solid #f3ce8a",
                     background: "#fff9ee",
-                    marginBottom: "8px",
+                    marginBottom: "10px",
                     fontSize: "13px",
                   }}
                 />
@@ -1556,14 +1958,15 @@ export function ComplaintsManagementPage() {
                     value={noteVisibilityRole}
                     onChange={(e) => setNoteVisibilityRole(e.target.value)}
                     style={{
-                      padding: "8px",
+                      padding: "8px 10px",
                       borderRadius: "8px",
                       border: "1px solid #dcd0e0",
                       fontSize: "12px",
+                      fontWeight: 600,
                     }}
                   >
                     <option value="SENIOR_REVIEWER">
-                      Senior Reviewers &amp; Above
+                      Authorised Reviewers &amp; Above
                     </option>
                     <option value="SUPER_ADMIN">Super Admin Only</option>
                   </select>
@@ -1580,6 +1983,7 @@ export function ComplaintsManagementPage() {
                       color: "#fff",
                       fontWeight: 700,
                       fontSize: "12.5px",
+                      cursor: "pointer",
                     }}
                   >
                     Append Internal Note
@@ -1599,7 +2003,11 @@ export function ComplaintsManagementPage() {
                     }}
                   >
                     <strong>
-                      [{n.visibilityRole} • {n.reviewerName}]:
+                      [
+                      {n.visibilityRole === "SUPER_ADMIN"
+                        ? "Super Admin Only"
+                        : "Authorised Reviewer"}{" "}
+                      • {n.reviewerName}]:
                     </strong>{" "}
                     {n.noteText}
                   </div>
@@ -1607,8 +2015,8 @@ export function ComplaintsManagementPage() {
 
                 <h4
                   style={{
-                    margin: "14px 0 8px 0",
-                    fontSize: "13px",
+                    margin: "16px 0 8px 0",
+                    fontSize: "12.5px",
                     textTransform: "uppercase",
                     color: "#877b8b",
                   }}
@@ -1617,7 +2025,7 @@ export function ComplaintsManagementPage() {
                     size={14}
                     style={{ verticalAlign: "middle", marginRight: "4px" }}
                   />
-                  Immutable Audit History (SRS 7.6)
+                  Immutable Audit History
                 </h4>
                 <div
                   style={{
@@ -1633,14 +2041,18 @@ export function ComplaintsManagementPage() {
                       style={{
                         display: "flex",
                         justifyContent: "space-between",
+                        gap: "8px",
                         borderBottom: "1px solid #f3edf5",
-                        paddingBottom: "4px",
+                        paddingBottom: "6px",
                       }}
                     >
                       <span>
-                        <strong>{aud.auditCode}</strong> • {aud.summary}
+                        <strong>{aud.auditCode}</strong> •{" "}
+                        {formatCleanText(aud.summary)}
                       </span>
-                      <span style={{ color: "#877b8b" }}>{aud.actorLabel}</span>
+                      <span style={{ color: "#877b8b" }}>
+                        {formatCleanText(aud.actorLabel)}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -1655,7 +2067,7 @@ export function ComplaintsManagementPage() {
         <div
           style={{
             background: "#fff",
-            borderRadius: "16px",
+            borderRadius: "18px",
             border: "1px solid #eee7ee",
             padding: "24px",
           }}
@@ -1671,13 +2083,12 @@ export function ComplaintsManagementPage() {
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
-                  marginBottom: "14px",
+                  marginBottom: "16px",
                 }}
               >
                 <div>
                   <h2 style={{ margin: 0, fontSize: "20px" }}>
                     Controlled Evidence Viewer &amp; Watermarked Download Vault
-                    (SRS 7.6)
                   </h2>
                   <p
                     style={{
@@ -1695,7 +2106,7 @@ export function ComplaintsManagementPage() {
                 <StatusPill tone="green">SHA-256 Integrity Verified</StatusPill>
               </div>
 
-              <div style={{ marginBottom: "16px" }}>
+              <div style={{ marginBottom: "18px" }}>
                 <label
                   style={{
                     fontSize: "13px",
@@ -1823,6 +2234,7 @@ export function ComplaintsManagementPage() {
                               color: "#fff",
                               fontWeight: 700,
                               fontSize: "12.5px",
+                              cursor: "pointer",
                             }}
                           >
                             Reveal Evidence (Logs Audit)
@@ -1845,6 +2257,7 @@ export function ComplaintsManagementPage() {
                               color: "#fff",
                               fontWeight: 700,
                               fontSize: "12.5px",
+                              cursor: "pointer",
                             }}
                           >
                             Watermarked Export
@@ -1865,17 +2278,17 @@ export function ComplaintsManagementPage() {
         <div
           style={{
             background: "#fff",
-            borderRadius: "16px",
+            borderRadius: "18px",
             border: "1px solid #eee7ee",
             padding: "24px",
           }}
         >
           <h2 style={{ margin: "0 0 6px 0", fontSize: "20px" }}>
-            Duplicate Complaint &amp; Repeat-Offender Cluster Engine (SRS 7.6)
+            Duplicate Complaint &amp; Repeat-Offender Cluster Engine
           </h2>
           <p
             style={{
-              margin: "0 0 16px 0",
+              margin: "0 0 18px 0",
               color: "#6e6275",
               fontSize: "13.5px",
             }}
@@ -1888,8 +2301,8 @@ export function ComplaintsManagementPage() {
             style={{
               display: "grid",
               gridTemplateColumns: "1fr 1fr 1fr",
-              gap: "12px",
-              marginBottom: "16px",
+              gap: "14px",
+              marginBottom: "18px",
             }}
           >
             <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
@@ -1900,9 +2313,9 @@ export function ComplaintsManagementPage() {
                 placeholder="#SKH-ANON-2026-..."
                 style={{
                   width: "100%",
-                  marginTop: "4px",
-                  padding: "8px 12px",
-                  borderRadius: "8px",
+                  marginTop: "6px",
+                  padding: "10px 12px",
+                  borderRadius: "10px",
                   border: "1px solid #dcd0e0",
                 }}
               />
@@ -1915,9 +2328,9 @@ export function ComplaintsManagementPage() {
                 placeholder="#SKH-ANON-2026-..."
                 style={{
                   width: "100%",
-                  marginTop: "4px",
-                  padding: "8px 12px",
-                  borderRadius: "8px",
+                  marginTop: "6px",
+                  padding: "10px 12px",
+                  borderRadius: "10px",
                   border: "1px solid #dcd0e0",
                 }}
               />
@@ -1930,9 +2343,9 @@ export function ComplaintsManagementPage() {
                 placeholder="CLUST-209"
                 style={{
                   width: "100%",
-                  marginTop: "4px",
-                  padding: "8px 12px",
-                  borderRadius: "8px",
+                  marginTop: "6px",
+                  padding: "10px 12px",
+                  borderRadius: "10px",
                   border: "1px solid #dcd0e0",
                 }}
               />
@@ -1950,6 +2363,7 @@ export function ComplaintsManagementPage() {
               background: "#631d76",
               color: "#fff",
               fontWeight: 700,
+              cursor: "pointer",
             }}
           >
             <GitMerge
@@ -1966,17 +2380,17 @@ export function ComplaintsManagementPage() {
         <div
           style={{
             background: "#fff",
-            borderRadius: "16px",
+            borderRadius: "18px",
             border: "1px solid #eee7ee",
             padding: "24px",
           }}
         >
           <h2 style={{ margin: "0 0 8px 0", fontSize: "20px" }}>
-            Abuse &amp; Malicious-Report Safeguards (SRS 7.6)
+            Abuse &amp; Malicious-Report Safeguards
           </h2>
           <p
             style={{
-              margin: "0 0 16px 0",
+              margin: "0 0 18px 0",
               color: "#6e6275",
               fontSize: "13.5px",
             }}
@@ -1990,8 +2404,8 @@ export function ComplaintsManagementPage() {
             style={{
               display: "grid",
               gridTemplateColumns: "1fr 160px 1.5fr",
-              gap: "12px",
-              marginBottom: "16px",
+              gap: "14px",
+              marginBottom: "18px",
             }}
           >
             <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
@@ -2002,9 +2416,9 @@ export function ComplaintsManagementPage() {
                 placeholder="#SKH-ANON-2026-..."
                 style={{
                   width: "100%",
-                  marginTop: "4px",
-                  padding: "8px 12px",
-                  borderRadius: "8px",
+                  marginTop: "6px",
+                  padding: "10px 12px",
+                  borderRadius: "10px",
                   border: "1px solid #dcd0e0",
                 }}
               />
@@ -2021,9 +2435,9 @@ export function ComplaintsManagementPage() {
                 }
                 style={{
                   width: "100%",
-                  marginTop: "4px",
-                  padding: "8px 12px",
-                  borderRadius: "8px",
+                  marginTop: "6px",
+                  padding: "10px 12px",
+                  borderRadius: "10px",
                   border: "1px solid #dcd0e0",
                 }}
               />
@@ -2035,9 +2449,9 @@ export function ComplaintsManagementPage() {
                 onChange={(e) => setMaliciousReason(e.target.value)}
                 style={{
                   width: "100%",
-                  marginTop: "4px",
-                  padding: "8px 12px",
-                  borderRadius: "8px",
+                  marginTop: "6px",
+                  padding: "10px 12px",
+                  borderRadius: "10px",
                   border: "1px solid #dcd0e0",
                 }}
               />
@@ -2049,12 +2463,13 @@ export function ComplaintsManagementPage() {
             disabled={submitting}
             onClick={() => void handleMaliciousSafeguard()}
             style={{
-              padding: "10px 20px",
+              padding: "11px 22px",
               borderRadius: "999px",
               border: 0,
               background: "#c92a49",
               color: "#fff",
               fontWeight: 700,
+              cursor: "pointer",
             }}
           >
             Reject as Malicious &amp; Throttle Blinded Bucket
@@ -2062,26 +2477,26 @@ export function ComplaintsManagementPage() {
         </div>
       )}
 
-      {/* TAB 5: CONFIGURABLE CATEGORIES & RETENTION POLICY */}
-      {activeTab === "config" && (
+      {/* TAB 5: CONFIGURABLE CATEGORIES & RETENTION POLICY (SUPER ADMIN ONLY) */}
+      {activeTab === "config" && isSuperAdmin && (
         <div
           style={{
             display: "grid",
             gridTemplateColumns: "1.25fr 1fr",
-            gap: "20px",
+            gap: "22px",
             alignItems: "start",
           }}
         >
           <div
             style={{
               background: "#fff",
-              borderRadius: "16px",
+              borderRadius: "18px",
               border: "1px solid #eee7ee",
-              padding: "20px",
+              padding: "22px",
             }}
           >
-            <h3 style={{ margin: "0 0 12px 0", fontSize: "17px" }}>
-              Configurable Complaint Categories (SRS 7.2 — Synced Live to App)
+            <h3 style={{ margin: "0 0 14px 0", fontSize: "17px" }}>
+              Configurable Complaint Categories (Synced Live to App)
             </h3>
             <div
               style={{
@@ -2109,7 +2524,8 @@ export function ComplaintsManagementPage() {
                       {cat.displayOrder}. {cat.name}
                     </strong>
                     <small style={{ fontSize: "11px", color: "#877b8b" }}>
-                      {cat.defaultPriority} • {cat.defaultSeverity}
+                      {formatPriorityLabel(cat.defaultPriority)} •{" "}
+                      {formatSeverityLabel(cat.defaultSeverity)}
                     </small>
                   </div>
                   <button
@@ -2127,7 +2543,7 @@ export function ComplaintsManagementPage() {
                       cursor: "pointer",
                     }}
                   >
-                    {cat.isEnabled ? "ENABLED (Toggle)" : "OFF (Toggle)"}
+                    {cat.isEnabled ? "Enabled (Toggle)" : "Off (Toggle)"}
                   </button>
                 </div>
               ))}
@@ -2173,6 +2589,7 @@ export function ComplaintsManagementPage() {
                   color: "#fff",
                   fontWeight: 700,
                   fontSize: "12.5px",
+                  cursor: "pointer",
                 }}
               >
                 <Plus size={14} style={{ verticalAlign: "middle" }} /> Save
@@ -2183,14 +2600,13 @@ export function ComplaintsManagementPage() {
           <div
             style={{
               background: "#fff",
-              borderRadius: "16px",
+              borderRadius: "18px",
               border: "1px solid #eee7ee",
-              padding: "20px",
+              padding: "22px",
             }}
           >
-            <h3 style={{ margin: "0 0 12px 0", fontSize: "17px" }}>
-              Configurable Retention &amp; Deletion Policies (SRS 7.6 &amp; Module
-              11)
+            <h3 style={{ margin: "0 0 14px 0", fontSize: "17px" }}>
+              Configurable Retention &amp; Deletion Policies (DPDP Compliant)
             </h3>
             <div
               style={{
@@ -2239,7 +2655,7 @@ export function ComplaintsManagementPage() {
                 />
               </label>
               <label style={{ fontSize: "13px", fontWeight: 700 }}>
-                Server Technical Rate-Limit Logs Rotation (Days — SRS 7.4)
+                Server Technical Rate-Limit Logs Rotation (Days)
                 <input
                   type="number"
                   min={1}
@@ -2262,12 +2678,13 @@ export function ComplaintsManagementPage() {
               onClick={() => void handleSaveRetentionPolicy()}
               style={{
                 width: "100%",
-                padding: "10px",
+                padding: "11px",
                 borderRadius: "999px",
                 border: 0,
                 background: "#39785c",
                 color: "#fff",
                 fontWeight: 700,
+                cursor: "pointer",
               }}
             >
               Save DPDP Retention Policy

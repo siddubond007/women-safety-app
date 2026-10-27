@@ -705,3 +705,68 @@ model ComplaintRetentionPolicy {
 
   @@map("complaint_retention_policies")
 }
+
+// ============================================================================
+// Module 10 & Module 11: Role-Based Admin Staff Governance, Business Directory
+// & Global Platform Configuration (SRS Sections 12.1–12.10, 13 & 14)
+// ============================================================================
+
+model AdminStaffAccount {
+  id                            String    @id @default(uuid()) @db.Uuid
+  staffCode                     String    @unique(map: "admin_staff_accounts_staff_code_key") @map("staff_code") @db.VarChar(40)
+  fullName                      String    @map("full_name") @db.VarChar(120)
+  email                         String    @unique(map: "admin_staff_accounts_email_key") @db.VarChar(254)
+  role                          String    @default("COMPLAINT_REVIEWER") @db.VarChar(40)
+  status                        String    @default("ACTIVE") @db.VarChar(24)
+  accessTokenDigest             String    @map("access_token_digest") @db.VarChar(128)
+  accessTokenPreview            String    @map("access_token_preview") @db.VarChar(64)
+  isAuthorisedComplaintReviewer Boolean   @default(false) @map("is_authorised_complaint_reviewer")
+  clearanceLevel                String    @default("LEVEL_2_TRUST_SAFETY") @map("clearance_level") @db.VarChar(64)
+  permissions                   Json      @default("{}") @db.JsonB
+  createdBy                     String?   @map("created_by") @db.VarChar(120)
+  lastLoginAt                   DateTime? @map("last_login_at") @db.Timestamptz(6)
+  createdAt                     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([role, status], map: "admin_staff_accounts_role_status_idx")
+  @@index([accessTokenDigest], map: "admin_staff_accounts_token_digest_idx")
+  @@map("admin_staff_accounts")
+}
+
+model BusinessDirectoryListing {
+  id                      String   @id @default(uuid()) @db.Uuid
+  businessCode            String   @unique(map: "business_directory_listings_code_key") @map("business_code") @db.VarChar(40)
+  businessName            String   @map("business_name") @db.VarChar(160)
+  ownerAccountId          String?  @map("owner_account_id") @db.Uuid
+  ownerDisplayName        String   @map("owner_display_name") @db.VarChar(120)
+  category                String   @default("Women-Owned Boutique & Services") @db.VarChar(80)
+  city                    String   @default("Bengaluru") @db.VarChar(80)
+  description             String   @db.Text
+  contactPhone            String?  @map("contact_phone") @db.VarChar(32)
+  websiteOrInstagram      String?  @map("website_or_instagram") @db.VarChar(255)
+  approvalStatus          String   @default("PENDING_APPROVAL") @map("approval_status") @db.VarChar(32)
+  verificationBadgeStatus String   @default("NONE") @map("verification_badge_status") @db.VarChar(32)
+  isFeatured              Boolean  @default(false) @map("is_featured")
+  isReportedFraudulent    Boolean  @default(false) @map("is_reported_fraudulent")
+  reportReason            String?  @map("report_reason") @db.VarChar(500)
+  reviewedBy              String?  @map("reviewed_by") @db.VarChar(120)
+  reviewNotes             String?  @map("review_notes") @db.VarChar(500)
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([approvalStatus, createdAt], map: "business_directory_listings_status_created_idx")
+  @@index([category, approvalStatus], map: "business_directory_listings_category_status_idx")
+  @@map("business_directory_listings")
+}
+
+model PlatformConfigSetting {
+  configKey          String   @id @default("default") @map("config_key") @db.VarChar(40)
+  featureFlags       Json     @default("{}") @map("feature_flags") @db.JsonB
+  mediaUploadLimits  Json     @default("{}") @map("media_upload_limits") @db.JsonB
+  businessCategories Json     @default("[]") @map("business_categories") @db.JsonB
+  announcementBanner String?  @map("announcement_banner") @db.VarChar(500)
+  updatedBy          String?  @map("updated_by") @db.VarChar(120)
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_config_settings")
+}

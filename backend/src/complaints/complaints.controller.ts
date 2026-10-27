@@ -25,6 +25,7 @@ import {
   MergeDuplicateComplaintsDto,
   PurgeComplainantMediaDto,
   ScrubEvidenceMetadataDto,
+  SendAdminMessageToComplainantDto,
   SubmitComplaintAppealDto,
   SubmitDiscreetComplaintDto,
   TrackComplaintLookupDto,
@@ -291,6 +292,25 @@ export class ComplaintsController {
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.service.adminUpdateStatusAndEscalate(
+      pickAdminToken(token, altToken, stagingSessionToken),
+      referenceNumber,
+      dto,
+    );
+  }
+
+  @Post([
+    "admin-review/complaints/:referenceNumber/messages",
+    "complaints/admin/:referenceNumber/messages",
+  ])
+  @HttpCode(201)
+  adminSendMessageToComplainant(
+    @Param("referenceNumber") referenceNumber: string,
+    @Body() dto: SendAdminMessageToComplainantDto,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.service.adminSendMessageToComplainant(
       pickAdminToken(token, altToken, stagingSessionToken),
       referenceNumber,
       dto,

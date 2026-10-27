@@ -1,7 +1,7 @@
 services:
   - type: web
     name: sakhi-staging-api
-    branch: feat/sakhi-ui-modules-1-to-3
+    branch: feat/module5-and-rbac-admin-panels-20261027
     autoDeployTrigger: commit
     runtime: node
     plan: free
@@ -79,7 +79,7 @@ services:
 
   - type: web
     name: sakhi-staging-admin
-    branch: feat/sakhi-ui-modules-1-to-3
+    branch: feat/module5-and-rbac-admin-panels-20261027
     autoDeployTrigger: commit
     runtime: static
     rootDir: super-admin

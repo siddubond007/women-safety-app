@@ -44,6 +44,148 @@ export class AdminReviewController {
     );
   }
 
+  @Get("rbac-profile")
+  rbacProfile(
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.rbacProfile(
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
+  @Post("staff-login")
+  @HttpCode(200)
+  staffLogin(
+    @Body() body: { token?: string },
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.rbacProfile(
+      body?.token?.trim() ||
+        pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
+  @Get("staff")
+  listAdminStaff(
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.listAdminStaff(
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
+  @Post("staff")
+  @HttpCode(201)
+  createAdminStaff(
+    @Body() body: Record<string, unknown>,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.createAdminStaff(
+      body as any,
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
+  @Patch("staff/:staffId")
+  updateAdminStaff(
+    @Param("staffId") staffId: string,
+    @Body() body: Record<string, unknown>,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.updateAdminStaff(
+      staffId,
+      body as any,
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
+  @Delete("staff/:staffId")
+  deleteAdminStaff(
+    @Param("staffId") staffId: string,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.deleteAdminStaff(
+      staffId,
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
+  @Get("platform-config")
+  getPlatformConfig(
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.getPlatformConfig(
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
+  @Put("platform-config")
+  updatePlatformConfig(
+    @Body() body: Record<string, unknown>,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.updatePlatformConfig(
+      body,
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
+  @Get("businesses")
+  listBusinesses(
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.listBusinesses(
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
+  @Post("businesses")
+  @HttpCode(201)
+  upsertBusiness(
+    @Body() body: Record<string, unknown>,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.upsertBusiness(
+      body,
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
+  @Patch("businesses/:businessId/review")
+  reviewBusiness(
+    @Param("businessId") businessId: string,
+    @Body() body: Record<string, unknown>,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.reviewBusiness(
+      businessId,
+      body,
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
   @Get("registration-policy")
   getRegistrationPolicy(
     @Headers("x-sakhi-admin-token") token?: string,

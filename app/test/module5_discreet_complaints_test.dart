@@ -375,6 +375,11 @@ void main() {
           findsOneWidget,
         );
         expect(find.byKey(const Key('m5-quick-exit-button')), findsOneWidget);
+        // End-user hub must never expose Admin Complaint Console card
+        expect(
+          find.byKey(const Key('m5-open-admin-console-card')),
+          findsNothing,
+        );
       },
     );
 
@@ -400,6 +405,25 @@ void main() {
         expect(find.text('Describe What Happened Safely'), findsOneWidget);
 
         // Try to advance Step 3 with empty description -> blocked with validation error banner!
+        await tester.tap(find.byKey(const Key('m5-wizard-primary-next-button')));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('m5-wizard-validation-error-banner')),
+          findsOneWidget,
+        );
+
+        // Verify general location input starts empty (no pre-filled text requiring backspace)
+        final locField = tester.widget<TextField>(
+          find.byKey(const Key('m5-general-location-input')),
+        );
+        expect(locField.controller?.text ?? '', isEmpty);
+
+        // Numbers-only description (>= 20 chars) is blocked with validation error
+        await tester.enterText(
+          find.byKey(const Key('m5-incident-description-input')),
+          '1234567890123456789012345',
+        );
+        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('m5-wizard-primary-next-button')));
         await tester.pumpAndSettle();
         expect(

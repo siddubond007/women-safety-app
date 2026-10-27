@@ -17,8 +17,13 @@ import { AuthenticationService } from "../auth/auth.service.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { StagingTestAdminService } from "../staging-test-admin/staging-test-admin.service.js";
 import { DEFAULT_LOCAL_DEV_ADMIN_TOKEN } from "../admin-review/admin-review.service.js";
+import {
+  SakhiAdminRbacRegistry,
+  type SakhiAdminRole,
+} from "../admin-review/admin-rbac.helper.js";
 import type {
   AccessComplaintEvidenceDto,
+  SendAdminMessageToComplainantDto,
   AddComplainantReplyDto,
   AddComplaintInternalNoteDto,
   AssignAndClassifyComplaintDto,
@@ -564,19 +569,64 @@ export class ComplaintsService {
   public assertReviewer(provided?: string): {
     reviewerLabel: string;
     role: "SENIOR_REVIEWER" | "SUPER_ADMIN";
+    adminRole: SakhiAdminRole;
+    staffCode: string;
   } {
+    if (provided?.trim()) {
+      const staffMatch = SakhiAdminRbacRegistry.findStaffByToken(provided.trim());
+      if (staffMatch) {
+        const principal = SakhiAdminRbacRegistry.principalFromStaff(staffMatch);
+        if (
+          principal.role !== "SUPER_ADMIN" &&
+          principal.role !== "COMPLAINT_REVIEWER" &&
+          !principal.isAuthorisedComplaintReviewer
+        ) {
+          throw new ForbiddenException(
+            `Access denied: your assigned role (${principal.badgeLabel}) is not authorised to access Discreet & Anonymous Complaints (SRS 7.4).`,
+          );
+        }
+        return {
+          reviewerLabel: principal.reviewerLabel,
+          role:
+            principal.role === "SUPER_ADMIN"
+              ? "SUPER_ADMIN"
+              : "SENIOR_REVIEWER",
+          adminRole: principal.role,
+          staffCode: principal.staffCode,
+        };
+      }
+    }
+
     if (
       process.env.NODE_ENV === "production" &&
       process.env.SAKHI_ENV === "staging"
     ) {
       if (
         provided?.startsWith("full-admin.") ||
+        provided?.startsWith("staff-admin.") ||
         provided?.startsWith("test-access.") ||
         (!this.stagingAdminReviewEnabled() && this.stagingFullAdminEnabled())
       ) {
-        const label =
-          StagingTestAdminService.assertFullAdminSessionToken(provided);
-        return { reviewerLabel: label, role: "SUPER_ADMIN" };
+        const principal =
+          StagingTestAdminService.resolvePrincipalFromSessionToken(provided);
+        if (
+          principal.role !== "SUPER_ADMIN" &&
+          principal.role !== "COMPLAINT_REVIEWER" &&
+          !principal.isAuthorisedComplaintReviewer
+        ) {
+          throw new ForbiddenException(
+            `Access denied: your assigned role (${principal.badgeLabel}) is not authorised to access Discreet & Anonymous Complaints (SRS 7.4).`,
+          );
+        }
+        return {
+          reviewerLabel: principal.reviewerLabel,
+          role:
+            principal.role === "SUPER_ADMIN"
+              ? "SUPER_ADMIN"
+              : "SENIOR_REVIEWER",
+          adminRole: principal.role,
+          staffCode: principal.staffCode,
+        };
       }
     }
     const expected = this.configuredAdminToken();
@@ -603,8 +653,13 @@ export class ComplaintsService {
     }
     const label =
       process.env.SAKHI_ADMIN_REVIEWER_LABEL?.trim() ||
-      "Meera Krishnan (#SR-04)";
-    return { reviewerLabel: label, role: "SENIOR_REVIEWER" };
+      "Sakhi Super Admin (#SA-01)";
+    return {
+      reviewerLabel: label,
+      role: "SENIOR_REVIEWER",
+      adminRole: "SUPER_ADMIN",
+      staffCode: "#SA-01",
+    };
   }
 
   private async resolveRequiredAccountId(
@@ -713,6 +768,7 @@ export class ComplaintsService {
   }
 
   private async ensureHydrated(): Promise<void> {
+    await SakhiAdminRbacRegistry.ensureHydrated(this.prisma);
     if (this.hydratedFromDb) return;
     this.hydratedFromDb = true;
     try {
@@ -1303,9 +1359,31 @@ export class ComplaintsService {
         "Incident description must be at least 20 non-whitespace characters.",
       );
     }
+    if (/^[\d\s.,+-]+$/.test(cleanDescription)) {
+      throw new BadRequestException(
+        "Incident description must contain meaningful words and cannot be numbers only.",
+      );
+    }
     if (cleanDescription.length > 4000) {
       throw new BadRequestException(
         "Incident description cannot exceed 4,000 characters.",
+      );
+    }
+    if (
+      dto.customCategoryLabel &&
+      /^[\d\s.,+-]+$/.test(dto.customCategoryLabel.trim())
+    ) {
+      throw new BadRequestException(
+        "Custom category label must contain words and cannot be numbers only.",
+      );
+    }
+    if (
+      dto.generalLocationLabel &&
+      dto.generalLocationLabel.trim().length > 0 &&
+      /^[\d\s.,+-]+$/.test(dto.generalLocationLabel.trim())
+    ) {
+      throw new BadRequestException(
+        "General incident location must include an area or city name and cannot be numbers only.",
       );
     }
 
@@ -1839,12 +1917,18 @@ export class ComplaintsService {
       );
     }
 
+    const reviewers = SakhiAdminRbacRegistry.listAuthorisedComplaintReviewers();
+    const escalationReviewer =
+      reviewers.find(
+        (r) =>
+          r.id !== record.assignedReviewerId &&
+          (r.role === "SUPER_ADMIN" || r.role === "COMPLAINT_REVIEWER"),
+      ) ?? reviewers[0]!;
     record.status = "ESCALATED";
     record.priority = "P1_URGENT";
-    record.assignedReviewerId = "EL-01";
-    record.assignedReviewerName =
-      "Dr. Kavita Rao (#EL-01 • Senior Escalation Lead)";
-    record.publicResolutionSummary = `Appeal (${dto.appealReasonCategory.trim()}) accepted and routed to a different Senior Escalation Officer (#EL-01) for independent re-review.`;
+    record.assignedReviewerId = escalationReviewer.id;
+    record.assignedReviewerName = escalationReviewer.name;
+    record.publicResolutionSummary = `Appeal (${dto.appealReasonCategory.trim()}) accepted and routed to ${escalationReviewer.name} for independent escalation review.`;
     record.complainantMessages.push({
       id: `msg_appeal_${Date.now()}`,
       senderRole:
@@ -1964,10 +2048,10 @@ export class ComplaintsService {
           : item.confidentialAccountId,
       confidentialAccountVaultStatus:
         item.reportingMode === "ANONYMOUS"
-          ? "DETACHED_ZERO_IDENTITY (Anonymous)"
+          ? "Detached Zero Identity (Anonymous)"
           : effectiveRole === "STANDARD_MODERATOR"
-            ? "MASKED_REQUIRES_SENIOR_CLEARANCE"
-            : `VAULT_PROTECTED (Ref: ${item.confidentialAccountId?.slice(0, 8) ?? "verified"}••• • Hidden from Target)`,
+            ? "Masked — Senior Clearance Required"
+            : `Vault Protected (Ref: ${item.confidentialAccountId?.slice(0, 8) ?? "verified"}••• • Hidden from Target)`,
       generalLocationLabel:
         effectiveRole === "STANDARD_MODERATOR"
           ? "[Location Masked for Ordinary Moderator Role]"
@@ -2107,7 +2191,10 @@ export class ComplaintsService {
       (i) => i.status !== "CLOSED" && i.status !== "REJECTED_WITH_REASON",
     ).length;
     const urgentP1Count = allItems.filter(
-      (i) => i.priority === "P1_URGENT",
+      (i) =>
+        i.priority === "P1_URGENT" &&
+        i.status !== "CLOSED" &&
+        i.status !== "REJECTED_WITH_REASON",
     ).length;
     const anonCount = allItems.filter(
       (i) => i.reportingMode === "ANONYMOUS",
@@ -2166,23 +2253,8 @@ export class ComplaintsService {
         (a, b) => a.displayOrder - b.displayOrder,
       ),
       retentionPolicy: this.retentionPolicy,
-      authorisedReviewers: [
-        {
-          id: "SR-04",
-          name: "Meera Krishnan (#SR-04 • Senior Trust & Safety Officer)",
-          clearance: "LEVEL_3_POSH_CYBER",
-        },
-        {
-          id: "EL-01",
-          name: "Dr. Kavita Rao (#EL-01 • Senior Escalation Lead)",
-          clearance: "LEVEL_4_LEGAL_ESCALATION",
-        },
-        {
-          id: "SR-07",
-          name: "Anjali Menon (#SR-07 • Safety Reviewer)",
-          clearance: "LEVEL_2_TRUST_SAFETY",
-        },
-      ],
+      authorisedReviewers:
+        SakhiAdminRbacRegistry.listAuthorisedComplaintReviewers(),
     };
   }
 
@@ -2318,9 +2390,13 @@ export class ComplaintsService {
       );
     }
     if (dto.escalateToSpecialist || normalizedStatus === "ESCALATED") {
+      const reviewers =
+        SakhiAdminRbacRegistry.listAuthorisedComplaintReviewers();
+      const escLead =
+        reviewers.find((r) => r.role === "SUPER_ADMIN") ?? reviewers[0]!;
       record.priority = "P1_URGENT";
-      record.assignedReviewerId = "EL-01";
-      record.assignedReviewerName = "Dr. Kavita Rao (#EL-01 • Escalation Lead)";
+      record.assignedReviewerId = escLead.id;
+      record.assignedReviewerName = escLead.name;
     }
 
     record.updatedAt = new Date().toISOString();
@@ -2343,6 +2419,59 @@ export class ComplaintsService {
       normalizedStatus,
     );
     return { updated: true, complaint: record };
+  }
+
+  async adminSendMessageToComplainant(
+    token: string | undefined,
+    referenceNumber: string,
+    dto: SendAdminMessageToComplainantDto,
+  ) {
+    const reviewer = this.assertReviewer(token);
+    await this.ensureHydrated();
+    const record = this.findComplaintByRefOrId(referenceNumber);
+
+    const cleanMsg = (dto.message ?? "").trim();
+    if (cleanMsg.length < 2) {
+      throw new BadRequestException(
+        "Message to complainant must be at least 2 characters.",
+      );
+    }
+
+    const msgItem: ComplainantMessageItem = {
+      id: `msg_admin_${Date.now()}`,
+      senderRole: "SAFETY_REVIEWER",
+      senderLabel: reviewer.reviewerLabel,
+      message: cleanMsg,
+      attachedFiles: [],
+      createdAt: new Date().toISOString(),
+    };
+
+    record.complainantMessages.push(msgItem);
+    record.publicResolutionSummary = cleanMsg;
+    record.updatedAt = msgItem.createdAt;
+    const prevHash = record.auditHistory[0]?.integrityHash ?? "GENESIS";
+    record.auditHistory.unshift({
+      id: randomUUID(),
+      auditCode: `#AUD-${randomInt(1000, 9999)}`,
+      actorRole: reviewer.role,
+      actorLabel: reviewer.reviewerLabel,
+      action: "admin.complaint.message_sent_to_complainant",
+      summary: `Direct encrypted message sent to complainant (${record.referenceNumber})`,
+      integrityHash: `SHA256:${this.hashString(`${prevHash}:admin_msg:${record.updatedAt}`)}`,
+      timestamp: record.updatedAt,
+    });
+
+    await this.persistComplaintSnapshot(
+      record,
+      "admin_message",
+      "ADMIN",
+      record.status,
+    );
+    return {
+      sent: true,
+      messageItem: msgItem,
+      complaint: record,
+    };
   }
 
   async adminAddInternalNote(
@@ -2606,9 +2735,12 @@ export class ComplaintsService {
     dto: UpsertComplaintCategoryConfigDto,
   ) {
     const reviewer = this.assertReviewer(token);
-    if (dto.viewerRole === "STANDARD_MODERATOR") {
+    if (
+      dto.viewerRole === "STANDARD_MODERATOR" ||
+      reviewer.adminRole !== "SUPER_ADMIN"
+    ) {
       throw new ForbiddenException(
-        "Ordinary moderators are not authorised to modify complaint categories.",
+        "Only Super Admin is authorised to modify global complaint categories.",
       );
     }
     await this.ensureHydrated();
@@ -2708,9 +2840,12 @@ export class ComplaintsService {
     dto: UpdateComplaintRetentionPolicyDto,
   ) {
     const reviewer = this.assertReviewer(token);
-    if (dto.viewerRole === "STANDARD_MODERATOR") {
+    if (
+      dto.viewerRole === "STANDARD_MODERATOR" ||
+      reviewer.adminRole !== "SUPER_ADMIN"
+    ) {
       throw new ForbiddenException(
-        "Ordinary moderators are not authorised to modify DPDP retention policies.",
+        "Only Super Admin is authorised to modify global DPDP retention policies.",
       );
     }
     await this.ensureHydrated();

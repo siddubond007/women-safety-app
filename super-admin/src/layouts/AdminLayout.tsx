@@ -56,13 +56,13 @@ const navigationItems: NavigationItem[] = [
   { label: "Complaints & cases", path: "/complaints", icon: MessageSquareWarning, group: "People & trust" },
   { label: "SOS & emergency", path: "/emergency", icon: Siren, group: "People & trust" },
   { label: "Community content", path: "/community", icon: BookOpenText, group: "Platform operations" },
-  { label: "Business management", path: "/businesses", icon: Building2, group: "Platform operations", planned: true },
+  { label: "Business management", path: "/businesses", icon: Building2, group: "Platform operations" },
   { label: "Wellness content", path: "/wellness", icon: HeartPulse, group: "Platform operations" },
   { label: "Notifications", path: "/notifications", icon: Bell, group: "Platform operations", planned: true },
   { label: "Support desk", path: "/support", icon: LifeBuoy, group: "Platform operations", planned: true },
   { label: "Analytics & reports", path: "/analytics", icon: ChartNoAxesCombined, group: "Insights & security", planned: true },
   { label: "Privacy & data rights", path: "/privacy", icon: LockKeyhole, group: "Insights & security", planned: true },
-  { label: "Admin users & roles", path: "/admin-users", icon: Shield, group: "Insights & security", planned: true },
+  { label: "Admin users & roles", path: "/admin-users", icon: Shield, group: "Insights & security" },
   { label: "Audit trail & security", path: "/audit-security", icon: FileClock, group: "Insights & security" },
   { label: "Integrations & health", path: "/integrations", icon: Settings2, group: "Insights & security" },
   { label: "Backups & recovery", path: "/backups", icon: ClipboardCheck, group: "Insights & security", planned: true },
@@ -79,21 +79,38 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const hasFullStagingAdminAccess =
     !isStagingTestAdminMode || adminAuthService.isFullStagingAdminSession();
+  const profile = adminAuthService.getProfile();
+
   const visibleNavigationItems = useMemo<NavigationItem[]>(() => {
-    if (!isStagingTestAdminMode) return navigationItems;
+    const roleFiltered = navigationItems.filter((item) =>
+      adminAuthService.canAccessRoute(item.path),
+    );
+    if (!isStagingTestAdminMode) return roleFiltered;
     const testAccessItem: NavigationItem = {
       label: "Staging Test Access",
       path: "/test-access",
       icon: ShieldCheck,
       group: "Testing",
     };
-    return hasFullStagingAdminAccess ? [...navigationItems, testAccessItem] : [testAccessItem];
-  }, [hasFullStagingAdminAccess]);
-  const visibleGroupNames = isStagingTestAdminMode
-    ? hasFullStagingAdminAccess
-      ? [...groupNames, "Testing"]
-      : ["Testing"]
-    : groupNames;
+    return hasFullStagingAdminAccess
+      ? profile.role === "SUPER_ADMIN"
+        ? [...roleFiltered, testAccessItem]
+        : roleFiltered
+      : [testAccessItem];
+  }, [hasFullStagingAdminAccess, profile.role]);
+
+  const visibleGroupNames = useMemo(() => {
+    const groupsWithItems = groupNames.filter((g) =>
+      visibleNavigationItems.some((item) => item.group === g),
+    );
+    if (
+      isStagingTestAdminMode &&
+      visibleNavigationItems.some((i) => i.group === "Testing")
+    ) {
+      return [...groupsWithItems, "Testing"];
+    }
+    return groupsWithItems;
+  }, [visibleNavigationItems]);
 
   const pageTitle = visibleNavigationItems.find((item) => item.path === location.pathname)?.label ?? "Admin workspace";
   const searchMatches = useMemo(() => {
@@ -106,6 +123,13 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
     setMobileMenuOpen(false);
     setSearchOpen(false);
   }
+
+  const initials = (profile.fullName || "SA")
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 
   return (
     <div className="admin-shell">
@@ -125,8 +149,8 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
         <div className="environment-card">
           <span className="environment-icon"><ShieldCheckIcon /></span>
           <span className="environment-copy">
-            <strong>{isStagingTestAdminMode ? (hasFullStagingAdminAccess ? "Staging admin workspace" : "Staging test access only") : "Local dev/test workspace"}</strong>
-            <small>{isStagingTestAdminMode ? (hasFullStagingAdminAccess ? "Connected to the deployed staging API" : "Test grants only; real eligibility remains unchanged") : "Eligibility review uses the configured local API"}</small>
+            <strong>{profile.badgeLabel} ({profile.staffCode})</strong>
+            <small>{profile.roleTitle}</small>
           </span>
           <span className="environment-dot" aria-hidden="true" />
         </div>
@@ -160,18 +184,18 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
           <div className="help-card">
             <span className="help-card__icon"><HelpCircle size={17} /></span>
             <div>
-              <strong>Need a hand?</strong>
-              <span>Admin guide is planned</span>
+              <strong>RBAC Clearance</strong>
+              <span>{profile.role === "SUPER_ADMIN" ? "Master Governance" : `${visibleNavigationItems.length} Authorized Modules`}</span>
             </div>
             <ArrowUpRight size={15} />
           </div>
           <div className="sidebar-footer">
-            <span className="sidebar-footer__mark">S</span>
+            <span className="sidebar-footer__mark">{initials}</span>
             <div className="sidebar-footer__copy">
-              <strong>Sakhi Operations</strong>
-              <span>Private admin portal</span>
+              <strong>{profile.fullName}</strong>
+              <span>{profile.email}</span>
             </div>
-            <StatusPill tone="demo">{isStagingTestAdminMode ? "STAGING / TEST" : "DEV / TEST"}</StatusPill>
+            <StatusPill tone="demo">{profile.staffCode}</StatusPill>
           </div>
         </div>
       </aside>
@@ -182,7 +206,7 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
             <button className="icon-button mobile-menu-button" type="button" onClick={() => setMobileMenuOpen(true)} aria-label="Open navigation">
               <Menu size={20} />
             </button>
-            <div className="breadcrumbs"><span>Workspace</span><span className="breadcrumb-separator">/</span><strong>{pageTitle}</strong></div>
+            <div className="breadcrumbs"><span>{profile.badgeLabel}</span><span className="breadcrumb-separator">/</span><strong>{pageTitle}</strong></div>
           </div>
           <div className="topbar-actions">
             <div className="global-search">
@@ -226,15 +250,15 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
               {notificationsOpen && (
                 <div className="notification-popover">
                   <div className="popover-heading"><strong>Live Admin Feed</strong><span>Connected to PostgreSQL</span></div>
-                  <div className="popover-foot">Pending member verifications, live community posts, cloud media uploads, and SOS alerts are synced in real time.</div>
+                  <div className="popover-foot">Signed in as {profile.fullName} ({profile.roleTitle}). Least-privilege RBAC and audit logging are enforced.</div>
                 </div>
               )}
             </div>
 
             <div className="topbar-divider" />
-            <button className="admin-profile" type="button" onClick={onSignOut} title={isStagingTestAdminMode ? "End staging reviewer session" : "End local reviewer session"}>
-              <span className="admin-avatar">SA</span>
-              <span className="admin-profile-copy"><strong>{isStagingTestAdminMode ? (hasFullStagingAdminAccess ? "Staging administrator" : "Staging test reviewer") : "Local reviewer"}</strong><small>{isStagingTestAdminMode ? "Hosted staging session" : "Dev/test session"}</small></span>
+            <button className="admin-profile" type="button" onClick={onSignOut} title="Sign out of admin session">
+              <span className="admin-avatar">{initials}</span>
+              <span className="admin-profile-copy"><strong>{profile.fullName} ({profile.staffCode})</strong><small>{profile.badgeLabel}</small></span>
               <ChevronDown size={15} />
               <span className="profile-signout"><LogOut size={13} /> Sign out</span>
             </button>
@@ -245,14 +269,14 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
           <div className="demo-banner" role="status">
             <span className="demo-banner__icon"><AlertTriangle size={16} /></span>
             <div>
-              <strong>{isStagingTestAdminMode ? "HOSTED STAGING TEST ENVIRONMENT" : "LOCAL DEV / TEST ENVIRONMENT"}</strong>
-              <span>{isStagingTestAdminMode ? "Connected to the hosted staging database. Test-access grants never change real eligibility; full-admin changes are restricted to this staging environment." : "Live database records - Local development/test environment - State changes are persisted and audited"}</span>
+              <strong>{profile.roleTitle.toUpperCase()} ({profile.staffCode})</strong>
+              <span>{profile.role === "SUPER_ADMIN" ? "Master Super Admin governance session active. Manage the 5 Normal Admin roles in Admin users & roles." : `Role-restricted workspace active. Only modules authorized for ${profile.badgeLabel} are accessible.`}</span>
             </div>
-            <StatusPill tone="demo">{isStagingTestAdminMode ? "STAGING" : "STAGE 1"}</StatusPill>
+            <StatusPill tone="demo">{profile.badgeLabel}</StatusPill>
           </div>
           <Outlet />
           <footer className="page-footer">
-            <span>SAKHI ADMIN CONTROL CENTER</span>
+            <span>SAKHI ADMIN CONTROL CENTER • {profile.badgeLabel.toUpperCase()}</span>
             <span>{isStagingTestAdminMode ? <>Hosted staging <span className="footer-dot">-</span> Connected backend data</> : <>Local development/test <span className="footer-dot">-</span> Connected backend data</>}</span>
           </footer>
         </main>

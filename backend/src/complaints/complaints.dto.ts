@@ -425,3 +425,11 @@ export class UpdateComplaintRetentionPolicyDto {
   @MaxLength(40)
   viewerRole?: string;
 }
+
+export class SendAdminMessageToComplainantDto {
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(2)
+  @MaxLength(2000)
+  message!: string;
+}
