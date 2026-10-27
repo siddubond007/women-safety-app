@@ -882,10 +882,12 @@ export class ComplaintsService {
   ): Promise<void> {
     const complaintKey = record.referenceNumber.toUpperCase();
     const anyPrisma = this.prisma as unknown as Record<string, any>;
+    let persistenceStep = "transaction_start";
 
     const persistSnapshot = async (
       anyPrisma: Record<string, any>,
     ): Promise<void> => {
+      persistenceStep = "complaint_upsert";
       if (!anyPrisma.discreetComplaint?.upsert) {
         throw new ServiceUnavailableException(
           "Persistent complaint storage is unavailable; submission was not confirmed.",
@@ -968,6 +970,7 @@ export class ComplaintsService {
       // Write the audit record in the same database transaction when the
       // Prisma client supports interactive transactions. A failed audit write
       // must prevent a successful submission response.
+      persistenceStep = "audit_event_insert";
       if (anyPrisma.auditEvent?.create) {
         const safeAuditMetadata = {
           ...record,
@@ -1011,6 +1014,11 @@ export class ComplaintsService {
           : typeof nested?.code === "string"
             ? nested.code
             : undefined;
+      const errorMessage =
+        error instanceof Error ? error.message : "";
+      const driverCode = errorMessage.match(
+        /Database error\. Code: ([A-Z0-9]+)\. Message:/,
+      )?.[1];
 
       // Log only a safe error classification. Never log the request body,
       // database URL, complaint description, reporter identity, or passkey.
@@ -1019,6 +1027,8 @@ export class ComplaintsService {
           event: "sakhi.complaint.persistence_failed",
           errorType: error instanceof Error ? error.name : typeof error,
           databaseErrorCode: diagnosticCode ?? null,
+          driverCode: driverCode ?? null,
+          persistenceStep,
           transactionSupported: typeof anyPrisma.$transaction === "function",
         }),
       );
