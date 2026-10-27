@@ -1,15 +1,15 @@
 # Sakhi — Gemini Acceptance Matrix
-**Date:** 2026-10-27 (Asia/Kolkata)
+**Date:** 2026-10-28 (Asia/Kolkata)
 **Repository:** `siddubond007/women-safety-app`
 **Working branch:** `feat/module5-and-rbac-admin-panels-20261027`
 **Base HEAD before this local acceptance pass:** `6a2932422dcb14fa8d75fd23d9800fe70bf90542`
-**Scope:** Super Admin validation, Module 5 complaint acceptance, backend regression and release-gate audit.
+**Scope:** Super Admin validation, Module 5 complaint acceptance, backend regression, dependency security remediation, and Android staging friend-test APK verification.
 
 ## Executive result
 
 The automated checks run against the current local source tree pass: Super Admin lint/typecheck/build; Prisma schema validation; backend typecheck/build and unit tests; Flutter analysis, focused Module 5 widget tests, and full Flutter suite. Live staging API readiness, complaint-category retrieval, CORS preflight, and a clearly synthetic complaint submit/track cycle also passed after the staging-only runtime grants fix.
 
-**This is not a release-readiness sign-off.** Commit `8d0d67170c6466f44495cababa7c586d275a81e5` is pushed to `feat/module5-and-rbac-admin-panels-20261027`. The staging Super Admin static-site deployment is live and its HTML/bundle return HTTP 200; the bundle includes the updated Registration policy label and planned-feature messaging. The staging API build succeeded and its new instance is serving health checks. Render subsequently reported the API deployment as `live`, and the deployment event finished with `succeeded` for commit `8d0d67170c6466f44495cababa7c586d275a81e5`. Authenticated Admin CRUD/roles/config screens, visual viewport review, camera capture on a real phone, iOS workflow completion, and the Module 4 real-device checks remain outstanding. The previously built APK is stale relative to these changes and must not be distributed as the current candidate.
+**This is not a release-readiness sign-off.** Commit `8d0d67170c6466f44495cababa7c586d275a81e5` is pushed to `feat/module5-and-rbac-admin-panels-20261027`. The staging Super Admin static-site deployment is live and its HTML/bundle return HTTP 200; the bundle includes the updated Registration policy label and planned-feature messaging. The staging API build succeeded and its new instance is serving health checks. Render subsequently reported the API deployment as `live`, and the deployment event finished with `succeeded` for commit `8d0d67170c6466f44495cababa7c586d275a81e5`. Authenticated Admin CRUD/roles/config screens, visual viewport review, camera capture on a real phone, iOS workflow completion, and the Module 4 real-device checks remain outstanding. A fresh staging friend-test APK was built from HEAD `e1bec49e8f4ee3fa025889227c46fc42b3dcd691` on 2026-10-28, version `1.0.0` / versionCode `2`, and passed APK signature/manifest validation. Its exact SHA-256 and local artifact path are recorded in section 10. The APK has not yet been installed or runtime-tested on a physical Android device because `adb devices` returned no connected devices.
 
 ## 1. Exact commands and results
 
@@ -31,7 +31,7 @@ The automated checks run against the current local source tree pass: Super Admin
 | Admin-origin CORS | OPTIONS preflight from `https://sakhi-staging-admin.onrender.com` | **PASS — HTTP 204** | This confirms preflight only, not the authenticated admin journey. |
 | Unauthenticated complaint console API | `GET /api/v1/admin-review/complaints` without auth | **PASS — HTTP 401** | Protected endpoint denies anonymous access. |
 | Synthetic persistence check | Submit and retrieve a synthetic anonymous complaint | **PASS — submit HTTP 201; tracking HTTP 200** | Server returned submitted/found state. No real incident data was used; reference/passkey were not exposed in output. The synthetic record remains in staging. |
-| Working-tree hygiene | `git diff --check` | **PASS** | Current feature branch has local uncommitted edits. No push/deployment was triggered by this acceptance pass. |
+| Working-tree hygiene | `git diff --check` | **PASS** | The security remediation and acceptance report updates are committed/pushed; source checkout was clean before the APK build. Generated build outputs are ignored and are not part of the source commit. |
 
 ## 2. Super Admin acceptance matrix
 
@@ -89,8 +89,8 @@ The automated checks run against the current local source tree pass: Super Admin
 | Successful iOS workflow run for this exact commit | **NOT VERIFIED** — commit is pushed, but no matching GitHub Actions run result was inspected in this task. |
 | iOS signing, installation and real-device tests | **PENDING** |
 | Android device connected | **NO** — `adb devices` returned no devices. |
-| Current-release APK | **PENDING** — existing candidate was built from an older commit and is stale relative to local camera/admin fixes. Do not distribute it as current. |
-| New APK package/signature/SHA-256 verification | **PENDING** — build a separate candidate after all acceptance fixes are committed and validated; do not overwrite an older friend-testing APK. |
+| Current staging friend-test APK | **BUILT / STATICALLY VERIFIED** — version `1.0.0` / versionCode `2`, source HEAD `e1bec49e8f4ee3fa025889227c46fc42b3dcd691`; exact hash, filename and local path in section 10. Physical-device install/smoke test remains pending. |
+| APK package/signature/SHA-256 verification | **PASS** — `com.example.women_safety_app`, versionCode `2`, versionName `1.0.0`; APK Signature Scheme v2 valid. New signer matches the archived prior candidate, so signing identity is consistent. SHA-256 is recorded in section 10. |
 | Acceptance fixes deployed to staging Admin | **PASS — deployed bundle verified** | Render deployment `dep-dbgeon15efls73dn2qhg` is live for commit `8d0d671`; frontend HTML and bundle return HTTP 200. Authenticated journeys were not run. |
 | Final source ZIP/checkpoint for final commit | **PENDING** — regenerate only after the final verified commit; keep secrets, local state and Gemini instruction/handoff prompts out of the ZIP. |
 
@@ -110,9 +110,9 @@ The original `GEMINI_MODULE4_REPAIR_PROMPT_20261025.txt` remains a release accep
 ## 7. Release blockers / next sequence
 
 1. Finish the remaining browser/authenticated Super Admin acceptance using the authorised staging login flow without exposing tokens; capture wide and narrow viewport evidence.
-2. The Module 5/Super Admin fixes were committed and pushed after explicit approval. Verify the API deploy status settles from `update_in_progress` before considering the staging rollout fully complete; no separate manual deploy was triggered.
+2. The Module 5/Super Admin fixes and dependency remediation are committed and pushed. Render API deployment for security-fix commit `7713453` is live, reported `found 0 vulnerabilities`, and passed post-deploy health/categories checks. The later commit `e1bec49` is documentation-only.
 3. Inspect the resulting GitHub Actions results, including the iOS workflow; no successful iOS build is claimed yet.
-4. Build a new separate Android release candidate from the final verified commit, check application ID/version/signature and SHA-256, then install and test on a real Android device. Run iOS install tests where hardware/signing are available.
+4. Install the newly built APK from section 10 on a real Android phone, verify staging registration/test-access gates, and run the Module 1–5 smoke test. Then use the results to decide whether code fixes are needed before the final source ZIP/checkpoint. Run iOS install tests where hardware/signing are available.
 5. Complete the Module 4/SOS/GPS/map/contact/dialer acceptance rows above.
 6. Create the final checkpoint and secret-free complete source ZIP from the final verified commit; exclude Gemini prompts/handoffs, local-only state, generated caches/build output, real secrets, and APKs inside the source archive. Deliver a separate verified APK.
 7. Do not merge to main, deploy production, run migrations, change more database permissions, or touch the marketplace database without separate authorization.
@@ -150,3 +150,22 @@ Verification on 2026-10-28, after pinning the final dependency versions:
 The local remote shell reported Node.js v22.20.0 while the backend package declares `node >=24.15.0`; npm therefore emitted an engine warning during installation. The validations and tests passed on that local runtime, but this is not a substitute for checking the staging deployment and the CI result under the project's supported Node runtime.
 
 The remediation was committed and pushed as `7713453075c7dcbbf79256617b1af164acc8fae9`. Render API deployment `dep-dbgf32ss728c73cv5un0` is live; the Render build log confirms Node.js 24.22.0, `npm ci` reporting `found 0 vulnerabilities`, and a successful build. Post-deploy `GET /api/v1/health/ready` returned HTTP 200 with database `ok`, and `GET /api/v1/complaints/categories` returned HTTP 200. No schema migration, database permission change, marketplace database operation, main-branch merge, or production deployment was performed.
+
+## 10. Android staging friend-test APK - 2026-10-28
+
+The fresh APK was built from the clean checkout at source HEAD `e1bec49e8f4ee3fa025889227c46fc42b3dcd691` after `flutter pub get`.
+
+- Local artifact: `C:\Users\chakr\Downloads\Sakhi_Module5_Staging_FriendTest_20261028_e1bec49.apk`
+- Version: `1.0.0` (versionCode `2`); application ID `com.example.women_safety_app`.
+- Build flags: release variant; `SAKHI_BACKEND_ENABLED=true`; `SAKHI_STAGING_TEST_MODE=true`; `SAKHI_API_BASE_URL=https://sakhi-staging-api.onrender.com/api/v1`.
+- File size: `71,102,242` bytes (about 67.8 MiB).
+- SHA-256: `026360F3375268BC7F3C54E93805371CC8E63FED091F6168D885B59D2C979F36`.
+- Signature: `apksigner verify --verbose --print-certs` passed; APK Signature Scheme v2 verifies. The signer certificate SHA-256 digest is `e79ea07fd2bb564cd138793a4c9812f13200924d17ada1604007691744b8fa50`, matching the archived earlier candidate.
+- Manifest inspection: `aapt dump badging` passed; min SDK 24, target SDK 36.
+- Live registration policy GET returned HTTP 200 and reports minimum age `21` from `database_admin_policy` (updated by the staging admin). This is the policy shown/used by the hosted backend, even though the staging-test fallback in code is 18.
+- Friend access is intentionally gated: the backend checks `SAKHI_STAGING_TEST_PHONE_ALLOWLIST`; its staging OTP mode also requires a configured shared test code, and app feature access may require a separate, audited staging-test approval. I did not inspect secret environment-variable values or change access controls. Confirm each tester is individually authorized before relying on this APK for end-to-end use. The public policy response currently contains a test-looking change reason (`4444444rrr`); review/correct the policy reason before broader external testing.
+- Flutter checks on this source: `flutter analyze --no-pub` passed with no issues; `flutter test --no-pub` passed all 98 tests; `flutter build apk --release` succeeded. Gradle printed a Kotlin Gradle Plugin compatibility warning for `package_info_plus` and `share_plus`; it did not fail this build.
+- Previous APK was preserved at `C:\Users\chakr\Downloads\Sakhi-APK-Archive\Sakhi-Old-Candidate-20261027-A75A039A9FD4.apk` with its original SHA-256, `A75A039A9FD47364ADF2556B3485E40A1E11A0219D931E8B3E62E020790B1AD9`.
+- Sidecar build notes: `C:\Users\chakr\Downloads\Sakhi_Module5_Staging_FriendTest_20261028_e1bec49.txt`.
+
+**Release limitation:** `adb devices` showed no connected device. Successful installation, launch, auth/staging test access, complaint submission and tracking, camera/gallery permission handling, and admin-side confirmation remain physical-device smoke tests. This is a debug-signed, staging-only friend-test APK, not a production or store-ready release. Use synthetic test data only; do not rely on Module 4 SOS/GPS/live-location behavior in real emergencies. No real emergency call may be placed as a test.
