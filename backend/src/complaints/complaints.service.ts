@@ -996,7 +996,32 @@ export class ComplaintsService {
       } else {
         await persistSnapshot(anyPrisma);
       }
-    } catch {
+    } catch (error) {
+      const topLevel =
+        error && typeof error === "object"
+          ? (error as { code?: unknown; cause?: unknown })
+          : undefined;
+      const nested =
+        topLevel?.cause && typeof topLevel.cause === "object"
+          ? (topLevel.cause as { code?: unknown })
+          : undefined;
+      const diagnosticCode =
+        typeof topLevel?.code === "string"
+          ? topLevel.code
+          : typeof nested?.code === "string"
+            ? nested.code
+            : undefined;
+
+      // Log only a safe error classification. Never log the request body,
+      // database URL, complaint description, reporter identity, or passkey.
+      console.error(
+        JSON.stringify({
+          event: "sakhi.complaint.persistence_failed",
+          errorType: error instanceof Error ? error.name : typeof error,
+          databaseErrorCode: diagnosticCode ?? null,
+          transactionSupported: typeof anyPrisma.$transaction === "function",
+        }),
+      );
       throw new ServiceUnavailableException(
         "Complaint storage could not confirm durable persistence; submission was not confirmed.",
       );
