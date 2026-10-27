@@ -9,7 +9,7 @@
 
 The automated checks run against the current local source tree pass: Super Admin lint/typecheck/build; Prisma schema validation; backend typecheck/build and unit tests; Flutter analysis, focused Module 5 widget tests, and full Flutter suite. Live staging API readiness, complaint-category retrieval, CORS preflight, and a clearly synthetic complaint submit/track cycle also passed after the staging-only runtime grants fix.
 
-**This is not a release-readiness sign-off.** The local source fixes in this report have not been committed or pushed and have not been deployed to the staging Super Admin frontend. Authenticated Admin CRUD/roles/config screens, visual viewport review, camera capture on a real phone, iOS workflow completion, and the Module 4 real-device checks remain outstanding. The previously built APK is stale relative to the current local edits and must not be distributed as the current candidate.
+**This is not a release-readiness sign-off.** Commit `8d0d67170c6466f44495cababa7c586d275a81e5` is pushed to `feat/module5-and-rbac-admin-panels-20261027`. The staging Super Admin static-site deployment is live and its HTML/bundle return HTTP 200; the bundle includes the updated Registration policy label and planned-feature messaging. The staging API build succeeded and its new instance is serving health checks, but Render still showed deployment status `update_in_progress` at last inspection. Authenticated Admin CRUD/roles/config screens, visual viewport review, camera capture on a real phone, iOS workflow completion, and the Module 4 real-device checks remain outstanding. The previously built APK is stale relative to these changes and must not be distributed as the current candidate.
 
 ## 1. Exact commands and results
 
@@ -20,7 +20,7 @@ The automated checks run against the current local source tree pass: Super Admin
 | Flutter full suite | `flutter test --no-pub` | **PASS — 98 passed** | The full run included the new Home-entry test. No real device was attached. |
 | Super Admin lint | `npm run lint` in `super-admin` | **PASS** | React hooks lint errors in the admin roles/config and business management loading effects were corrected. |
 | Super Admin typecheck | `npm run typecheck` | **PASS** | Exit code 0. |
-| Super Admin production build | `npm run build` | **PASS** | Vite 8.3.4; 1,684 modules transformed. Build is local and has not been deployed. |
+| Super Admin production build | `npm run build` | **PASS** | Vite 8.3.4; 1,684 modules transformed. Render deployed the Admin static site for commit `8d0d671`; live HTML and JS bundle return HTTP 200, and the bundle contains the updated labels. |
 | Prisma schema | `npm run prisma:validate` in `backend` | **PASS** | Schema valid; no database migration was run. |
 | Backend typecheck | `npm run typecheck` | **PASS** | One test-only optional-index assertion was made type-safe at `backend/test/admin-review.spec.ts`. |
 | Backend unit suite | `npm test -- --maxWorkers=1 --fileParallelism=false --testTimeout=15000` | **PASS — 102 passed, 3 skipped** | 19 test files passed; 2 database integration files were skipped. |
@@ -86,12 +86,12 @@ The automated checks run against the current local source tree pass: Super Admin
 | iOS workflow exists | **YES — SOURCE VERIFIED** |
 | iOS workflow targets macOS and uses Flutter 3.47.7 | **YES — SOURCE VERIFIED** |
 | Workflow runs `flutter pub get`, `flutter analyze`, `flutter test` and `flutter build ios --release --no-codesign` with staging defines | **YES — SOURCE VERIFIED** |
-| Successful iOS workflow run for this exact local source | **NOT VERIFIED** — current local changes have not been pushed; no matching run result was inspected. |
+| Successful iOS workflow run for this exact commit | **NOT VERIFIED** — commit is pushed, but no matching GitHub Actions run result was inspected in this task. |
 | iOS signing, installation and real-device tests | **PENDING** |
 | Android device connected | **NO** — `adb devices` returned no devices. |
 | Current-release APK | **PENDING** — existing candidate was built from an older commit and is stale relative to local camera/admin fixes. Do not distribute it as current. |
 | New APK package/signature/SHA-256 verification | **PENDING** — build a separate candidate after all acceptance fixes are committed and validated; do not overwrite an older friend-testing APK. |
-| Current local fixes deployed to staging Admin | **NO** — deployment not triggered. |
+| Acceptance fixes deployed to staging Admin | **PASS — deployed bundle verified** | Render deployment `dep-dbgeon15efls73dn2qhg` is live for commit `8d0d671`; frontend HTML and bundle return HTTP 200. Authenticated journeys were not run. |
 | Final source ZIP/checkpoint for final commit | **PENDING** — regenerate only after the final verified commit; keep secrets, local state and Gemini instruction/handoff prompts out of the ZIP. |
 
 ## 6. Original Module 4 prompt requirements not closed by this pass
@@ -110,7 +110,7 @@ The original `GEMINI_MODULE4_REPAIR_PROMPT_20261025.txt` remains a release accep
 ## 7. Release blockers / next sequence
 
 1. Finish the remaining browser/authenticated Super Admin acceptance using the authorised staging login flow without exposing tokens; capture wide and narrow viewport evidence.
-2. Once approved, commit and push the local Module 5/Super Admin fixes on this feature branch. Because branch pushes may trigger staging builds, do not push or deploy these local changes until explicit approval.
+2. The Module 5/Super Admin fixes were committed and pushed after explicit approval. Verify the API deploy status settles from `update_in_progress` before considering the staging rollout fully complete; no separate manual deploy was triggered.
 3. Inspect the resulting GitHub Actions results, including the iOS workflow; no successful iOS build is claimed yet.
 4. Build a new separate Android release candidate from the final verified commit, check application ID/version/signature and SHA-256, then install and test on a real Android device. Run iOS install tests where hardware/signing are available.
 5. Complete the Module 4/SOS/GPS/map/contact/dialer acceptance rows above.
@@ -127,4 +127,4 @@ The original `GEMINI_MODULE4_REPAIR_PROMPT_20261025.txt` remains a release accep
 - `app/test/module5_discreet_complaints_test.dart`: Home-entry, separated date/time and camera/gallery assertions.
 - `backend/test/admin-review.spec.ts`: make an optional array-index assertion type-safe.
 
-The edits above passed the checks listed in section 1. They will be recorded in a local commit on the existing feature branch, but will NOT be pushed or deployed during this task. The remote feature branch remains at the base HEAD above. Do not publish the local commit until the user explicitly approves pushing these changes, because a branch push may trigger the staging Admin frontend deployment. No main merge or production deployment occurred.
+The source changes above were committed as `8d0d67170c6466f44495cababa7c586d275a81e5` and pushed to `feat/module5-and-rbac-admin-panels-20261027` after explicit user approval. The remote branch was verified at that SHA and the working tree was clean after push. Render's Admin static-site deploy `dep-dbgeon15efls73dn2qhg` is live for that commit; API build `bld-dbgeon15efls73dn2q1g` succeeded, the new API instance started, health returned HTTP 200 with database `ok`, categories returned HTTP 200 with 10 entries, and CORS preflight returned HTTP 204 for the Admin origin. Render still reported API deploy `dep-dbgeon15efls73dn2q10` as `update_in_progress` at the last status poll, so re-check status before claiming fully settled deployment. No main merge or production deployment occurred.
