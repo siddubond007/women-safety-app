@@ -156,13 +156,18 @@ describe("AdminReviewService reviewer-token boundary", () => {
 
     const result = await service.members(reviewerToken, "1", "1");
 
-    expect(result.items[0]).toMatchObject({
+    const firstMember = result.items[0];
+    expect(firstMember).toBeDefined();
+    if (!firstMember) {
+      throw new Error("Expected the first member in the admin review result.");
+    }
+    expect(firstMember).toMatchObject({
       dateOfBirth: null,
       phoneMasked: "********4567",
       phoneE164: "********4567",
       emailMasked: "m********@example.com",
     });
-    expect(result.items[0].email).toBeUndefined();
+    expect(firstMember.email).toBeUndefined();
   });
 
   it("blocks direct member-state overrides and demo-data seeding in staging", async () => {

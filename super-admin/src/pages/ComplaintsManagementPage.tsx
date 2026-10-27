@@ -254,6 +254,18 @@ export function ComplaintsManagementPage() {
   const [rejectedRetentionDays, setRejectedRetentionDays] = useState(30);
   const [logRetentionDays, setLogRetentionDays] = useState(14);
 
+  const syncComplaintEditor = useCallback((complaint: ComplaintItem) => {
+    setSelectedSeverity(complaint.severity || "S2_HIGH");
+    setSelectedPriority(complaint.priority || "P1_URGENT");
+    if (complaint.assignedReviewerId) {
+      setSelectedReviewerId(complaint.assignedReviewerId);
+    }
+    const allowed = VALID_NEXT_STATUSES[complaint.status] ?? ALL_STATUSES;
+    setNextStatus((current) =>
+      allowed.includes(current) ? current : (allowed[0] ?? "UNDER_REVIEW"),
+    );
+  }, []);
+
   const loadDashboard = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -282,6 +294,7 @@ export function ComplaintsManagementPage() {
         if (!currentExists) {
           setSelectedRef(activeCase.referenceNumber);
         }
+        syncComplaintEditor(activeCase);
         setMergePrimaryRef((prev) => prev || activeCase.referenceNumber);
         setMaliciousTargetRef((prev) => prev || activeCase.referenceNumber);
       } else {
@@ -308,10 +321,12 @@ export function ComplaintsManagementPage() {
     page,
     viewerRole,
     selectedRef,
+    syncComplaintEditor,
   ]);
 
   useEffect(() => {
-    void loadDashboard();
+    // Start the request after this effect commits; loadDashboard manages its own loading/error state.
+    void Promise.resolve().then(loadDashboard);
   }, [loadDashboard]);
 
   const selectedComplaint = useMemo(() => {
@@ -321,19 +336,6 @@ export function ComplaintsManagementPage() {
       data.complaints[0]
     );
   }, [data, selectedRef]);
-
-  useEffect(() => {
-    if (!selectedComplaint) return;
-    setSelectedSeverity(selectedComplaint.severity || "S2_HIGH");
-    setSelectedPriority(selectedComplaint.priority || "P1_URGENT");
-    if (selectedComplaint.assignedReviewerId) {
-      setSelectedReviewerId(selectedComplaint.assignedReviewerId);
-    }
-    const allowed = VALID_NEXT_STATUSES[selectedComplaint.status] ?? ALL_STATUSES;
-    if (!allowed.includes(nextStatus)) {
-      setNextStatus(allowed[0] ?? "UNDER_REVIEW");
-    }
-  }, [selectedComplaint, nextStatus]);
 
   async function handleAssignAndClassify() {
     if (!selectedComplaint || !data) return;
@@ -1148,7 +1150,10 @@ export function ComplaintsManagementPage() {
                   return (
                     <div
                       key={item.id}
-                      onClick={() => setSelectedRef(item.referenceNumber)}
+                      onClick={() => {
+                        setSelectedRef(item.referenceNumber);
+                        syncComplaintEditor(item);
+                      }}
                       style={{
                         padding: "16px",
                         borderRadius: "14px",

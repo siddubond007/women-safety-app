@@ -375,12 +375,17 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
     const modQueue = await service.adminDashboardAndQueue("ADMIN2026TEST", {
       viewerRole: "STANDARD_MODERATOR",
     });
-    expect(modQueue.complaints[0].generalLocationLabel).toBe(
+    const firstModeratedComplaint = modQueue.complaints[0];
+    expect(firstModeratedComplaint).toBeDefined();
+    if (!firstModeratedComplaint) {
+      throw new Error("Expected the first complaint in the moderator queue.");
+    }
+    expect(firstModeratedComplaint.generalLocationLabel).toBe(
       "[Location Masked for Ordinary Moderator Role]",
     );
-    expect(modQueue.complaints[0].internalNotes).toEqual([]);
-    expect(modQueue.complaints[0]).not.toHaveProperty("passkeyDigest");
-    expect(modQueue.complaints[0]).not.toHaveProperty("disguisedBackupSerial");
+    expect(firstModeratedComplaint.internalNotes).toEqual([]);
+    expect(firstModeratedComplaint).not.toHaveProperty("passkeyDigest");
+    expect(firstModeratedComplaint).not.toHaveProperty("disguisedBackupSerial");
 
     // A caller cannot elevate its role through the viewerRole query parameter.
     const elevationAttemptQueue = await service.adminDashboardAndQueue(

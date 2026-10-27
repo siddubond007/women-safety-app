@@ -1,0 +1,63 @@
+name: Sakhi iOS validation
+
+on:
+  push:
+    branches:
+      - feat/module5-discreet-complaints-repaired
+    paths:
+      - "app/**"
+      - ".github/workflows/sakhi-ios-validation.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - ".github/workflows/sakhi-ios-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios-release-build:
+    name: iOS source validation and unsigned release build
+    runs-on: macos-15
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.7"
+          channel: stable
+          cache: true
+
+      - name: Resolve Flutter dependencies
+        run: flutter pub get
+
+      - name: Analyze Dart source
+        run: flutter analyze
+
+      - name: Run Flutter tests
+        run: flutter test
+
+      - name: Build iOS release without signing
+        run: >-
+          flutter build ios --release --no-codesign
+          --dart-define=SAKHI_BACKEND_ENABLED=true
+          --dart-define=SAKHI_STAGING_TEST_MODE=true
+          --dart-define=SAKHI_API_BASE_URL=https://sakhi-staging-api.onrender.com/api/v1
+
+      - name: Upload unsigned iOS app bundle
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sakhi-ios-unsigned-release
+          path: app/build/ios/iphoneos/Runner.app
+          if-no-files-found: error
+          retention-days: 7
