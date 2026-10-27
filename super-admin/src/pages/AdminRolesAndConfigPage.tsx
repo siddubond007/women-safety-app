@@ -156,8 +156,8 @@ export function AdminRolesAndConfigPage() {
   const [maxFilesCount, setMaxFilesCount] = useState(5);
 
   const loadData = useCallback(async () => {
-    setLoading(true);
-    setError("");
+    // Keep state writes after the network await so the initial effect does not
+    // synchronously cascade a render. Refresh controls manage their own spinner.
     try {
       const [staffRes, cfgRes] = await Promise.all([
         adminApi<StaffListPayload>("/admin-review/staff"),
@@ -187,7 +187,8 @@ export function AdminRolesAndConfigPage() {
   }, []);
 
   useEffect(() => {
-    void loadData();
+    // Defer the async request until after this effect has committed.
+    void Promise.resolve().then(() => loadData());
   }, [loadData]);
 
   async function handleCreateStaff() {
@@ -455,7 +456,11 @@ export function AdminRolesAndConfigPage() {
             className="secondary-button"
             type="button"
             disabled={loading || submitting}
-            onClick={() => void loadData()}
+            onClick={() => {
+              setLoading(true);
+              setError("");
+              void loadData();
+            }}
           >
             <RefreshCw size={15} /> {loading ? "Syncing..." : "Refresh Staff"}
           </button>

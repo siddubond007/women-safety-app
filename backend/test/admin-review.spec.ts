@@ -162,7 +162,7 @@ describe("AdminReviewService reviewer-token boundary", () => {
       phoneE164: "********4567",
       emailMasked: "m********@example.com",
     });
-    expect(result.items[0].email).toBeUndefined();
+    expect(result.items[0]?.email).toBeUndefined();
   });
 
   it("blocks direct member-state overrides and demo-data seeding in staging", async () => {

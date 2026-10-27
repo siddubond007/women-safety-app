@@ -77,15 +77,14 @@ export function BusinessManagementPage() {
   const [website, setWebsite] = useState("");
 
   const loadBusinesses = useCallback(async () => {
-    setLoading(true);
-    setError("");
+    // State updates follow the API await; the refresh button manages its spinner.
     try {
       const res = await adminApi<BusinessDirectoryPayload>(
         "/admin-review/businesses",
       );
       setData(res);
-      if (res.categories.length > 0 && !category) {
-        setCategory(res.categories[0]);
+      if (res.categories.length > 0) {
+        setCategory((current) => current || res.categories[0]);
       }
     } catch (err) {
       setError(
@@ -96,10 +95,11 @@ export function BusinessManagementPage() {
     } finally {
       setLoading(false);
     }
-  }, [category]);
+  }, []);
 
   useEffect(() => {
-    void loadBusinesses();
+    // Defer the async request until after this effect has committed.
+    void Promise.resolve().then(() => loadBusinesses());
   }, [loadBusinesses]);
 
   async function handleCreateBusiness() {
@@ -214,7 +214,11 @@ export function BusinessManagementPage() {
             className="secondary-button"
             type="button"
             disabled={loading || submitting}
-            onClick={() => void loadBusinesses()}
+            onClick={() => {
+              setLoading(true);
+              setError("");
+              void loadBusinesses();
+            }}
           >
             <RefreshCw size={15} /> {loading ? "Syncing..." : "Refresh Directory"}
           </button>

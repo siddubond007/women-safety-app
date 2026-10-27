@@ -11,6 +11,7 @@ import 'package:women_safety_app/features/complaints/screens/complaint_submissio
 import 'package:women_safety_app/features/complaints/screens/complaint_tracking_screens.dart';
 import 'package:women_safety_app/features/complaints/screens/discreet_complaint_hub_screen.dart';
 import 'package:women_safety_app/features/complaints/services/complaint_controller.dart';
+import 'package:women_safety_app/features/home/screens/home_screen.dart';
 
 /// Isolated test-only API client that simulates the backend contract for widget/unit tests
 /// without polluting production code with fake fallback records.
@@ -354,6 +355,24 @@ void main() {
     });
 
     testWidgets(
+      'Home safety concern entry opens the Module 5 complaint hub',
+      (tester) async {
+        await tester.pumpWidget(
+          _wrapWithMaterialApp(const Scaffold(body: HomeScreen())),
+        );
+        await tester.pump(const Duration(milliseconds: 250));
+
+        final safetyConcern = find.text('Report a Safety Concern');
+        expect(safetyConcern, findsOneWidget);
+        await tester.ensureVisible(safetyConcern);
+        await tester.tap(safetyConcern);
+        await tester.pumpAndSettle();
+
+        expect(find.text('Discreet Complaint Hub'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
       'DiscreetComplaintHubScreen renders hero, legal notice, modes, and quick exit',
       (tester) async {
         await tester.pumpWidget(
@@ -412,6 +431,10 @@ void main() {
           findsOneWidget,
         );
 
+        // Incident date and broad time of day are separate inputs.
+        expect(find.text('1. Approximate Incident Date'), findsOneWidget);
+        expect(find.text('2. Approximate Time of Day'), findsOneWidget);
+
         // Verify general location input starts empty (no pre-filled text requiring backspace)
         final locField = tester.widget<TextField>(
           find.byKey(const Key('m5-general-location-input')),
@@ -441,6 +464,14 @@ void main() {
         await tester.pumpAndSettle();
         expect(
           find.text('Encrypted Evidence Vault & Server EXIF Scrubber'),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('m5-add-evidence-camera-button')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('m5-add-evidence-screenshot-button')),
           findsOneWidget,
         );
       },

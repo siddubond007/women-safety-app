@@ -1851,6 +1851,14 @@ class _ComplaintSubmissionWizardScreenState
               label: const Text('Pick Photo / Screenshot'),
             ),
             FilledButton.tonalIcon(
+              key: const Key('m5-add-evidence-camera-button'),
+              onPressed: _isUploadingEvidence
+                  ? null
+                  : () => _pickAndUploadImageEvidence(ImageSource.camera),
+              icon: const Icon(Icons.photo_camera_rounded, size: 17),
+              label: const Text('Take Photo'),
+            ),
+            FilledButton.tonalIcon(
               key: const Key('m5-add-evidence-audio-pdf-button'),
               onPressed: _isUploadingEvidence
                   ? null

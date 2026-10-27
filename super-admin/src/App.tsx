@@ -106,7 +106,7 @@ function AppRoutes() {
           path="/action-center"
           element={
             canAccessFullWorkspace ? (
-              <RoleProtectedRoute path="/action-center" element={<DashboardPage />} />
+              <RoleProtectedRoute path="/action-center" element={<PlannedPage />} />
             ) : (
               <Navigate to="/test-access" replace />
             )
@@ -159,7 +159,7 @@ function AppRoutes() {
           path="/wellness"
           element={
             canAccessFullWorkspace ? (
-              <RoleProtectedRoute path="/wellness" element={<CommunityManagementPage />} />
+              <RoleProtectedRoute path="/wellness" element={<PlannedPage />} />
             ) : (
               <Navigate to="/test-access" replace />
             )

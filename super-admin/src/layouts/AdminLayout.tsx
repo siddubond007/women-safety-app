@@ -49,7 +49,7 @@ interface NavigationItem {
 
 const navigationItems: NavigationItem[] = [
   { label: "Overview dashboard", path: "/dashboard", icon: LayoutDashboard, group: "Workspace" },
-  { label: "Action center", path: "/action-center", icon: Activity, group: "Workspace" },
+  { label: "Action center", path: "/action-center", icon: Activity, group: "Workspace", planned: true },
   { label: "Members & accounts", path: "/members", icon: Users, group: "People & trust" },
   { label: "Eligibility & verification", path: "/verification", icon: UserRoundCheck, group: "People & trust" },
   { label: "Trust & safety", path: "/moderation", icon: ShieldAlert, group: "People & trust" },
@@ -57,7 +57,7 @@ const navigationItems: NavigationItem[] = [
   { label: "SOS & emergency", path: "/emergency", icon: Siren, group: "People & trust" },
   { label: "Community content", path: "/community", icon: BookOpenText, group: "Platform operations" },
   { label: "Business management", path: "/businesses", icon: Building2, group: "Platform operations" },
-  { label: "Wellness content", path: "/wellness", icon: HeartPulse, group: "Platform operations" },
+  { label: "Wellness content", path: "/wellness", icon: HeartPulse, group: "Platform operations", planned: true },
   { label: "Notifications", path: "/notifications", icon: Bell, group: "Platform operations", planned: true },
   { label: "Support desk", path: "/support", icon: LifeBuoy, group: "Platform operations", planned: true },
   { label: "Analytics & reports", path: "/analytics", icon: ChartNoAxesCombined, group: "Insights & security", planned: true },
@@ -66,7 +66,7 @@ const navigationItems: NavigationItem[] = [
   { label: "Audit trail & security", path: "/audit-security", icon: FileClock, group: "Insights & security" },
   { label: "Integrations & health", path: "/integrations", icon: Settings2, group: "Insights & security" },
   { label: "Backups & recovery", path: "/backups", icon: ClipboardCheck, group: "Insights & security", planned: true },
-  { label: "Platform settings", path: "/settings", icon: BriefcaseBusiness, group: "Insights & security" },
+  { label: "Registration policy", path: "/settings", icon: BriefcaseBusiness, group: "Insights & security" },
 ];
 
 const groupNames = ["Workspace", "People & trust", "Platform operations", "Insights & security"];
