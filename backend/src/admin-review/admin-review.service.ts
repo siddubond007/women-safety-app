@@ -165,7 +165,8 @@ export class AdminReviewService {
     return principal.reviewerLabel;
   }
 
-  session(token?: string) {
+  async session(token?: string) {
+    await SakhiAdminRbacRegistry.ensureHydrated(this.prisma);
     const reviewerLabel = this.assertReviewer(token);
     const isStaging =
       this.stagingAdminReviewEnabled() ||

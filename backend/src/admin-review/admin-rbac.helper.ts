@@ -1,7 +1,9 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   NotFoundException,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from "@nestjs/common";
 import {
@@ -398,11 +400,13 @@ export class SakhiAdminRbacRegistry {
     updatedAt: new Date().toISOString(),
   };
   private static hydrated = false;
+  private static hydrationPromise: Promise<void> | null = null;
 
   static resetForTesting(): void {
     this.staffMap.clear();
     this.businessMap.clear();
     this.hydrated = false;
+    this.hydrationPromise = null;
   }
 
   static getSuperAdminPrincipal(customLabel?: string): AuthenticatedAdminPrincipal {
@@ -499,7 +503,18 @@ export class SakhiAdminRbacRegistry {
 
   static async ensureHydrated(prisma: PrismaService): Promise<void> {
     if (this.hydrated) return;
-    this.hydrated = true;
+    if (this.hydrationPromise) return this.hydrationPromise;
+    const pending = this.hydrateRegistry(prisma);
+    this.hydrationPromise = pending;
+    try {
+      await pending;
+      this.hydrated = true;
+    } finally {
+      if (this.hydrationPromise === pending) this.hydrationPromise = null;
+    }
+  }
+
+  private static async hydrateRegistry(prisma: PrismaService): Promise<void> {
     const anyPrisma = prisma as unknown as Record<string, any>;
 
     try {
@@ -519,10 +534,7 @@ export class SakhiAdminRbacRegistry {
       }
 
       // Fallback to AuditEvent snapshots if table not yet migrated or empty
-      if (
-        (!loadedStaffFromTable || this.staffMap.size === 0) &&
-        prisma.auditEvent?.findMany
-      ) {
+      if (prisma.auditEvent?.findMany) {
         const snaps = await prisma.auditEvent
           .findMany({
             where: { action: "module10.admin_staff.snapshot" },
@@ -535,7 +547,7 @@ export class SakhiAdminRbacRegistry {
           if (meta && typeof meta.id === "string") {
             if (meta.deleted === true) {
               this.staffMap.delete(meta.id);
-            } else {
+            } else if (!loadedStaffFromTable || !this.staffMap.has(meta.id)) {
               const mapped = this.mapDbRowToStaff(meta);
               this.staffMap.set(mapped.id, mapped);
             }
@@ -1036,11 +1048,13 @@ export class SakhiAdminRbacRegistry {
     outcome: string,
     actorLabel: string,
   ): Promise<void> {
-    this.staffMap.set(staff.id, staff);
+this.staffMap.set(staff.id, staff);
     const anyPrisma = prisma as unknown as Record<string, any>;
+    let persisted = false;
+
     if (anyPrisma.adminStaffAccount?.upsert) {
-      await anyPrisma.adminStaffAccount
-        .upsert({
+      try {
+        await anyPrisma.adminStaffAccount.upsert({
           where: { id: staff.id },
           update: {
             fullName: staff.fullName,
@@ -1051,10 +1065,7 @@ export class SakhiAdminRbacRegistry {
             accessTokenPreview: staff.accessTokenPreview,
             isAuthorisedComplaintReviewer: staff.isAuthorisedComplaintReviewer,
             clearanceLevel: staff.clearanceLevel,
-            permissions: {
-              ...staff.permissions,
-              allowedRoutes: staff.allowedRoutes,
-            },
+            permissions: { ...staff.permissions, allowedRoutes: staff.allowedRoutes },
             lastLoginAt: staff.lastLoginAt ? new Date(staff.lastLoginAt) : null,
             updatedAt: new Date(staff.updatedAt),
           },
@@ -1069,21 +1080,33 @@ export class SakhiAdminRbacRegistry {
             accessTokenPreview: staff.accessTokenPreview,
             isAuthorisedComplaintReviewer: staff.isAuthorisedComplaintReviewer,
             clearanceLevel: staff.clearanceLevel,
-            permissions: {
-              ...staff.permissions,
-              allowedRoutes: staff.allowedRoutes,
-            },
+            permissions: { ...staff.permissions, allowedRoutes: staff.allowedRoutes },
             createdBy: staff.createdBy,
             createdAt: new Date(staff.createdAt),
             updatedAt: new Date(staff.updatedAt),
           },
-        })
-        .catch(() => null);
+        });
+        persisted = true;
+      } catch (error) {
+        if (
+          typeof error === "object" &&
+          error !== null &&
+          "code" in error &&
+          (error as { code?: unknown }).code === "P2002"
+        ) {
+          this.staffMap.delete(staff.id);
+          this.hydrated = false;
+          this.hydrationPromise = null;
+          throw new ConflictException(
+            "An admin account with this email or staff code already exists.",
+          );
+        }
+      }
     }
 
     if (prisma.auditEvent?.create) {
-      await prisma.auditEvent
-        .create({
+      try {
+        await prisma.auditEvent.create({
           data: {
             actorType: "ADMIN",
             action: "module10.admin_staff.snapshot",
@@ -1092,14 +1115,23 @@ export class SakhiAdminRbacRegistry {
             outcome,
             requestId: randomUUID(),
             redactedMetadata: JSON.parse(
-              JSON.stringify({
-                ...staff,
-                updatedBy: actorLabel,
-              }),
+              JSON.stringify({ ...staff, updatedBy: actorLabel }),
             ),
           },
-        })
-        .catch(() => null);
+        });
+        persisted = true;
+      } catch {
+        // Only report success when at least one durable store accepts the record.
+      }
+    }
+
+    if (!persisted) {
+      this.staffMap.delete(staff.id);
+      this.hydrated = false;
+      this.hydrationPromise = null;
+      throw new ServiceUnavailableException(
+        "Admin staff changes could not be durably saved. Check database connectivity and migration state, then retry.",
+      );
     }
   }
 

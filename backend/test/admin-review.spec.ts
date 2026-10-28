@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import { ForbiddenException, ConflictException, UnauthorizedException, ServiceUnavailableException } from "@nestjs/common";
 import { AdminReviewService } from "../src/admin-review/admin-review.service.js";
+import { SakhiAdminRbacRegistry } from "../src/admin-review/admin-rbac.helper.js";
 import type { PrismaService } from "../src/database/prisma.service.js";
 
 const originalToken = process.env.SAKHI_ADMIN_REVIEW_TOKEN;
@@ -54,48 +56,138 @@ describe("AdminReviewService reviewer-token boundary", () => {
     vi.restoreAllMocks();
   });
 
-  it("fails closed when the shared local reviewer token is not configured", () => {
+  it("fails closed when the shared local reviewer token is not configured", async () => {
     process.env.HOST = "127.0.0.1";
     process.env.SAKHI_ENV = "dev";
     delete process.env.SAKHI_ADMIN_REVIEW_TOKEN;
     const service = new AdminReviewService({} as PrismaService);
-    expect(() => service.session("anything-long-enough-to-look-like-a-token"))
-      .toThrow(ServiceUnavailableException);
+    await expect(service.session("anything-long-enough-to-look-like-a-token")).rejects.toThrow(ServiceUnavailableException);
   });
 
-  it("rejects a token that does not match the configured local secret", () => {
+  it("rejects a token that does not match the configured local secret", async () => {
     configureLocalReviewer();
     const service = new AdminReviewService({} as PrismaService);
-    expect(() => service.session("b".repeat(64))).toThrow(UnauthorizedException);
+    await expect(service.session("b".repeat(64))).rejects.toThrow(UnauthorizedException);
   });
 
-  it("accepts the configured token and returns the server-configured local reviewer label", () => {
+  it("accepts the configured token and returns the server-configured local reviewer label", async () => {
     configureLocalReviewer();
     const service = new AdminReviewService({} as PrismaService);
-    expect(service.session(reviewerToken)).toEqual({
+    await expect(service.session(reviewerToken)).resolves.toEqual({
       authenticated: true,
       reviewerLabel: "QA Reviewer",
       mode: "local_dev_test_only",
     });
   });
 
-  it("allows the shared reviewer portal in staging only with every explicit test gate enabled", () => {
+  it("allows the shared reviewer portal in staging only with every explicit test gate enabled", async () => {
     configureStagingReviewer();
     const service = new AdminReviewService({} as PrismaService);
-    expect(service.session(reviewerToken)).toEqual({
+    await expect(service.session(reviewerToken)).resolves.toEqual({
       authenticated: true,
       reviewerLabel: "Staging QA Reviewer",
       mode: "staging_test_only",
     });
   });
 
-  it("fails closed when the explicit staging admin gate is not enabled", () => {
+  it("fails closed when the explicit staging admin gate is not enabled", async () => {
     configureStagingReviewer();
     process.env.SAKHI_STAGING_ADMIN_REVIEW_ENABLED = "false";
     const service = new AdminReviewService({} as PrismaService);
-    expect(() => service.session(reviewerToken)).toThrow(ForbiddenException);
+    await expect(service.session(reviewerToken)).rejects.toThrow(ForbiddenException);
   });
 
+  it("hydrates persisted staff accounts before validating their issued login token", async () => {
+    configureLocalReviewer();
+    SakhiAdminRbacRegistry.resetForTesting();
+    const staffToken = "SAKHI-VA-123-ABCDEFGHIJ";
+    const now = new Date("2026-10-28T08:00:00.000Z");
+    const staffRow = {
+      id: "persisted-staff-123",
+      staffCode: "#VA-123",
+      fullName: "Persisted Verification Admin",
+      email: "verification.admin@example.test",
+      role: "VERIFICATION_ADMIN",
+      status: "ACTIVE",
+      accessTokenDigest: createHash("sha256").update(staffToken).digest("hex"),
+      accessTokenPreview: "SAKHI-VA-123…GHIJ",
+      isAuthorisedComplaintReviewer: false,
+      clearanceLevel: "LEVEL_2_ELIGIBILITY_SUPPORT",
+      permissions: {
+        view: true, create: false, edit: true, approve: true,
+        suspend: true, export: false, delete: false,
+      },
+      createdBy: "Sakhi Super Admin",
+      lastLoginAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const prisma = {
+      adminStaffAccount: {
+        findMany: vi.fn().mockResolvedValue([staffRow]),
+      },
+      auditEvent: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      businessDirectoryListing: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      platformConfigSetting: {
+        findUnique: vi.fn().mockResolvedValue(null),
+      },
+    } as unknown as PrismaService;
+
+    try {
+      const service = new AdminReviewService(prisma);
+      await expect(service.session(staffToken)).resolves.toMatchObject({
+        authenticated: true,
+        reviewerLabel: expect.stringContaining("Persisted Verification Admin"),
+        mode: "local_dev_test_only",
+      });
+      expect(prisma.adminStaffAccount.findMany).toHaveBeenCalledOnce();
+    } finally {
+      SakhiAdminRbacRegistry.resetForTesting();
+    }
+  });
+  it("does not issue a usable admin token when every durable persistence path fails", async () => {
+    configureLocalReviewer();
+    SakhiAdminRbacRegistry.resetForTesting();
+    const customToken = "persist-failure-token-12345";
+    const prisma = {
+      adminStaffAccount: {
+        findMany: vi.fn().mockResolvedValue([]),
+        upsert: vi.fn().mockRejectedValue(new Error("database unavailable")),
+      },
+      auditEvent: {
+        findMany: vi.fn().mockResolvedValue([]),
+        create: vi.fn().mockRejectedValue(new Error("audit store unavailable")),
+      },
+      businessDirectoryListing: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      platformConfigSetting: {
+        findUnique: vi.fn().mockResolvedValue(null),
+      },
+    } as unknown as PrismaService;
+
+    try {
+      await expect(
+        SakhiAdminRbacRegistry.createStaffAccount(
+          prisma,
+          {
+            fullName: "Persistence Failure Admin",
+            email: "persistence.failure@example.test",
+            role: "VERIFICATION_ADMIN",
+            customAccessToken: customToken,
+          },
+          "Sakhi Super Admin",
+        ),
+      ).rejects.toThrow(ServiceUnavailableException);
+      expect(SakhiAdminRbacRegistry.findStaffByToken(customToken)).toBeNull();
+    } finally {
+      SakhiAdminRbacRegistry.resetForTesting();
+    }
+  });
   it("allows the staging reviewer to read the real member directory", async () => {
     configureStagingReviewer();
     const prisma = {
@@ -236,13 +328,13 @@ describe("AdminReviewService reviewer-token boundary", () => {
     expect(tx.auditEvent.create).not.toHaveBeenCalled();
   });
 
-  it("refuses local reviewer-token access when the backend binds to a network interface", () => {
+  it("refuses local reviewer-token access when the backend binds to a network interface", async () => {
     process.env.SAKHI_ENV = "dev";
     process.env.NODE_ENV = "test";
     process.env.HOST = "0.0.0.0";
     process.env.SAKHI_ADMIN_REVIEW_TOKEN = "a".repeat(64);
     const service = new AdminReviewService({} as PrismaService);
-    expect(() => service.session("a".repeat(64))).toThrow(ForbiddenException);
+    await expect(service.session("a".repeat(64))).rejects.toThrow(ForbiddenException);
   });
   it("persists and returns the admin-configured minimum registration age policy", async () => {
     configureLocalReviewer();
