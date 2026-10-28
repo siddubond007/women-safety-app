@@ -1,0 +1,21 @@
+name: Export Sakhi source ZIP
+on:
+  push:
+    branches:
+      - artifact-sakhi-source-package-20261028
+permissions:
+  contents: read
+jobs:
+  export-source-zip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify source archive exists
+        run: test -s "Sakhi_Module1-5_Complete_Project_20261028_FINAL.zip"
+      - name: Upload source archive as downloadable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sakhi_Module1-5_Complete_Project_20261028_FINAL
+          path: Sakhi_Module1-5_Complete_Project_20261028_FINAL.zip
+          if-no-files-found: error
+          retention-days: 7
