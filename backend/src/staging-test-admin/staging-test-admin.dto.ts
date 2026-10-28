@@ -2,7 +2,7 @@ import { IsBoolean, IsString, MaxLength, MinLength } from "class-validator";
 
 export class StagingTestAdminLoginDto {
   @IsString()
-  @MinLength(32)
+  @MinLength(8)
   @MaxLength(500)
   token!: string;
 }
