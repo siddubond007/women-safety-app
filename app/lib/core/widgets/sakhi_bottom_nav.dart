@@ -3,7 +3,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 
-/// Custom 5-item Sakhi bottom navigation bar with central purple '+' button.
+/// Custom Sakhi bottom navigation bar with central purple '+' button and dedicated Safety shield tab.
 class SakhiBottomNav extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onTabSelected;
@@ -30,11 +30,12 @@ class SakhiBottomNav extends StatelessWidget {
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               _NavTabItem(
+                key: const Key('bottom-nav-home-tab'),
                 icon: Icons.home_outlined,
                 activeIcon: Icons.home_rounded,
                 label: 'Home',
@@ -42,6 +43,7 @@ class SakhiBottomNav extends StatelessWidget {
                 onTap: () => onTabSelected(0),
               ),
               _NavTabItem(
+                key: const Key('bottom-nav-explore-tab'),
                 icon: Icons.search_rounded,
                 activeIcon: Icons.search_rounded,
                 useSearchBadge: true,
@@ -51,10 +53,11 @@ class SakhiBottomNav extends StatelessWidget {
               ),
               // Central '+' action button
               GestureDetector(
+                key: const Key('bottom-nav-create-hub-button'),
                 onTap: onCenterAddTap,
                 child: Container(
-                  width: 48,
-                  height: 48,
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
                       begin: Alignment.topLeft,
@@ -76,11 +79,20 @@ class SakhiBottomNav extends StatelessWidget {
                   child: const Icon(
                     Icons.add_rounded,
                     color: Colors.white,
-                    size: 28,
+                    size: 26,
                   ),
                 ),
               ),
               _NavTabItem(
+                key: const Key('bottom-nav-safety-tab'),
+                icon: Icons.shield_outlined,
+                activeIcon: Icons.shield_rounded,
+                label: 'Safety',
+                isSelected: currentIndex == 4,
+                onTap: () => onTabSelected(4),
+              ),
+              _NavTabItem(
+                key: const Key('bottom-nav-community-tab'),
                 icon: Icons.groups_outlined,
                 activeIcon: Icons.groups_rounded,
                 label: 'Community',
@@ -88,6 +100,7 @@ class SakhiBottomNav extends StatelessWidget {
                 onTap: () => onTabSelected(2),
               ),
               _NavTabItem(
+                key: const Key('bottom-nav-profile-tab'),
                 icon: Icons.person_outline_rounded,
                 activeIcon: Icons.person_rounded,
                 label: 'Profile',
@@ -111,6 +124,7 @@ class _NavTabItem extends StatelessWidget {
   final VoidCallback onTap;
 
   const _NavTabItem({
+    super.key,
     required this.icon,
     required this.activeIcon,
     required this.label,
@@ -126,7 +140,7 @@ class _NavTabItem extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -135,12 +149,13 @@ class _NavTabItem extends StatelessWidget {
                   ? (useSearchBadge ? Icons.search_rounded : activeIcon)
                   : icon,
               color: color,
-              size: 24,
+              size: 22,
             ),
             const SizedBox(height: 3),
             Text(
               label,
               style: AppTypography.navLabel.copyWith(
+                fontSize: 10.5,
                 color: color,
                 fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
               ),

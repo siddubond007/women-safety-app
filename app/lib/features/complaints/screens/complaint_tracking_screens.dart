@@ -801,6 +801,15 @@ class _ComplaintTrackingLookupScreenState
                             runSpacing: 8,
                             children: [
                               OutlinedButton.icon(
+                                key: const Key('m5-refresh-case-status-button'),
+                                onPressed: _isLookingUp ? null : _lookupCaseOnServer,
+                                icon: const Icon(
+                                  Icons.refresh_rounded,
+                                  size: 16,
+                                ),
+                                label: const Text('Refresh Status & Messages'),
+                              ),
+                              OutlinedButton.icon(
                                 onPressed: () => _openTwoWayReplyModal(item),
                                 icon: const Icon(
                                   Icons.lock_outline_rounded,

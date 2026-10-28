@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../features/account_security/screens/account_security_screen.dart';
 import '../../features/community/screens/community_screen.dart';
-import '../../features/complaints/screens/complaint_admin_console_screen.dart';
 import '../../features/complaints/screens/complaint_submission_wizard_screen.dart';
 import '../../features/complaints/screens/complaint_tracking_screens.dart';
 import '../../features/complaints/screens/discreet_complaint_hub_screen.dart';
@@ -18,7 +17,7 @@ import '../../features/settings/screens/privacy_settings_screen.dart';
 import '../../features/wellness/screens/wellness_screen.dart';
 import 'app_navigation_shell.dart';
 
-/// Centralized route definitions for all Module 2, Module 3, Module 4 & Module 5 Sakhi UI screens.
+/// Centralized route definitions for Sakhi mobile screens.
 class AppRoutes {
   AppRoutes._();
 
@@ -41,11 +40,11 @@ class AppRoutes {
   static const String accountSecurity = '/account-security'; // Screen 11
   static const String moreOptions = '/more-options'; // Screen 12
 
-  // Module 5: Discreet and Anonymous Complaint System Routes
+  // Discreet and Anonymous Complaint System Routes
   static const String discreetComplaintHub = '/discreet-complaints';
   static const String complaintWizard = '/complaint-wizard';
   static const String complaintTracker = '/complaint-tracker';
-  static const String complaintAdmin = '/complaint-admin';
+  static const String complaintTrackingLookup = '/complaint-tracking-lookup';
   static const String quickExitJournal = '/quick-exit-journal';
 
   static Map<String, WidgetBuilder> get routes => {
@@ -69,7 +68,7 @@ class AppRoutes {
     discreetComplaintHub: (_) => const DiscreetComplaintHubScreen(),
     complaintWizard: (_) => const ComplaintSubmissionWizardScreen(),
     complaintTracker: (_) => const ComplaintTrackingLookupScreen(),
-    complaintAdmin: (_) => const ComplaintAdminConsoleScreen(),
+    complaintTrackingLookup: (_) => const ComplaintTrackingLookupScreen(),
     quickExitJournal: (_) => const QuickExitWellnessCamouflageScreen(),
   };
 }

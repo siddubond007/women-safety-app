@@ -378,6 +378,188 @@ class _SafetyScreenState extends State<SafetyScreen>
                       ),
                     ],
                   ),
+                  const SizedBox(height: 18),
+
+                  // Prominent Discreet & Anonymous Complaint Hub Sanctuary Card on Safety Tab
+                  Container(
+                    key: const Key('safety-module5-discreet-complaint-card'),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Color(0xFFFFF0F6),
+                          Color(0xFFF5E6FA),
+                          Color(0xFFEDE0F6),
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(
+                        color: const Color(0xFFDCC0E8),
+                        width: 1.4,
+                      ),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x145A1868),
+                          blurRadius: 16,
+                          offset: Offset(0, 6),
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(22),
+                      child: Stack(
+                        children: [
+                          const Positioned(
+                            right: -12,
+                            top: -12,
+                            child: SakhiBotanicalFlower(
+                              type: SakhiFlowerType.roseClassic,
+                              width: 72,
+                              height: 84,
+                              opacity: 0.30,
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(16),
+                                      child: SizedBox(
+                                        width: 82,
+                                        height: 82,
+                                        child: Image.asset(
+                                          'assets/module5/illustrations/01_hero_woman_lotus_safe_voice.jpg',
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, _, _) => Container(
+                                            color: const Color(0xFFF2E6F7),
+                                            child: const Icon(
+                                              Icons.shield_moon_rounded,
+                                              size: 36,
+                                              color: SakhiModule4Colors.primaryPlum,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 14),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 9,
+                                              vertical: 3.5,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: Colors.white.withValues(alpha: 0.9),
+                                              borderRadius: BorderRadius.circular(999),
+                                            ),
+                                            child: const Text(
+                                              '100% PRIVATE • SAFE VOICE',
+                                              style: TextStyle(
+                                                fontSize: 9.5,
+                                                fontWeight: FontWeight.w800,
+                                                letterSpacing: 0.5,
+                                                color: SakhiModule4Colors.primaryPlum,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 6),
+                                          const Text(
+                                            'Discreet & Anonymous Complaint Hub',
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w800,
+                                              height: 1.2,
+                                              color: SakhiModule4Colors.textPrimary,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          const Text(
+                                            'Privately report harassment, stalking, cyberbullying, or workplace issues—anonymously or confidentially.',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              height: 1.35,
+                                              color: SakhiModule4Colors.textSecondary,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: FilledButton.icon(
+                                        key: const Key('safety-open-discreet-complaint-hub-button'),
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor: SakhiModule4Colors.primaryPlum,
+                                          foregroundColor: Colors.white,
+                                          padding: const EdgeInsets.symmetric(vertical: 10),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(999),
+                                          ),
+                                        ),
+                                        onPressed: () => _openScreen(
+                                          const DiscreetComplaintHubScreen(),
+                                        ),
+                                        icon: const Icon(Icons.lock_outline_rounded, size: 16),
+                                        label: const Text(
+                                          'Report Safely',
+                                          style: TextStyle(
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        key: const Key('safety-open-complaint-tracker-button'),
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: SakhiModule4Colors.primaryPlum,
+                                          backgroundColor: Colors.white.withValues(alpha: 0.88),
+                                          side: const BorderSide(
+                                            color: SakhiModule4Colors.primaryPlum,
+                                          ),
+                                          padding: const EdgeInsets.symmetric(vertical: 10),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(999),
+                                          ),
+                                        ),
+                                        onPressed: () => _openScreen(
+                                          const ComplaintTrackingLookupScreen(),
+                                        ),
+                                        icon: const Icon(Icons.manage_search_rounded, size: 16),
+                                        label: const Text(
+                                          'Track My Report',
+                                          style: TextStyle(
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
                   const SizedBox(height: 20),
 
                   const Text(
@@ -448,120 +630,6 @@ class _SafetyScreenState extends State<SafetyScreen>
                         : 'Real live GPS map, verified directory, directions & Call 112',
                     onTap: () =>
                         _openScreen(const NearestPoliceStationsScreen()),
-                  ),
-                  const SizedBox(height: 14),
-                  // Screen 01 — Module 5 Discreet & Anonymous Complaint Hub Entry Card
-                  Container(
-                    key: const Key('safety-module5-discreet-complaint-card'),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [Color(0xFFFFF1F6), Color(0xFFF4E4FA)],
-                      ),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: const Color(0xFFDCC0E8), width: 1.3),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x125A1868),
-                          blurRadius: 14,
-                          offset: Offset(0, 6),
-                        ),
-                      ],
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(20),
-                      child: Stack(
-                        children: [
-                          const Positioned(
-                            right: -12,
-                            top: -12,
-                            child: SakhiBotanicalFlower(
-                              type: SakhiFlowerType.roseClassic,
-                              width: 72,
-                              height: 84,
-                              opacity: 0.30,
-                            ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.all(15),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Container(
-                                      width: 44,
-                                      height: 44,
-                                      decoration: const BoxDecoration(
-                                        color: Color(0xFF5A1868),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: const Icon(
-                                        Icons.shield_moon_rounded,
-                                        color: Colors.white,
-                                        size: 22,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    const Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            'Discreet & Anonymous Complaints',
-                                            style: TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.w800,
-                                              color: SakhiModule4Colors.textPrimary,
-                                            ),
-                                          ),
-                                          SizedBox(height: 2),
-                                          Text(
-                                            'Report harassment, stalking, cyberbullying, or workplace concerns privately and safely.',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: SakhiModule4Colors.textSecondary,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 12),
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children: [
-                                    FilledButton.icon(
-                                      key: const Key('safety-open-discreet-complaint-hub-button'),
-                                      style: FilledButton.styleFrom(
-                                        backgroundColor: SakhiModule4Colors.primaryPlum,
-                                        foregroundColor: Colors.white,
-                                      ),
-                                      onPressed: () => _openScreen(
-                                        const DiscreetComplaintHubScreen(),
-                                      ),
-                                      icon: const Icon(Icons.lock_outline_rounded, size: 16),
-                                      label: const Text('File Discreet Report'),
-                                    ),
-                                    OutlinedButton.icon(
-                                      key: const Key('safety-open-complaint-tracker-button'),
-                                      onPressed: () => _openScreen(
-                                        const ComplaintTrackingLookupScreen(),
-                                      ),
-                                      icon: const Icon(Icons.manage_search_rounded, size: 16),
-                                      label: const Text('Track My Report'),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
                   ),
 
                   const SizedBox(height: 16),

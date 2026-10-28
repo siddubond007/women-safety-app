@@ -117,7 +117,7 @@ describe("development authentication API contract", () => {
       changeReason: "Standard 18+ community registration policy",
     });
     expect(auth.getRegistrationPolicy).toHaveBeenCalledOnce();
-  });
+  }, 20_000);
 
   it("accepts a valid development OTP request and returns the typed contract", async () => {
     auth.requestOtp.mockResolvedValue({

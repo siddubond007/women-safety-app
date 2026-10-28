@@ -94,8 +94,12 @@ class _ComplaintAdminConsoleScreenState
   Future<void> _openAssignmentAndSeverityModal(
     DiscreetComplaintModel item,
   ) async {
-    var reviewerId = 'SR-04';
-    var reviewerName = 'Meera Krishnan (#SR-04 • Senior Trust & Safety Officer)';
+    final reviewerIdCtrl = TextEditingController(text: 'SR-01');
+    final reviewerNameCtrl = TextEditingController(
+      text: item.assignedReviewerName != 'Unassigned'
+          ? item.assignedReviewerName
+          : 'Authorised Safety Reviewer',
+    );
     var severity = item.severity.isNotEmpty ? item.severity : 'S2_HIGH';
     var priority = item.priority.isNotEmpty ? item.priority : 'P1_URGENT';
 
@@ -178,37 +182,18 @@ class _ComplaintAdminConsoleScreenState
                   },
                 ),
                 const SizedBox(height: 10),
-                DropdownButtonFormField<String>(
-                  initialValue: reviewerId,
+                TextField(
+                  controller: reviewerIdCtrl,
                   decoration: const InputDecoration(
-                    labelText: 'Authorised Safety Reviewer',
+                    labelText: 'Reviewer Staff ID *',
                   ),
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'SR-04',
-                      child: Text('Meera Krishnan (#SR-04 • Senior Officer)'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'EL-01',
-                      child: Text('Dr. Kavita Rao (#EL-01 • Escalation Lead)'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'SR-07',
-                      child: Text('Anjali Menon (#SR-07 • Safety Reviewer)'),
-                    ),
-                  ],
-                  onChanged: (v) {
-                    if (v != null) {
-                      setModalState(() {
-                        reviewerId = v;
-                        reviewerName = v == 'EL-01'
-                            ? 'Dr. Kavita Rao (#EL-01 • Escalation Lead)'
-                            : v == 'SR-07'
-                            ? 'Anjali Menon (#SR-07 • Safety Reviewer)'
-                            : 'Meera Krishnan (#SR-04 • Senior Trust & Safety Officer)';
-                      });
-                    }
-                  },
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: reviewerNameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Authorised Safety Reviewer Name *',
+                  ),
                 ),
               ],
             ),
@@ -235,15 +220,14 @@ class _ComplaintAdminConsoleScreenState
       try {
         await _controller.adminAssignAndClassifyOnServer(
           referenceNumber: item.referenceNumber,
-          assignedReviewerId: reviewerId,
-          assignedReviewerName: reviewerName,
+          assignedReviewerId: reviewerIdCtrl.text.trim(),
+          assignedReviewerName: reviewerNameCtrl.text.trim(),
           severity: severity,
           priority: priority,
         );
         if (!mounted) return;
         setState(() {
-          _consoleNotice =
-              'Assigned ${item.referenceNumber} to $reviewerName ($priority • $severity).';
+          _consoleNotice = 'Assigned ${item.referenceNumber} to ${reviewerNameCtrl.text.trim()} ($priority • $severity).';
         });
       } on BackendApiException catch (err) {
         if (!mounted) return;

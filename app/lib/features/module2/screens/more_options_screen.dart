@@ -106,7 +106,7 @@ class MoreOptionsScreen extends StatelessWidget {
             SakhiSettingsRow(
               icon: Icons.info_outline_rounded,
               title: 'About Sakhi',
-              subtitle: 'Version 1.0.0',
+              subtitle: 'Version 1.2.0',
               onTap: () => _showAbout(context),
             ),
             const SizedBox(height: 19),

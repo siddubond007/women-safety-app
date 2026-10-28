@@ -27,7 +27,7 @@ class AppNavigationShell extends StatefulWidget {
 
 class _AppNavigationShellState extends State<AppNavigationShell> {
   late int _currentIndex;
-  // Optional sub-tab override for Wellness (4) or Safety (5) inside the bottom-nav shell
+  // Optional sub-tab override for Wellness inside the bottom-nav shell
   String? _activeSubScreenRoute;
 
   @override
@@ -45,7 +45,12 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
   }
 
   void _handleRouteFromChild(String routeName) {
-    if (routeName == AppRoutes.wellness || routeName == AppRoutes.safety) {
+    if (routeName == AppRoutes.safety) {
+      setState(() {
+        _currentIndex = 4;
+        _activeSubScreenRoute = null;
+      });
+    } else if (routeName == AppRoutes.wellness) {
       setState(() {
         _activeSubScreenRoute = routeName;
       });
@@ -59,8 +64,11 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
     Widget activeBody;
     if (_activeSubScreenRoute == AppRoutes.wellness) {
       activeBody = const WellnessScreen(showBackButton: false);
-    } else if (_activeSubScreenRoute == AppRoutes.safety) {
-      activeBody = const SafetyScreen(showBackButton: false);
+    } else if (_activeSubScreenRoute == AppRoutes.safety || _currentIndex == 4) {
+      activeBody = SafetyScreen(
+        showBackButton: false,
+        onNavigateRoute: _handleRouteFromChild,
+      );
     } else {
       switch (_currentIndex) {
         case 0:

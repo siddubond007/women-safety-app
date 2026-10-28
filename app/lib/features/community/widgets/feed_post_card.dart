@@ -1159,7 +1159,7 @@ class FeedPostCard extends StatelessWidget {
                   ),
                   title: const Text('Report Discreetly (Anonymous / Confidential)'),
                   subtitle: const Text(
-                    'Open Module 5 Discreet Complaint Hub with EXIF scrubber & #SKH token',
+                    'File an anonymous or confidential safety report with photo privacy protection',
                   ),
                   onTap: () {
                     Navigator.pop(ctx);

@@ -12,6 +12,8 @@ import 'package:women_safety_app/features/complaints/screens/complaint_tracking_
 import 'package:women_safety_app/features/complaints/screens/discreet_complaint_hub_screen.dart';
 import 'package:women_safety_app/features/complaints/services/complaint_controller.dart';
 import 'package:women_safety_app/features/home/screens/home_screen.dart';
+import 'package:women_safety_app/features/safety/models/safety_models.dart';
+import 'package:women_safety_app/features/safety/screens/safety_screen.dart';
 
 /// Isolated test-only API client that simulates the backend contract for widget/unit tests
 /// without polluting production code with fake fallback records.
@@ -199,10 +201,11 @@ class _FakeComplaintBackendApiClient extends BackendApiClient {
   }
 }
 
-Widget _wrapWithMaterialApp(Widget home) {
+Widget _wrapWithMaterialApp(Widget home, {Key? key}) {
   final routes = Map<String, WidgetBuilder>.from(AppRoutes.routes)
     ..remove(AppRoutes.root);
   return MaterialApp(
+    key: key,
     theme: AppTheme.lightTheme,
     routes: routes,
     home: home,
@@ -355,18 +358,36 @@ void main() {
     });
 
     testWidgets(
-      'Home safety concern entry opens the Module 5 complaint hub',
+      'Home safety concern card and Safety Hub entry both open the Discreet Complaint Hub',
       (tester) async {
         await tester.pumpWidget(
           _wrapWithMaterialApp(const Scaffold(body: HomeScreen())),
         );
         await tester.pump(const Duration(milliseconds: 250));
-
         final safetyConcern = find.text('Report a Safety Concern');
         expect(safetyConcern, findsOneWidget);
         await tester.ensureVisible(safetyConcern);
         await tester.tap(safetyConcern);
         await tester.pumpAndSettle();
+        expect(find.text('Discreet Complaint Hub'), findsOneWidget);
+
+        SakhiSafetyController.instance.clearDeviceLocation();
+        await tester.pumpWidget(
+          _wrapWithMaterialApp(
+            const SafetyScreen(),
+            key: const ValueKey<String>('module5-safety-screen-test-root'),
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 400));
+
+        final reportSafelyBtn = find.byKey(
+          const Key('safety-open-discreet-complaint-hub-button'),
+        );
+        expect(reportSafelyBtn, findsOneWidget);
+        await tester.ensureVisible(reportSafelyBtn);
+        await tester.tap(reportSafelyBtn);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
 
         expect(find.text('Discreet Complaint Hub'), findsOneWidget);
       },

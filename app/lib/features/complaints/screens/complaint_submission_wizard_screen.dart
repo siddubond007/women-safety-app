@@ -66,7 +66,7 @@ class _ComplaintSubmissionWizardScreenState
   final TextEditingController _linkedBusinessCtrl = TextEditingController();
 
   String _approximateDateLabel = 'Today / Within the last 24 hours';
-  String _approximateTimeWindow = 'Evening (5 PM â€“ 9 PM)';
+  String _approximateTimeWindow = 'Evening (5 PM – 9 PM)';
   String _locationType = 'COARSE_AREA';
   bool _wantsFollowUp = true;
   String _discreetNotificationMode = 'SILENT_VAULT_ONLY';
@@ -160,7 +160,7 @@ class _ComplaintSubmissionWizardScreenState
         return 'Please provide at least 20 characters describing what happened (${cleanDesc.length}/20 typed).';
       }
       if (RegExp(r'^[\d\s.,+-]+$').hasMatch(cleanDesc)) {
-        return 'Please describe what happened in wordsâ€”numbers-only input is not allowed.';
+        return 'Please describe what happened in words—numbers-only input is not allowed.';
       }
       if (cleanDesc.length > 4000) {
         return 'Incident description cannot exceed 4,000 characters.';
@@ -509,7 +509,7 @@ class _ComplaintSubmissionWizardScreenState
     contentCtrl.dispose();
   }
 
-  /// Modal 11 â€” Real-Time Identity-Reveal Warning & One-Tap Auto-Redaction Modal
+  /// Modal 11 — Real-Time Identity-Reveal Warning & One-Tap Auto-Redaction Modal
   Future<String?> _showPiiWarningModal(PiiCheckResultModel piiCheck) {
     return showDialog<String>(
       context: context,
@@ -552,7 +552,7 @@ class _ComplaintSubmissionWizardScreenState
                     border: Border.all(color: const Color(0xFFF2C57C)),
                   ),
                   child: Text(
-                    'â€¢ ${item.type}: "${item.snippet}" â†’ ${item.replacement}',
+                    '• ${item.type}: "${item.snippet}" → ${item.replacement}',
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
@@ -587,7 +587,7 @@ class _ComplaintSubmissionWizardScreenState
     );
   }
 
-  /// Dialog 19 â€” Final Pre-Submission Confirmation Dialog
+  /// Dialog 19 — Final Pre-Submission Confirmation Dialog
   Future<bool?> _showFinalSubmissionConfirmDialog() {
     final cat = _controller.categoryByCode(_selectedCategoryCode);
     return showDialog<bool>(
@@ -616,10 +616,10 @@ class _ComplaintSubmissionWizardScreenState
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'â€¢ Mode: ${_reportingMode.title}\n'
-              'â€¢ Category: ${cat.label}\n'
-              'â€¢ Evidence Files: ${_evidenceFiles.length} (EXIF & GPS stripped)\n'
-              'â€¢ Reported Party Visibility: Hidden (Never disclosed)',
+              '• Mode: ${_reportingMode.title}\n'
+              '• Category: ${cat.label}\n'
+              '• Evidence Files: ${_evidenceFiles.length} (EXIF & GPS stripped)\n'
+              '• Reported Party Visibility: Hidden (Never disclosed)',
               style: AppTypography.bodyRegular.copyWith(height: 1.45),
             ),
             const SizedBox(height: 10),
@@ -667,11 +667,11 @@ class _ComplaintSubmissionWizardScreenState
     }
 
     const stepTitles = <String>[
-      'Step 1 of 5 â€¢ Reporting Mode',
-      'Step 2 of 5 â€¢ Complaint Category',
-      'Step 3 of 5 â€¢ Incident Details & Privacy Guard',
-      'Step 4 of 5 â€¢ Evidence Vault & EXIF Scrubber',
-      'Step 5 of 5 â€¢ Updates & Final Review',
+      'Step 1 of 5 • Reporting Mode',
+      'Step 2 of 5 • Complaint Category',
+      'Step 3 of 5 • Incident Details & Privacy Guard',
+      'Step 4 of 5 • Evidence Vault & EXIF Scrubber',
+      'Step 5 of 5 • Updates & Final Review',
     ];
 
     return Scaffold(
@@ -895,7 +895,7 @@ class _ComplaintSubmissionWizardScreenState
     );
   }
 
-  /// Screens 04 & 05 â€” Step 1: Reporting Mode Selection (Anonymous vs Confidential)
+  /// Screens 04 & 05 — Step 1: Reporting Mode Selection (Anonymous vs Confidential)
   Widget _buildStep1ReportingMode() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1085,7 +1085,7 @@ class _ComplaintSubmissionWizardScreenState
     );
   }
 
-  /// Screens 07, 08 & Modal 09 â€” Step 2: Configurable 10-Category Selection Grid
+  /// Screens 07, 08 & Modal 09 — Step 2: Configurable 10-Category Selection Grid
   Widget _buildStep2CategoryGrid() {
     final categories = _controller.enabledCategories;
     final selectedCat = _controller.categoryByCode(_selectedCategoryCode);
@@ -1099,7 +1099,7 @@ class _ComplaintSubmissionWizardScreenState
         ),
         const SizedBox(height: 4),
         const Text(
-          'Select the category that best fits your concern. Tap the â“˜ icon on any card for safety & helpline guidance.',
+          'Select the category that best fits your concern. Tap the ⓘ icon on any card for safety & helpline guidance.',
           style: AppTypography.subtitle,
         ),
         const SizedBox(height: 14),
@@ -1303,7 +1303,7 @@ class _ComplaintSubmissionWizardScreenState
     );
   }
 
-  /// Modal 09 â€” Category Safety & POSH Guidance Popup Modal
+  /// Modal 09 — Category Safety & POSH Guidance Popup Modal
   void _showCategorySafetyGuidanceModal(ComplaintCategoryInfo cat) {
     showDialog<void>(
       context: context,
@@ -1316,7 +1316,7 @@ class _ComplaintSubmissionWizardScreenState
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                '${cat.label} â€¢ Safety Guidance',
+                '${cat.label} • Safety Guidance',
                 style: AppTypography.editorialSection.copyWith(fontSize: 18),
               ),
             ),
@@ -1382,10 +1382,10 @@ class _ComplaintSubmissionWizardScreenState
       'Earlier This Month',
     ];
     const timePresets = <String>[
-      'Morning (6 AM â€“ 12 PM)',
-      'Afternoon (12 PM â€“ 5 PM)',
-      'Evening (5 PM â€“ 9 PM)',
-      'Night (9 PM â€“ 6 AM)',
+      'Morning (6 AM – 12 PM)',
+      'Afternoon (12 PM – 5 PM)',
+      'Evening (5 PM – 9 PM)',
+      'Night (9 PM – 6 AM)',
       'Prefer Not to Specify Time',
     ];
 
@@ -1766,7 +1766,7 @@ class _ComplaintSubmissionWizardScreenState
     }
   }
 
-  /// Screens 14, Modal 15, Sheet 16, Modal 17 â€” Step 4: Evidence Vault & EXIF Scrubber
+  /// Screens 14, Modal 15, Sheet 16, Modal 17 — Step 4: Evidence Vault & EXIF Scrubber
   Widget _buildStep4EvidenceVault() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1890,7 +1890,7 @@ class _ComplaintSubmissionWizardScreenState
               border: Border.all(color: AppColors.borderSubtle),
             ),
             child: const Text(
-              'No evidence files attached yet. Attachments are optionalâ€”pick a photo/screenshot or attach a transcript above if you have supporting proof.',
+              'No evidence files attached yet. Attachments are optional—pick a photo/screenshot or attach a transcript above if you have supporting proof.',
               style: AppTypography.subtitle,
             ),
           )
@@ -1930,7 +1930,7 @@ class _ComplaintSubmissionWizardScreenState
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          '${ev.formattedSize} â€¢ ${ev.removedTags.length} metadata tags stripped',
+                          '${ev.formattedSize} • ${ev.removedTags.length} metadata tags stripped',
                           style: AppTypography.subtitle.copyWith(
                             fontSize: 11.5,
                           ),
@@ -1956,7 +1956,7 @@ class _ComplaintSubmissionWizardScreenState
           ),
         const SizedBox(height: 14),
 
-        // Modal 17 â€” Supporting Links & In-App Post/Profile/Business Linker
+        // Modal 17 — Supporting Links & In-App Post/Profile/Business Linker
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
@@ -2027,7 +2027,7 @@ class _ComplaintSubmissionWizardScreenState
     );
   }
 
-  /// Modal 15 â€” Evidence Safety Guidance Modal
+  /// Modal 15 — Evidence Safety Guidance Modal
   void _showEvidenceSafetyGuidanceModal() {
     showDialog<void>(
       context: context,
@@ -2061,7 +2061,7 @@ class _ComplaintSubmissionWizardScreenState
     );
   }
 
-  /// Sheet 16 â€” Automatic EXIF Metadata Scrubber & Visual Blur Inspection Sheet
+  /// Sheet 16 — Automatic EXIF Metadata Scrubber & Visual Blur Inspection Sheet
   void _openExifScrubberInspectionSheet(SanitizedEvidenceFileModel ev) {
     showModalBottomSheet<void>(
       context: context,
@@ -2088,7 +2088,7 @@ class _ComplaintSubmissionWizardScreenState
               ),
               const SizedBox(height: 4),
               Text(
-                'SHA-256 Integrity Hash: ${ev.sha256Hash.length > 28 ? '${ev.sha256Hash.substring(0, 28)}â€¦' : ev.sha256Hash}',
+                'SHA-256 Integrity Hash: ${ev.sha256Hash.length > 28 ? '${ev.sha256Hash.substring(0, 28)}…' : ev.sha256Hash}',
                 style: AppTypography.technicalHash,
               ),
               const SizedBox(height: 12),
@@ -2127,7 +2127,7 @@ class _ComplaintSubmissionWizardScreenState
                 width: double.infinity,
                 child: FilledButton(
                   onPressed: () => Navigator.of(ctx).pop(),
-                  child: const Text('Verified â€¢ Close Inspector'),
+                  child: const Text('Verified • Close Inspector'),
                 ),
               ),
             ],
@@ -2137,7 +2137,7 @@ class _ComplaintSubmissionWizardScreenState
     );
   }
 
-  /// Modal 17 â€” Supporting Links & In-App Reference Modal (Validates URL before adding!)
+  /// Modal 17 — Supporting Links & In-App Reference Modal (Validates URL before adding!)
   Future<void> _openSupportingLinksModal() async {
     final linkCtrl = TextEditingController();
     String? modalError;
@@ -2194,7 +2194,7 @@ class _ComplaintSubmissionWizardScreenState
     }
   }
 
-  /// Screen 18 â€” Step 5: Updates Preference & Pre-Submission Summary Review
+  /// Screen 18 — Step 5: Updates Preference & Pre-Submission Summary Review
   Widget _buildStep5PreSubmissionReview() {
     final cat = _controller.categoryByCode(_selectedCategoryCode);
     return Column(
@@ -2301,7 +2301,7 @@ class _ComplaintSubmissionWizardScreenState
               _buildSummaryLine('Category', '${cat.label} ($_urgencyLevel)'),
               _buildSummaryLine(
                 'Incident Window',
-                '$_approximateDateLabel â€¢ $_approximateTimeWindow',
+                '$_approximateDateLabel • $_approximateTimeWindow',
               ),
               _buildSummaryLine(
                 'Location Scope',
@@ -2315,7 +2315,7 @@ class _ComplaintSubmissionWizardScreenState
               ),
               _buildSummaryLine(
                 'Scrubbed Evidence',
-                '${_evidenceFiles.length} file(s) â€¢ EXIF GPS Removed',
+                '${_evidenceFiles.length} file(s) • EXIF GPS Removed',
               ),
               _buildSummaryLine(
                 'Supporting Links',
@@ -2364,7 +2364,7 @@ class _ComplaintSubmissionWizardScreenState
     );
   }
 
-  /// Screen 20 & Modal 21 â€” Server-Confirmed Complaint Receipt Screen
+  /// Screen 20 & Modal 21 — Server-Confirmed Complaint Receipt Screen
   Widget _buildSubmittedReceiptScreen(DiscreetComplaintModel receipt) {
     return Scaffold(
       backgroundColor: const Color(0xFFFFF8FB),
@@ -2447,7 +2447,7 @@ class _ComplaintSubmissionWizardScreenState
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
-                        '${receipt.reportingMode.badgeLabel} â€¢ STATUS: ${receipt.status.label.toUpperCase()}',
+                        '${receipt.reportingMode.badgeLabel} • STATUS: ${receipt.status.label.toUpperCase()}',
                         style: const TextStyle(
                           fontSize: 10.5,
                           fontWeight: FontWeight.w800,
@@ -2474,7 +2474,7 @@ class _ComplaintSubmissionWizardScreenState
                     ),
                     const SizedBox(height: 6),
                     const Text(
-                      'Save both your Reference Number and Passkeyâ€”they are required to check status updates or reply.',
+                      'Save both your Reference Number and Passkey—they are required to check status updates or reply.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 11.5,
@@ -2562,7 +2562,7 @@ class _ComplaintSubmissionWizardScreenState
     );
   }
 
-  /// Modal 21 â€” Save Discreet Reference Backup Modal (Camouflaged as a Daily Wellness Quote Card)
+  /// Modal 21 — Save Discreet Reference Backup Modal (Camouflaged as a Daily Wellness Quote Card)
   void _showDisguisedWellnessBackupModal(DiscreetComplaintModel receipt) {
     showDialog<void>(
       context: context,
@@ -2599,7 +2599,7 @@ class _ComplaintSubmissionWizardScreenState
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'â€œPeace begins the moment you choose to honour your own boundaries.â€',
+                    '“Peace begins the moment you choose to honour your own boundaries.”',
                     textAlign: TextAlign.center,
                     style: AppTypography.editorialQuote,
                   ),

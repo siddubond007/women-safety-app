@@ -285,12 +285,34 @@ export interface PlatformConfigRecord {
     anonymousComplaintsEnabled: boolean;
     sosLiveShareEnabled: boolean;
     decentroDigilockerEnabled: boolean;
+    directMessagingEnabled?: boolean;
+    manualVerificationFallbackEnabled?: boolean;
   };
   mediaUploadLimits: {
     maxPostImageMb: number;
+    maxVideoUploadMb?: number;
+    maxVideoDurationSeconds?: number;
     maxComplaintEvidenceMb: number;
     maxFilesPerComplaint: number;
     allowedFormats: string[];
+    feedCategories?: string[];
+    policyDocuments?: {
+      termsVersion: string;
+      privacyPolicyVersion: string;
+      communityGuidelines: string;
+      medicalLegalDisclaimer: string;
+    };
+    notificationTemplates?: {
+      wellnessDiscreetDefault: string;
+      complaintStatusUpdate: string;
+      sosEmergencySms: string;
+    };
+    retentionPolicies?: {
+      verificationRetentionDays: number;
+      closedComplaintRetentionDays: number;
+      messagesRetentionDays: number;
+      deletedAccountPurgeDays: number;
+    };
   };
   businessCategories: string[];
   announcementBanner: string;
@@ -320,21 +342,55 @@ export class SakhiAdminRbacRegistry {
       anonymousComplaintsEnabled: true,
       sosLiveShareEnabled: true,
       decentroDigilockerEnabled: true,
+      directMessagingEnabled: true,
+      manualVerificationFallbackEnabled: true,
     },
     mediaUploadLimits: {
       maxPostImageMb: 10,
+      maxVideoUploadMb: 50,
+      maxVideoDurationSeconds: 120,
       maxComplaintEvidenceMb: 15,
       maxFilesPerComplaint: 5,
       allowedFormats: ["PNG", "JPEG", "WEBP", "PDF", "M4A", "MP3", "WAV"],
+      feedCategories: [
+        "Following",
+        "Community",
+        "Trending",
+        "Business Updates",
+        "Safety Awareness",
+        "Wellness and Lifestyle",
+      ],
+      policyDocuments: {
+        termsVersion: "v2.4 (DPDP Act 2023 & IT Rules Compliant)",
+        privacyPolicyVersion: "v2.4 (Zero Raw Aadhaar/OTP & Encrypted Health Data)",
+        communityGuidelines: "Zero tolerance for harassment, doxxing, hate speech, or non-consensual media.",
+        medicalLegalDisclaimer: "In-app wellness content is non-diagnostic educational guidance; in-app complaints do not replace a Police FIR or 112 call.",
+      },
+      notificationTemplates: {
+        wellnessDiscreetDefault: "Sakhi Daily Mindfulness: Your personal calendar reminder is ready.",
+        complaintStatusUpdate: "Sakhi Personal Note: You have a new update in your private vault.",
+        sosEmergencySms: "URGENT SAKHI SOS: {memberName} needs emergency assistance. Live location: {trackingUrl} | Dial 112.",
+      },
+      retentionPolicies: {
+        verificationRetentionDays: 30,
+        closedComplaintRetentionDays: 90,
+        messagesRetentionDays: 180,
+        deletedAccountPurgeDays: 30,
+      },
     },
     businessCategories: [
-      "Women-Owned Boutique & Apparel",
-      "Health, Fitness & Nutrition Coaching",
-      "Legal, CA & Financial Advisory",
-      "Artisanal Food, Bakery & Catering",
-      "Beauty, Wellness & Bridal Studio",
-      "Tech, Design & Freelance Services",
-      "Childcare, Education & Tutoring",
+      "Fashion",
+      "Beauty",
+      "Food",
+      "Health",
+      "Education",
+      "Home services",
+      "Consulting",
+      "Art",
+      "Retail",
+      "Events",
+      "Freelancers",
+      "Other",
     ],
     announcementBanner:
       "Sakhi Women Safety & Community Sanctuary — Verified, Encrypted & DPDP Act 2023 Compliant.",

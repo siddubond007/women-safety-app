@@ -136,7 +136,7 @@ Future<SakhiCreateAction?> showSakhiCreateHub(BuildContext context) {
               icon: Icons.shield_moon_rounded,
               title: 'File a Discreet Complaint',
               description:
-                  'Anonymous or Confidential report with EXIF scrubber & #SKH token',
+                  'Report harassment, stalking, or safety concerns privately',
               gradientColors: const [Color(0xFFFCEEF5), Color(0xFFF2E2F8)],
               iconBg: const Color(0xFFE5C5F0),
               onTap: () => Navigator.of(sheetContext)

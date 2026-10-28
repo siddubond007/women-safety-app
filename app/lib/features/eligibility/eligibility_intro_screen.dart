@@ -650,7 +650,7 @@ class _DecentroDigilockerVerificationScreenState
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'CURRENT VERIFICATION STATUS (SRS 3.3)',
+                          'CURRENT VERIFICATION STATUS',
                           style: TextStyle(
                             fontSize: 10.5,
                             fontWeight: FontWeight.w800,
@@ -817,7 +817,7 @@ class _DecentroDigilockerVerificationScreenState
                       SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          '1. Purpose, Consent & Privacy Guarantee (SRS 3.2 & 3.5)',
+                          '1. Purpose, Consent & Privacy Guarantee',
                           style: TextStyle(
                             fontSize: 14.5,
                             fontWeight: FontWeight.w800,
@@ -831,7 +831,7 @@ class _DecentroDigilockerVerificationScreenState
                   const Text(
                     '• Why we verify: Sakhi restricts community access to verified female members aged 18+ to protect member safety and trust.\n'
                     '• How it works: Our authorised KYC partner Decentro DigiLocker checks only the gender ("F") and Date of Birth attributes.\n'
-                    '• Zero Raw ID Storage (SRS 3.5): Sakhi NEVER stores your Aadhaar number, OTP, or raw identity documents—only the verification status token.',
+                    '• Zero Raw ID Storage: Sakhi NEVER stores your Aadhaar number, OTP, or raw identity documents—only the verification status token.',
                     style: TextStyle(
                       fontSize: 12.5,
                       height: 1.45,

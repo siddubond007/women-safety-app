@@ -174,7 +174,7 @@ class SakhiComplaintController extends ChangeNotifier {
       safetyGuidance:
           'Select a coarse 5 km neighbourhood zone rather than your exact home address. Your report helps warn the Sakhi safety team about unsafe corridors.',
       legalHelplineNote:
-          'Use Module 4 Nearest Police Stations or dial 112 for immediate PCR van patrol.',
+          'Use Nearest Police Stations in the Safety tab or dial 112 for immediate police assistance.',
       defaultPriority: 'P2_HIGH',
       defaultSeverity: 'S2_HIGH',
       icon: Icons.location_city_rounded,

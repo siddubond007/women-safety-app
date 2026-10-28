@@ -190,7 +190,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             icon: Icons.shield_rounded,
                             circleColor: AppColors.sosRedSoft,
                             iconColor: AppColors.sosRed,
-                            onTap: () => _openRoute(AppRoutes.safety),
+                            onTap: () => _openTab(4, AppRoutes.safety),
                           ),
                         ],
                       ),
@@ -206,7 +206,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         flowerType: SakhiFlowerType.roseClassic,
                         onTap: _openEligibilityVerification,
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 12),
                       Container(
                         key: const Key('home-discreet-complaint-card'),
                         decoration: BoxDecoration(
@@ -435,7 +435,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         title: 'Safety & Helpline Directory',
                         subtitle: '24/7 verified support & emergency contacts',
                         flowerType: SakhiFlowerType.roseClassic,
-                        onTap: () => _openRoute(AppRoutes.safety),
+                        onTap: () => _openTab(4, AppRoutes.safety),
                       ),
                       const SizedBox(height: 18),
                       GestureDetector(

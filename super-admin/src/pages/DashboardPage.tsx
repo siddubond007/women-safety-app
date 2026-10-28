@@ -126,12 +126,18 @@ const isOpenReport = (report: ReportRecord) =>
 
 export function DashboardPage() {
   const navigate = useNavigate();
+  const session = adminAuthService.getProfile();
+  const currentRole = session.role;
+  const isSuperAdmin = currentRole === "SUPER_ADMIN";
   const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(isSuperAdmin);
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
 
   useEffect(() => {
+    if (!isSuperAdmin) {
+      return;
+    }
     let active = true;
 
     const fetchDashboard = async () => {
@@ -162,7 +168,7 @@ export function DashboardPage() {
     return () => {
       active = false;
     };
-  }, [navigate, refresh]);
+  }, [isSuperAdmin, navigate, refresh]);
 
   const recentReports = useMemo(
     () => (data?.operations.reports ?? []).filter(isOpenReport),
@@ -236,6 +242,44 @@ export function DashboardPage() {
   const activityPolygon = activityPoints.length
     ? `34,172 ${activityPolyline} 566,172`
     : "";
+
+  if (!isSuperAdmin) {
+    const primaryRoute = adminAuthService.getDefaultLandingRoute();
+    return (
+      <div className="dashboard-page">
+        <section className="page-heading">
+          <div>
+            <div className="eyebrow">
+              <span className="eyebrow-line" /> ROLE-FILTERED OPERATIONAL WORKSPACE
+            </div>
+            <h1>{session?.roleTitle ?? "Role-Specific Admin Workspace"}</h1>
+            <p>
+              Signed in as <strong>{session?.reviewerLabel}</strong> • Clearance:{" "}
+              <strong>{session?.clearanceLevel?.replace(/_/g, " ")}</strong>. For strict privacy isolation, this dashboard displays only your assigned operational queue.
+            </p>
+          </div>
+          <div className="heading-meta">
+            <StatusPill tone="green">
+              <span className="status-pill__dot" /> LEAST-PRIVILEGE RBAC ACTIVE
+            </StatusPill>
+          </div>
+        </section>
+
+        <section className="panel" style={{ padding: "24px", marginBottom: "20px" }}>
+          <h2 style={{ marginTop: 0 }}>Assigned Operational Queue &amp; Allowed Tabs</h2>
+          <p style={{ color: "#6e6275", marginBottom: "16px" }}>
+            Your administrator role grants access strictly to:{" "}
+            <strong>{(session?.allowedRoutes ?? [primaryRoute]).join(", ")}</strong>. Unauthorised queues (such as Discreet Complaints, SOS Logs, or Global Settings not assigned to your role) are hidden and blocked on the server.
+          </p>
+          <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+            <Link className="button button--primary" to={primaryRoute}>
+              Open Primary Operational Queue ({primaryRoute}) <ArrowRight size={15} />
+            </Link>
+          </div>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="dashboard-page">

@@ -127,7 +127,7 @@ class MoreOptionsMenuScreen extends StatelessWidget {
                         useCardContainer: false,
                         icon: Icons.shield_moon_rounded,
                         title: 'Discreet & Anonymous Complaint Hub',
-                        subtitle: 'File anonymous/confidential reports or track by #SKH token',
+                        subtitle: 'File an anonymous or confidential report & check report status',
                         onTap: () => Navigator.of(context)
                             .pushNamed(AppRoutes.discreetComplaintHub),
                       ),
@@ -193,7 +193,7 @@ class MoreOptionsMenuScreen extends StatelessWidget {
                         useCardContainer: false,
                         icon: Icons.info_outline_rounded,
                         title: 'About Sakhi',
-                        subtitle: 'Version 1.0.0',
+                        subtitle: 'Version 1.2.0',
                         onTap: () => SakhiDialogs.showConfirmationDialog(
                           context: context,
                           title: 'About Sakhi (v1.0.0)',

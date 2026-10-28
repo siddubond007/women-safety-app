@@ -14,7 +14,6 @@ import 'features/auth/sakhi_auth_status_screen.dart';
 import 'features/auth/sakhi_login_screen.dart';
 import 'features/auth/sakhi_registration_screen.dart';
 import 'features/community/screens/community_screen.dart';
-import 'features/complaints/screens/complaint_admin_console_screen.dart';
 import 'features/complaints/screens/complaint_submission_wizard_screen.dart';
 import 'features/complaints/screens/complaint_tracking_screens.dart';
 import 'features/complaints/screens/discreet_complaint_hub_screen.dart';
@@ -127,7 +126,7 @@ class SakhiApp extends StatelessWidget {
         AppRoutes.discreetComplaintHub: (_) => const DiscreetComplaintHubScreen(),
         AppRoutes.complaintWizard: (_) => const ComplaintSubmissionWizardScreen(),
         AppRoutes.complaintTracker: (_) => const ComplaintTrackingLookupScreen(),
-        AppRoutes.complaintAdmin: (_) => const ComplaintAdminConsoleScreen(),
+        AppRoutes.complaintTrackingLookup: (_) => const ComplaintTrackingLookupScreen(),
         AppRoutes.quickExitJournal: (_) => const QuickExitWellnessCamouflageScreen(),
       },
       home: SakhiStartupRouter(authService: authService),
