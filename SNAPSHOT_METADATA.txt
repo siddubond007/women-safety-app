@@ -1,0 +1,14 @@
+Sakhi complete source handoff snapshot
+Snapshot date: 2026-10-28
+
+Tested source branch: feat/module5-and-rbac-admin-panels-20261027
+Tested source commit: 67eb8b3f063f3b52de2f30acf7b37d7db5dd909d
+Handoff branch: handoff-module1-5-complete-project-20261028
+
+Contents: complete committed Flutter mobile app and assets, NestJS/TypeScript backend, Prisma schema and migrations, Super Admin web portal, unit/regression tests, package manifests and lockfiles, deployment configuration, development scripts, project specifications and acceptance reports.
+
+Verification at the source commit: backend test suite 106 passed; 3 database-integration tests skipped; backend typecheck and production build passed. The owner confirmed the staging admin login worked after this commit was deployed.
+
+Excluded by request: internal Gemini/ChatGPT prompts, chat handoff notes, and internal installation/runbook guides. Also not included in a GitHub source archive: .git history, local ignored files, .env secrets, dependency caches, and build outputs. Example environment files (.env.example) and package lockfiles are retained.
+
+This is a complete source-code handoff, not a prebuilt development environment. Restore dependencies from lockfiles and rebuild generated outputs as needed.
