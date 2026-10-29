@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -96,7 +96,51 @@ type Member360Detail = Member & {
     commentsCount: number;
     emergencyContactsCount: number;
     sosEventsCount: number;
+    reportsAgainstCount?: number;
+    reportsSubmittedCount?: number;
   };
+  posts?: Array<{
+    id: string;
+    content: string;
+    imageAsset?: string | null;
+    categoryBadge?: string | null;
+    feedSection?: string;
+    status: string;
+    likesCount: number;
+    commentsCount: number;
+    createdAt: string;
+  }>;
+  reportsAgainstMember?: Array<{
+    id: string;
+    source: string;
+    targetHandle: string;
+    postId: string | null;
+    reason: string;
+    status: string;
+    reviewerNotes: string | null;
+    createdAt: string;
+  }>;
+  reportsByMember?: Array<{
+    id: string;
+    targetHandle: string;
+    postId: string | null;
+    reason: string;
+    status: string;
+    createdAt: string;
+  }>;
+  emergencyContacts?: Array<{
+    id: string;
+    name: string;
+    relationship: string;
+    phoneE164: string;
+  }>;
+  sosEvents?: Array<{
+    id: string;
+    eventType: string;
+    status: string;
+    locationLabel: string;
+    createdAt: string;
+  }>;
   auditEvents?: Array<{
     id: string;
     actorType: string;
@@ -178,23 +222,31 @@ const eligibilityTone = (
         ? "neutral"
         : "amber";
 
-const formatDate = (value: string | null) =>
-  value
-    ? new Intl.DateTimeFormat("en-IN", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      }).format(new Date(value))
-    : "Never";
+const SHORT_DATE_FMT = new Intl.DateTimeFormat("en-IN", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+});
 
-const formatDateTime = (value: string) =>
-  new Intl.DateTimeFormat("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
+const DATE_TIME_FMT = new Intl.DateTimeFormat("en-IN", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+const formatDate = (value: string | null) => {
+  if (!value) return "Never";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? "Never" : SHORT_DATE_FMT.format(d);
+};
+
+const formatDateTime = (value: string) => {
+  if (!value) return "Not available";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? "Not available" : DATE_TIME_FMT.format(d);
+};
 
 const initials = (name: string) =>
   name
@@ -224,7 +276,8 @@ export function MemberManagementPage({
   const [showAllPhones, setShowAllPhones] = useState(false);
   const [visibleRowIds, setVisibleRowIds] = useState<Record<string, boolean>>({});
 
-  // Selected Member 360 Drawer state
+  // Selected Member 360 Drawer state + fast in-memory 360 cache for 0ms drawer open
+  const member360CacheRef = useRef<Record<string, Member360Detail>>({});
   const [selected, setSelected] = useState<Member | null>(null);
   const [detail360, setDetail360] = useState<Member360Detail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -285,8 +338,9 @@ export function MemberManagementPage({
   }, [load, refresh]);
 
   async function openEditor(member: Member) {
+    const cached = member360CacheRef.current[member.id];
     setSelected(member);
-    setDetail360(member);
+    setDetail360(cached ?? member);
     setAccountStatus(member.accountStatus);
     setVerificationStatus(member.verificationStatus);
     setSelectedPreset(
@@ -300,11 +354,12 @@ export function MemberManagementPage({
       "Admin eligibility and account status override via Super Admin panel.",
     );
     setActionError("");
-    setLoadingDetail(true);
+    setLoadingDetail(!cached);
     try {
       const full = await adminApi<Member360Detail>(
         "/admin-review/members/" + encodeURIComponent(member.id),
       );
+      member360CacheRef.current[member.id] = full;
       setDetail360(full);
     } catch {
       // Keep base member fields if 360 endpoint is still deploying
@@ -493,7 +548,7 @@ export function MemberManagementPage({
   const totalPages = data
     ? Math.max(1, Math.ceil(data.total / data.pageSize))
     : 1;
-  const activeDetail = detail360 ?? selected;
+  const activeDetail = (detail360 ?? selected) as any;
 
   return (
     <div className="members-page">
@@ -534,7 +589,7 @@ export function MemberManagementPage({
         <div className="member-toast" role="status">
           <CheckCircle2 size={17} />
           <span>{notice}</span>
-          <button
+          <button className="button button--secondary"
             type="button"
             onClick={() => setNotice("")}
             aria-label="Dismiss notice"
@@ -959,7 +1014,7 @@ export function MemberManagementPage({
                     <StatusPill
                       tone={verificationTone(activeDetail.verificationStatus)}
                     >
-                      {verificationLabels[activeDetail.verificationStatus]}
+                      {(verificationLabels as Record<string, string>)[activeDetail.verificationStatus] ?? activeDetail.verificationStatus}
                     </StatusPill>
                   </div>
                 </div>
@@ -1131,10 +1186,20 @@ export function MemberManagementPage({
                           {activeDetail.counts.commentsCount} Comments ·{" "}
                           {activeDetail.counts.emergencyContactsCount} Emergency
                           Contacts · {activeDetail.counts.sosEventsCount} SOS
-                          Events
+                          Events ·{" "}
+                          {activeDetail.counts.reportsAgainstCount ??
+                            detail360?.reportsAgainstMember?.length ??
+                            0}{" "}
+                          Reports Against
                         </dd>
                       </div>
                     )}
+                    <div>
+                      <dt>Username Handle</dt>
+                      <dd>
+                        <strong>{activeDetail.username ?? "Auto-assigned"}</strong>
+                      </dd>
+                    </div>
                     <div>
                       <dt>Account UUID</dt>
                       <dd style={{ overflowWrap: "anywhere", fontSize: 11.5 }}>
@@ -1142,7 +1207,193 @@ export function MemberManagementPage({
                       </dd>
                     </div>
                   </dl>
+                  <div style={{ marginTop: 12 }}>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => {
+                        try {
+                          window.localStorage.setItem(
+                            "sakhi_admin_publisher_account_id",
+                            activeDetail.id,
+                          );
+                        } catch {
+                          // Ignore storage errors
+                        }
+                        setNotice(
+                          `Linked ${activeDetail.displayName} (${activeDetail.username ?? activeDetail.reference}) as the Official Admin Publisher account for Community announcements!`,
+                        );
+                      }}
+                    >
+                      ✨ Set as Official Admin Post Publisher Account
+                    </button>
+                  </div>
                 </section>
+
+                {/* Member's Created Community Posts (Flaw 26 Fix) */}
+                <section className="member-detail-section">
+                  <h3>
+                    Member’s Community Posts ({detail360?.posts?.length ?? 0})
+                  </h3>
+                  {(detail360?.posts ?? []).length === 0 ? (
+                    <p
+                      className="member-section-description"
+                      style={{ margin: 0 }}
+                    >
+                      No community posts published by this member yet.
+                    </p>
+                  ) : (
+                    <div
+                      style={{
+                        display: "grid",
+                        gap: 10,
+                        marginTop: 8,
+                        maxHeight: 260,
+                        overflowY: "auto",
+                      }}
+                    >
+                      {(detail360?.posts ?? []).map((post) => (
+                        <div
+                          key={post.id}
+                          style={{
+                            padding: 12,
+                            borderRadius: 12,
+                            background: "#faf5fb",
+                            border: "1px solid #ead8e8",
+                            fontSize: 12.5,
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              gap: 8,
+                              marginBottom: 6,
+                            }}
+                          >
+                            <strong>
+                              {post.categoryBadge ||
+                                post.feedSection ||
+                                "Community"}
+                            </strong>
+                            <StatusPill
+                              tone={
+                                post.status === "REMOVED_BY_MODERATOR"
+                                  ? "urgent"
+                                  : "green"
+                              }
+                            >
+                              {post.status.replace(/_/g, " ")}
+                            </StatusPill>
+                          </div>
+                          <p
+                            style={{
+                              margin: "0 0 6px 0",
+                              color: "#36253d",
+                              lineHeight: 1.45,
+                            }}
+                          >
+                            {post.content}
+                          </p>
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              color: "#7c6b83",
+                              fontSize: 11.5,
+                            }}
+                          >
+                            <span>
+                              {post.likesCount} reactions · {post.commentsCount}{" "}
+                              comments
+                            </span>
+                            <span>{formatDateTime(post.createdAt)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                {/* Reports & Complaints Filed Against Member (Flaw 26 Fix) */}
+                <section className="member-detail-section">
+                  <h3>
+                    Reports &amp; Complaints Against Member (
+                    {detail360?.reportsAgainstMember?.length ?? 0})
+                  </h3>
+                  {(detail360?.reportsAgainstMember ?? []).length === 0 ? (
+                    <p
+                      className="member-section-description"
+                      style={{ margin: 0 }}
+                    >
+                      Clean trust record — 0 reports or complaints filed against
+                      this member.
+                    </p>
+                  ) : (
+                    <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+                      {(detail360?.reportsAgainstMember ?? []).map((rep) => (
+                        <div
+                          key={rep.id}
+                          style={{
+                            padding: 11,
+                            borderRadius: 11,
+                            background: "#fff5f7",
+                            border: "1px solid #f0cdd6",
+                            fontSize: 12.5,
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              gap: 8,
+                            }}
+                          >
+                            <strong>
+                              {rep.source.replace(/_/g, " ")} ·{" "}
+                              {rep.targetHandle}
+                            </strong>
+                            <StatusPill tone="urgent">{rep.status}</StatusPill>
+                          </div>
+                          <p style={{ margin: "4px 0", color: "#4a2533" }}>
+                            {rep.reason}
+                          </p>
+                          <small style={{ color: "#8a6878" }}>
+                            Filed {formatDateTime(rep.createdAt)}
+                          </small>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                {/* Reports Submitted By Member */}
+                {(detail360?.reportsByMember ?? []).length > 0 && (
+                  <section className="member-detail-section">
+                    <h3>
+                      Reports Submitted By Member (
+                      {detail360?.reportsByMember?.length ?? 0})
+                    </h3>
+                    <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+                      {(detail360?.reportsByMember ?? []).map((rep) => (
+                        <div
+                          key={rep.id}
+                          style={{
+                            padding: 10,
+                            borderRadius: 10,
+                            background: "#fdfafd",
+                            border: "1px solid #eee2f0",
+                            fontSize: 12,
+                          }}
+                        >
+                          <strong>Target: {rep.targetHandle}</strong> ·{" "}
+                          {rep.reason} ({rep.status})
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
 
                 {/* Custom State Dropdown Editor */}
                 <section className="member-detail-section">

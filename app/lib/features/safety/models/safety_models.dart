@@ -13,6 +13,38 @@ import '../../../core/assets/app_assets.dart';
 import '../../auth/backend_api_client.dart';
 import '../services/device_location_service.dart';
 
+class SimCardInfo {
+  final int subscriptionId;
+  final int slotIndex;
+  final String carrierName;
+  final String displayName;
+  final String number;
+
+  const SimCardInfo({
+    required this.subscriptionId,
+    required this.slotIndex,
+    required this.carrierName,
+    required this.displayName,
+    this.number = '',
+  });
+
+  String get label =>
+      'SIM ${slotIndex + 1} • ${carrierName.isNotEmpty ? carrierName : displayName}';
+
+  factory SimCardInfo.fromMap(Map<dynamic, dynamic> map) {
+    final slot = (map['slotIndex'] as num?)?.toInt() ?? 0;
+    final carrier = (map['carrierName'] ?? '').toString().trim();
+    final display = (map['displayName'] ?? 'SIM ${slot + 1}').toString().trim();
+    return SimCardInfo(
+      subscriptionId: (map['subscriptionId'] as num?)?.toInt() ?? -1,
+      slotIndex: slot,
+      carrierName: carrier.isNotEmpty ? carrier : display,
+      displayName: display,
+      number: (map['number'] ?? '').toString().trim(),
+    );
+  }
+}
+
 class SafetyTrustedContact {
   final String id;
   String name;
@@ -180,7 +212,7 @@ class SafetySosHistoryItem {
       case 'ACTIVE':
         return 'Live Alert Active';
       default:
-        return status;
+        return SakhiSafetyController.formatCleanSafetyLabel(status);
     }
   }
 
@@ -341,6 +373,74 @@ class SakhiSafetyController extends ChangeNotifier {
   static const String _kShortcutsKey = 'sakhi.module4.shortcuts_v2';
   static const String _kChecklistKey = 'sakhi.module4.checklist_v2';
   static const String _kRideLogKey = 'sakhi.module4.ride_log_v2';
+  static const String _kSelectedSimKey = 'sakhi.module4.selected_sim_v1';
+
+  static String formatCleanSafetyLabel(String raw) {
+    final cleaned = raw.trim().replaceAll('_', ' ');
+    if (cleaned.isEmpty) return 'Hardware Shortcut';
+    return cleaned
+        .split(RegExp(r'\s+'))
+        .map(
+          (w) => w.isEmpty
+              ? w
+              : '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}',
+        )
+        .join(' ');
+  }
+
+  static bool isLikelyNonPoliceCommercialPoi(
+    String name,
+    String address, [
+    Map<String, dynamic>? tags,
+  ]) {
+    final combined = '$name $address'.toLowerCase();
+    const blockedKeywords = [
+      'petrol',
+      'bunk',
+      'fuel',
+      'pump',
+      'gas station',
+      'hpcl',
+      'bpcl',
+      'iocl',
+      'indian oil',
+      'bharat petroleum',
+      'hindustan petroleum',
+      'nayara',
+      'shell',
+      'canteen',
+      'ncc',
+      'cadet',
+      'supermarket',
+      'grocery',
+      'bakery',
+      'restaurant',
+      'hotel',
+      'cafe',
+      'atm',
+      'bank',
+      'hospital',
+      'clinic',
+      'pharmacy',
+      'medical store',
+      'school',
+      'college',
+    ];
+    for (final kw in blockedKeywords) {
+      if (combined.contains(kw)) return true;
+    }
+    if (tags != null) {
+      final amenity = (tags['amenity'] ?? '').toString().toLowerCase();
+      final shop = (tags['shop'] ?? '').toString().toLowerCase();
+      if (shop.isNotEmpty) return true;
+      if (amenity.isNotEmpty && amenity != 'police') return true;
+      if (amenity == 'police') return false;
+    }
+    return !RegExp(
+      r'\b(police|thana|chowki|mahila|ps|station|outpost|commissioner|cop|control room|rps|grp)\b',
+      caseSensitive: false,
+    ).hasMatch(combined);
+  }
 
   BackendApiClient? _apiClient;
   BackendApiClient get _client => _apiClient ??= BackendApiClient();
@@ -365,14 +465,15 @@ class SakhiSafetyController extends ChangeNotifier {
     _nativeChannel.setMethodCallHandler((call) async {
       if (call.method == 'onDiscreetTrigger') {
         final args = call.arguments;
-        String source = 'HARDWARE_SHORTCUT';
+        String rawSource = 'HARDWARE_SHORTCUT';
         if (args is Map && args['source'] != null) {
-          source = args['source'].toString();
+          rawSource = args['source'].toString();
         }
-        lastShortcutTriggerSource = source;
+        final cleanSource = formatCleanSafetyLabel(rawSource);
+        lastShortcutTriggerSource = cleanSource;
         lastShortcutTriggeredAt = DateTime.now();
         notifyListeners();
-        onDiscreetShortcutTriggered?.call(source);
+        onDiscreetShortcutTriggered?.call(cleanSource);
       }
       return null;
     });
@@ -394,7 +495,10 @@ class SakhiSafetyController extends ChangeNotifier {
   double currentLongitude = 0.0;
   double? currentAccuracyMeters;
   String currentLocationLabel = 'Acquiring GPS location…';
-  int? batteryPercent = 84;
+  int? batteryPercent;
+  final List<SimCardInfo> availableSimCards = [];
+  int? selectedSimSubscriptionId;
+  String selectedSimLabel = 'Auto Default SIM';
   String activeShareToken = '';
   String activeTrackingUrl = '';
   bool isLoadingStations = false;
@@ -570,7 +674,7 @@ class SakhiSafetyController extends ChangeNotifier {
       category: 'Night Travel & Public Spaces',
       title: 'Night Travel & Safe Halts',
       subtitle: 'Choosing well-lit corridors, verified stations & 24/7 spots',
-      illustrationAsset: 'assets/module4/illustrations/illustration_commute_and_cab_safety.jpg',
+      illustrationAsset: 'assets/module4/illustrations/illustration_night_travel_and_safe_halts.jpg',
       icon: Icons.nightlight_round,
       emergencyNumber: '100',
       actionSteps: [
@@ -587,9 +691,9 @@ class SakhiSafetyController extends ChangeNotifier {
     SafetyTipGuideModel(
       id: 'tip_cyber_safety',
       category: 'Digital & Cyber Safety',
-      title: 'Cyber Stalking & Digital Privacy',
-      subtitle: 'Handling online harassment, morphing & 1930 reporting',
-      illustrationAsset: 'assets/module4/illustrations/illustration_using_discreet_sos_safely.jpg',
+      title: 'Cyber Stalking & Solo Living Safety',
+      subtitle: 'Handling online harassment, home security & 1930 reporting',
+      illustrationAsset: 'assets/module4/illustrations/illustration_solo_living_and_home_safety.jpg',
       icon: Icons.security_rounded,
       emergencyNumber: '1930',
       actionSteps: [
@@ -606,9 +710,9 @@ class SakhiSafetyController extends ChangeNotifier {
     SafetyTipGuideModel(
       id: 'tip_legal_rights',
       category: 'Legal Rights & Zero FIR',
-      title: 'Know Your Legal Rights (Zero FIR)',
-      subtitle: 'Mandatory police registration at any station across India',
-      illustrationAsset: 'assets/module4/illustrations/illustration_commute_and_cab_safety.jpg',
+      title: 'Know Your Legal Rights (Zero FIR & POSH)',
+      subtitle: 'Mandatory police registration & workplace POSH protection',
+      illustrationAsset: 'assets/module4/illustrations/illustration_workplace_and_legal_rights.jpg',
       icon: Icons.gavel_rounded,
       emergencyNumber: '1091',
       actionSteps: [
@@ -620,6 +724,25 @@ class SakhiSafetyController extends ChangeNotifier {
       dosAndDonts: [
         'DO ask for a free copy of the registered FIR or CSR receipt immediately.',
         'DO call 1091 or 7827-170-170 (NCW) if local staff delay registering your complaint.',
+      ],
+    ),
+    SafetyTipGuideModel(
+      id: 'tip_public_crowd_safety',
+      category: 'Public Crowd & Event Safety',
+      title: 'Public Transit, Crowd & Event Safety',
+      subtitle: 'Staying safe in metro stations, festivals & crowded spaces',
+      illustrationAsset: 'assets/module4/illustrations/illustration_public_crowd_and_event_safety.jpg',
+      icon: Icons.groups_rounded,
+      emergencyNumber: '112',
+      actionSteps: [
+        'Board the dedicated Women’s Coach in metro trains and suburban railways, especially during early morning or late evening hours.',
+        'Agree on a well-lit physical meeting landmark (such as a metro help desk or police kiosk) when attending concerts, markets, or public gatherings.',
+        'Enable Sakhi Discreet 3x Volume/Power Button SOS before entering dense crowds so you can trigger an alert without unlocking your phone.',
+        'Share your live GPS location link with your Primary Contact before boarding public transit.',
+      ],
+      dosAndDonts: [
+        'DO alert station security or railway police (139 / 112) immediately if you notice harassment.',
+        'DON’T let your phone battery drop below 20% in crowded venues.',
       ],
     ),
   ];
@@ -716,7 +839,82 @@ class SakhiSafetyController extends ChangeNotifier {
   }
 
   String get batteryLabel =>
-      batteryPercent == null ? 'Unknown' : '$batteryPercent%';
+      batteryPercent == null ? 'Live Battery' : '$batteryPercent%';
+
+  List<NearbyPoliceStationModel> get withinRadiusPoliceStations {
+    final maxKm = selectedSearchRadiusMeters / 1000.0;
+    return nearbyPoliceStations
+        .where((s) => s.distanceKm <= maxKm)
+        .toList(growable: false);
+  }
+
+  List<NearbyPoliceStationModel> get extendedRadiusPoliceStations {
+    final maxKm = selectedSearchRadiusMeters / 1000.0;
+    return nearbyPoliceStations
+        .where((s) => s.distanceKm > maxKm)
+        .toList(growable: false);
+  }
+
+  Future<int?> refreshDeviceBatteryLevel() async {
+    try {
+      final level = await _nativeChannel.invokeMethod<int>('getBatteryLevel');
+      if (level != null && level >= 0 && level <= 100) {
+        batteryPercent = level;
+        notifyListeners();
+        return level;
+      }
+    } catch (_) {}
+    return batteryPercent;
+  }
+
+  Future<void> refreshAvailableSimCards({bool requestPermission = false}) async {
+    try {
+      final rawList = await _nativeChannel.invokeMethod<List<dynamic>>(
+        requestPermission
+            ? 'requestSmsAndSimPermissions'
+            : 'getAvailableSimCards',
+      );
+      if (rawList != null) {
+        final parsed = rawList
+            .whereType<Map<dynamic, dynamic>>()
+            .map(SimCardInfo.fromMap)
+            .toList();
+        availableSimCards
+          ..clear()
+          ..addAll(parsed);
+        if (availableSimCards.length == 1) {
+          selectedSimSubscriptionId = availableSimCards.first.subscriptionId;
+          selectedSimLabel = availableSimCards.first.label;
+        } else if (availableSimCards.length > 1) {
+          final match = availableSimCards.where(
+            (s) => s.subscriptionId == selectedSimSubscriptionId,
+          );
+          if (match.isNotEmpty) {
+            selectedSimLabel = match.first.label;
+          } else {
+            selectedSimSubscriptionId = availableSimCards.first.subscriptionId;
+            selectedSimLabel = availableSimCards.first.label;
+          }
+        }
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> selectSimForSos(SimCardInfo sim) async {
+    selectedSimSubscriptionId = sim.subscriptionId;
+    selectedSimLabel = sim.label;
+    notifyListeners();
+    try {
+      await _secureStorage.write(
+        key: _kSelectedSimKey,
+        value: jsonEncode({
+          'subscriptionId': sim.subscriptionId,
+          'label': sim.label,
+        }),
+      );
+    } catch (_) {}
+  }
 
   List<SafetyTrustedContact> get selectedContacts =>
       trustedContacts.where((c) => c.selectedForSosAlert).toList();
@@ -751,6 +949,8 @@ class SakhiSafetyController extends ChangeNotifier {
   /// encrypted local storage first, then syncs with backend & acquires live GPS.
   Future<void> initializeSafetyState({bool autoRequestGps = true}) async {
     await _loadLocalStateIfNeeded();
+    unawaited(refreshDeviceBatteryLevel());
+    unawaited(refreshAvailableSimCards(requestPermission: false));
     unawaited(syncSafetyOverview());
     if (autoRequestGps && !hasRecentDeviceLocation && !isAcquiringLocation) {
       unawaited(requestDeviceLocation());
@@ -833,6 +1033,17 @@ class SakhiSafetyController extends ChangeNotifier {
           loggedRideDestination = (decoded['destination'] ?? '').toString();
           final ts = decoded['timestamp']?.toString();
           if (ts != null) loggedRideTimestamp = DateTime.tryParse(ts);
+        }
+      }
+
+      final rawSim = await _secureStorage.read(key: _kSelectedSimKey);
+      if (rawSim != null && rawSim.trim().isNotEmpty) {
+        final decoded = jsonDecode(rawSim);
+        if (decoded is Map) {
+          selectedSimSubscriptionId =
+              (decoded['subscriptionId'] as num?)?.toInt();
+          selectedSimLabel =
+              (decoded['label'] ?? 'Auto Default SIM').toString();
         }
       }
     } catch (_) {
@@ -1055,18 +1266,27 @@ class SakhiSafetyController extends ChangeNotifier {
         if (expectedToken != activeShareToken || !liveLocationSharingActive) {
           return;
         }
+        final preservedLabel =
+            (currentLocationLabel.isNotEmpty &&
+                !currentLocationLabel.startsWith('Acquiring') &&
+                currentLocationLabel != 'Location unavailable' &&
+                currentLocationLabel != 'Current device location')
+            ? currentLocationLabel
+            : 'Live GPS (${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})';
         updateDeviceLocation(
           latitude: position.latitude,
           longitude: position.longitude,
           accuracyMeters: position.accuracy,
-          locationLabel: 'Current device location',
+          locationLabel: preservedLabel,
         );
         final now = DateTime.now();
         if (_lastLocationPingAt == null ||
             now.difference(_lastLocationPingAt!) >=
-                const Duration(seconds: 15)) {
+                const Duration(seconds: 5)) {
           _lastLocationPingAt = now;
-          unawaited(_pingLocationShare(expectedToken, position));
+          if (expectedToken.isNotEmpty) {
+            unawaited(_pingLocationShare(expectedToken, position));
+          }
         }
       },
       onError: (Object _) {
@@ -1086,7 +1306,10 @@ class SakhiSafetyController extends ChangeNotifier {
           'latitude': position.latitude,
           'longitude': position.longitude,
           'accuracyMeters': position.accuracy,
-          'locationLabel': 'Current device location',
+          if (batteryPercent != null) 'batteryPercent': batteryPercent,
+          'locationLabel': currentLocationLabel.isNotEmpty
+              ? currentLocationLabel
+              : 'Current device location',
         },
       );
       if (token != activeShareToken) return;
@@ -1355,6 +1578,9 @@ class SakhiSafetyController extends ChangeNotifier {
               userLat: lat,
               userLng: lng,
             );
+            if (isLikelyNonPoliceCommercialPoi(model.name, model.address)) {
+              continue;
+            }
             // Never include hardcoded Bengaluru stations if user is > 60 km away!
             if (model.distanceKm <= 60.0) {
               final key =
@@ -1460,6 +1686,9 @@ class SakhiSafetyController extends ChangeNotifier {
                             '100')
                         .toString()
                         .trim();
+                if (isLikelyNonPoliceCommercialPoi(rawName, address, tags)) {
+                  continue;
+                }
                 final dist = haversineKm(lat, lng, sLat, sLng);
                 found.add(
                   NearbyPoliceStationModel(
@@ -1535,6 +1764,9 @@ class SakhiSafetyController extends ChangeNotifier {
             final address = parts.length > 1
                 ? parts.skip(1).take(3).join(', ')
                 : display;
+            if (isLikelyNonPoliceCommercialPoi(name, address)) {
+              continue;
+            }
             final dist = haversineKm(lat, lng, sLat, sLng);
             if (dist > 60.0) continue;
             results.add(
@@ -1721,44 +1953,55 @@ class SakhiSafetyController extends ChangeNotifier {
       unawaited(_stopRemoteLocationShare(previousShareToken));
     }
 
-    unawaited(
-      _sendBackend((client) async {
-        final response = await client.post(
-          'module2/safety/sos/activate',
-          authenticated: true,
-          body: {
-            'eventType': isTestMode ? 'SOS_TEST_MODE' : 'SOS_ACTIVATED',
-            'isTestMode': isTestMode,
-            'contactsAlertedCount': 0,
-            if (canSendLocation) ...{
-              'locationLabel': currentLocationLabel,
-              'latitude': currentLatitude,
-              'longitude': currentLongitude,
+    await _sendBackend((client) async {
+      final response = await client
+          .post(
+            'module2/safety/sos/activate',
+            authenticated: true,
+            body: {
+              'eventType': isTestMode ? 'SOS_TEST_MODE' : 'SOS_ACTIVATED',
+              'isTestMode': isTestMode,
+              'contactsAlertedCount': selectedContacts.length,
+              if (batteryPercent != null) 'batteryPercent': batteryPercent,
+              if (currentAccuracyMeters != null)
+                'accuracyMeters': currentAccuracyMeters,
+              if (lastShortcutTriggerSource != null)
+                'triggerSource': lastShortcutTriggerSource,
+              if (selectedSimLabel.isNotEmpty)
+                'simCarrierName': selectedSimLabel,
+              if (canSendLocation) ...{
+                'locationLabel': currentLocationLabel,
+                'latitude': currentLatitude,
+                'longitude': currentLongitude,
+              },
             },
-          },
+          )
+          .timeout(const Duration(seconds: 4));
+      if (!isTestMode && canSendLocation) {
+        final shareAccepted = _acceptLocationShareResponse(
+          response,
+          sosActivation: true,
         );
-        if (!isTestMode && canSendLocation) {
-          final shareAccepted = _acceptLocationShareResponse(
-            response,
-            sosActivation: true,
-          );
-          if (shareAccepted) {
-            locationStatusMessage = 'SOS location share is active; updates run while Sakhi is open.';
-            _startLocationUpdates();
-          } else {
-            locationStatusMessage = 'SOS recorded, but the server did not confirm a live tracking link.';
-          }
+        if (shareAccepted) {
+          locationStatusMessage =
+              'SOS location share is active; updates run while Sakhi is open.';
+          _startLocationUpdates();
         } else {
-          activeShareToken = '';
-          activeTrackingUrl = '';
-          liveLocationSharingActive = false;
-          if (!isTestMode) {
-            locationStatusMessage = 'SOS recorded without a location because no recent GPS fix was available.';
-          }
+          locationStatusMessage =
+              'SOS recorded, but the server did not confirm a live tracking link.';
         }
-        notifyListeners();
-      }),
-    );
+      } else {
+        activeShareToken = '';
+        activeTrackingUrl = '';
+        liveLocationSharingActive = false;
+        if (!isTestMode) {
+          locationStatusMessage =
+              'SOS recorded without a location because no recent GPS fix was available.';
+        }
+      }
+      notifyListeners();
+    });
+    unawaited(_saveHistoryLocally());
     return item;
   }
 
@@ -2051,26 +2294,57 @@ class SakhiSafetyController extends ChangeNotifier {
     );
   }
 
-  /// Launches native SMS / WhatsApp / Share Sheet to alert selected emergency contacts.
-  Future<void> dispatchSosAlertToContacts(BuildContext context) async {
+  /// Automatically dispatches emergency SMS directly via selected SIM (SmsManager)
+  /// without waiting for the user to tap Send in the Messages app, falling back
+  /// to native SMS composer / Share Sheet only if direct SMS permission is unavailable.
+  Future<void> dispatchSosAlertToContacts(
+    BuildContext context, {
+    bool isAutomaticSosTrigger = false,
+  }) async {
+    await refreshDeviceBatteryLevel();
     final message = buildEmergencyAlertMessage();
     final recipients = selectedContacts.map((c) => c.name).join(', ');
-    final phoneList = selectedContacts.map((c) => c.phoneE164).join(';');
+    final recipientPhones = selectedContacts
+        .map((c) => c.phoneE164.trim())
+        .where((p) => p.isNotEmpty)
+        .toList();
+    final phoneList = recipientPhones.join(';');
     await Clipboard.setData(ClipboardData(text: message));
 
+    bool sentDirectly = false;
+    int directSentCount = 0;
+    if (recipientPhones.isNotEmpty) {
+      try {
+        final directRes = await _nativeChannel
+            .invokeMethod<Map<dynamic, dynamic>>('sendDirectEmergencySms', {
+              'recipientList': recipientPhones,
+              'recipients': phoneList,
+              'body': message,
+              'subscriptionId': selectedSimSubscriptionId ?? -1,
+            });
+        if (directRes != null) {
+          directSentCount = (directRes['sentCount'] as num?)?.toInt() ?? 0;
+          sentDirectly = directRes['sentDirectly'] == true && directSentCount > 0;
+        }
+      } catch (_) {
+        sentDirectly = false;
+      }
+    }
+
     bool openedSms = false;
-    if (phoneList.isNotEmpty) {
+    if (!sentDirectly && phoneList.isNotEmpty) {
       try {
         final res = await _nativeChannel.invokeMethod<bool>('composeSms', {
           'recipients': phoneList,
           'body': message,
+          'subscriptionId': selectedSimSubscriptionId ?? -1,
         });
         openedSms = res == true;
       } catch (_) {
         openedSms = false;
       }
     }
-    if (!openedSms) {
+    if (!sentDirectly && !openedSms && !isAutomaticSosTrigger) {
       try {
         await SharePlus.instance.share(ShareParams(text: message));
       } catch (_) {}
@@ -2081,9 +2355,11 @@ class SakhiSafetyController extends ChangeNotifier {
         backgroundColor: const Color(0xFFC92A49),
         behavior: SnackBarBehavior.floating,
         content: Text(
-          selectedContacts.isEmpty
-              ? 'Emergency SOS alert & live GPS link prepared to share!'
-              : 'Emergency SOS alert prepared for $recipients (${selectedContacts.length} contact(s))',
+          sentDirectly
+              ? 'Emergency SOS SMS sent automatically to $recipients ($directSentCount/${recipientPhones.length}) via $selectedSimLabel!'
+              : selectedContacts.isEmpty
+              ? 'Emergency SOS alert & live GPS link prepared! Add Emergency Contacts for automatic SMS dispatch.'
+              : 'Emergency SOS alert dispatched to $recipients (${selectedContacts.length} contact(s))',
         ),
       ),
     );

@@ -203,28 +203,47 @@ class _ExploreScreenState extends State<ExploreScreen> {
               ),
               const SizedBox(height: 22),
               if (_selectedFilter == 'All' || _selectedFilter == 'Groups') ...[
-                const SakhiSectionHeader(title: 'Recommended Circles'),
-                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Active Circles Near You',
+                      style: AppTypography.sectionTitle,
+                    ),
+                    TextButton.icon(
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const NearbyCirclesScreen(),
+                        ),
+                      ),
+                      icon: const Icon(Icons.my_location_rounded, size: 16),
+                      label: const Text('Find Near Me ›'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
                 if (groups.isEmpty)
                   Column(
                     children: [
                       _RecommendedCirclePreviewCard(
-                        name: 'Women in Tech Bangalore',
+                        name: 'Women in Tech & Career Circle',
                         subtitle:
-                            '1.8k members · Weekly mentorship & career referrals',
-                        onJoin: () => showCircleMembershipUnavailable(
-                          context,
-                          'Women in Tech Bangalore',
+                            '${state.totalDatabaseMembers > 0 ? state.totalDatabaseMembers : 1} verified member(s) · Mentorship & career referrals',
+                        onJoin: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const NearbyCirclesScreen(),
+                          ),
                         ),
                       ),
                       const SizedBox(height: 10),
                       _RecommendedCirclePreviewCard(
-                        name: 'Mindful Mornings Circle',
+                        name: 'Mindful Mornings & Wellness Circle',
                         subtitle:
-                            '2.4k members · Guided 4-7-8 breathwork & daily calm',
-                        onJoin: () => showCircleMembershipUnavailable(
-                          context,
-                          'Mindful Mornings Circle',
+                            '${state.totalDatabaseMembers > 0 ? state.totalDatabaseMembers : 1} verified member(s) · Guided breathwork & daily calm',
+                        onJoin: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const NearbyCirclesScreen(),
+                          ),
                         ),
                       ),
                     ],

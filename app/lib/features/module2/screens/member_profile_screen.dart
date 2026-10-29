@@ -11,6 +11,7 @@ import '../../../core/widgets/sakhi_section_header.dart';
 import '../module2_scope.dart';
 import '../module2_state.dart';
 import '../widgets/module2_feature_widgets.dart';
+import '../../followers/screens/followers_following_screen.dart';
 
 /// Read-only public profile detail for another verified Sakhi member.
 /// Private contact data, phone numbers and dates of birth are never shown.
@@ -146,8 +147,38 @@ class _MemberProfileScreenState extends State<MemberProfileScreen> {
               Row(
                 children: [
                   _ProfileCount(value: profile.postsCount, label: 'Posts'),
-                  _ProfileCount(value: profile.followersCount, label: 'Followers'),
-                  _ProfileCount(value: profile.followingCount, label: 'Following'),
+                  _ProfileCount(
+                    value: profile.followersCount,
+                    label: 'Followers',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => FollowersFollowingScreen(
+                          initialFollowing: false,
+                          targetMemberId: profile.accountId,
+                          targetMemberName: profile.displayName,
+                          targetMemberUsername: '@${profile.displayName.toLowerCase().replaceAll(" ", "_")}',
+                          initialFollowersCount: profile.followersCount,
+                          initialFollowingCount: profile.followingCount,
+                        ),
+                      ),
+                    ),
+                  ),
+                  _ProfileCount(
+                    value: profile.followingCount,
+                    label: 'Following',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => FollowersFollowingScreen(
+                          initialFollowing: true,
+                          targetMemberId: profile.accountId,
+                          targetMemberName: profile.displayName,
+                          targetMemberUsername: '@${profile.displayName.toLowerCase().replaceAll(" ", "_")}',
+                          initialFollowersCount: profile.followersCount,
+                          initialFollowingCount: profile.followingCount,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 15),
@@ -198,19 +229,27 @@ class _MemberProfileScreenState extends State<MemberProfileScreen> {
 }
 
 class _ProfileCount extends StatelessWidget {
-  const _ProfileCount({required this.value, required this.label});
+  const _ProfileCount({required this.value, required this.label, this.onTap});
 
   final int value;
   final String label;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) => Expanded(
-    child: Column(
-      children: [
-        Text(value.toString(), style: AppTypography.cardTitle.copyWith(fontSize: 18)),
-        const SizedBox(height: 3),
-        Text(label, style: AppTypography.subtitle),
-      ],
+    child: InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Column(
+          children: [
+            Text(value.toString(), style: AppTypography.cardTitle.copyWith(fontSize: 18)),
+            const SizedBox(height: 3),
+            Text(label, style: AppTypography.subtitle),
+          ],
+        ),
+      ),
     ),
   );
 }

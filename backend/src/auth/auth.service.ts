@@ -34,6 +34,43 @@ export const REGISTRATION_POLICY_MAX_ALLOWED_AGE = 100;
 export const REGISTRATION_POLICY_AUDIT_ACTION =
   "admin.registration_policy.minimum_age_updated";
 
+export const CURATED_SAKHI_INTERESTS = [
+  "Mental Wellness",
+  "Wellness",
+  "Safety & Support",
+  "Safety",
+  "WomenInTech",
+  "Women in Tech",
+  "Health & Wellness",
+  "Women Businesses",
+  "Entrepreneurship",
+  "Education & Career",
+  "Career",
+  "Menstrual Care",
+  "Menstrual Health",
+  "Fitness & Nutrition",
+  "Fitness",
+  "Nutrition",
+  "Travel",
+  "Reading",
+  "Art & Creativity",
+  "Art",
+  "Mindfulness & Yoga",
+  "Mindfulness",
+  "Meditation",
+  "Yoga",
+  "Peer Support",
+  "Photography",
+  "Mentorship",
+  "Creative Writing",
+  "Community",
+  "Legal Rights",
+  "Motherhood & Family",
+  "Financial Independence",
+  "Sustainable Living",
+  "Self-Care",
+] as const;
+
 export interface RegistrationAgePolicySnapshot {
   configured: boolean;
   minimumAgeYears: number | null;
@@ -149,6 +186,99 @@ export class AuthenticationService {
       select: { action: true },
     });
     return latest?.action === "staging.test_access.approved";
+  }
+
+  async checkUsernameAvailability(
+    requestedUsername?: string,
+    authorization?: string,
+  ): Promise<{
+    available: boolean;
+    username: string;
+    reason?: string;
+  }> {
+    let excludeAccountId: string | undefined;
+    if (authorization?.startsWith("Bearer ")) {
+      try {
+        const session = await this.authenticateAuthorization(authorization);
+        excludeAccountId = session.accountId;
+      } catch {
+        // Optional auth header when checking during registration step
+      }
+    }
+    const raw = (requestedUsername ?? "")
+      .trim()
+      .replace(/^@+/, "")
+      .toLowerCase();
+    if (!/^[a-z0-9_]{3,24}$/.test(raw)) {
+      return {
+        available: false,
+        username: raw ? `@${raw}` : "",
+        reason: "Use 3–24 lowercase letters, numbers, or underscores.",
+      };
+    }
+    const normalized = `@${raw}`;
+    const anyPrisma = this.prisma as unknown as {
+      memberProfile?: {
+        findFirst?: (
+          args: Record<string, unknown>,
+        ) => Promise<{ accountId: string } | null>;
+      };
+      communityDirectoryProfile?: {
+        findFirst?: (
+          args: Record<string, unknown>,
+        ) => Promise<{ id: string; username: string } | null>;
+      };
+    };
+
+    const existingMember =
+      typeof anyPrisma.memberProfile?.findFirst === "function"
+        ? await anyPrisma.memberProfile.findFirst({
+            where: {
+              OR: [
+                { username: { equals: normalized, mode: "insensitive" } },
+                { username: { equals: raw, mode: "insensitive" } },
+              ],
+              ...(excludeAccountId
+                ? { accountId: { not: excludeAccountId } }
+                : {}),
+            },
+            select: { accountId: true },
+          })
+        : null;
+
+    if (existingMember) {
+      return {
+        available: false,
+        username: normalized,
+        reason: "This username is already taken by another Sakhi member.",
+      };
+    }
+
+    if (typeof anyPrisma.communityDirectoryProfile?.findFirst === "function") {
+      const existingDir = await anyPrisma.communityDirectoryProfile
+        .findFirst({
+          where: {
+            OR: [
+              { username: { equals: normalized, mode: "insensitive" } },
+              { username: { equals: raw, mode: "insensitive" } },
+            ],
+          },
+          select: { id: true, username: true },
+        })
+        .catch(() => null);
+      if (existingDir) {
+        return {
+          available: false,
+          username: normalized,
+          reason: "This username is already reserved in the Sakhi directory.",
+        };
+      }
+    }
+
+    return {
+      available: true,
+      username: normalized,
+    };
   }
 
   async getRegistrationPolicy(): Promise<RegistrationAgePolicySnapshot> {
@@ -887,6 +1017,11 @@ export class AuthenticationService {
       );
     }
 
+    const cleanDisplayName = dto.displayName.trim();
+    if (/\d/.test(cleanDisplayName)) {
+      throw new BadRequestException("Full name cannot contain numbers.");
+    }
+
     const policy = await this.getRegistrationPolicy();
     const configuredAge = parseValidAge(
       process.env.SAKHI_PREVIEW_MINIMUM_AGE_YEARS,
@@ -979,18 +1114,89 @@ export class AuthenticationService {
         );
       }
 
-      const cleanDisplayName = dto.displayName.trim();
       const baseSlug =
         cleanDisplayName
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, "")
           .slice(0, 14) || "member";
-      const candidateUsername = `@${baseSlug}_${session.accountId.slice(0, 8).toLowerCase()}`;
+      const requestedRaw = (dto.username ?? "")
+        .trim()
+        .replace(/^@+/, "")
+        .toLowerCase();
+
+      let candidateUsername = `@${baseSlug}_${session.accountId.slice(0, 8).toLowerCase()}`;
+      if (requestedRaw.length > 0) {
+        if (!/^[a-z0-9_]{3,24}$/.test(requestedRaw)) {
+          throw new BadRequestException(
+            "Username must contain 3 to 24 lowercase letters, numbers, or underscores.",
+          );
+        }
+        candidateUsername = `@${requestedRaw}`;
+        const anyTx = tx as unknown as {
+          memberProfile?: {
+            findFirst?: (
+              args: Record<string, unknown>,
+            ) => Promise<{ accountId: string } | null>;
+          };
+          communityDirectoryProfile?: {
+            findFirst?: (
+              args: Record<string, unknown>,
+            ) => Promise<{ id: string } | null>;
+          };
+        };
+        if (typeof anyTx.memberProfile?.findFirst === "function") {
+          const conflictingMember = await anyTx.memberProfile.findFirst({
+            where: {
+              OR: [
+                {
+                  username: { equals: candidateUsername, mode: "insensitive" },
+                },
+                { username: { equals: requestedRaw, mode: "insensitive" } },
+              ],
+              accountId: { not: session.accountId },
+            },
+            select: { accountId: true },
+          });
+          if (conflictingMember) {
+            throw new ConflictException(
+              "That username is already taken. Choose another username.",
+            );
+          }
+        }
+        if (typeof anyTx.communityDirectoryProfile?.findFirst === "function") {
+          const conflictingDir = await anyTx.communityDirectoryProfile
+            .findFirst({
+              where: {
+                OR: [
+                  {
+                    username: {
+                      equals: candidateUsername,
+                      mode: "insensitive",
+                    },
+                  },
+                  { username: { equals: requestedRaw, mode: "insensitive" } },
+                ],
+              },
+              select: { id: true },
+            })
+            .catch(() => null);
+          if (conflictingDir) {
+            throw new ConflictException(
+              "That username is already taken. Choose another username.",
+            );
+          }
+        }
+      }
+
       const chosenAvatar =
         dto.avatarAsset?.trim() || "assets/images/profile/avatar_ananya.webp";
+      const allowedLower = new Map(
+        CURATED_SAKHI_INTERESTS.map((item) => [item.toLowerCase(), item]),
+      );
       const interests = dto.interests
         ?.map((item) => item.trim())
-        .filter(Boolean);
+        .filter(Boolean)
+        .map((item) => allowedLower.get(item.toLowerCase()) ?? item);
 
       const profile = await tx.memberProfile.create({
         data: {
@@ -1110,6 +1316,7 @@ export class AuthenticationService {
           : "Profile and draft-policy acknowledgement saved in the development database. No production account or eligibility decision was created.",
         profile: {
           displayName: profile.displayName,
+          username: profile.username ?? candidateUsername,
           dateOfBirth: profile.dateOfBirth.toISOString().slice(0, 10),
           email: profile.email,
         },
@@ -1129,6 +1336,7 @@ export class AuthenticationService {
       profile: profile
         ? {
             displayName: profile.displayName,
+            username: profile.username,
             dateOfBirth: profile.dateOfBirth.toISOString().slice(0, 10),
             email: profile.email,
           }

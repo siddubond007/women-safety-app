@@ -61,6 +61,23 @@ export class Module2Controller {
     return this.service.listCategories();
   }
 
+  @Get("nearby-circles")
+  listNearbyCircles(
+    @Headers("authorization") authorization?: string,
+    @Query("lat") lat?: string,
+    @Query("lng") lng?: string,
+    @Query("radiusKm") radiusKm?: string,
+    @Query("city") city?: string,
+  ) {
+    return this.service.listNearbyCircles(
+      authorization,
+      lat === undefined ? undefined : Number(lat),
+      lng === undefined ? undefined : Number(lng),
+      radiusKm === undefined ? 15 : Number(radiusKm),
+      city,
+    );
+  }
+
   @Get("posts")
   listPosts(
     @Headers("authorization") authorization?: string,
@@ -103,6 +120,29 @@ export class Module2Controller {
   @Get("members/following")
   listFollowing(@Headers("authorization") authorization: string | undefined) {
     return this.service.listFollowers(authorization, "following");
+  }
+
+  @Get("members/:targetId/connections")
+  listMemberConnections(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("targetId") targetId: string,
+    @Query("mode") mode?: string,
+    @Query("type") type?: string,
+  ) {
+    const resolvedMode = (mode ?? type ?? "followers").toLowerCase();
+    return this.service.listMemberConnections(
+      authorization,
+      targetId,
+      resolvedMode === "following" ? "following" : "followers",
+    );
+  }
+
+  @Get("members/:targetId/profile-overview")
+  getMemberProfileOverview(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("targetId") targetId: string,
+  ) {
+    return this.service.getMemberProfileOverview(authorization, targetId);
   }
 
   @Put("profile")
@@ -475,6 +515,11 @@ export class Module2Controller {
     return this.service.stopLocationShare(authorization, token);
   }
 
+  @Get("safety/track/:token/json")
+  getPublicLocationTrackJson(@Param("token") token: string) {
+    return this.service.getLiveLocationTrackState(token);
+  }
+
   @Get("safety/track/:token")
   async getPublicLocationTrackPage(
     @Param("token") token: string,
@@ -485,12 +530,41 @@ export class Module2Controller {
     return response.status(200).send(html);
   }
 
+  @Put("security")
+  updateSecurityCombined(
+    @Headers("authorization") authorization: string | undefined,
+    @Body()
+    dto: {
+      enabled?: boolean;
+      twoFactorEnabled?: boolean;
+      currentPin?: string;
+      newPin?: string;
+      pin?: string;
+    },
+  ) {
+    if (
+      typeof dto.enabled === "boolean" ||
+      typeof dto.twoFactorEnabled === "boolean"
+    ) {
+      return this.service.toggleTwoFactor(authorization, {
+        enabled: dto.enabled ?? dto.twoFactorEnabled ?? false,
+      });
+    }
+    const resolvedPin = (dto.newPin ?? dto.pin ?? "").trim();
+    return this.service.updateSecurityPin(authorization, {
+      currentPin: dto.currentPin ?? "0000",
+      newPin: resolvedPin,
+    });
+  }
+
   @Put("security/two-factor")
   toggleTwoFactor(
     @Headers("authorization") authorization: string | undefined,
     @Body() dto: ToggleTwoFactorDto,
   ) {
-    return this.service.toggleTwoFactor(authorization, dto);
+    return this.service.toggleTwoFactor(authorization, {
+      enabled: dto.enabled ?? dto.twoFactorEnabled ?? false,
+    });
   }
 
   @Put("security/pin")
@@ -498,7 +572,10 @@ export class Module2Controller {
     @Headers("authorization") authorization: string | undefined,
     @Body() dto: UpdateSecurityPinDto,
   ) {
-    return this.service.updateSecurityPin(authorization, dto);
+    return this.service.updateSecurityPin(authorization, {
+      currentPin: dto.currentPin ?? "0000",
+      newPin: (dto.newPin ?? dto.pin ?? "").trim(),
+    });
   }
 
   @Post("moderation/report")

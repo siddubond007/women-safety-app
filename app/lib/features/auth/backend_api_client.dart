@@ -20,8 +20,10 @@ class BackendApiException implements Exception {
   String toString() => 'BackendApiException($statusCode, $code)';
 }
 
-/// Small native HTTP client used by the development backend adapter.
-/// Defaults to port 3001 (matching backend/scripts/start-dev.ps1).
+/// Native HTTP client for the Sakhi backend.
+/// Debug builds default to the local development API; release builds default
+/// to the hosted staging API so released apps never depend on developer localhost.
+/// Override with SAKHI_API_BASE_URL for environment-specific builds.
 class BackendApiClient {
   BackendApiClient({
     String? baseUrl,
@@ -31,7 +33,11 @@ class BackendApiClient {
            baseUrl ??
            const String.fromEnvironment(
              'SAKHI_API_BASE_URL',
-             defaultValue: 'http://127.0.0.1:3001/api/v1',
+             // Release builds must use the hosted staging API by default.
+             // Localhost is only the debug/development fallback.
+             defaultValue: kReleaseMode
+                 ? 'https://sakhi-staging-api.onrender.com/api/v1'
+                 : 'http://127.0.0.1:3001/api/v1',
            ),
        _httpClient = httpClient ?? HttpClient(),
        _secureStorage = secureStorage ?? const FlutterSecureStorage() {

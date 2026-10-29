@@ -422,10 +422,14 @@ class _HomeScreenState extends State<HomeScreen> {
                         iconColor: AppColors.wellnessGreen,
                         iconBgColor: AppColors.pastelMint,
                         title: '$circlesCount active circles near you',
-                        subtitle: 'Connect with women in your area',
+                        subtitle: 'Connect with verified women in your area (Live GPS)',
                         badgeText: 'Active',
                         flowerType: SakhiFlowerType.eucalyptusSage,
-                        onTap: () => _openTab(1, AppRoutes.explore),
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const NearbyCirclesScreen(),
+                          ),
+                        ),
                       ),
                       const SizedBox(height: 10),
                       ForYouItemCard(

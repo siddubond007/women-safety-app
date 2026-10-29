@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../../../core/widgets/sakhi_liquid_glass.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/constants/app_assets.dart';
@@ -124,10 +126,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       }
       setState(() {
         _checkingUsername = false;
-        _usernameAvailable = result ?? true;
+        _usernameAvailable = result;
         _usernameMessage = result == false
-            ? 'Username already taken or invalid'
-            : 'Username is available';
+            ? 'Username already taken — please choose another handle'
+            : result == true
+            ? 'Username is available'
+            : 'Username format valid (uniqueness verified on save)';
       });
     });
   }
@@ -554,12 +558,19 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 const SizedBox(height: 6),
                 TextFormField(
                   controller: _nameController,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.deny(RegExp(r'[0-9]')),
+                  ],
                   style: AppTypography.bodyRegular.copyWith(
                     color: AppColors.textPrimary,
                   ),
                   validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
+                    final trimmed = value?.trim() ?? '';
+                    if (trimmed.isEmpty) {
                       return 'Please enter a display name';
+                    }
+                    if (RegExp(r'[0-9]').hasMatch(trimmed)) {
+                      return 'Display name cannot contain numbers';
                     }
                     return null;
                   },
@@ -881,33 +892,96 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   void _showAddInterestDialog() {
-    final controller = TextEditingController();
-    showDialog<void>(
+    showModalBottomSheet<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.cardSurface,
-        title: const Text('Add Interest', style: AppTypography.sectionTitle),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: 'Enter an interest tag'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          SakhiPillButton(
-            label: 'Add',
-            onPressed: () {
-              final val = controller.text.trim();
-              if (val.isNotEmpty && !_interests.contains(val)) {
-                setState(() => _interests.add(val));
-              }
-              Navigator.pop(ctx);
-            },
-          ),
-        ],
+      isScrollControlled: true,
+      backgroundColor: AppColors.cardSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 22),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 42,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppColors.borderSubtle,
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  const Text(
+                    'Select Your Sakhi Interests',
+                    style: AppTypography.sectionTitle,
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Choose from curated Sakhi community topics so we can connect you with relevant circles and discussions:',
+                    style: AppTypography.subtitle,
+                  ),
+                  const SizedBox(height: 14),
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: MediaQuery.of(context).size.height * 0.48,
+                    ),
+                    child: SingleChildScrollView(
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: kSakhiCuratedInterests.map((topic) {
+                          final selected = _interests.contains(topic);
+                          return FilterChip(
+                            selected: selected,
+                            label: Text(topic),
+                            selectedColor: AppColors.primaryPurple,
+                            backgroundColor: AppColors.pastelLavender,
+                            checkmarkColor: Colors.white,
+                            labelStyle: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              color: selected
+                                  ? Colors.white
+                                  : AppColors.primaryPurple,
+                            ),
+                            onSelected: (val) {
+                              setState(() {
+                                if (val) {
+                                  if (!_interests.contains(topic)) {
+                                    _interests.add(topic);
+                                  }
+                                } else {
+                                  _interests.remove(topic);
+                                }
+                              });
+                              setSheetState(() {});
+                            },
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: SakhiPillButton(
+                      label: 'Done (${_interests.length} Selected)',
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }

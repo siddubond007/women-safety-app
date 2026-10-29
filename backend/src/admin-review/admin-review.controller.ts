@@ -507,6 +507,33 @@ export class AdminReviewController {
     );
   }
 
+  @Post("police-stations/sync-osm")
+  @HttpCode(200)
+  syncPoliceStationsFromOsm(
+    @Body() body: Record<string, unknown>,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.syncPoliceStationsFromOsm(
+      body,
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
+  @Delete("police-stations/:stationCode")
+  deletePoliceStation(
+    @Param("stationCode") stationCode: string,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.deletePoliceStation(
+      stationCode,
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
   @Post("sos-events/:eventId/review")
   @HttpCode(200)
   reviewSosEvent(

@@ -14,7 +14,10 @@ import '../../../core/widgets/sakhi_card.dart';
 import '../../../core/widgets/sakhi_chip.dart';
 import '../../../core/widgets/sakhi_empty_state.dart';
 import '../../../core/widgets/sakhi_section_header.dart';
+import '../../../core/widgets/sakhi_remote_media_image.dart';
 import '../../community/widgets/feed_post_card.dart';
+import '../../followers/screens/followers_following_screen.dart';
+import '../../safety/models/safety_models.dart';
 
 Future<void> showCircleMembershipUnavailable(
   BuildContext context,
@@ -822,6 +825,82 @@ class SearchResultMemberProfileScreen extends StatefulWidget {
 class _SearchResultMemberProfileScreenState
     extends State<SearchResultMemberProfileScreen> {
   bool _updatingFollow = false;
+  bool _loadingOverview = true;
+  bool _followsMe = false;
+  int _postsCount = 0;
+  int _followersCount = 0;
+  int _followingCount = 0;
+  List<FeedPostModel> _memberPosts = const <FeedPostModel>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _followsMe = widget.member.followsMe;
+    _postsCount = widget.member.postsCount;
+    _followersCount = widget.member.followersCount;
+    _followingCount = widget.member.followingCount;
+    unawaited(_loadProfileOverview());
+  }
+
+  Future<void> _loadProfileOverview() async {
+    final state = SakhiPrototypeState.instance;
+    final handleClean = widget.member.username
+        .trim()
+        .replaceFirst(RegExp(r'^@'), '')
+        .toLowerCase();
+    final localPosts = <FeedPostModel>[
+      for (final p in [...state.communityPosts, ...state.exploreRecommendedPosts])
+        if ((widget.member.id.isNotEmpty && p.authorAccountId == widget.member.id) ||
+            (handleClean.isNotEmpty &&
+                p.authorUsername
+                        .trim()
+                        .replaceFirst(RegExp(r'^@'), '')
+                        .toLowerCase() ==
+                    handleClean))
+          p,
+    ];
+    final uniqueLocal = <String, FeedPostModel>{
+      for (final p in localPosts) p.id: p,
+    }.values.toList();
+
+    final targetKey = widget.member.id.trim().isNotEmpty
+        ? widget.member.id.trim()
+        : widget.member.username.trim();
+    final overview = targetKey.isNotEmpty
+        ? await state.fetchTargetMemberProfileOverview(targetKey)
+        : null;
+    if (!mounted) return;
+
+    if (overview != null) {
+      final rawPosts = overview['posts'];
+      final parsedPosts = rawPosts is List
+          ? rawPosts
+                .whereType<Map<String, dynamic>>()
+                .map(FeedPostModel.fromJson)
+                .toList()
+          : uniqueLocal;
+      setState(() {
+        _loadingOverview = false;
+        if (overview['isFollowing'] is bool) {
+          widget.member.isFollowing = overview['isFollowing'] as bool;
+        }
+        _followsMe = overview['followsMe'] == true || widget.member.followsMe;
+        _memberPosts = parsedPosts.isNotEmpty ? parsedPosts : uniqueLocal;
+        _postsCount =
+            (overview['postsCount'] as num?)?.toInt() ?? _memberPosts.length;
+        _followersCount =
+            (overview['followersCount'] as num?)?.toInt() ?? _followersCount;
+        _followingCount =
+            (overview['followingCount'] as num?)?.toInt() ?? _followingCount;
+      });
+    } else {
+      setState(() {
+        _loadingOverview = false;
+        _memberPosts = uniqueLocal;
+        if (_postsCount == 0) _postsCount = uniqueLocal.length;
+      });
+    }
+  }
 
   Future<void> _toggleFollow() async {
     if (_updatingFollow || !widget.member.canFollow) return;
@@ -829,7 +908,16 @@ class _SearchResultMemberProfileScreenState
     final succeeded = await SakhiPrototypeState.instance
         .toggleFollowSearchMember(widget.member);
     if (!mounted) return;
-    setState(() => _updatingFollow = false);
+    setState(() {
+      _updatingFollow = false;
+      if (succeeded) {
+        _followersCount =
+            (_followersCount + (widget.member.isFollowing ? 1 : -1)).clamp(
+              0,
+              999999,
+            );
+      }
+    });
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -843,179 +931,666 @@ class _SearchResultMemberProfileScreenState
     );
   }
 
+  void _openConnections({required bool initialFollowing}) {
+    final targetKey = widget.member.id.trim().isNotEmpty
+        ? widget.member.id.trim()
+        : widget.member.username.trim();
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => FollowersFollowingScreen(
+          initialFollowing: initialFollowing,
+          targetMemberId: targetKey,
+          targetMemberName: widget.member.name,
+          targetMemberUsername: widget.member.username,
+          initialFollowersCount: _followersCount,
+          initialFollowingCount: _followingCount,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final member = widget.member;
+    final state = SakhiPrototypeState.instance;
     final businessUrl = (member.businessProfileUrl ?? '').trim();
     final interests = member.interests;
+    final followLabel = member.isFollowing
+        ? 'Following'
+        : (_followsMe ? 'Follow Back' : '+ Follow');
+
     return Scaffold(
       backgroundColor: AppColors.scaffoldBackground,
       appBar: AppBar(
         backgroundColor: AppColors.scaffoldBackground,
-        title: const Text('Member Profile'),
+        title: Text(member.name, style: AppTypography.appBarTitle),
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.screenPaddingH,
-          16,
-          AppSpacing.screenPaddingH,
-          96,
-        ),
-        children: [
-          SakhiCard(
-            child: Column(
-              children: [
-                const SizedBox(height: 12),
-                SakhiAvatar(
-                  imageAsset: member.avatarAsset,
-                  fallbackLabel: member.name,
-                  size: 104,
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Flexible(
-                      child: Text(
-                        member.name,
-                        textAlign: TextAlign.center,
-                        style: AppTypography.sectionTitle,
+      body: RefreshIndicator(
+        onRefresh: _loadProfileOverview,
+        color: AppColors.primaryPurple,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.screenPaddingH,
+            12,
+            AppSpacing.screenPaddingH,
+            96,
+          ),
+          children: [
+            SakhiCard(
+              child: Column(
+                children: [
+                  const SizedBox(height: 8),
+                  SakhiAvatar(
+                    imageAsset: member.avatarAsset,
+                    fallbackLabel: member.name,
+                    size: 100,
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          member.name,
+                          textAlign: TextAlign.center,
+                          style: AppTypography.sectionTitle,
+                        ),
                       ),
+                      if (member.isVerified) ...[
+                        const SizedBox(width: 6),
+                        const Icon(
+                          Icons.verified_rounded,
+                          color: AppColors.primaryPurple,
+                          size: 20,
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    member.username,
+                    style: AppTypography.subtitle,
+                    textAlign: TextAlign.center,
+                  ),
+                  if (member.location.trim().isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(
+                          Icons.location_on_outlined,
+                          size: 14,
+                          color: AppColors.primaryPurple,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(member.location, style: AppTypography.subtitle),
+                      ],
                     ),
-                    if (member.isVerified) ...[
-                      const SizedBox(width: 6),
-                      const Icon(
-                        Icons.verified_rounded,
-                        color: AppColors.primaryPurple,
-                        size: 20,
+                  ],
+                  const SizedBox(height: 14),
+                  // Clickable Posts | Followers | Following Row
+                  Container(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFAF5FC),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppColors.borderSubtle),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        _MemberStatItem(
+                          count: '$_postsCount',
+                          label: 'Posts',
+                          onTap: () {},
+                        ),
+                        Container(
+                          height: 26,
+                          width: 1,
+                          color: AppColors.dividerColor,
+                        ),
+                        _MemberStatItem(
+                          count: '$_followersCount',
+                          label: 'Followers',
+                          onTap: () =>
+                              _openConnections(initialFollowing: false),
+                        ),
+                        Container(
+                          height: 26,
+                          width: 1,
+                          color: AppColors.dividerColor,
+                        ),
+                        _MemberStatItem(
+                          count: '$_followingCount',
+                          label: 'Following',
+                          onTap: () =>
+                              _openConnections(initialFollowing: true),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    child: member.canFollow
+                        ? FilledButton(
+                            onPressed: _updatingFollow ? null : _toggleFollow,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: member.isFollowing
+                                  ? AppColors.pastelLavender
+                                  : AppColors.primaryPurple,
+                              foregroundColor: member.isFollowing
+                                  ? AppColors.primaryPurple
+                                  : Colors.white,
+                            ),
+                            child: _updatingFollow
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : Text(
+                                    followLabel,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                          )
+                        : const OutlinedButton(
+                            onPressed: null,
+                            child: Text('Follow unavailable'),
+                          ),
+                  ),
+                ],
+              ),
+            ),
+            if ((member.bio ?? '').trim().isNotEmpty) ...[
+              const SizedBox(height: 14),
+              SakhiCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('About', style: AppTypography.sectionTitle),
+                    const SizedBox(height: 8),
+                    Text(member.bio!.trim(), style: AppTypography.bodyRegular),
+                  ],
+                ),
+              ),
+            ],
+            if (interests.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              SakhiCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Interests', style: AppTypography.sectionTitle),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: interests
+                          .map((interest) => SakhiChip(label: interest))
+                          .toList(),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            if (businessUrl.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              SakhiCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Linked Business Profile',
+                      style: AppTypography.sectionTitle,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      (member.businessProfileName ?? '').trim().isNotEmpty
+                          ? member.businessProfileName!
+                          : 'Women-owned business',
+                      style: AppTypography.cardTitle,
+                    ),
+                    if ((member.businessCategory ?? '').trim().isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        member.businessCategory!,
+                        style: AppTypography.subtitle,
                       ),
                     ],
                   ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  member.username,
-                  style: AppTypography.subtitle,
-                  textAlign: TextAlign.center,
+              ),
+            ],
+            const SizedBox(height: 18),
+            SakhiSectionHeader(title: 'Posts by ${member.name} ($_postsCount)'),
+            const SizedBox(height: 10),
+            if (_loadingOverview)
+              const Padding(
+                padding: EdgeInsets.all(18),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (_memberPosts.isEmpty)
+              const SakhiEmptyState(
+                icon: Icons.grid_on_outlined,
+                title: 'No public posts yet',
+                message:
+                    'When this member shares posts visible to your account, they will appear here.',
+              )
+            else
+              GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _memberPosts.length,
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  crossAxisSpacing: 8,
+                  mainAxisSpacing: 8,
+                  childAspectRatio: 1,
                 ),
-                if (member.isVerified) ...[
-                  const SizedBox(height: 8),
-                  const Chip(
-                    avatar: Icon(
-                      Icons.shield_rounded,
-                      size: 16,
-                      color: Color(0xFF1E7E52),
-                    ),
-                    label: Text('Verified member'),
-                    backgroundColor: Color(0xFFE6F6EE),
-                    side: BorderSide.none,
-                  ),
-                ],
-                const SizedBox(height: 14),
-                SizedBox(
-                  width: double.infinity,
-                  child: member.canFollow
-                      ? FilledButton(
-                          onPressed: _updatingFollow ? null : _toggleFollow,
-                          style: FilledButton.styleFrom(
-                            backgroundColor: AppColors.primaryPurple,
-                            foregroundColor: Colors.white,
+                itemBuilder: (context, index) {
+                  final post = _memberPosts[index];
+                  final source = post.imageAsset?.trim() ?? '';
+                  return InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () => showDialog<void>(
+                      context: context,
+                      builder: (dialogContext) => Dialog(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.all(8),
+                          child: FeedPostCard(
+                            post: post,
+                            showVerifiedCheck: true,
+                            onLikeTap: () => state.togglePostLike(post),
+                            onSaveTap: () => state.togglePostSaved(post),
                           ),
-                          child: _updatingFollow
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : Text(
-                                  member.isFollowing ? 'Following' : '+ Follow',
-                                ),
-                        )
-                      : const OutlinedButton(
-                          onPressed: null,
-                          child: Text('Follow unavailable'),
                         ),
-                ),
-                if (!member.canFollow) ...[
-                  const SizedBox(height: 8),
-                  const Text(
-                    'This member does not yet have a followable community-directory profile.',
-                    textAlign: TextAlign.center,
+                      ),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: source.isEmpty
+                          ? Container(
+                              padding: const EdgeInsets.all(9),
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    Color(0xFFFDF2F7),
+                                    Color(0xFFF3E6FA),
+                                  ],
+                                ),
+                                border: Border.all(
+                                  color: AppColors.borderSubtle,
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    (post.categoryBadge ?? post.categorySlug)
+                                        .replaceAll('_', ' '),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 8.5,
+                                      fontWeight: FontWeight.w800,
+                                      color: AppColors.primaryPurple,
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 4,
+                                      ),
+                                      child: Text(
+                                        post.content,
+                                        maxLines: 4,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 10.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppColors.textPrimary,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    '❤️ ${post.likesCount}  💬 ${post.commentsCount}',
+                                    style: const TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : (source.startsWith('http://') ||
+                                source.startsWith('https://') ||
+                                source.startsWith('/api/v1/'))
+                          ? SakhiRemoteMediaImage(source: source)
+                          : Image.asset(source, fit: BoxFit.cover),
+                    ),
+                  );
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MemberStatItem extends StatelessWidget {
+  const _MemberStatItem({
+    required this.count,
+    required this.label,
+    required this.onTap,
+  });
+
+  final String count;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        child: Column(
+          children: [
+            Text(
+              count,
+              style: AppTypography.sectionTitle.copyWith(fontSize: 17),
+            ),
+            const SizedBox(height: 2),
+            Text(label, style: AppTypography.subtitle),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Live GPS-powered Active Circles Near You screen.
+class NearbyCirclesScreen extends StatefulWidget {
+  const NearbyCirclesScreen({super.key});
+
+  @override
+  State<NearbyCirclesScreen> createState() => _NearbyCirclesScreenState();
+}
+
+class _NearbyCirclesScreenState extends State<NearbyCirclesScreen> {
+  bool _loading = true;
+  double _selectedRadiusKm = 25;
+  List<CommunityGroupModel> _circles = const <CommunityGroupModel>[];
+  List<FollowerUserModel> _nearbyMembers = const <FollowerUserModel>[];
+  String _locationLabel = 'Detecting your live location…';
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadNearbyCircles());
+  }
+
+  Future<void> _loadNearbyCircles({bool requestGps = true}) async {
+    setState(() => _loading = true);
+    final safety = SakhiSafetyController.instance;
+    if (requestGps && !safety.hasRecentDeviceLocation) {
+      await safety.requestDeviceLocation();
+    }
+    final state = SakhiPrototypeState.instance;
+    final res = await state.fetchNearbyCircles(
+      lat: safety.hasRecentDeviceLocation ? safety.currentLatitude : null,
+      lng: safety.hasRecentDeviceLocation ? safety.currentLongitude : null,
+      radiusKm: _selectedRadiusKm,
+      city: state.currentUser.location,
+    );
+    if (!mounted) return;
+
+    final rawCircles = res?['circles'];
+    final parsedCircles = rawCircles is List
+        ? rawCircles
+              .whereType<Map<String, dynamic>>()
+              .map(CommunityGroupModel.fromJson)
+              .toList()
+        : state.groups;
+
+    final rawMembers = res?['nearbyMembers'];
+    final parsedMembers = rawMembers is List
+        ? rawMembers
+              .whereType<Map<String, dynamic>>()
+              .map(FollowerUserModel.fromJson)
+              .toList()
+        : state.followers;
+
+    setState(() {
+      _loading = false;
+      _circles = parsedCircles;
+      _nearbyMembers = parsedMembers;
+      _locationLabel = safety.hasRecentDeviceLocation
+          ? safety.currentLocationLabel
+          : (state.currentUser.location.isNotEmpty
+                ? state.currentUser.location
+                : 'Your Sakhi Area');
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final safety = SakhiSafetyController.instance;
+    return Scaffold(
+      backgroundColor: AppColors.scaffoldBackground,
+      appBar: AppBar(
+        backgroundColor: AppColors.scaffoldBackground,
+        elevation: 0,
+        title: const Text(
+          'Active Circles Near You',
+          style: AppTypography.appBarTitle,
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Refresh GPS',
+            icon: const Icon(
+              Icons.my_location_rounded,
+              color: AppColors.primaryPurple,
+            ),
+            onPressed: () => _loadNearbyCircles(requestGps: true),
+          ),
+        ],
+      ),
+      body: RefreshIndicator(
+        onRefresh: () => _loadNearbyCircles(requestGps: true),
+        color: AppColors.primaryPurple,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.screenPaddingH,
+            8,
+            AppSpacing.screenPaddingH,
+            96,
+          ),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: AppColors.heroBannerGradient,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: AppColors.borderSubtle),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.location_on_rounded,
+                        color: AppColors.primaryPurple,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _locationLabel,
+                          style: AppTypography.cardTitle,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    safety.hasRecentDeviceLocation
+                        ? 'Live GPS active (${safety.currentLatitude.toStringAsFixed(4)}, ${safety.currentLongitude.toStringAsFixed(4)}) • Showing real database circles & verified members.'
+                        : 'Enable device GPS to discover active Sakhi circles and verified women in your neighbourhood.',
                     style: AppTypography.subtitle,
                   ),
-                ],
-              ],
-            ),
-          ),
-          if ((member.bio ?? '').trim().isNotEmpty) ...[
-            const SizedBox(height: 14),
-            SakhiCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('About', style: AppTypography.sectionTitle),
-                  const SizedBox(height: 8),
-                  Text(member.bio!.trim(), style: AppTypography.bodyRegular),
-                ],
-              ),
-            ),
-          ],
-          if (interests.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            SakhiCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Interests', style: AppTypography.sectionTitle),
                   const SizedBox(height: 10),
                   Wrap(
                     spacing: 8,
-                    runSpacing: 8,
-                    children: interests
-                        .map((interest) => SakhiChip(label: interest))
-                        .toList(),
+                    children: [10.0, 25.0, 50.0].map((rad) {
+                      final selected = _selectedRadiusKm == rad;
+                      return ChoiceChip(
+                        label: Text('Within ${rad.toInt()} km'),
+                        selected: selected,
+                        selectedColor: AppColors.primaryPurple,
+                        labelStyle: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: selected
+                              ? Colors.white
+                              : AppColors.textPrimary,
+                        ),
+                        onSelected: (_) {
+                          setState(() => _selectedRadiusKm = rad);
+                          unawaited(_loadNearbyCircles(requestGps: false));
+                        },
+                      );
+                    }).toList(),
                   ),
                 ],
               ),
             ),
-          ],
-          if (businessUrl.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            SakhiCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Linked Business Profile',
-                    style: AppTypography.sectionTitle,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    (member.businessProfileName ?? '').trim().isNotEmpty
-                        ? member.businessProfileName!
-                        : 'Women-owned business',
-                    style: AppTypography.cardTitle,
-                  ),
-                  if ((member.businessCategory ?? '').trim().isNotEmpty) ...[
-                    const SizedBox(height: 3),
-                    Text(
-                      member.businessCategory!,
-                      style: AppTypography.subtitle,
+            const SizedBox(height: 18),
+            SakhiSectionHeader(title: 'Active Circles (${_circles.length})'),
+            const SizedBox(height: 10),
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.all(20),
+                child: SakhiQuoteLoader.inline(
+                  statusLabel: 'Finding active Sakhi circles near your location…',
+                ),
+              )
+            else if (_circles.isEmpty)
+              const SakhiEmptyState(
+                icon: Icons.groups_outlined,
+                title: 'No circles found in this radius',
+                message: 'Try expanding the radius to 50 km.',
+              )
+            else
+              ..._circles.map(
+                (group) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: SakhiCard(
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 46,
+                          height: 46,
+                          decoration: BoxDecoration(
+                            color: AppColors.pastelLavender,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: const Icon(
+                            Icons.groups_rounded,
+                            color: AppColors.primaryPurple,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(group.name, style: AppTypography.cardTitle),
+                              const SizedBox(height: 3),
+                              Text(
+                                '${group.membersCount} verified member(s) • ${group.description}',
+                                style: AppTypography.subtitle,
+                              ),
+                            ],
+                          ),
+                        ),
+                        SakhiJoinCircleButton(circleName: group.name),
+                      ],
                     ),
-                  ],
-                  const SizedBox(height: 6),
-                  const Text(
-                    'A business link is recorded on this member profile. External business navigation is not part of this mobile flow.',
-                    style: AppTypography.subtitle,
                   ),
-                ],
+                ),
               ),
+            const SizedBox(height: 18),
+            SakhiSectionHeader(
+              title: 'Verified Sakhi Members Nearby (${_nearbyMembers.length})',
             ),
+            const SizedBox(height: 10),
+            if (!_loading && _nearbyMembers.isEmpty)
+              const _InlineEmptyResult(
+                text: 'No public member profiles are currently sharing location in this area.',
+              )
+            else
+              ..._nearbyMembers.map(
+                (member) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: SakhiCard(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: SakhiAvatar(
+                        imageAsset: member.avatarAsset,
+                        fallbackLabel: member.name,
+                        size: 46,
+                      ),
+                      title: Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              member.name,
+                              style: AppTypography.cardTitle,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (member.isVerified) ...[
+                            const SizedBox(width: 4),
+                            const Icon(
+                              Icons.verified_rounded,
+                              size: 16,
+                              color: AppColors.primaryPurple,
+                            ),
+                          ],
+                        ],
+                      ),
+                      subtitle: Text('${member.username} • ${member.location}'),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              SearchResultMemberProfileScreen(member: member),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
           ],
-        ],
+        ),
       ),
     );
   }

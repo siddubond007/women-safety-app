@@ -402,7 +402,13 @@ class _PostCommentsSheetState extends State<_PostCommentsSheet> {
     return AnimatedBuilder(
       animation: state,
       builder: (context, _) {
-        final comments = state.backend?.commentsByPost[widget.postId] ?? [];
+        final postMatch = [
+          ...state.communityPosts,
+          ...state.exploreRecommendedPosts,
+          ...state.profilePosts,
+        ].where((p) => p.id == widget.postId);
+        final comments = state.backend?.commentsByPost[widget.postId] ??
+            (postMatch.isNotEmpty ? postMatch.first.comments : const []);
         return Padding(
           padding: EdgeInsets.only(
             left: 18,
