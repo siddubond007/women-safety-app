@@ -198,7 +198,9 @@ describe("Module2Service privacy regression checks", () => {
 
     const html = await service.renderLiveLocationTrackHtml("sos-test");
 
-    expect(html).toContain('http-equiv="refresh" content="15"');
+    // The live-location page polls the server every four seconds; it no longer
+    // relies on a full-page meta refresh.
+    expect(html).toContain("setInterval(pollLivePosition, 4000)");
     expect(html).toContain("STALE");
     expect(html).toContain("not been updated in over two minutes");
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
