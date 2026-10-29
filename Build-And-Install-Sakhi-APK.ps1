@@ -8,6 +8,24 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Release artifacts must use the public Render staging API.
+# Reject localhost, HTTP, alternate hosts, and API paths before invoking Flutter.
+$parsedApiBaseUrl = $null
+if (-not [System.Uri]::TryCreate($ApiBaseUrl, [System.UriKind]::Absolute, [ref]$parsedApiBaseUrl)) {
+    throw "ApiBaseUrl must be an absolute HTTPS URL for the public Sakhi Render API."
+}
+if (
+    $parsedApiBaseUrl.Scheme -cne "https" -or
+    $parsedApiBaseUrl.Host -cne "sakhi-staging-api.onrender.com" -or
+    $parsedApiBaseUrl.AbsolutePath.TrimEnd("/") -cne "/api/v1" -or
+    -not [string]::IsNullOrEmpty($parsedApiBaseUrl.Query) -or
+    -not [string]::IsNullOrEmpty($parsedApiBaseUrl.Fragment) -or
+    -not [string]::IsNullOrEmpty($parsedApiBaseUrl.UserInfo)
+) {
+    throw "Release builds are restricted to https://sakhi-staging-api.onrender.com/api/v1. Localhost or non-HTTPS targets are not allowed."
+}
+$ApiBaseUrl = $parsedApiBaseUrl.GetLeftPart([System.UriPartial]::Path).TrimEnd("/")
+
 function Invoke-Flutter {
     param([Parameter(Mandatory = $true)][string[]]$Arguments)
 
@@ -31,7 +49,7 @@ if ($flutterCommand) {
     throw "Flutter was not found. Install/configure Flutter or add flutter.bat to PATH."
 }
 
-Write-Host "=== Sakhi v1.2.0+3 Staging APK Build & Verification ===" -ForegroundColor Cyan
+Write-Host "=== Sakhi Staging APK Build & Verification ===" -ForegroundColor Cyan
 Write-Host "Repository: $RepoRoot"
 Write-Host "API: $ApiBaseUrl"
 Write-Host "Installation is OFF by default. Use -Install only when you explicitly want to install to a connected phone."
@@ -73,10 +91,10 @@ try {
     }
 
     $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-    $OutputApk = Join-Path $OutputDirectory ("Sakhi_Module5_Staging_Release_" + $timestamp + ".apk")
+    $OutputApk = Join-Path $OutputDirectory ("Sakhi_Staging_Release_" + $timestamp + ".apk")
     $suffix = 1
     while (Test-Path -LiteralPath $OutputApk) {
-        $OutputApk = Join-Path $OutputDirectory ("Sakhi_Module5_Staging_Release_" + $timestamp + "_" + $suffix + ".apk")
+        $OutputApk = Join-Path $OutputDirectory ("Sakhi_Staging_Release_" + $timestamp + "_" + $suffix + ".apk")
         $suffix++
     }
 
