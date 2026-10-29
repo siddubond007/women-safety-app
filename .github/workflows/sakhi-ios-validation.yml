@@ -1,11 +1,10 @@
-name: Sakhi iOS unsigned sideload build
+name: Sakhi iOS validation
 
 on:
   push:
     branches:
       - feat/module5-discreet-complaints-repaired
       - feat/module5-and-rbac-admin-panels-20261027
-      - feat/ios-sideload-cloud-build-20261029
     paths:
       - "app/**"
       - ".github/workflows/sakhi-ios-validation.yml"
@@ -22,23 +21,15 @@ permissions:
 
 jobs:
   ios-release-build:
-    name: Analyze, test, and package unsigned iOS IPA
+    name: iOS source validation and unsigned release build
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: app
-    env:
-      SAKHI_API_BASE_URL: https://sakhi-staging-api.onrender.com/api/v1
     steps:
-      - name: Checkout source
+      - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Select Xcode and show build environment
-        run: |
-          xcodebuild -version
-          xcode-select -p
-          sw_vers
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -56,50 +47,9 @@ jobs:
       - name: Run Flutter tests
         run: flutter test
 
-      - name: Build iOS release without Apple signing
-        run: |
-          flutter build ios --release --no-codesign \
-            --dart-define=SAKHI_BACKEND_ENABLED=true \
-            --dart-define=SAKHI_STAGING_TEST_MODE=true \
-            --dart-define=SAKHI_API_BASE_URL="$SAKHI_API_BASE_URL"
-
-      - name: Assemble an unsigned IPA for Windows sideloading
-        run: |
-          set -euo pipefail
-          APP_PATH="build/ios/iphoneos/Runner.app"
-          test -d "$APP_PATH"
-          test -f "$APP_PATH/Info.plist"
-
-          rm -rf Payload output
-          mkdir -p Payload output
-          ditto "$APP_PATH" "Payload/Runner.app"
-
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "Payload/Runner.app/Info.plist" > output/BUNDLE_IDENTIFIER.txt
-          {
-            echo "Sakhi iOS unsigned sideload build"
-            echo "Git commit: $GITHUB_SHA"
-            echo "Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-            echo "Flutter:"
-            flutter --version | head -n 1
-            echo "Bundle identifier: $(cat output/BUNDLE_IDENTIFIER.txt)"
-            echo "API base URL: $SAKHI_API_BASE_URL"
-            echo "Backend enabled: SAKHI_BACKEND_ENABLED=true"
-            echo "Mode: SAKHI_STAGING_TEST_MODE=true"
-            echo "Signing: not applied; sign/install with a Windows sideloading tool and your Apple Account"
-          } > output/BUILD_INFO.txt
-
-          /usr/bin/zip -qry output/Sakhi-iOS-unsigned.ipa Payload
-          unzip -l output/Sakhi-iOS-unsigned.ipa | grep -F 'Payload/Runner.app/Info.plist'
-          shasum -a 256 output/Sakhi-iOS-unsigned.ipa > output/SHA256SUMS.txt
-
-      - name: Upload unsigned IPA artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: sakhi-ios-unsigned-ipa
-          path: |
-            app/output/Sakhi-iOS-unsigned.ipa
-            app/output/BUILD_INFO.txt
-            app/output/BUNDLE_IDENTIFIER.txt
-            app/output/SHA256SUMS.txt
-          if-no-files-found: error
-          retention-days: 7
+      - name: Build iOS release without signing
+        run: >-
+          flutter build ios --release --no-codesign
+          --dart-define=SAKHI_BACKEND_ENABLED=true
+          --dart-define=SAKHI_STAGING_TEST_MODE=true
+          --dart-define=SAKHI_API_BASE_URL=https://sakhi-staging-api.onrender.com/api/v1
