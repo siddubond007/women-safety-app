@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 /// Reusable asset locations across Onboarding, Auth, Eligibility, Module 2, Module 3, Module 4, and Module 5 screens.
 abstract final class AppAssets {
   // Stage 1 Onboarding & Auth illustrations
@@ -251,7 +253,11 @@ abstract final class AppAssets {
     }
     const baseUrl = String.fromEnvironment(
       'SAKHI_API_BASE_URL',
-      defaultValue: 'http://127.0.0.1:3001/api/v1',
+      // Release builds must resolve relative media paths against the hosted API.
+      // Use localhost only for an explicitly local debug build.
+      defaultValue: kReleaseMode
+          ? 'https://sakhi-staging-api.onrender.com/api/v1'
+          : 'http://127.0.0.1:3001/api/v1',
     );
     final parsed = Uri.parse(baseUrl);
     final origin =
