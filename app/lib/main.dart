@@ -352,7 +352,7 @@ class _SakhiProtectedHomeGateState extends State<SakhiProtectedHomeGate> {
                       Text(
                         snapshot.hasError
                             ? 'Sakhi could not confirm the current account state with the backend.'
-                            : 'The backend has not confirmed that this account is active and verified. Open Super Admin (http://127.0.0.1:5173/verifications), approve your number, then tap "Check account state again" below.',
+                            : 'The backend has not confirmed that this account is active and verified. Open the Sakhi staging admin portal at https://sakhi-staging-admin.onrender.com/verifications, approve your number, then tap "Check account state again" below.',
                         textAlign: TextAlign.center,
                         style: SakhiTypography.body,
                       ),
