@@ -56,7 +56,8 @@ class MainActivity : FlutterActivity(), SensorEventListener {
     private val shakeTimestamps = mutableListOf<Long>()
     private var lastTriggerTimeMs: Long = 0L
 
-    // Distinct short-tap tracking (prevents holding volume key from triggering SOS)
+    // Distinct short-tap tracking (prevents holding volume key from triggering SOS,
+    // while reliably capturing rapid 3x clicks of Volume Up/Down or Power)
     private val hardwareKeyTimestamps = mutableListOf<Long>()
     private var lastVolumeKeyDownMs: Long = 0L
     private var lastVolumeKeyCode: Int = -1
@@ -84,9 +85,9 @@ class MainActivity : FlutterActivity(), SensorEventListener {
             val now = System.currentTimeMillis()
 
             if (action == Intent.ACTION_SCREEN_OFF || action == Intent.ACTION_SCREEN_ON) {
-                powerScreenTimestamps.removeAll { now - it > 4500L }
+                powerScreenTimestamps.removeAll { now - it > 5000L }
                 powerScreenTimestamps.add(now)
-                if (powerScreenTimestamps.size >= 3 && now - lastTriggerTimeMs > 4000L) {
+                if (powerScreenTimestamps.size >= 3 && now - lastTriggerTimeMs > 3000L) {
                     powerScreenTimestamps.clear()
                     lastTriggerTimeMs = now
                     fireDiscreetSosTrigger("POWER_BUTTON_3X", now, null)
@@ -94,14 +95,14 @@ class MainActivity : FlutterActivity(), SensorEventListener {
             } else if (action == "android.media.VOLUME_CHANGED_ACTION" && !isActivityResumed) {
                 val delta = now - lastBackgroundVolumeChangeMs
                 lastBackgroundVolumeChangeMs = now
-                // Ignore rapid auto-repeat events (< 150ms) when user holds down volume button
-                if (delta in 1L..150L) {
+                // Ignore rapid auto-repeat events (< 95ms) when user holds down volume button
+                if (delta in 1L..95L) {
                     backgroundVolumeTimestamps.clear()
                     return
                 }
-                backgroundVolumeTimestamps.removeAll { now - it > 2400L }
+                backgroundVolumeTimestamps.removeAll { now - it > 3500L }
                 backgroundVolumeTimestamps.add(now)
-                if (backgroundVolumeTimestamps.size >= 3 && now - lastTriggerTimeMs > 4000L) {
+                if (backgroundVolumeTimestamps.size >= 3 && now - lastTriggerTimeMs > 3000L) {
                     backgroundVolumeTimestamps.clear()
                     lastTriggerTimeMs = now
                     fireDiscreetSosTrigger("HARDWARE_KEY_3X", now, null)
@@ -148,6 +149,11 @@ class MainActivity : FlutterActivity(), SensorEventListener {
 
         channel.setMethodCallHandler { call, result ->
             when (call.method) {
+                "moveAppToBackground" -> {
+                    moveTaskToBack(true)
+                    result.success(true)
+                }
+
                 "dialNumber" -> {
                     val rawNumber = call.argument<String>("number") ?: "112"
                     val cleaned = rawNumber.replace(Regex("[^0-9+]"), "")
@@ -293,7 +299,6 @@ class MainActivity : FlutterActivity(), SensorEventListener {
                                 )
                             )
                         } catch (e: Exception) {
-                            // Fallback to composeSms intent only if carrier hardware threw an exception
                             launchFallbackSmsIntent(cleanedRecipients.joinToString(";"), body)
                             result.success(
                                 mapOf(
@@ -531,29 +536,28 @@ class MainActivity : FlutterActivity(), SensorEventListener {
         ) {
             val now = System.currentTimeMillis()
             if (event.action == KeyEvent.ACTION_DOWN) {
-                // CRITICAL FIX (Flaw 5): Ignore key repeats & long-presses when user holds down volume button!
+                // Ignore key auto-repeats & long-presses when user holds down volume button
                 if (event.repeatCount > 0 || event.isLongPress) {
                     volumeKeyHoldDetected = true
                     hardwareKeyTimestamps.clear()
                     return super.dispatchKeyEvent(event)
                 }
-                volumeKeyHoldDetected = false
-                lastVolumeKeyDownMs = now
-                lastVolumeKeyCode = code
+                if (lastVolumeKeyDownMs == 0L || code != lastVolumeKeyCode || now - lastVolumeKeyDownMs > 50L) {
+                    volumeKeyHoldDetected = false
+                    lastVolumeKeyDownMs = now
+                    lastVolumeKeyCode = code
+                }
             } else if (event.action == KeyEvent.ACTION_UP) {
-                val pressDurationMs = now - lastVolumeKeyDownMs
-                if (!volumeKeyHoldDetected &&
-                    code == lastVolumeKeyCode &&
-                    pressDurationMs in 10L..480L
-                ) {
-                    hardwareKeyTimestamps.removeAll { now - it > 2200L }
+                val pressDurationMs = (now - lastVolumeKeyDownMs).coerceAtLeast(0L)
+                if (!volumeKeyHoldDetected && pressDurationMs <= 850L) {
+                    hardwareKeyTimestamps.removeAll { now - it > 3500L }
                     hardwareKeyTimestamps.add(now)
-                    if (hardwareKeyTimestamps.size >= 3 && now - lastTriggerTimeMs > 3500L) {
+                    if (hardwareKeyTimestamps.size >= 3 && now - lastTriggerTimeMs > 3000L) {
                         hardwareKeyTimestamps.clear()
                         lastTriggerTimeMs = now
                         fireDiscreetSosTrigger("HARDWARE_KEY_3X", now, null)
                     }
-                } else if (pressDurationMs > 480L) {
+                } else if (pressDurationMs > 850L) {
                     // Held too long -> clear tap sequence so holding never triggers SOS
                     hardwareKeyTimestamps.clear()
                 }
@@ -685,7 +689,6 @@ class MainActivity : FlutterActivity(), SensorEventListener {
                 while (meditationPlaying) {
                     for (i in 0 until bufferSamples) {
                         val t = sampleIndex.toDouble() / sampleRate.toDouble()
-                        // Warm 432Hz + 528Hz + 216Hz Tibetan singing bowl & ambient breathing pad
                         val breathEnvelope = 0.65 + 0.35 * sin(2.0 * PI * 0.12 * t)
                         val chimeEnvelope = 0.5 + 0.5 * sin(2.0 * PI * 0.05 * t)
                         val wave432 = sin(2.0 * PI * 432.0 * t) * 0.38
@@ -758,7 +761,11 @@ class MainActivity : FlutterActivity(), SensorEventListener {
                 addAction(Intent.ACTION_SCREEN_ON)
                 addAction("android.media.VOLUME_CHANGED_ACTION")
             }
-            registerReceiver(screenAndVolumeReceiver, filter)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(screenAndVolumeReceiver, filter, Context.RECEIVER_EXPORTED)
+            } else {
+                registerReceiver(screenAndVolumeReceiver, filter)
+            }
             screenReceiverRegistered = true
         } catch (_: Exception) {
         }
@@ -790,9 +797,9 @@ class MainActivity : FlutterActivity(), SensorEventListener {
             if (shakeTimestamps.isNotEmpty() && now - shakeTimestamps.last() < 180L) {
                 return
             }
-            shakeTimestamps.removeAll { now - it > 1800L }
+            shakeTimestamps.removeAll { now - it > 2200L }
             shakeTimestamps.add(now)
-            if (shakeTimestamps.size >= 3 && now - lastTriggerTimeMs > 3500L) {
+            if (shakeTimestamps.size >= 3 && now - lastTriggerTimeMs > 3000L) {
                 shakeTimestamps.clear()
                 lastTriggerTimeMs = now
                 fireDiscreetSosTrigger("SHAKE_GESTURE", now, gForce.toDouble())
@@ -800,23 +807,25 @@ class MainActivity : FlutterActivity(), SensorEventListener {
         }
     }
 
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
+        // No-op
+    }
 
     private fun vibrateAlert() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val vm = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
                 vm?.defaultVibrator?.vibrate(
-                    VibrationEffect.createWaveform(longArrayOf(0, 120, 80, 180), -1)
+                    VibrationEffect.createWaveform(longArrayOf(0, 180, 90, 240), -1)
                 )
             } else {
                 @Suppress("DEPRECATION")
                 val v = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    v?.vibrate(VibrationEffect.createOneShot(200, VibrationEffect.DEFAULT_AMPLITUDE))
+                    v?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 180, 90, 240), -1))
                 } else {
                     @Suppress("DEPRECATION")
-                    v?.vibrate(200)
+                    v?.vibrate(400)
                 }
             }
         } catch (_: Exception) {

@@ -13,6 +13,7 @@ import 'features/auth/auth_service_factory.dart';
 import 'features/auth/sakhi_auth_status_screen.dart';
 import 'features/auth/sakhi_login_screen.dart';
 import 'features/auth/sakhi_registration_screen.dart';
+import 'features/business/screens/business_hub_screen.dart';
 import 'features/community/screens/community_screen.dart';
 import 'features/complaints/screens/complaint_submission_wizard_screen.dart';
 import 'features/complaints/screens/complaint_tracking_screens.dart';
@@ -90,13 +91,28 @@ class SakhiHomeScreen extends StatelessWidget {
   }
 }
 
-class SakhiApp extends StatelessWidget {
+class SakhiApp extends StatefulWidget {
   const SakhiApp({super.key});
 
   @override
+  State<SakhiApp> createState() => _SakhiAppState();
+}
+
+class _SakhiAppState extends State<SakhiApp> {
+  late final AuthService _authService;
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+
+  @override
+  void initState() {
+    super.initState();
+    _authService = authServiceForCurrentBuild();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final authService = authServiceForCurrentBuild();
     return MaterialApp(
+      navigatorKey: _navigatorKey,
+      restorationScopeId: 'sakhi_root_app',
       title: AppBrand.appName,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
@@ -111,7 +127,7 @@ class SakhiApp extends StatelessWidget {
         );
       },
       routes: {
-        '/home': (_) => SakhiProtectedHomeGate(authService: authService),
+        '/home': (_) => SakhiProtectedHomeGate(authService: _authService),
         '/dashboard': (_) => const AppNavigationShell(),
         AppRoutes.explore: (_) => const Scaffold(body: ExploreScreen()),
         AppRoutes.community: (_) => const Scaffold(body: CommunityScreen()),
@@ -140,8 +156,14 @@ class SakhiApp extends StatelessWidget {
             const ComplaintTrackingLookupScreen(),
         AppRoutes.quickExitJournal: (_) =>
             const QuickExitWellnessCamouflageScreen(),
+        AppRoutes.businessHub: (_) =>
+            const WomenBusinessHubScreen(showBackButton: true),
+        AppRoutes.businessCreate: (_) =>
+            const BusinessRegistrationWizardScreen(),
+        AppRoutes.businessEnquiries: (_) =>
+            const BusinessEnquiryInboxScreen(),
       },
-      home: SakhiStartupRouter(authService: authService),
+      home: SakhiStartupRouter(authService: _authService),
     );
   }
 }

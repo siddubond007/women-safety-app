@@ -9,6 +9,7 @@ enum SakhiCreateAction {
   textPost,
   communityQuestion,
   usefulResource,
+  womenBusinessPage,
   discreetComplaint,
 }
 
@@ -120,8 +121,9 @@ Future<SakhiCreateAction?> showSakhiCreateHub(BuildContext context) {
               description: 'Ask Sakhis for ideas and support',
               gradientColors: const [Color(0xFFFFF7EE), Color(0xFFFCEAD7)],
               iconBg: const Color(0xFFF5D6B8),
-              onTap: () => Navigator.of(sheetContext)
-                  .pop(SakhiCreateAction.communityQuestion),
+              onTap: () => Navigator.of(
+                sheetContext,
+              ).pop(SakhiCreateAction.communityQuestion),
             ),
             _CreateHubOption(
               icon: Icons.menu_book_outlined,
@@ -129,8 +131,20 @@ Future<SakhiCreateAction?> showSakhiCreateHub(BuildContext context) {
               description: 'Share information that may help others',
               gradientColors: const [Color(0xFFF1FAF5), Color(0xFFE1F3EA)],
               iconBg: const Color(0xFFC5E6D6),
-              onTap: () => Navigator.of(sheetContext)
-                  .pop(SakhiCreateAction.usefulResource),
+              onTap: () => Navigator.of(
+                sheetContext,
+              ).pop(SakhiCreateAction.usefulResource),
+            ),
+            _CreateHubOption(
+              icon: Icons.storefront_rounded,
+              title: 'Promote a Women-Owned Business',
+              description:
+                  'Create or manage your business page, products & enquiries',
+              gradientColors: const [Color(0xFFFFF7EE), Color(0xFFF9E6F5)],
+              iconBg: const Color(0xFFF3D1E8),
+              onTap: () => Navigator.of(
+                sheetContext,
+              ).pop(SakhiCreateAction.womenBusinessPage),
             ),
             _CreateHubOption(
               icon: Icons.shield_moon_rounded,
@@ -139,8 +153,9 @@ Future<SakhiCreateAction?> showSakhiCreateHub(BuildContext context) {
                   'Report harassment, stalking, or safety concerns privately',
               gradientColors: const [Color(0xFFFCEEF5), Color(0xFFF2E2F8)],
               iconBg: const Color(0xFFE5C5F0),
-              onTap: () => Navigator.of(sheetContext)
-                  .pop(SakhiCreateAction.discreetComplaint),
+              onTap: () => Navigator.of(
+                sheetContext,
+              ).pop(SakhiCreateAction.discreetComplaint),
             ),
             const SizedBox(height: 6),
             SizedBox(

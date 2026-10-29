@@ -285,6 +285,8 @@ model CommunityPostComment {
   accountId            String        @map("account_id") @db.Uuid
   authorName           String        @map("author_name") @db.VarChar(100)
   content              String        @db.VarChar(500)
+  parentCommentId      String?       @map("parent_comment_id") @db.Uuid
+  replyToHandle        String?       @map("reply_to_handle") @db.VarChar(80)
   createdAt            DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   isRemovedByModerator Boolean       @default(false) @map("is_removed_by_moderator")
   deletedAt            DateTime?     @map("deleted_at") @db.Timestamptz(6)
@@ -739,11 +741,27 @@ model BusinessDirectoryListing {
   businessName            String   @map("business_name") @db.VarChar(160)
   ownerAccountId          String?  @map("owner_account_id") @db.Uuid
   ownerDisplayName        String   @map("owner_display_name") @db.VarChar(120)
-  category                String   @default("Women-Owned Boutique & Services") @db.VarChar(80)
+  category                String   @default("Fashion and clothing") @db.VarChar(80)
   city                    String   @default("Bengaluru") @db.VarChar(80)
+  serviceArea             String?  @map("service_area") @db.VarChar(160)
+  latitude                Float?
+  longitude               Float?
+  priceRange              String   @default("₹500 – ₹2,500") @map("price_range") @db.VarChar(80)
   description             String   @db.Text
+  logoAsset               String?  @map("logo_asset") @db.Text
+  coverImage              String?  @map("cover_image") @db.Text
   contactPhone            String?  @map("contact_phone") @db.VarChar(32)
+  hidePhoneNumber         Boolean  @default(false) @map("hide_phone_number")
+  whatsappNumber          String?  @map("whatsapp_number") @db.VarChar(32)
+  instagramHandle         String?  @map("instagram_handle") @db.VarChar(120)
   websiteOrInstagram      String?  @map("website_or_instagram") @db.VarChar(255)
+  businessHours           Json     @default("{}") @map("business_hours") @db.JsonB
+  productsServices        Json     @default("[]") @map("products_services") @db.JsonB
+  mediaGallery            Json     @default("[]") @map("media_gallery") @db.JsonB
+  offersAndPosts          Json     @default("[]") @map("offers_and_posts") @db.JsonB
+  savedByAccountIds       Json     @default("[]") @map("saved_by_account_ids") @db.JsonB
+  enquiriesCount          Int      @default(0) @map("enquiries_count")
+  viewsCount              Int      @default(0) @map("views_count")
   approvalStatus          String   @default("PENDING_APPROVAL") @map("approval_status") @db.VarChar(32)
   verificationBadgeStatus String   @default("NONE") @map("verification_badge_status") @db.VarChar(32)
   isFeatured              Boolean  @default(false) @map("is_featured")
@@ -756,7 +774,47 @@ model BusinessDirectoryListing {
 
   @@index([approvalStatus, createdAt], map: "business_directory_listings_status_created_idx")
   @@index([category, approvalStatus], map: "business_directory_listings_category_status_idx")
+  @@index([ownerAccountId], map: "business_directory_listings_owner_idx")
   @@map("business_directory_listings")
+}
+
+model BusinessEnquiry {
+  id                String   @id @default(uuid()) @db.Uuid
+  enquiryCode       String   @unique(map: "business_enquiries_code_key") @map("enquiry_code") @db.VarChar(40)
+  businessId        String   @map("business_id") @db.Uuid
+  businessName      String   @map("business_name") @db.VarChar(160)
+  ownerAccountId    String?  @map("owner_account_id") @db.Uuid
+  senderAccountId   String   @map("sender_account_id") @db.Uuid
+  senderDisplayName String   @map("sender_display_name") @db.VarChar(120)
+  senderUsername    String?  @map("sender_username") @db.VarChar(80)
+  subjectOrProduct  String   @default("General Business Enquiry") @map("subject_or_product") @db.VarChar(160)
+  status            String   @default("OPEN") @db.VarChar(32)
+  messages          Json     @default("[]") @db.JsonB
+  unreadForOwner    Boolean  @default(true) @map("unread_for_owner")
+  unreadForSender   Boolean  @default(false) @map("unread_for_sender")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([businessId, createdAt], map: "business_enquiries_business_created_idx")
+  @@index([senderAccountId, createdAt], map: "business_enquiries_sender_created_idx")
+  @@index([ownerAccountId, createdAt], map: "business_enquiries_owner_created_idx")
+  @@map("business_enquiries")
+}
+
+model BusinessReport {
+  id                String   @id @default(uuid()) @db.Uuid
+  businessId        String   @map("business_id") @db.Uuid
+  businessName      String   @map("business_name") @db.VarChar(160)
+  reporterAccountId String   @map("reporter_account_id") @db.Uuid
+  reason            String   @db.VarChar(160)
+  details           String?  @db.Text
+  status            String   @default("OPEN") @db.VarChar(32)
+  reviewedBy        String?  @map("reviewed_by") @db.VarChar(120)
+  reviewNotes       String?  @map("review_notes") @db.VarChar(500)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([businessId, status, createdAt], map: "business_reports_business_status_idx")
+  @@map("business_reports")
 }
 
 model PlatformConfigSetting {

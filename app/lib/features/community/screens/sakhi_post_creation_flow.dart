@@ -16,6 +16,7 @@ import '../../../core/widgets/sakhi_buttons.dart';
 import '../../../core/widgets/sakhi_card.dart';
 import '../../../core/widgets/sakhi_chip.dart';
 import '../../../core/widgets/sakhi_create_hub_sheet.dart';
+import '../../business/screens/business_hub_screen.dart';
 import '../../complaints/screens/discreet_complaint_hub_screen.dart';
 
 const Map<String, String> sakhiPostCategories = {
@@ -66,6 +67,9 @@ Future<void> openSakhiCreateAction(
         onPublished: onPublished,
         initialCategory: initialCategory ?? 'safety_awareness',
       ),
+    ),
+    SakhiCreateAction.womenBusinessPage => MaterialPageRoute<void>(
+      builder: (_) => const WomenBusinessHubScreen(showBackButton: true),
     ),
     SakhiCreateAction.discreetComplaint => MaterialPageRoute<void>(
       builder: (_) => const DiscreetComplaintHubScreen(),

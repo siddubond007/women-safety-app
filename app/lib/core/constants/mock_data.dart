@@ -1,8 +1,24 @@
+import 'dart:math' as math;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 
 import '../../features/auth/backend_api_client.dart';
+
+const List<String> kSakhiCuratedInterests = <String>[
+  'Mental Wellness',
+  'Travel',
+  'Reading',
+  'WomenInTech',
+  'Art',
+  'Fitness',
+  'Entrepreneurship',
+  'Small Business',
+  'Education',
+  'Family',
+  'Safety',
+  'Wellness',
+];
 
 /// SRS 5.3 Feed Category model.
 class FeedCategoryModel {
@@ -86,6 +102,8 @@ class PostCommentItem {
   final String authorAvatar;
   String body;
   final String createdAt;
+  final String? parentCommentId;
+  final String? replyToHandle;
   final bool isOwnComment;
   final bool canEdit;
   final bool canDelete;
@@ -98,6 +116,8 @@ class PostCommentItem {
     required this.authorAvatar,
     required this.body,
     required this.createdAt,
+    this.parentCommentId,
+    this.replyToHandle,
     this.isOwnComment = false,
     this.canEdit = false,
     this.canDelete = false,
@@ -115,6 +135,8 @@ class PostCommentItem {
       authorAvatar: rawAvatar,
       body: (json['body'] ?? json['content'] ?? json['text'] ?? '').toString(),
       createdAt: json['createdAt']?.toString() ?? 'Just now',
+      parentCommentId: json['parentCommentId']?.toString(),
+      replyToHandle: json['replyToHandle']?.toString(),
       isOwnComment: json['isOwnComment'] == true,
       canEdit: json['canEdit'] == true || json['isOwnComment'] == true,
       canDelete: json['canDelete'] == true || json['isOwnComment'] == true,
@@ -233,6 +255,7 @@ class FeedPostModel {
        comments = comments ?? <PostCommentItem>[];
 
   String get audience => visibility;
+  String get timeAgo => timestamp;
   String? get reactionType => viewerReaction;
   int get reactionsCount => likesCount;
   List<String> get mediaItems => imageAsset != null && imageAsset!.isNotEmpty
@@ -395,6 +418,8 @@ class CommunityGroupModel {
   final int membersCount;
   final int newPostsToday;
 
+  bool get isJoined => SakhiPrototypeState.instance.isCircleJoined(name);
+
   const CommunityGroupModel({
     required this.id,
     required this.name,
@@ -503,6 +528,48 @@ class SakhiPrototypeState extends ChangeNotifier {
   dynamic _boundBackend;
   bool _isBackendSynced = false;
   bool _isBackendSyncing = false;
+
+  /// Persistent shell navigation state so minimizing/resuming the app never resets to Home.
+  int activeShellTabIndex = 0;
+  String? activeShellSubRoute;
+  final List<int> activeShellTabHistory = <int>[];
+
+  /// Per-account seen post IDs so Home "new posts in Community" reflects real unviewed posts.
+  final Set<String> _seenPostIds = <String>{};
+  final Set<String> joinedCircleNames = <String>{};
+
+  bool isCircleJoined(String circleName) =>
+      joinedCircleNames.contains(circleName.trim());
+
+  Future<bool> hasAuthenticatedSession() async {
+    try {
+      final token = await _client.readAccessToken();
+      return token != null && token.trim().isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  int get unreadCommunityPostsCount {
+    if (communityPosts.isEmpty) return 0;
+    return communityPosts
+        .where((p) => !p.isOwnPost && !_seenPostIds.contains(p.id))
+        .length;
+  }
+
+  void markCommunityPostsAsSeen([Iterable<String>? postIds]) {
+    final ids = postIds ?? communityPosts.map((p) => p.id);
+    var added = false;
+    for (final id in ids) {
+      if (id.isNotEmpty && _seenPostIds.add(id)) {
+        added = true;
+      }
+    }
+    if (added) {
+      notifyListeners();
+    }
+  }
+
   String? lastSyncError;
   int totalDatabaseMembers = 0;
   int totalDatabasePosts = 0;
@@ -885,8 +952,16 @@ class SakhiPrototypeState extends ChangeNotifier {
 
       final userMap = data['currentUser'] ?? data['user'];
       if (userMap is Map<String, dynamic>) {
-        currentUser.accountId =
+        final nextAccountId =
             userMap['accountId']?.toString() ?? currentUser.accountId;
+        if (nextAccountId.isNotEmpty &&
+            currentUser.accountId.isNotEmpty &&
+            nextAccountId != currentUser.accountId) {
+          _seenPostIds.clear();
+          emergencyContacts.clear();
+          joinedCircleNames.clear();
+        }
+        currentUser.accountId = nextAccountId;
         currentUser.displayName =
             userMap['displayName']?.toString() ?? currentUser.displayName;
         currentUser.username =
@@ -1236,18 +1311,20 @@ class SakhiPrototypeState extends ChangeNotifier {
         authenticated: true,
         body: {
           'displayName': normalizedName,
-          if (normalizedUsername != null && normalizedUsername.isNotEmpty)
+          if (normalizedUsername != null &&
+              normalizedUsername.isNotEmpty &&
+              normalizedUsername != '@')
             'username': normalizedUsername.startsWith('@')
                 ? normalizedUsername
                 : '@$normalizedUsername',
           'bio': bio.trim(),
           'location': location.trim(),
           if (interests != null) 'interests': currentUser.interests,
-          if (email != null) 'email': email.trim(),
-          if (businessProfileUrl != null)
+          if (email != null && email.trim().isNotEmpty) 'email': email.trim(),
+          if (businessProfileUrl != null &&
+              businessProfileUrl.trim().isNotEmpty)
             'businessProfileUrl': businessProfileUrl.trim(),
-          if (avatarAsset != null &&
-              avatarAsset.trim().startsWith('assets/images/profile/'))
+          if (avatarAsset != null && avatarAsset.trim().isNotEmpty)
             'avatarAsset': avatarAsset.trim(),
         },
       );
@@ -1871,7 +1948,12 @@ class SakhiPrototypeState extends ChangeNotifier {
     return null;
   }
 
-  Future<bool> addPostComment(FeedPostModel post, String commentText) async {
+  Future<bool> addPostComment(
+    FeedPostModel post,
+    String commentText, {
+    String? parentCommentId,
+    String? replyToHandle,
+  }) async {
     final trimmed = commentText.trim();
     if (trimmed.isEmpty || trimmed.length > 500 || !post.allowComments) {
       return false;
@@ -1887,6 +1969,8 @@ class SakhiPrototypeState extends ChangeNotifier {
       authorAvatar: currentUser.avatarAsset,
       body: trimmed,
       createdAt: 'Just now',
+      parentCommentId: parentCommentId,
+      replyToHandle: replyToHandle,
       isOwnComment: true,
       canEdit: true,
       canDelete: true,
@@ -1900,7 +1984,14 @@ class SakhiPrototypeState extends ChangeNotifier {
       final response = await _client.post(
         'module2/posts/${post.id}/comments',
         authenticated: true,
-        body: {'body': trimmed},
+        body: {
+          'body': trimmed,
+          'content': trimmed,
+          if (parentCommentId != null && parentCommentId.isNotEmpty)
+            'parentCommentId': parentCommentId,
+          if (replyToHandle != null && replyToHandle.isNotEmpty)
+            'replyToHandle': replyToHandle,
+        },
       );
       final raw = response['comment'] ?? response;
       if (raw is Map) {
@@ -2307,5 +2398,512 @@ class SakhiPrototypeState extends ChangeNotifier {
     }
     notifyListeners();
     return true;
+  }
+
+  // ===========================================================================
+  // UNIVERSAL POST AUTHOR FOLLOW & ENTERPRISE TRENDING ALGORITHM
+  // ===========================================================================
+  bool isFollowingAuthor(FeedPostModel post) {
+    final handle = post.authorUsername
+        .trim()
+        .replaceFirst(RegExp(r'^@'), '')
+        .toLowerCase();
+    for (final f in followers) {
+      if (post.authorAccountId.isNotEmpty && f.id == post.authorAccountId) {
+        return f.isFollowing;
+      }
+      if (handle.isNotEmpty &&
+          f.username.replaceFirst(RegExp(r'^@'), '').toLowerCase() == handle) {
+        return f.isFollowing;
+      }
+      if (f.name.toLowerCase() == post.authorName.trim().toLowerCase()) {
+        return f.isFollowing;
+      }
+    }
+    return false;
+  }
+
+  Future<bool> toggleFollowPostAuthor(FeedPostModel post) async {
+    final handle = post.authorUsername.trim().isNotEmpty
+        ? (post.authorUsername.trim().startsWith('@')
+              ? post.authorUsername.trim()
+              : '@${post.authorUsername.trim()}')
+        : '@${post.authorName.toLowerCase().replaceAll(' ', '_')}';
+    final normalized = handle.replaceFirst(RegExp(r'^@'), '').toLowerCase();
+
+    FollowerUserModel? existing;
+    for (final f in followers) {
+      if ((post.authorAccountId.isNotEmpty && f.id == post.authorAccountId) ||
+          f.username.replaceFirst(RegExp(r'^@'), '').toLowerCase() ==
+              normalized ||
+          f.name.toLowerCase() == post.authorName.trim().toLowerCase()) {
+        existing = f;
+        break;
+      }
+    }
+
+    if (existing == null) {
+      existing = FollowerUserModel(
+        id: post.authorAccountId.isNotEmpty ? post.authorAccountId : handle,
+        name: post.authorName,
+        username: handle,
+        location: post.locationTag ?? 'India',
+        avatarAsset: post.authorAvatar,
+        isFollowing: false,
+        isVerified: post.authorVerified,
+        canFollow: true,
+      );
+      followers.add(existing);
+    }
+
+    final previous = existing.isFollowing;
+    final previousFollowingCount = currentUser.followingCount;
+    existing.isFollowing = !previous;
+    currentUser.followingCount =
+        (previousFollowingCount + (existing.isFollowing ? 1 : -1)).clamp(
+          0,
+          999999,
+        );
+    notifyListeners();
+
+    try {
+      final token = await _client.readAccessToken();
+      if (token == null || token.isEmpty) return true;
+      final targetParam = existing.id.isNotEmpty ? existing.id : handle;
+      final res = await _client.post(
+        'module2/members/${Uri.encodeComponent(targetParam)}/follow',
+        authenticated: true,
+      );
+      if (res['isFollowing'] is bool) {
+        existing.isFollowing = res['isFollowing'] as bool;
+      }
+      if (res['profileId'] is String &&
+          (res['profileId'] as String).isNotEmpty) {
+        existing = FollowerUserModel(
+          id: res['profileId'] as String,
+          name: existing.name,
+          username: existing.username,
+          location: existing.location,
+          avatarAsset: existing.avatarAsset,
+          isFollowing: existing.isFollowing,
+          isVerified: existing.isVerified,
+          canFollow: true,
+        );
+      }
+      notifyListeners();
+      return true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// Enterprise Multi-Signal Trending Algorithm (Instagram/YouTube/HackerNews Velocity Model).
+  List<FeedPostModel> computeEnterpriseTrendingPosts(
+    List<FeedPostModel> candidates,
+  ) {
+    double parseAgeHours(String label) {
+      final lower = label.trim().toLowerCase();
+      if (lower.contains('just now') || lower.contains('sec')) return 0.15;
+      final numMatch = RegExp(r'(\d+)').firstMatch(lower);
+      final val = numMatch != null
+          ? double.tryParse(numMatch.group(1)!) ?? 1
+          : 2.0;
+      if (lower.contains('min')) return (val / 60.0).clamp(0.1, 24.0);
+      if (lower.contains('hour') ||
+          lower.contains('hr') ||
+          lower.endsWith('h')) {
+        return val.clamp(0.25, 720.0);
+      }
+      if (lower.contains('day') || lower.endsWith('d')) {
+        return (val * 24.0).clamp(12.0, 2160.0);
+      }
+      if (lower.contains('week') || lower.endsWith('w')) {
+        return val * 168.0;
+      }
+      return 6.0;
+    }
+
+    double score(FeedPostModel p) {
+      final reactions = p.likesCount;
+      final uniqueReactionTypes = p.reactionBreakdown.keys.length;
+      final comments = p.commentsCount;
+      final threadedReplies = p.comments
+          .where(
+            (c) =>
+                (c.parentCommentId != null && c.parentCommentId!.isNotEmpty) ||
+                (c.replyToHandle != null && c.replyToHandle!.isNotEmpty) ||
+                c.body.trim().startsWith('@'),
+          )
+          .length;
+      final saves = p.savesCount + (p.isSaved ? 1 : 0);
+      final hasMedia = p.imageAsset != null && p.imageAsset!.trim().isNotEmpty;
+
+      final rawEngagement =
+          (reactions * 1.8) +
+          (math.log(1 + reactions) / math.ln10 * 4.2) +
+          (uniqueReactionTypes * 2.8) +
+          (comments * 3.4) +
+          (threadedReplies * 2.2) +
+          (saves * 4.5);
+
+      if (rawEngagement <= 0) return 0;
+
+      final mediaMultiplier = hasMedia ? 1.24 : 1.0;
+      final verifiedMultiplier = p.authorVerified ? 1.12 : 1.0;
+      final hashtagMultiplier = p.hashtags.isNotEmpty ? 1.08 : 1.0;
+      final ageHours = parseAgeHours(p.timeAgo);
+      final decay = math.pow(ageHours + 2.0, 1.48);
+
+      return (rawEngagement *
+              mediaMultiplier *
+              verifiedMultiplier *
+              hashtagMultiplier) /
+          decay;
+    }
+
+    final engaged = candidates
+        .where(
+          (p) =>
+              p.likesCount > 0 ||
+              p.commentsCount > 0 ||
+              p.savesCount > 0 ||
+              p.reactionBreakdown.isNotEmpty,
+        )
+        .toList();
+
+    if (engaged.isEmpty) return const <FeedPostModel>[];
+
+    engaged.sort((a, b) => score(b).compareTo(score(a)));
+    return engaged;
+  }
+
+  Future<bool> joinOrCreateCommunityCircle(
+    String circleName, {
+    String? description,
+    String category = 'Community',
+  }) async {
+    final trimmed = circleName.trim();
+    if (trimmed.isEmpty) return false;
+    final alreadyJoined = joinedCircleNames.contains(trimmed);
+    if (alreadyJoined) {
+      joinedCircleNames.remove(trimmed);
+    } else {
+      joinedCircleNames.add(trimmed);
+    }
+    final existingIdx = groups.indexWhere(
+      (g) => g.name.toLowerCase() == trimmed.toLowerCase(),
+    );
+    if (existingIdx == -1 && !alreadyJoined) {
+      groups.insert(
+        0,
+        CommunityGroupModel(
+          id: 'circle_${DateTime.now().millisecondsSinceEpoch}',
+          name: trimmed,
+          description: description ?? 'Verified Sakhi community support circle',
+          category: category,
+          membersCount: 1,
+          newPostsToday: 0,
+        ),
+      );
+    } else if (existingIdx != -1) {
+      final g = groups[existingIdx];
+      groups[existingIdx] = CommunityGroupModel(
+        id: g.id,
+        name: g.name,
+        description: g.description,
+        category: g.category,
+        membersCount: (g.membersCount + (alreadyJoined ? -1 : 1)).clamp(
+          1,
+          999999,
+        ),
+        newPostsToday: g.newPostsToday,
+      );
+    }
+    notifyListeners();
+
+    try {
+      final token = await _client.readAccessToken();
+      if (token != null && token.isNotEmpty) {
+        await _client.post(
+          'module2/groups/${Uri.encodeComponent(trimmed)}/join',
+          authenticated: true,
+        );
+      }
+    } catch (_) {}
+    return true;
+  }
+
+  // ===========================================================================
+  // MODULE 6: WOMEN-OWNED BUSINESS PAGES CLIENT METHODS (SRS Section 8.1 - 8.5)
+  // ===========================================================================
+  List<Map<String, dynamic>> cachedBusinesses = <Map<String, dynamic>>[];
+  Map<String, dynamic>? myBusinessPage;
+  List<Map<String, dynamic>> get businesses => cachedBusinesses;
+
+  Future<Map<String, dynamic>?> fetchBusinessDetail(String businessId) async {
+    if (businessId.trim().isEmpty) return null;
+    try {
+      final token = await _client.readAccessToken();
+      final response = await _client.get(
+        'module2/businesses/${Uri.encodeComponent(businessId.trim())}',
+        authenticated: token != null && token.isNotEmpty,
+      );
+      final raw = response['business'];
+      if (raw is Map<String, dynamic>) {
+        final business = Map<String, dynamic>.from(raw);
+        final index = cachedBusinesses.indexWhere(
+          (item) => item['id']?.toString() == business['id']?.toString(),
+        );
+        if (index >= 0) {
+          cachedBusinesses[index] = business;
+        }
+        if (business['isOwnBusiness'] == true) myBusinessPage = business;
+        notifyListeners();
+        return business;
+      }
+    } catch (_) {}
+    for (final item in cachedBusinesses) {
+      if (item['id']?.toString() == businessId ||
+          item['businessCode']?.toString() == businessId) {
+        return Map<String, dynamic>.from(item);
+      }
+    }
+    return null;
+  }
+
+  List<String> cachedBusinessCategories = <String>[
+    'Fashion and clothing',
+    'Beauty and personal care',
+    'Food and catering',
+    'Health and fitness',
+    'Education and training',
+    'Home services',
+    'Professional consulting',
+    'Art and handicrafts',
+    'Retail and ecommerce',
+    'Events and photography',
+    'Freelancers and independent professionals',
+    'Other',
+  ];
+  List<Map<String, dynamic>> cachedBusinessEnquiries = <Map<String, dynamic>>[];
+
+  Future<List<Map<String, dynamic>>> fetchBusinesses({
+    String? search,
+    String? category,
+    String? city,
+    double? lat,
+    double? lng,
+    double? radiusKm,
+    bool savedOnly = false,
+    bool ownerOnly = false,
+  }) async {
+    try {
+      final token = await _client.readAccessToken();
+      final params = <String, String>{
+        if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
+        if (category != null && category.trim().isNotEmpty && category != 'All')
+          'category': category.trim(),
+        if (city != null && city.trim().isNotEmpty) 'city': city.trim(),
+        if (lat != null && lat.isFinite) 'lat': lat.toStringAsFixed(5),
+        if (lng != null && lng.isFinite) 'lng': lng.toStringAsFixed(5),
+        if (radiusKm != null && radiusKm.isFinite)
+          'radiusKm': radiusKm.toStringAsFixed(0),
+        if (savedOnly) 'savedOnly': 'true',
+        if (ownerOnly) 'ownerOnly': 'true',
+      };
+      final qs = Uri(queryParameters: params).query;
+      final path = qs.isEmpty ? 'module2/businesses' : 'module2/businesses?$qs';
+      final res = await _client.get(
+        path,
+        authenticated: token != null && token.isNotEmpty,
+      );
+      final rawCats = res['categories'];
+      if (rawCats is List && rawCats.isNotEmpty) {
+        cachedBusinessCategories = rawCats.map((e) => e.toString()).toList();
+      }
+      final rawList = res['businesses'] ?? res['items'];
+      if (rawList is List) {
+        final parsed = rawList
+            .whereType<Map<String, dynamic>>()
+            .map((m) => Map<String, dynamic>.from(m))
+            .toList();
+        if (ownerOnly) {
+          myBusinessPage = parsed.isEmpty ? null : parsed.first;
+        } else if (!savedOnly &&
+            (search == null || search.isEmpty) &&
+            (category == null || category == 'All') &&
+            (city == null || city.isEmpty)) {
+          cachedBusinesses = parsed;
+        }
+        notifyListeners();
+        return parsed;
+      }
+    } catch (_) {}
+    return ownerOnly ? const <Map<String, dynamic>>[] : cachedBusinesses;
+  }
+
+  Future<Map<String, dynamic>?> createOrUpdateBusiness(
+    Map<String, dynamic> payload, {
+    String? businessId,
+  }) async {
+    try {
+      final res = businessId != null && businessId.trim().isNotEmpty
+          ? await _client.put(
+              'module2/businesses/${Uri.encodeComponent(businessId.trim())}',
+              authenticated: true,
+              body: payload,
+            )
+          : await _client.post(
+              'module2/businesses',
+              authenticated: true,
+              body: payload,
+            );
+      final biz = res['business'] is Map<String, dynamic>
+          ? Map<String, dynamic>.from(res['business'] as Map<String, dynamic>)
+          : Map<String, dynamic>.from(res);
+      final id = biz['id']?.toString() ?? '';
+      if (id.isNotEmpty) {
+        cachedBusinesses.removeWhere((b) => b['id']?.toString() == id);
+        cachedBusinesses.insert(0, biz);
+        myBusinessPage = biz;
+        notifyListeners();
+      }
+      return biz;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<bool> toggleSaveBusiness(String businessId) async {
+    final idx = cachedBusinesses.indexWhere(
+      (b) => b['id']?.toString() == businessId,
+    );
+    if (idx != -1) {
+      final current = cachedBusinesses[idx]['isSaved'] == true;
+      cachedBusinesses[idx]['isSaved'] = !current;
+      final count = (cachedBusinesses[idx]['savesCount'] as num?)?.toInt() ?? 0;
+      cachedBusinesses[idx]['savesCount'] = (count + (current ? -1 : 1)).clamp(
+        0,
+        999999,
+      );
+      notifyListeners();
+    }
+    try {
+      final res = await _client.post(
+        'module2/businesses/${Uri.encodeComponent(businessId)}/save',
+        authenticated: true,
+      );
+      if (idx != -1 && res['isSaved'] is bool) {
+        cachedBusinesses[idx]['isSaved'] = res['isSaved'];
+        cachedBusinesses[idx]['savesCount'] =
+            res['savesCount'] ?? cachedBusinesses[idx]['savesCount'];
+        notifyListeners();
+      }
+      return true;
+    } catch (_) {
+      return idx != -1;
+    }
+  }
+
+  Future<bool> reportBusinessListing({
+    required String businessId,
+    required String reason,
+    String? details,
+  }) async {
+    try {
+      await _client.post(
+        'module2/businesses/${Uri.encodeComponent(businessId)}/report',
+        authenticated: true,
+        body: {
+          'reason': reason.trim(),
+          if (details != null && details.trim().isNotEmpty)
+            'details': details.trim(),
+        },
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<Map<String, dynamic>?> submitBusinessEnquiry({
+    required String businessId,
+    required String message,
+    String? subjectOrProduct,
+  }) async {
+    try {
+      final res = await _client.post(
+        'module2/businesses/${Uri.encodeComponent(businessId)}/enquiries',
+        authenticated: true,
+        body: {
+          'message': message.trim(),
+          if (subjectOrProduct != null && subjectOrProduct.trim().isNotEmpty)
+            'subjectOrProduct': subjectOrProduct.trim(),
+        },
+      );
+      final enq = res['enquiry'] is Map<String, dynamic>
+          ? Map<String, dynamic>.from(res['enquiry'] as Map<String, dynamic>)
+          : null;
+      if (enq != null) {
+        cachedBusinessEnquiries.insert(0, enq);
+        notifyListeners();
+      }
+      return enq;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> fetchBusinessEnquiries() async {
+    try {
+      final res = await _client.get(
+        'module2/businesses/enquiries/list',
+        authenticated: true,
+      );
+      final raw = res['enquiries'] ?? res['items'];
+      if (raw is List) {
+        cachedBusinessEnquiries = raw
+            .whereType<Map<String, dynamic>>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+        notifyListeners();
+      }
+    } catch (_) {}
+    return cachedBusinessEnquiries;
+  }
+
+  Future<Map<String, dynamic>?> replyToBusinessEnquiry({
+    required String enquiryId,
+    required String message,
+    String? status,
+  }) async {
+    try {
+      final body = <String, Object?>{'message': message.trim()};
+      if (status != null) {
+        body['status'] = status;
+      }
+      final res = await _client.post(
+        'module2/businesses/enquiries/${Uri.encodeComponent(enquiryId)}/messages',
+        authenticated: true,
+        body: body,
+      );
+      final enq = res['enquiry'] is Map<String, dynamic>
+          ? Map<String, dynamic>.from(res['enquiry'] as Map<String, dynamic>)
+          : null;
+      if (enq != null) {
+        final idx = cachedBusinessEnquiries.indexWhere(
+          (e) => e['id']?.toString() == enquiryId,
+        );
+        if (idx != -1) {
+          cachedBusinessEnquiries[idx] = enq;
+        } else {
+          cachedBusinessEnquiries.insert(0, enq);
+        }
+        notifyListeners();
+      }
+      return enq;
+    } catch (_) {
+      return null;
+    }
   }
 }

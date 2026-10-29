@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../../core/widgets/sakhi_liquid_glass.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/constants/app_assets.dart';
@@ -13,6 +12,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/sakhi_avatar.dart';
 import '../../../core/widgets/sakhi_buttons.dart';
 import '../../../core/widgets/sakhi_dialogs.dart';
+import '../../business/screens/business_hub_screen.dart';
 
 /// Screen 07 — Edit Profile
 class EditProfileScreen extends StatefulWidget {
@@ -54,7 +54,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _usernameController = TextEditingController(text: _originalUsername);
     _emailController = TextEditingController(text: user.email);
     _bioController = TextEditingController(
-      text: user.bio.isNotEmpty ? user.bio : 'Mental wellness advocate, peer counselor & community builder 🌸 Helping women thrive together. 💜',
+      text: user.bio.isNotEmpty
+          ? user.bio
+          : 'Mental wellness advocate, peer counselor & community builder 🌸 Helping women thrive together. 💜',
     );
     _locationController = TextEditingController(
       text: user.location.isNotEmpty ? user.location : 'Bangalore, India',
@@ -180,17 +182,19 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final mappedVisibility = _locationVisibility == 'Hidden'
         ? 'Hide Location'
         : _locationVisibility;
-    final privacySaved = await SakhiPrototypeState.instance
-        .updatePrivacySetting('show_location', mappedVisibility);
+    unawaited(
+      SakhiPrototypeState.instance.updatePrivacySetting(
+        'show_location',
+        mappedVisibility,
+      ),
+    );
     if (!mounted) return;
     setState(() => _isSaving = false);
     final message = !saved
-        ? 'Profile could not be saved. Your previous profile values were restored.'
-        : !privacySaved
-        ? 'Profile saved, but location visibility could not be saved.'
+        ? 'Profile could not be saved. Check your backend connection and retry.'
         : 'Profile updated.';
     SakhiDialogs.showPrototypeSnackbar(context, message);
-    if (saved && privacySaved && Navigator.of(context).canPop()) {
+    if (saved && Navigator.of(context).canPop()) {
       Navigator.of(context).pop();
     }
   }
@@ -828,48 +832,77 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     borderRadius: BorderRadius.circular(18),
                     border: Border.all(color: AppColors.borderSubtle),
                   ),
-                  child: Row(
+                  child: Column(
                     children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(
-                          Icons.storefront_outlined,
-                          color: AppColors.primaryPurple,
-                          size: 21,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Link My Women-Owned Business',
-                              style: TextStyle(
-                                color: AppColors.textPrimary,
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w700,
-                              ),
+                      Row(
+                        children: [
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
                             ),
-                            SizedBox(height: 2),
-                            Text(
-                              'Showcase your verified business on profile',
-                              style: AppTypography.subtitle,
+                            child: const Icon(
+                              Icons.storefront_outlined,
+                              color: AppColors.primaryPurple,
+                              size: 21,
                             ),
-                          ],
+                          ),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Link My Women-Owned Business',
+                                  style: TextStyle(
+                                    color: AppColors.textPrimary,
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                SizedBox(height: 2),
+                                Text(
+                                  'Showcase your verified business on profile',
+                                  style: AppTypography.subtitle,
+                                ),
+                              ],
+                            ),
+                          ),
+                          Switch(
+                            value: _businessProfileEnabled,
+                            activeThumbColor: AppColors.primaryPurple,
+                            onChanged: (enabled) => setState(
+                              () => _businessProfileEnabled = enabled,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_businessProfileEnabled) ...[
+                        const SizedBox(height: 6),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) =>
+                                      const BusinessRegistrationWizardScreen(),
+                                ),
+                              );
+                            },
+                            icon: const Icon(
+                              Icons.storefront_rounded,
+                              size: 16,
+                            ),
+                            label: const Text(
+                              'Manage My Business Page ›',
+                              style: TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                          ),
                         ),
-                      ),
-                      Switch(
-                        value: _businessProfileEnabled,
-                        activeThumbColor: AppColors.primaryPurple,
-                        onChanged: (enabled) =>
-                            setState(() => _businessProfileEnabled = enabled),
-                      ),
+                      ],
                     ],
                   ),
                 ),

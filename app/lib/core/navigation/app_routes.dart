@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../features/account_security/screens/account_security_screen.dart';
+import '../../features/business/screens/business_hub_screen.dart';
 import '../../features/community/screens/community_screen.dart';
 import '../../features/complaints/screens/complaint_submission_wizard_screen.dart';
 import '../../features/complaints/screens/complaint_tracking_screens.dart';
@@ -17,35 +18,39 @@ import '../../features/settings/screens/privacy_settings_screen.dart';
 import '../../features/wellness/screens/wellness_screen.dart';
 import 'app_navigation_shell.dart';
 
-/// Centralized route definitions for Sakhi mobile screens.
+/// Centralized route definitions for Sakhi mobile screens (Modules 1–6).
 class AppRoutes {
   AppRoutes._();
 
   static const String root = '/';
-  static const String home = '/home'; // Screen 1
-  static const String explore = '/explore'; // Screen 2
-  static const String community = '/community'; // Screen 3
-  static const String wellness = '/wellness'; // Screen 4
-  static const String safety = '/safety'; // Screen 5
-  static const String profile = '/profile'; // Screen 6
+  static const String home = '/home';
+  static const String explore = '/explore';
+  static const String community = '/community';
+  static const String wellness = '/wellness';
+  static const String safety = '/safety';
+  static const String profile = '/profile';
   static const String memberProfile = '/member-profile';
-  static const String editProfile = '/edit-profile'; // Screen 7
-  static const String privacySettings = '/privacy-settings'; // Screen 8
-  static const String notificationPreferences =
-      '/notification-preferences'; // Screen 9
-  static const String followers = '/followers'; // Screen 10
+  static const String editProfile = '/edit-profile';
+  static const String privacySettings = '/privacy-settings';
+  static const String notificationPreferences = '/notification-preferences';
+  static const String followers = '/followers';
   static const String following = '/following';
   static const String groups = '/groups';
   static const String myGroups = '/my-groups';
-  static const String accountSecurity = '/account-security'; // Screen 11
-  static const String moreOptions = '/more-options'; // Screen 12
+  static const String accountSecurity = '/account-security';
+  static const String moreOptions = '/more-options';
 
-  // Discreet and Anonymous Complaint System Routes
+  // Module 5: Discreet and Anonymous Complaint System Routes
   static const String discreetComplaintHub = '/discreet-complaints';
   static const String complaintWizard = '/complaint-wizard';
   static const String complaintTracker = '/complaint-tracker';
   static const String complaintTrackingLookup = '/complaint-tracking-lookup';
   static const String quickExitJournal = '/quick-exit-journal';
+
+  // Module 6: Women-Owned Business Pages Routes (SRS Section 8)
+  static const String businessHub = '/businesses';
+  static const String businessCreate = '/businesses/create';
+  static const String businessEnquiries = '/businesses/enquiries';
 
   static Map<String, WidgetBuilder> get routes => {
     root: (_) => const AppNavigationShell(),
@@ -70,5 +75,8 @@ class AppRoutes {
     complaintTracker: (_) => const ComplaintTrackingLookupScreen(),
     complaintTrackingLookup: (_) => const ComplaintTrackingLookupScreen(),
     quickExitJournal: (_) => const QuickExitWellnessCamouflageScreen(),
+    businessHub: (_) => const WomenBusinessHubScreen(showBackButton: true),
+    businessCreate: (_) => const BusinessRegistrationWizardScreen(),
+    businessEnquiries: (_) => const BusinessEnquiryInboxScreen(),
   };
 }

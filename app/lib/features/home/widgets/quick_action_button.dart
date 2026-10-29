@@ -22,9 +22,9 @@ class QuickActionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(18),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -32,20 +32,50 @@ class QuickActionButton extends StatelessWidget {
               width: 58,
               height: 58,
               decoration: BoxDecoration(
-                color: circleColor,
                 shape: BoxShape.circle,
-                border: Border.all(
-                  color: iconColor.withValues(alpha: 0.15),
-                  width: 1,
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Colors.white.withValues(alpha: 0.92),
+                    circleColor.withValues(alpha: 0.85),
+                  ],
                 ),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.95),
+                  width: 1.6,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: iconColor.withValues(alpha: 0.14),
+                    blurRadius: 14,
+                    offset: const Offset(0, 6),
+                  ),
+                  BoxShadow(
+                    color: Colors.white.withValues(alpha: 0.85),
+                    blurRadius: 2,
+                    offset: const Offset(0, -1),
+                  ),
+                ],
               ),
               child: Center(
                 child: Container(
-                  width: 32,
-                  height: 32,
+                  width: 34,
+                  height: 34,
                   decoration: BoxDecoration(
-                    color: iconColor,
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        iconColor.withValues(alpha: 0.90),
+                        iconColor,
+                      ],
+                    ),
                     shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.65),
+                      width: 1.0,
+                    ),
                   ),
                   child: Icon(
                     icon,
@@ -58,10 +88,12 @@ class QuickActionButton extends StatelessWidget {
             const SizedBox(height: 7),
             Text(
               label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: AppTypography.subtitle.copyWith(
                 color: AppColors.textPrimary,
-                fontWeight: FontWeight.w600,
-                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                fontSize: 11.5,
               ),
             ),
           ],

@@ -85,8 +85,12 @@ class _SafetyScreenState extends State<SafetyScreen>
           backgroundColor: SakhiModule4Colors.surfaceBackground,
           body: SafeArea(
             bottom: false,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 36),
+            child: RefreshIndicator(
+              color: SakhiModule4Colors.primaryPlum,
+              onRefresh: () => _controller.syncSafetyOverview(),
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 96),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -650,6 +654,7 @@ class _SafetyScreenState extends State<SafetyScreen>
                   ),
                 ],
               ),
+            ),
             ),
           ),
         );
@@ -3636,14 +3641,30 @@ class _SosActivationHistoryScreenState
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w800,
+                      color: SakhiModule4Colors.primaryPlum,
+                    ),
+                  ),
+                ),
+              if (_controller.sosHistory.isNotEmpty)
+                TextButton(
+                  onPressed: () => unawaited(_controller.clearAllSosHistory()),
+                  child: const Text(
+                    'Clear All',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
                       color: SakhiModule4Colors.sosCrimson,
                     ),
                   ),
                 ),
             ],
           ),
-          body: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+          body: RefreshIndicator(
+            color: SakhiModule4Colors.primaryPlum,
+            onRefresh: () => _controller.syncSafetyOverview(),
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -3798,6 +3819,72 @@ class _SosActivationHistoryScreenState
                                 color: SakhiModule4Colors.textSecondary,
                               ),
                             ),
+                            const SizedBox(height: 10),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                if (item.status.toUpperCase() == 'ACTIVE') ...[
+                                  FilledButton.icon(
+                                    onPressed: () => unawaited(
+                                      _controller.resolveSosHistoryItem(
+                                        item.id,
+                                      ),
+                                    ),
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor:
+                                          SakhiModule4Colors.verifiedEmerald,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 6,
+                                      ),
+                                      minimumSize: const Size(0, 32),
+                                    ),
+                                    icon: const Icon(
+                                      Icons.check_circle_outline_rounded,
+                                      size: 15,
+                                    ),
+                                    label: const Text(
+                                      'Mark Safe / Close Alert',
+                                      style: TextStyle(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                ],
+                                OutlinedButton.icon(
+                                  onPressed: () => unawaited(
+                                    _controller.deleteSosHistoryItem(item.id),
+                                  ),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor:
+                                        SakhiModule4Colors.sosCrimson,
+                                    side: BorderSide(
+                                      color: SakhiModule4Colors.sosCrimson
+                                          .withValues(alpha: 0.35),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 6,
+                                    ),
+                                    minimumSize: const Size(0, 32),
+                                  ),
+                                  icon: const Icon(
+                                    Icons.delete_outline_rounded,
+                                    size: 15,
+                                  ),
+                                  label: const Text(
+                                    'Delete',
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ],
                         ),
                       ),
@@ -3806,6 +3893,7 @@ class _SosActivationHistoryScreenState
                 }),
               ],
             ),
+          ),
           ),
         );
       },

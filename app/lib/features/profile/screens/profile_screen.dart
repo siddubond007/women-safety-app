@@ -14,9 +14,11 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/sakhi_avatar.dart';
 import '../../../core/widgets/sakhi_brand_header.dart';
 import '../../../core/widgets/sakhi_buttons.dart';
+import '../../../core/widgets/sakhi_card.dart';
 import '../../../core/widgets/sakhi_chip.dart';
 import '../../../core/widgets/sakhi_empty_state.dart';
 import '../../../core/widgets/sakhi_remote_media_image.dart';
+import '../../business/screens/business_hub_screen.dart';
 import '../../community/widgets/feed_post_card.dart';
 import '../../explore/screens/explore_discovery_screens.dart';
 
@@ -392,7 +394,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          saved ? 'Location visibility updated.' : 'Location visibility could not be saved. Your previous setting was kept.',
+          saved
+              ? 'Location visibility updated.'
+              : 'Location visibility could not be saved. Your previous setting was kept.',
         ),
       ),
     );
@@ -454,348 +458,417 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
         return SafeArea(
           bottom: false,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.only(bottom: 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SakhiBrandHeader(
-                  title: 'Profile',
-                  useShieldEmblem: true,
-                  actions: [
-                    IconButton(
-                      tooltip: 'Privacy & Account Settings',
-                      icon: const Icon(
-                        Icons.settings_outlined,
-                        color: AppColors.primaryPurple,
-                        size: 24,
-                      ),
-                      onPressed: () =>
-                          _navigateTo(context, AppRoutes.privacySettings),
-                    ),
-                  ],
-                ),
-
-                if (_profilePhotoUploading)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: AppSpacing.screenPaddingH,
-                    ),
-                    child: LinearProgressIndicator(
-                      color: AppColors.primaryPurple,
-                      minHeight: 3,
-                    ),
-                  ),
-
-                // Compact Floral Banner + Overlapping Avatar + Right Share Icon Button (Reference 05)
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.screenPaddingH,
-                  ),
-                  child: SizedBox(
-                    height: 152,
-                    child: Stack(
-                      alignment: Alignment.topCenter,
-                      clipBehavior: Clip.none,
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(22),
-                          child: SizedBox(
-                            height: 104,
-                            width: double.infinity,
-                            child: Image.asset(
-                              AppAssets.profileHeaderBanner,
-                              fit: BoxFit.cover,
-                              filterQuality: FilterQuality.high,
-                              errorBuilder: (_, _, _) =>
-                                  Container(color: AppColors.pastelPink),
+          child: RefreshIndicator(
+            color: AppColors.primaryPurple,
+            onRefresh: () async {
+              await state.syncFromBackend();
+              if (_selectedTabIndex == 1) {
+                await _loadSavedPosts(retryConnection: false);
+              }
+            },
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.only(bottom: 96),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SakhiBrandHeader(
+                    title: 'Profile',
+                    useShieldEmblem: true,
+                    actions: [
+                      IconButton(
+                        tooltip: 'Women-Owned Business Pages',
+                        icon: const Icon(
+                          Icons.storefront_outlined,
+                          color: AppColors.primaryPurple,
+                          size: 24,
+                        ),
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const WomenBusinessHubScreen(
+                              showBackButton: true,
                             ),
                           ),
                         ),
-                        Positioned(
-                          top: 42,
-                          child: SakhiAvatar(
-                            imageAsset: user.avatarAsset,
-                            fallbackLabel: user.displayName,
-                            size: 104,
-                            borderWidth: 3.5,
-                            showEditCameraBadge: true,
-                            onAvatarTap: _showAvatarLightbox,
-                            onCameraTap: _showProfilePhotoOptions,
-                          ),
-                        ),
-                        Positioned(
-                          right: 6,
-                          bottom: 6,
-                          child: Material(
-                            color: AppColors.pastelLavender,
-                            shape: const CircleBorder(
-                              side: BorderSide(color: AppColors.borderSubtle),
-                            ),
-                            child: IconButton(
-                              tooltip: 'Share Profile',
-                              constraints: const BoxConstraints.tightFor(
-                                width: 38,
-                                height: 38,
-                              ),
-                              padding: EdgeInsets.zero,
-                              icon: const Icon(
-                                Icons.share_outlined,
-                                size: 18,
-                                color: AppColors.primaryPurple,
-                              ),
-                              onPressed: _shareProfile,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 6),
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.screenPaddingH,
-                  ),
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Flexible(
-                            child: Text(
-                              user.displayName,
-                              textAlign: TextAlign.center,
-                              style: AppTypography.appBarTitle.copyWith(
-                                fontSize: 21,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const SizedBox(width: 5),
-                          const Icon(
-                            Icons.verified_rounded,
-                            color: AppColors.primaryPurple,
-                            size: 20,
-                          ),
-                        ],
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        user.username.isEmpty ? '@ananya_rao' : user.username,
-                        style: AppTypography.subtitle,
-                      ),
-                      const SizedBox(height: 10),
-                      SakhiPillButton(
-                        label: 'Edit Profile',
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 28,
-                          vertical: 9,
+                      IconButton(
+                        tooltip: 'Privacy & Account Settings',
+                        icon: const Icon(
+                          Icons.settings_outlined,
+                          color: AppColors.primaryPurple,
+                          size: 24,
                         ),
                         onPressed: () =>
-                            _navigateTo(context, AppRoutes.editProfile),
+                            _navigateTo(context, AppRoutes.privacySettings),
                       ),
                     ],
                   ),
-                ),
 
-                const SizedBox(height: 14),
-                // Posts | Followers | Following Card (Reference 05)
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.screenPaddingH,
-                  ),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: AppColors.borderSubtle),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.primaryPurple.withValues(
-                            alpha: 0.04,
-                          ),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
+                  if (_profilePhotoUploading)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: AppSpacing.screenPaddingH,
+                      ),
+                      child: LinearProgressIndicator(
+                        color: AppColors.primaryPurple,
+                        minHeight: 3,
+                      ),
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _ProfileStatColumn(
-                          count: '${user.postsCount}',
-                          label: 'Posts',
-                          onTap: () => _selectProfileTab(0),
-                        ),
-                        Container(
-                          height: 28,
-                          width: 1,
-                          color: AppColors.dividerColor,
-                        ),
-                        _ProfileStatColumn(
-                          count: '${user.followersCount}',
-                          label: 'Followers',
-                          onTap: () =>
-                              _navigateTo(context, AppRoutes.followers),
-                        ),
-                        Container(
-                          height: 28,
-                          width: 1,
-                          color: AppColors.dividerColor,
-                        ),
-                        _ProfileStatColumn(
-                          count: '${user.followingCount}',
-                          label: 'Following',
-                          onTap: () =>
-                              _navigateTo(context, AppRoutes.following),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
 
-                const SizedBox(height: 14),
-                // Bio, Location + Lock Privacy Pill, and Interest Chips
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.screenPaddingH,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(bioText, style: AppTypography.bodyRegular),
-                      if (locationVisibility != 'Hide Location') ...[
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.location_on_outlined,
-                              size: 17,
-                              color: AppColors.primaryPurple,
+                  // Compact Floral Banner + Overlapping Avatar + Right Share Icon Button (Reference 05)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.screenPaddingH,
+                    ),
+                    child: SizedBox(
+                      height: 152,
+                      child: Stack(
+                        alignment: Alignment.topCenter,
+                        clipBehavior: Clip.none,
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(22),
+                            child: SizedBox(
+                              height: 104,
+                              width: double.infinity,
+                              child: Image.asset(
+                                AppAssets.profileHeaderBanner,
+                                fit: BoxFit.cover,
+                                filterQuality: FilterQuality.high,
+                                errorBuilder: (_, _, _) =>
+                                    Container(color: AppColors.pastelPink),
+                              ),
                             ),
-                            const SizedBox(width: 4),
-                            Expanded(
+                          ),
+                          Positioned(
+                            top: 42,
+                            child: SakhiAvatar(
+                              imageAsset: user.avatarAsset,
+                              fallbackLabel: user.displayName,
+                              size: 104,
+                              borderWidth: 3.5,
+                              showEditCameraBadge: true,
+                              onAvatarTap: _showAvatarLightbox,
+                              onCameraTap: _showProfilePhotoOptions,
+                            ),
+                          ),
+                          Positioned(
+                            right: 6,
+                            bottom: 6,
+                            child: Material(
+                              color: AppColors.pastelLavender,
+                              shape: const CircleBorder(
+                                side: BorderSide(color: AppColors.borderSubtle),
+                              ),
+                              child: IconButton(
+                                tooltip: 'Share Profile',
+                                constraints: const BoxConstraints.tightFor(
+                                  width: 38,
+                                  height: 38,
+                                ),
+                                padding: EdgeInsets.zero,
+                                icon: const Icon(
+                                  Icons.share_outlined,
+                                  size: 18,
+                                  color: AppColors.primaryPurple,
+                                ),
+                                onPressed: _shareProfile,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 6),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.screenPaddingH,
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Flexible(
                               child: Text(
-                                cityText,
-                                style: AppTypography.bodyMedium.copyWith(
-                                  fontSize: 13,
+                                user.displayName,
+                                textAlign: TextAlign.center,
+                                style: AppTypography.appBarTitle.copyWith(
+                                  fontSize: 21,
                                 ),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            const SizedBox(width: 6),
-                            InkWell(
-                              borderRadius: BorderRadius.circular(99),
-                              onTap: () =>
-                                  _showLocationVisibilityPicker(context, state),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 5,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: AppColors.pastelLavender,
-                                  borderRadius: BorderRadius.circular(99),
-                                  border: Border.all(
-                                    color: AppColors.borderSubtle,
+                            const SizedBox(width: 5),
+                            const Icon(
+                              Icons.verified_rounded,
+                              color: AppColors.primaryPurple,
+                              size: 20,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          user.username.isEmpty ? '@ananya_rao' : user.username,
+                          style: AppTypography.subtitle,
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SakhiPillButton(
+                              label: 'Edit Profile',
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 24,
+                                vertical: 9,
+                              ),
+                              onPressed: () =>
+                                  _navigateTo(context, AppRoutes.editProfile),
+                            ),
+                            const SizedBox(width: 10),
+                            OutlinedButton.icon(
+                              onPressed: () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => const WomenBusinessHubScreen(
+                                    showBackButton: true,
                                   ),
                                 ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(
-                                      Icons.lock_outline_rounded,
-                                      size: 13,
-                                      color: AppColors.primaryPurple,
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      locationVisibility,
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700,
-                                        color: AppColors.primaryPurple,
-                                      ),
-                                    ),
-                                  ],
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFFB45309),
+                                side: const BorderSide(
+                                  color: Color(0xFFE6C88A),
+                                ),
+                                backgroundColor: const Color(0xFFFFF8EE),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 8,
+                                ),
+                              ),
+                              icon: const Icon(
+                                Icons.storefront_rounded,
+                                size: 16,
+                              ),
+                              label: Text(
+                                state.myBusinessPage != null
+                                    ? 'My Business'
+                                    : 'Business Hub',
+                                style: const TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w800,
                                 ),
                               ),
                             ),
                           ],
                         ),
                       ],
-                      const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
+                    ),
+                  ),
+
+                  const SizedBox(height: 14),
+                  // Posts | Followers | Following Card (Reference 05)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.screenPaddingH,
+                    ),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: AppColors.borderSubtle),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.primaryPurple.withValues(
+                              alpha: 0.04,
+                            ),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          ...interestsList.map(
-                            (interest) => SakhiChip(
-                              label: interest,
-                              onTap: () => Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => SearchResultsScreen(
-                                    initialQuery: '#$interest',
+                          _ProfileStatColumn(
+                            count: '${user.postsCount}',
+                            label: 'Posts',
+                            onTap: () => _selectProfileTab(0),
+                          ),
+                          Container(
+                            height: 28,
+                            width: 1,
+                            color: AppColors.dividerColor,
+                          ),
+                          _ProfileStatColumn(
+                            count: '${user.followersCount}',
+                            label: 'Followers',
+                            onTap: () =>
+                                _navigateTo(context, AppRoutes.followers),
+                          ),
+                          Container(
+                            height: 28,
+                            width: 1,
+                            color: AppColors.dividerColor,
+                          ),
+                          _ProfileStatColumn(
+                            count: '${user.followingCount}',
+                            label: 'Following',
+                            onTap: () =>
+                                _navigateTo(context, AppRoutes.following),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 14),
+                  // Bio, Location + Lock Privacy Pill, and Interest Chips
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.screenPaddingH,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(bioText, style: AppTypography.bodyRegular),
+                        if (locationVisibility != 'Hide Location') ...[
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.location_on_outlined,
+                                size: 17,
+                                color: AppColors.primaryPurple,
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  cityText,
+                                  style: AppTypography.bodyMedium.copyWith(
+                                    fontSize: 13,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              InkWell(
+                                borderRadius: BorderRadius.circular(99),
+                                onTap: () => _showLocationVisibilityPicker(
+                                  context,
+                                  state,
+                                ),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 5,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.pastelLavender,
+                                    borderRadius: BorderRadius.circular(99),
+                                    border: Border.all(
+                                      color: AppColors.borderSubtle,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(
+                                        Icons.lock_outline_rounded,
+                                        size: 13,
+                                        color: AppColors.primaryPurple,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        locationVisibility,
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700,
+                                          color: AppColors.primaryPurple,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            ...interestsList.map(
+                              (interest) => SakhiChip(
+                                label: interest,
+                                onTap: () => Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => SearchResultsScreen(
+                                      initialQuery: '#$interest',
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
-                          ),
-                          SakhiChip(
-                            label: '+ Add',
-                            isOutlinedAction: true,
-                            onTap: () =>
-                                _navigateTo(context, AppRoutes.editProfile),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 16),
-                // 3-Tab Bar: Posts | Saved | Groups (Reference 05 & 06)
-                Container(
-                  decoration: const BoxDecoration(
-                    border: Border(
-                      bottom: BorderSide(color: AppColors.dividerColor),
+                            SakhiChip(
+                              label: '+ Add',
+                              isOutlinedAction: true,
+                              onTap: () =>
+                                  _navigateTo(context, AppRoutes.editProfile),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
-                  child: Row(
-                    children: [
-                      _ProfileTabButton(
-                        icon: Icons.grid_on_rounded,
-                        label: 'Posts',
-                        isSelected: _selectedTabIndex == 0,
-                        onTap: () => _selectProfileTab(0),
-                      ),
-                      _ProfileTabButton(
-                        icon: Icons.bookmark_border_rounded,
-                        label: 'Saved',
-                        isSelected: _selectedTabIndex == 1,
-                        onTap: () => _selectProfileTab(1),
-                      ),
-                      _ProfileTabButton(
-                        icon: Icons.groups_outlined,
-                        label: 'Groups',
-                        isSelected: _selectedTabIndex == 2,
-                        onTap: () => _selectProfileTab(2),
-                      ),
-                    ],
-                  ),
-                ),
 
-                const SizedBox(height: 14),
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.screenPaddingH,
+                  const SizedBox(height: 16),
+                  // 3-Tab Bar: Posts | Saved | Groups (Reference 05 & 06)
+                  Container(
+                    decoration: const BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(color: AppColors.dividerColor),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        _ProfileTabButton(
+                          icon: Icons.grid_on_rounded,
+                          label: 'Posts',
+                          isSelected: _selectedTabIndex == 0,
+                          onTap: () => _selectProfileTab(0),
+                        ),
+                        _ProfileTabButton(
+                          icon: Icons.bookmark_border_rounded,
+                          label: 'Saved',
+                          isSelected: _selectedTabIndex == 1,
+                          onTap: () => _selectProfileTab(1),
+                        ),
+                        _ProfileTabButton(
+                          icon: Icons.groups_outlined,
+                          label: 'Groups',
+                          isSelected: _selectedTabIndex == 2,
+                          onTap: () => _selectProfileTab(2),
+                        ),
+                      ],
+                    ),
                   ),
-                  child: _buildTabContent(context, state),
-                ),
-              ],
+
+                  const SizedBox(height: 14),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.screenPaddingH,
+                    ),
+                    child: _buildTabContent(context, state),
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -817,7 +890,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           icon: Icons.grid_on_outlined,
           illustrationAsset: AppAssets.emptyPostsIllustration,
           title: 'No Posts Yet',
-          message: 'Share your first photo, thought, or question with the Sakhi community.',
+          message:
+              'Share your first photo, thought, or question with the Sakhi community.',
           actionLabel: '+ Create First Post',
           onAction:
               widget.onCreateTap ??
@@ -838,7 +912,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         return SakhiEmptyState(
           icon: Icons.cloud_off_outlined,
           title: 'Saved posts could not be loaded',
-          message: 'Sakhi could not retrieve your saved posts. They have not been cleared.',
+          message:
+              'Sakhi could not retrieve your saved posts. They have not been cleared.',
           actionLabel: 'Retry',
           onAction: () => _loadSavedPosts(retryConnection: true),
         );
@@ -851,7 +926,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           icon: Icons.bookmark_border_rounded,
           illustrationAsset: AppAssets.emptySavedIllustration,
           title: 'No Saved Posts',
-          message: 'Bookmark inspiring stories, safety guides, and wellness tips to revisit anytime.',
+          message:
+              'Bookmark inspiring stories, safety guides, and wellness tips to revisit anytime.',
           actionLabel: 'Explore Community',
           onAction: widget.onNavigateTab != null
               ? () => widget.onNavigateTab!(2)
@@ -860,15 +936,63 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
       return _buildPostGrid(context, state, saved, isSavedGrid: true);
     } else {
-      return SakhiEmptyState(
-        icon: Icons.groups_outlined,
-        illustrationAsset: AppAssets.emptyGroupsIllustration,
-        title: 'Not in Any Groups Yet',
-        message: 'Join circles that match your career, wellness, and local community interests.',
-        actionLabel: 'Browse Circles',
-        onAction: widget.onNavigateTab != null
-            ? () => widget.onNavigateTab!(1)
-            : () => _navigateTo(context, AppRoutes.explore),
+      final joinedGroups = state.groups
+          .where((g) => g.isJoined || state.isCircleJoined(g.name))
+          .toList(growable: false);
+      if (joinedGroups.isEmpty) {
+        return SakhiEmptyState(
+          icon: Icons.groups_outlined,
+          illustrationAsset: AppAssets.emptyGroupsIllustration,
+          title: 'Not in Any Groups Yet',
+          message:
+              'Join circles that match your career, wellness, and local community interests.',
+          actionLabel: 'Browse Circles',
+          onAction: widget.onNavigateTab != null
+              ? () => widget.onNavigateTab!(1)
+              : () => _navigateTo(context, AppRoutes.explore),
+        );
+      }
+      return Column(
+        children: joinedGroups
+            .map(
+              (group) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: SakhiCard(
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: AppColors.pastelLavender,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Icon(
+                          Icons.groups_rounded,
+                          color: AppColors.primaryPurple,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(group.name, style: AppTypography.cardTitle),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${group.membersCount} member(s) • ${group.description}',
+                              style: AppTypography.subtitle,
+                            ),
+                          ],
+                        ),
+                      ),
+                      SakhiJoinCircleButton(circleName: group.name),
+                    ],
+                  ),
+                ),
+              ),
+            )
+            .toList(),
       );
     }
   }
@@ -904,10 +1028,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   gradient: const LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
-                    colors: [
-                      Color(0xFFFDF2F7),
-                      Color(0xFFF3E6FA),
-                    ],
+                    colors: [Color(0xFFFDF2F7), Color(0xFFF3E6FA)],
                   ),
                   border: Border.all(color: AppColors.borderSubtle),
                 ),
@@ -925,8 +1046,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         borderRadius: BorderRadius.circular(99),
                       ),
                       child: Text(
-                        (post.categoryBadge ?? post.categorySlug)
-                            .replaceAll('_', ' '),
+                        (post.categoryBadge ?? post.categorySlug).replaceAll(
+                          '_',
+                          ' ',
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(

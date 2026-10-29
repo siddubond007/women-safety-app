@@ -8,6 +8,7 @@ import {
   IsInt,
   IsNotEmpty,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -16,40 +17,61 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from "class-validator";
 
 export class UpdateModule2ProfileDto {
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
   @MaxLength(80)
   @Matches(/^[^\d]+$/, {
     message: "Full name cannot contain numbers.",
   })
-  displayName!: string;
+  displayName?: string;
 
-  @IsOptional()
+  @ValidateIf(
+    (o) =>
+      o.username !== undefined &&
+      o.username !== null &&
+      String(o.username).trim() !== "" &&
+      String(o.username).trim() !== "@",
+  )
   @IsString()
-  @Matches(/^@?[a-zA-Z0-9_]{3,24}$/, {
+  @Matches(/^@?[a-zA-Z0-9_.-]{2,32}$/, {
     message:
-      "Username must contain 3–24 letters, numbers, or underscores.",
+      "Username must contain 2–32 letters, numbers, dots, hyphens, or underscores.",
   })
   username?: string;
 
+  @IsOptional()
   @IsString()
-  @MaxLength(300)
-  bio!: string;
-
-  @IsString()
-  @MaxLength(120)
-  location!: string;
-
-  @IsArray()
-  @ArrayMaxSize(16)
-  @IsString({ each: true })
-  @MaxLength(40, { each: true })
-  interests!: string[];
+  @MaxLength(500)
+  bio?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  location?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  locationCity?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(24)
+  @IsString({ each: true })
+  @MaxLength(60, { each: true })
+  interests?: string[];
+
+  @ValidateIf(
+    (o) =>
+      o.email !== undefined &&
+      o.email !== null &&
+      String(o.email).trim() !== "",
+  )
   @IsEmail()
   @MaxLength(160)
   email?: string;
@@ -61,8 +83,21 @@ export class UpdateModule2ProfileDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(255)
+  @MaxLength(512)
   avatarAsset?: string;
+
+  @ValidateIf(
+    (o) =>
+      o.profilePhotoRef !== undefined &&
+      o.profilePhotoRef !== null &&
+      String(o.profilePhotoRef).trim() !== "",
+  )
+  @IsString()
+  @MaxLength(512)
+  @Matches(/^profile\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.(?:avif|gif|jpe?g|png|webp)$/i, {
+    message: "Profile photo reference must be a trusted profile media key.",
+  })
+  profilePhotoRef?: string;
 }
 
 export class UpdateProfileDto {
@@ -74,7 +109,26 @@ export class UpdateProfileDto {
   })
   displayName?: string;
 
-  @IsOptional()
+  @ValidateIf(
+    (o) =>
+      o.username !== undefined &&
+      o.username !== null &&
+      String(o.username).trim() !== "" &&
+      String(o.username).trim() !== "@",
+  )
+  @IsString()
+  @Matches(/^@?[a-zA-Z0-9_.-]{2,32}$/, {
+    message:
+      "Username must contain 2–32 letters, numbers, dots, hyphens, or underscores.",
+  })
+  username?: string;
+
+  @ValidateIf(
+    (o) =>
+      o.email !== undefined &&
+      o.email !== null &&
+      String(o.email).trim() !== "",
+  )
   @IsEmail()
   @MaxLength(160)
   email?: string;
@@ -96,26 +150,27 @@ export class UpdateProfileDto {
 
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(16)
+  @ArrayMaxSize(24)
   @IsString({ each: true })
-  @MaxLength(40, { each: true })
+  @MaxLength(60, { each: true })
   interests?: string[];
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
-  @Matches(
-    /^(?!.*\.\.)(profile\/[0-9a-fA-F-]{36}\/[a-zA-Z0-9._-]+|assets\/images\/[a-zA-Z0-9/_.-]+|https?:\/\/127\.0\.0\.1:\d+\/api\/v1\/module2\/media\/object\/[0-9a-fA-F-]{36})$/,
-    {
-      message:
-        "profilePhotoRef must be a valid scoped profile photo reference.",
-    },
+  @ValidateIf(
+    (o) =>
+      o.profilePhotoRef !== undefined &&
+      o.profilePhotoRef !== null &&
+      String(o.profilePhotoRef).trim() !== "",
   )
+  @IsString()
+  @MaxLength(512)
+  @Matches(/^profile\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.(?:avif|gif|jpe?g|png|webp)$/i, {
+    message: "Profile photo reference must be a trusted profile media key.",
+  })
   profilePhotoRef?: string;
 
   @IsOptional()
   @IsString()
-  @MaxLength(255)
+  @MaxLength(512)
   avatarAsset?: string;
 
   @IsOptional()
@@ -302,6 +357,16 @@ export class CreatePostCommentDto {
   @MinLength(1)
   @MaxLength(500)
   body?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  parentCommentId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  replyToHandle?: string;
 }
 
 export class EditPostCommentDto {
@@ -329,9 +394,15 @@ export class CreateCommunityGroupDto {
   @MaxLength(2000)
   description?: string;
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  category?: string;
+
+  @IsOptional()
   @IsString()
   @IsIn(["VERIFIED_MEMBERS", "PRIVATE"])
-  visibility!: "VERIFIED_MEMBERS" | "PRIVATE";
+  visibility?: "VERIFIED_MEMBERS" | "PRIVATE";
 }
 
 export class CreateCommunityEventDto {
@@ -545,7 +616,6 @@ export class UpdateEmergencyContactDto {
 }
 
 export class StartLocationShareDto {
-  // Retained for request compatibility; the service always generates the public token.
   @IsOptional()
   @IsString()
   @MaxLength(80)
@@ -681,8 +751,8 @@ export class RequestMediaUploadDto {
   contentType!: "image/jpeg" | "image/png" | "image/webp" | "video/mp4";
 
   @IsString()
-  @IsIn(["avatar", "post", "wellness"])
-  purpose!: "avatar" | "post" | "wellness";
+  @IsIn(["avatar", "post", "wellness", "business"])
+  purpose!: "avatar" | "post" | "wellness" | "business";
 
   @IsOptional()
   @IsInt()
@@ -707,8 +777,8 @@ export class UploadMediaObjectDto {
   contentType!: "image/jpeg" | "image/png" | "image/webp" | "video/mp4";
 
   @IsString()
-  @IsIn(["avatar", "post", "wellness"])
-  purpose!: "avatar" | "post" | "wellness";
+  @IsIn(["avatar", "post", "wellness", "business"])
+  purpose!: "avatar" | "post" | "wellness" | "business";
 
   @IsOptional()
   @IsString()
@@ -724,6 +794,7 @@ export class UploadBinaryMediaDto {
     "post",
     "profile_photo",
     "community_post",
+    "business_media",
     "PROFILE_PHOTO",
     "COMMUNITY_POST_IMAGE",
   ])
@@ -732,6 +803,7 @@ export class UploadBinaryMediaDto {
     | "post"
     | "profile_photo"
     | "community_post"
+    | "business_media"
     | "PROFILE_PHOTO"
     | "COMMUNITY_POST_IMAGE";
 
@@ -772,4 +844,146 @@ export class RequestAccountDeletionDto {
   @IsString()
   @MaxLength(500)
   reason?: string;
+}
+
+// =============================================================================
+// MODULE 6: WOMEN-OWNED BUSINESS PAGES DTOs (SRS Section 8.1 - 8.5)
+// =============================================================================
+export class UpsertMemberBusinessDto {
+  @IsString()
+  @MinLength(2)
+  @MaxLength(160)
+  businessName!: string;
+
+  @IsString()
+  @MinLength(2)
+  @MaxLength(80)
+  category!: string;
+
+  @IsString()
+  @MinLength(5)
+  @MaxLength(2000)
+  description!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  serviceArea?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  latitude?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  longitude?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  priceRange?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  logoAsset?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  coverImage?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  contactPhone?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  hidePhoneNumber?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  whatsappNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  instagramHandle?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  websiteOrInstagram?: string;
+
+  @IsOptional()
+  @IsObject()
+  businessHours?: Record<string, any>;
+
+  @IsOptional()
+  @IsArray()
+  productsServices?: Array<Record<string, any>>;
+
+  @IsOptional()
+  @IsArray()
+  mediaGallery?: Array<Record<string, any>>;
+
+  @IsOptional()
+  @IsArray()
+  offersAndPosts?: Array<Record<string, any>>;
+
+  @IsOptional()
+  @IsBoolean()
+  requestVerificationBadge?: boolean;
+}
+
+export class CreateBusinessEnquiryDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  subjectOrProduct?: string;
+
+  @IsString()
+  @MinLength(2)
+  @MaxLength(1500)
+  message!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  attachmentUrl?: string;
+}
+
+export class ReplyBusinessEnquiryDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(1500)
+  message!: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(["OPEN", "REPLIED", "RESOLVED", "ARCHIVED"])
+  status?: string;
+}
+
+export class ReportBusinessDto {
+  @IsString()
+  @MinLength(3)
+  @MaxLength(160)
+  reason!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  details?: string;
 }

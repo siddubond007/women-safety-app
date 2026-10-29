@@ -4,6 +4,7 @@ import {
   Award,
   Building2,
   CheckCircle2,
+  MessageSquare,
   Plus,
   RefreshCw,
   ShieldAlert,
@@ -21,6 +22,11 @@ interface BusinessListingRecord {
   ownerDisplayName: string;
   category: string;
   city: string;
+  serviceArea?: string | null;
+  priceRange?: string | null;
+  hidePhoneNumber?: boolean;
+  productsServices?: Array<Record<string, unknown>>;
+  enquiriesCount?: number;
   description: string;
   contactPhone: string | null;
   websiteOrInstagram: string | null;
@@ -68,16 +74,17 @@ export function BusinessManagementPage() {
   const [notice, setNotice] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
 
-  // Add Business Listing State
+  // Add Business Listing State (Module 6 SRS Section 8.1-8.5)
   const [businessName, setBusinessName] = useState("");
   const [ownerDisplayName, setOwnerDisplayName] = useState("");
-  const [category, setCategory] = useState("Women-Owned Boutique & Apparel");
+  const [category, setCategory] = useState("Fashion & Clothing");
   const [city, setCity] = useState("Bengaluru");
+  const [serviceArea, setServiceArea] = useState("Pan-India & Local City");
+  const [priceRange, setPriceRange] = useState("₹₹");
   const [description, setDescription] = useState("");
   const [website, setWebsite] = useState("");
 
   const loadBusinesses = useCallback(async () => {
-    // State updates follow the API await; the refresh button manages its spinner.
     try {
       const res = await adminApi<BusinessDirectoryPayload>(
         "/admin-review/businesses",
@@ -98,7 +105,6 @@ export function BusinessManagementPage() {
   }, []);
 
   useEffect(() => {
-    // Defer the async request until after this effect has committed.
     void Promise.resolve().then(() => loadBusinesses());
   }, [loadBusinesses]);
 
@@ -119,6 +125,8 @@ export function BusinessManagementPage() {
             ownerDisplayName.trim() || "Verified Sakhi Entrepreneur",
           category,
           city: city.trim() || "Bengaluru",
+          serviceArea: serviceArea.trim() || "Pan-India & Local City",
+          priceRange,
           description:
             description.trim() ||
             "Verified women-owned business on Sakhi Marketplace.",
@@ -129,7 +137,7 @@ export function BusinessManagementPage() {
       setOwnerDisplayName("");
       setDescription("");
       setWebsite("");
-      setNotice("Saved business listing to PostgreSQL directory.");
+      setNotice("Saved Module 6 business listing to PostgreSQL directory.");
       await loadBusinesses();
     } catch (err) {
       setError(
@@ -169,7 +177,7 @@ export function BusinessManagementPage() {
 
   if (loading && !data) {
     return (
-      <SakhiQuoteLoader statusLabel="Loading Role 5 Business & Marketplace Directory..." />
+      <SakhiQuoteLoader statusLabel="Loading Module 6 Women-Owned Business & Marketplace Directory..." />
     );
   }
 
@@ -182,7 +190,18 @@ export function BusinessManagementPage() {
     reportedFraudulentCount: 0,
     featuredCount: 0,
   };
-  const categories = data?.categories ?? ["Women-Owned Boutique & Apparel"];
+  const categories = data?.categories ?? [
+    "Fashion & Clothing",
+    "Beauty & Salon Services",
+    "Home Baking & Food",
+    "Handicrafts & Art",
+    "Health & Wellness",
+    "Education & Coaching",
+    "Freelancing & Digital Services",
+    "Fitness & Yoga",
+    "Childcare & Parenting",
+    "Event Planning & Photography",
+  ];
   const businesses = (data?.businesses ?? []).filter((b) => {
     if (statusFilter === "ALL") return true;
     if (statusFilter === "REPORTED") return b.isReportedFraudulent;
@@ -198,15 +217,15 @@ export function BusinessManagementPage() {
         <div className="hero-copy">
           <div className="eyebrow-row">
             <StatusPill tone="rose">
-              ROLE 5 • BUSINESS &amp; MARKETPLACE GOVERNANCE (SRS 12.7)
+              MODULE 6 &amp; ROLE 5 • WOMEN-OWNED BUSINESS PAGES (SRS 8 &amp; 12.7)
             </StatusPill>
             <StatusPill tone="green">Live PostgreSQL Directory</StatusPill>
           </div>
-          <h1>Women-Owned Business Directory &amp; Badge Verification</h1>
+          <h1>Women-Owned Business Directory &amp; Badge Governance</h1>
           <p>
-            Approve women-owned business pages, issue Optional Verified
-            Woman-Owned Business badges, curate featured placements, and
-            investigate reported or fraudulent business pages.
+            Review and approve women-owned business pages, issue Verified
+            Woman-Owned Business badges, curate featured placements, monitor
+            customer enquiries, and investigate reported business pages.
           </p>
         </div>
         <div className="hero-actions">
@@ -400,7 +419,7 @@ export function BusinessManagementPage() {
               />
             </label>
             <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
-              Business Category
+              Business Category (SRS 8.3)
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
@@ -419,12 +438,48 @@ export function BusinessManagementPage() {
                 ))}
               </select>
             </label>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+              <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
+                City / Neighbourhood
+                <input
+                  value={city}
+                  onChange={(e) => setCity(e.target.value)}
+                  placeholder="Bengaluru"
+                  style={{
+                    width: "100%",
+                    marginTop: "4px",
+                    padding: "10px 12px",
+                    borderRadius: "10px",
+                    border: "1px solid #dcd0e0",
+                  }}
+                />
+              </label>
+              <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
+                Price Tier
+                <select
+                  value={priceRange}
+                  onChange={(e) => setPriceRange(e.target.value)}
+                  style={{
+                    width: "100%",
+                    marginTop: "4px",
+                    padding: "10px 12px",
+                    borderRadius: "10px",
+                    border: "1px solid #dcd0e0",
+                  }}
+                >
+                  <option value="₹">₹ (Budget Friendly)</option>
+                  <option value="₹₹">₹₹ (Moderate)</option>
+                  <option value="₹₹₹">₹₹₹ (Premium)</option>
+                  <option value="₹₹₹₹">₹₹₹₹ (Luxury / Bespoke)</option>
+                </select>
+              </label>
+            </div>
             <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
-              City / Neighbourhood
+              Service Area
               <input
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
-                placeholder="Bengaluru"
+                value={serviceArea}
+                onChange={(e) => setServiceArea(e.target.value)}
+                placeholder="Pan-India & Local City"
                 style={{
                   width: "100%",
                   marginTop: "4px",
@@ -450,7 +505,8 @@ export function BusinessManagementPage() {
                 }}
               />
             </label>
-            <button className="button button--secondary"
+            <button
+              className="button button--secondary"
               type="button"
               disabled={submitting}
               onClick={() => void handleCreateBusiness()}
@@ -539,157 +595,193 @@ export function BusinessManagementPage() {
             <div
               style={{ display: "flex", flexDirection: "column", gap: "12px" }}
             >
-              {businesses.map((biz) => (
-                <div
-                  key={biz.id}
-                  style={{
-                    padding: "16px",
-                    borderRadius: "14px",
-                    border: "1px solid #eee7ee",
-                    background: biz.isReportedFraudulent ? "#fff8f8" : "#fff",
-                  }}
-                >
+              {businesses.map((biz) => {
+                const catalogCount = Array.isArray(biz.productsServices)
+                  ? biz.productsServices.length
+                  : 0;
+                return (
                   <div
+                    key={biz.id}
                     style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      flexWrap: "wrap",
-                      gap: "8px",
-                      marginBottom: "6px",
+                      padding: "16px",
+                      borderRadius: "14px",
+                      border: "1px solid #eee7ee",
+                      background: biz.isReportedFraudulent ? "#fff8f8" : "#fff",
                     }}
                   >
-                    <div>
-                      <strong style={{ fontSize: "15px" }}>
-                        {biz.businessName} ({biz.businessCode})
-                      </strong>
-                      <div style={{ fontSize: "12px", color: "#6e6275" }}>
-                        Founder: {biz.ownerDisplayName} • {biz.category} •{" "}
-                        {biz.city}
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        flexWrap: "wrap",
+                        gap: "8px",
+                        marginBottom: "6px",
+                      }}
+                    >
+                      <div>
+                        <strong style={{ fontSize: "15px" }}>
+                          {biz.businessName} ({biz.businessCode})
+                        </strong>
+                        <div style={{ fontSize: "12px", color: "#6e6275" }}>
+                          Founder: {biz.ownerDisplayName} • {biz.category} •{" "}
+                          {biz.city}
+                          {biz.priceRange ? ` • ${biz.priceRange}` : ""}
+                          {biz.serviceArea ? ` • ${biz.serviceArea}` : ""}
+                        </div>
+                      </div>
+                      <div
+                        style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}
+                      >
+                        <StatusPill
+                          tone={
+                            biz.approvalStatus === "APPROVED"
+                              ? "green"
+                              : biz.approvalStatus === "SUSPENDED"
+                                ? "urgent"
+                                : "amber"
+                          }
+                        >
+                          {formatEnumLabel(biz.approvalStatus)}
+                        </StatusPill>
+                        <StatusPill
+                          tone={
+                            biz.verificationBadgeStatus === "VERIFIED_WOMAN_OWNED"
+                              ? "rose"
+                              : "neutral"
+                          }
+                        >
+                          {formatEnumLabel(biz.verificationBadgeStatus)}
+                        </StatusPill>
+                        {biz.isFeatured && (
+                          <StatusPill tone="green">Featured ★</StatusPill>
+                        )}
+                        {catalogCount > 0 && (
+                          <StatusPill tone="neutral">
+                            {catalogCount} Offerings
+                          </StatusPill>
+                        )}
+                        {(biz.enquiriesCount ?? 0) > 0 && (
+                          <StatusPill tone="amber">
+                            <MessageSquare
+                              size={11}
+                              style={{ verticalAlign: "middle", marginRight: 3 }}
+                            />
+                            {biz.enquiriesCount} Enquiries
+                          </StatusPill>
+                        )}
+                        {biz.isReportedFraudulent && (
+                          <StatusPill tone="urgent">Fraud Flagged</StatusPill>
+                        )}
                       </div>
                     </div>
-                    <div
-                      style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}
+                    <p
+                      style={{
+                        margin: "0 0 10px 0",
+                        fontSize: "13px",
+                        color: "#52345f",
+                      }}
                     >
-                      <StatusPill
-                        tone={
-                          biz.approvalStatus === "APPROVED"
-                            ? "green"
-                            : biz.approvalStatus === "SUSPENDED"
-                              ? "urgent"
-                              : "amber"
+                      {biz.description}
+                    </p>
+                    {biz.reportReason && (
+                      <div
+                        style={{
+                          marginBottom: "10px",
+                          padding: "8px 12px",
+                          borderRadius: "8px",
+                          background: "#fcebed",
+                          color: "#a63b4a",
+                          fontSize: "12px",
+                          fontWeight: 600,
+                        }}
+                      >
+                        Report Reason: {biz.reportReason}
+                      </div>
+                    )}
+                    <div
+                      style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}
+                    >
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={submitting}
+                        onClick={() =>
+                          void handleReviewAction(
+                            biz,
+                            { approvalStatus: "APPROVED" },
+                            "Approved listing",
+                          )
                         }
                       >
-                        {formatEnumLabel(biz.approvalStatus)}
-                      </StatusPill>
-                      <StatusPill
-                        tone={
-                          biz.verificationBadgeStatus === "VERIFIED_WOMAN_OWNED"
-                            ? "rose"
-                            : "neutral"
+                        <CheckCircle2 size={14} /> Approve Listing
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={submitting}
+                        onClick={() =>
+                          void handleReviewAction(
+                            biz,
+                            {
+                              verificationBadgeStatus:
+                                biz.verificationBadgeStatus ===
+                                "VERIFIED_WOMAN_OWNED"
+                                  ? "NONE"
+                                  : "VERIFIED_WOMAN_OWNED",
+                            },
+                            "Updated Woman-Owned Verification Badge",
+                          )
                         }
                       >
-                        {formatEnumLabel(biz.verificationBadgeStatus)}
-                      </StatusPill>
-                      {biz.isFeatured && (
-                        <StatusPill tone="green">Featured ★</StatusPill>
-                      )}
-                      {biz.isReportedFraudulent && (
-                        <StatusPill tone="urgent">Fraud Flagged</StatusPill>
-                      )}
+                        <Award size={14} />{" "}
+                        {biz.verificationBadgeStatus === "VERIFIED_WOMAN_OWNED"
+                          ? "Revoke Badge"
+                          : "Grant Woman-Owned Badge"}
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={submitting}
+                        onClick={() =>
+                          void handleReviewAction(
+                            biz,
+                            { isFeatured: !biz.isFeatured },
+                            "Updated featured placement",
+                          )
+                        }
+                      >
+                        <Sparkles size={14} />{" "}
+                        {biz.isFeatured ? "Unfeature" : "Feature on App"}
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={submitting}
+                        onClick={() =>
+                          void handleReviewAction(
+                            biz,
+                            {
+                              approvalStatus:
+                                biz.approvalStatus === "SUSPENDED"
+                                  ? "APPROVED"
+                                  : "SUSPENDED",
+                              isReportedFraudulent: !biz.isReportedFraudulent,
+                            },
+                            "Updated fraud/suspension status",
+                          )
+                        }
+                        style={{ color: "#b4233c" }}
+                      >
+                        <ShieldAlert size={14} />{" "}
+                        {biz.approvalStatus === "SUSPENDED"
+                          ? "Restore Business"
+                          : "Suspend / Flag Fraud"}
+                      </button>
                     </div>
                   </div>
-                  <p
-                    style={{
-                      margin: "0 0 10px 0",
-                      fontSize: "13px",
-                      color: "#52345f",
-                    }}
-                  >
-                    {biz.description}
-                  </p>
-                  <div
-                    style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}
-                  >
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      disabled={submitting}
-                      onClick={() =>
-                        void handleReviewAction(
-                          biz,
-                          { approvalStatus: "APPROVED" },
-                          "Approved listing",
-                        )
-                      }
-                    >
-                      <CheckCircle2 size={14} /> Approve Listing
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      disabled={submitting}
-                      onClick={() =>
-                        void handleReviewAction(
-                          biz,
-                          {
-                            verificationBadgeStatus:
-                              biz.verificationBadgeStatus ===
-                              "VERIFIED_WOMAN_OWNED"
-                                ? "NONE"
-                                : "VERIFIED_WOMAN_OWNED",
-                          },
-                          "Updated Woman-Owned Verification Badge",
-                        )
-                      }
-                    >
-                      <Award size={14} />{" "}
-                      {biz.verificationBadgeStatus === "VERIFIED_WOMAN_OWNED"
-                        ? "Revoke Badge"
-                        : "Grant Woman-Owned Badge"}
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      disabled={submitting}
-                      onClick={() =>
-                        void handleReviewAction(
-                          biz,
-                          { isFeatured: !biz.isFeatured },
-                          "Updated featured placement",
-                        )
-                      }
-                    >
-                      <Sparkles size={14} />{" "}
-                      {biz.isFeatured ? "Unfeature" : "Feature on App"}
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      disabled={submitting}
-                      onClick={() =>
-                        void handleReviewAction(
-                          biz,
-                          {
-                            approvalStatus:
-                              biz.approvalStatus === "SUSPENDED"
-                                ? "APPROVED"
-                                : "SUSPENDED",
-                            isReportedFraudulent: !biz.isReportedFraudulent,
-                          },
-                          "Updated fraud/suspension status",
-                        )
-                      }
-                      style={{ color: "#b4233c" }}
-                    >
-                      <ShieldAlert size={14} />{" "}
-                      {biz.approvalStatus === "SUSPENDED"
-                        ? "Restore Business"
-                        : "Suspend / Flag Fraud"}
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

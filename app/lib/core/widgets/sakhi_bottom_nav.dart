@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_typography.dart';
 
-/// iOS 26 Liquid Glass Bottom Navigation Bar with dead-center '+' Create FAB.
+/// Authentic iOS 26 Liquid Glass Floating Dock Navigation Bar with dead-center '+' Create Orb.
 /// Features 4 balanced navigation tabs (Home, Explore | + | Community, Profile)
-/// so the central '+' action button is perfectly centered.
+/// inside a frosted, specular-bordered floating glass capsule.
 class SakhiBottomNav extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onTabSelected;
@@ -20,50 +20,51 @@ class SakhiBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF4A1958).withValues(alpha: 0.10),
-            blurRadius: 28,
-            offset: const Offset(0, -6),
-          ),
-          BoxShadow(
-            color: Colors.white.withValues(alpha: 0.70),
-            blurRadius: 2,
-            offset: const Offset(0, -1),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.white.withValues(alpha: 0.88),
-                  const Color(0xFFFDF6FC).withValues(alpha: 0.92),
-                ],
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(32),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF420E4E).withValues(alpha: 0.14),
+                blurRadius: 28,
+                offset: const Offset(0, 10),
               ),
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(28)),
-              border: Border(
-                top: BorderSide(
-                  color: Colors.white.withValues(alpha: 0.95),
-                  width: 1.4,
-                ),
+              BoxShadow(
+                color: Colors.white.withValues(alpha: 0.85),
+                blurRadius: 2,
+                spreadRadius: 0.5,
+                offset: const Offset(0, -1),
               ),
-            ),
-            child: SafeArea(
-              top: false,
-              child: Padding(
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(32),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 26, sigmaY: 26),
+              child: Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(32),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.white.withValues(alpha: 0.82),
+                      const Color(0xFFFBE9F7).withValues(alpha: 0.72),
+                      Colors.white.withValues(alpha: 0.86),
+                    ],
+                    stops: const [0.0, 0.5, 1.0],
+                  ),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.94),
+                    width: 1.6,
+                  ),
+                ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
@@ -88,7 +89,7 @@ class SakhiBottomNav extends StatelessWidget {
                         onTap: () => onTabSelected(1),
                       ),
                     ),
-                    // Dead-center '+' Liquid Glass Create FAB
+                    // Dead-center '+' iOS 26 Liquid Glass Jewel Orb
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                       child: GestureDetector(
@@ -102,21 +103,22 @@ class SakhiBottomNav extends StatelessWidget {
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                               colors: [
-                                Color(0xFFB548C8),
-                                AppColors.primaryPurple,
+                                Color(0xFFC252D8),
+                                Color(0xFF7B2190),
+                                AppColors.primaryPurpleDark,
                               ],
                             ),
                             shape: BoxShape.circle,
                             border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.75),
-                              width: 1.5,
+                              color: Colors.white.withValues(alpha: 0.88),
+                              width: 1.8,
                             ),
                             boxShadow: [
                               BoxShadow(
                                 color: AppColors.primaryPurple
-                                    .withValues(alpha: 0.36),
-                                blurRadius: 14,
-                                offset: const Offset(0, 5),
+                                    .withValues(alpha: 0.38),
+                                blurRadius: 16,
+                                offset: const Offset(0, 6),
                               ),
                             ],
                           ),
@@ -182,16 +184,38 @@ class _NavTabItem extends StatelessWidget {
     final color = isSelected ? AppColors.primaryPurple : AppColors.textMuted;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(22),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
+        duration: const Duration(milliseconds: 220),
         curve: Curves.easeOutCubic,
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          color: isSelected
-              ? AppColors.primaryPurple.withValues(alpha: 0.10)
-              : Colors.transparent,
+          borderRadius: BorderRadius.circular(22),
+          gradient: isSelected
+              ? LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Colors.white.withValues(alpha: 0.92),
+                    const Color(0xFFF3DCF8).withValues(alpha: 0.76),
+                  ],
+                )
+              : null,
+          border: isSelected
+              ? Border.all(
+                  color: Colors.white.withValues(alpha: 0.95),
+                  width: 1.2,
+                )
+              : null,
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: AppColors.primaryPurple.withValues(alpha: 0.10),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ]
+              : null,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -203,7 +227,7 @@ class _NavTabItem extends StatelessWidget {
               color: color,
               size: 22,
             ),
-            const SizedBox(height: 3),
+            const SizedBox(height: 2),
             Text(
               label,
               maxLines: 1,
@@ -211,7 +235,7 @@ class _NavTabItem extends StatelessWidget {
               style: AppTypography.navLabel.copyWith(
                 fontSize: 10.5,
                 color: color,
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
               ),
             ),
           ],

@@ -10,6 +10,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../../core/assets/app_assets.dart';
+import '../../../core/constants/mock_data.dart';
 import '../../auth/backend_api_client.dart';
 import '../services/device_location_service.dart';
 
@@ -368,8 +369,26 @@ class SakhiSafetyController extends ChangeNotifier {
     'sakhi/native_actions',
   );
   static const FlutterSecureStorage _secureStorage = FlutterSecureStorage();
-  static const String _kContactsKey = 'sakhi.module4.trusted_contacts_v2';
-  static const String _kHistoryKey = 'sakhi.module4.sos_history_v2';
+  static const String _kContactsKeyPrefix = 'sakhi.module4.trusted_contacts_v3';
+  static const String _kHistoryKeyPrefix = 'sakhi.module4.sos_history_v3';
+  String _loadedForAccountId = '';
+
+  String get _activeAccountId {
+    final id = SakhiPrototypeState.instance.currentUser.accountId.trim();
+    return id.isEmpty ? 'guest' : id;
+  }
+
+  String get _kContactsKey => '${_kContactsKeyPrefix}_$_activeAccountId';
+  String get _kHistoryKey => '${_kHistoryKeyPrefix}_$_activeAccountId';
+
+  static String formatTimestampWithDate(DateTime dt) {
+    final local = dt.toLocal();
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${local.day.toString().padLeft(2, '0')} ${months[local.month - 1]} ${local.year} • ${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+  }
   static const String _kShortcutsKey = 'sakhi.module4.shortcuts_v2';
   static const String _kChecklistKey = 'sakhi.module4.checklist_v2';
   static const String _kRideLogKey = 'sakhi.module4.ride_log_v2';
@@ -958,7 +977,13 @@ class SakhiSafetyController extends ChangeNotifier {
   }
 
   Future<void> _loadLocalStateIfNeeded() async {
-    if (_localPersistenceLoaded) return;
+    final currentAcc = _activeAccountId;
+    if (_localPersistenceLoaded && _loadedForAccountId == currentAcc) return;
+    if (_loadedForAccountId != currentAcc) {
+      trustedContacts.clear();
+      sosHistory.clear();
+      _loadedForAccountId = currentAcc;
+    }
     _localPersistenceLoaded = true;
     try {
       final rawContacts = await _secureStorage.read(key: _kContactsKey);
@@ -1432,50 +1457,29 @@ class SakhiSafetyController extends ChangeNotifier {
         authenticated: true,
       );
       final rawContacts = res['emergencyContacts'];
-      if (rawContacts is List && rawContacts.isNotEmpty) {
+      if (rawContacts is List) {
         final remoteContacts = rawContacts
             .whereType<Map<String, dynamic>>()
             .map(SafetyTrustedContact.fromJson)
             .where((c) => !_isLegacyFakeContact(c))
             .toList();
-
-        // Merge local user-added contacts with remote contacts so nothing is ever lost!
-        final mergedByPhone = <String, SafetyTrustedContact>{};
-        for (final remote in remoteContacts) {
-          mergedByPhone[remote.phoneE164.replaceAll(' ', '')] = remote;
-        }
-        for (final local in trustedContacts) {
-          final key = local.phoneE164.replaceAll(' ', '');
-          if (!mergedByPhone.containsKey(key)) {
-            mergedByPhone[key] = local;
-            // Also push this local contact to backend so both stay synced
-            unawaited(_pushSingleContactToBackend(local));
-          }
-        }
+        // Backend is strictly authoritative per account so Account 1's contacts never leak into Account 2!
         trustedContacts
           ..clear()
-          ..addAll(mergedByPhone.values);
+          ..addAll(remoteContacts);
         _ensurePrimaryExists();
         unawaited(_saveContactsLocally());
-      } else if (trustedContacts.isNotEmpty) {
-        // Backend returned empty, so sync local contacts up to backend
-        for (final local in List<SafetyTrustedContact>.from(trustedContacts)) {
-          unawaited(_pushSingleContactToBackend(local));
-        }
       }
 
       final rawHistory = res['sosHistory'];
-      if (rawHistory is List && rawHistory.isNotEmpty) {
+      if (rawHistory is List) {
         final remoteHistory = rawHistory
             .whereType<Map<String, dynamic>>()
             .map(SafetySosHistoryItem.fromJson)
             .toList();
-        final existingIds = sosHistory.map((e) => e.id).toSet();
-        for (final item in remoteHistory) {
-          if (!existingIds.contains(item.id)) {
-            sosHistory.add(item);
-          }
-        }
+        sosHistory
+          ..clear()
+          ..addAll(remoteHistory);
         unawaited(_saveHistoryLocally());
       }
     } catch (_) {
@@ -1935,7 +1939,7 @@ class SakhiSafetyController extends ChangeNotifier {
     final item = SafetySosHistoryItem(
       id: eventId,
       timestampLabel:
-          'Just now — ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
+          formatTimestampWithDate(now),
       status: isTestMode ? 'TEST_MODE' : 'ACTIVE',
       locationLabel: canSendLocation
           ? currentLocationLabel
@@ -2009,7 +2013,7 @@ class SakhiSafetyController extends ChangeNotifier {
     final now = DateTime.now();
     final item = SafetySosHistoryItem(
       id: 'SOS-CANCEL-${now.millisecondsSinceEpoch % 10000}',
-      timestampLabel: 'Just now • Cancelled in 3s Guard',
+      timestampLabel: '${formatTimestampWithDate(now)} • Cancelled in 3s Guard',
       status: 'CANCELLED',
       locationLabel: hasRecentDeviceLocation
           ? currentLocationLabel
@@ -2049,6 +2053,74 @@ class SakhiSafetyController extends ChangeNotifier {
     );
     notifyListeners();
     unawaited(_saveHistoryLocally());
+    unawaited(
+      _sendBackend((client) async {
+        await client.delete(
+          'module2/safety/events?mode=resolved',
+          authenticated: true,
+        );
+      }),
+    );
+  }
+
+  Future<void> resolveSosHistoryItem(String eventId) async {
+    final idx = sosHistory.indexWhere((h) => h.id == eventId);
+    if (idx != -1) {
+      final old = sosHistory[idx];
+      sosHistory[idx] = SafetySosHistoryItem(
+        id: old.id,
+        timestampLabel: old.timestampLabel,
+        status: 'RESOLVED',
+        locationLabel: old.locationLabel,
+        latitude: old.latitude,
+        longitude: old.longitude,
+        contactsAlertedCount: old.contactsAlertedCount,
+        durationMinutes: old.durationMinutes,
+        isTestMode: old.isTestMode,
+        shareToken: null,
+      );
+    }
+    if (!sosHistory.any((h) => h.status.toUpperCase() == 'ACTIVE')) {
+      stopLocationSharingAndEndSos();
+    } else {
+      notifyListeners();
+      unawaited(_saveHistoryLocally());
+    }
+    await _sendBackend((client) async {
+      await client.post(
+        'module2/safety/events',
+        authenticated: true,
+        body: {
+          'eventType': 'SOS_RESOLVED',
+          'status': 'RESOLVED',
+          'locationLabel': currentLocationLabel,
+        },
+      );
+    });
+  }
+
+  Future<void> deleteSosHistoryItem(String eventId) async {
+    sosHistory.removeWhere((h) => h.id == eventId);
+    notifyListeners();
+    unawaited(_saveHistoryLocally());
+    await _sendBackend((client) async {
+      await client.delete(
+        'module2/safety/events/${Uri.encodeComponent(eventId)}',
+        authenticated: true,
+      );
+    });
+  }
+
+  Future<void> clearAllSosHistory() async {
+    sosHistory.clear();
+    notifyListeners();
+    unawaited(_saveHistoryLocally());
+    await _sendBackend((client) async {
+      await client.delete(
+        'module2/safety/events?mode=all',
+        authenticated: true,
+      );
+    });
   }
 
   void stopLocationSharingAndEndSos() {

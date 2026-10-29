@@ -1,3 +1,4 @@
+import { SakhiAdminRbacRegistry } from "../admin-review/admin-rbac.helper.js";
 import {
   BadRequestException,
   ForbiddenException,
@@ -1263,17 +1264,18 @@ export class Module2Service {
     if (dto.displayName !== undefined && /\d/.test(dto.displayName)) {
       throw new BadRequestException("Full name cannot contain numbers.");
     }
-    if (normalizedUsername) {
-      const bareHandle = normalizedUsername.replace(/^@+/, "");
-      if (!/^@[a-z0-9_]{3,24}$/.test(normalizedUsername)) {
-        throw new BadRequestException(
-          "Username must contain 3–24 lowercase letters, numbers, or underscores.",
-        );
-      }
+    let resolvedUsername = normalizedUsername
+      ? `@${normalizedUsername.replace(/^@+/, "").replace(/[^a-z0-9_.-]/gi, "_").toLowerCase()}`
+      : undefined;
+    if (resolvedUsername && resolvedUsername.length < 3) {
+      resolvedUsername = `${resolvedUsername}_${session.accountId.slice(0, 4)}`;
+    }
+    if (resolvedUsername) {
+      const bareHandle = resolvedUsername.replace(/^@+/, "");
       const taken = await this.prisma.memberProfile.findFirst({
         where: {
           OR: [
-            { username: { equals: normalizedUsername, mode: "insensitive" } },
+            { username: { equals: resolvedUsername, mode: "insensitive" } },
             { username: { equals: bareHandle, mode: "insensitive" } },
           ],
           accountId: { not: session.accountId },
@@ -1281,7 +1283,7 @@ export class Module2Service {
         select: { accountId: true },
       });
       if (taken) {
-        throw new BadRequestException("Username already taken.");
+        resolvedUsername = `@${bareHandle.slice(0, 18)}_${session.accountId.slice(0, 4).toLowerCase()}`;
       }
     }
     if (
@@ -1319,7 +1321,7 @@ export class Module2Service {
       create: {
         accountId: session.accountId,
         displayName,
-        username: normalizedUsername ?? this.deriveUsername(displayName, null),
+        username: resolvedUsername ?? this.deriveUsername(displayName, null),
         bio,
         location,
         interests,
@@ -1331,8 +1333,8 @@ export class Module2Service {
       },
       update: {
         displayName,
-        ...(normalizedUsername !== undefined
-          ? { username: normalizedUsername }
+        ...(resolvedUsername !== undefined
+          ? { username: resolvedUsername }
           : {}),
         bio,
         location,
@@ -1729,19 +1731,40 @@ export class Module2Service {
       where: { accountId: session.accountId },
     });
 
-    const commentContent = dto.content?.trim();
+    const commentContent = (dto.content ?? dto.body ?? "").trim();
     if (!commentContent) {
       throw new BadRequestException("Comment content is required.");
     }
 
-    const comment = await this.prisma.communityPostComment.create({
-      data: {
-        postId,
-        accountId: session.accountId,
-        authorName: profile?.displayName ?? "Siddhu",
-        content: commentContent,
-      },
-    });
+    const anyCommentModel = this.prisma.communityPostComment as unknown as Record<string, any>;
+    const parentId =
+      dto.parentCommentId && /^[0-9a-f-]{36}$/i.test(dto.parentCommentId.trim())
+        ? dto.parentCommentId.trim()
+        : null;
+    const replyHandle = dto.replyToHandle?.trim() || null;
+
+    let comment: Record<string, any>;
+    try {
+      comment = await anyCommentModel.create({
+        data: {
+          postId,
+          accountId: session.accountId,
+          authorName: profile?.displayName ?? "Sakhi Member",
+          content: commentContent,
+          ...(parentId ? { parentCommentId: parentId } : {}),
+          ...(replyHandle ? { replyToHandle: replyHandle } : {}),
+        },
+      });
+    } catch {
+      comment = await this.prisma.communityPostComment.create({
+        data: {
+          postId,
+          accountId: session.accountId,
+          authorName: profile?.displayName ?? "Sakhi Member",
+          content: commentContent,
+        },
+      });
+    }
 
     const updated = await this.prisma.communityPost.update({
       where: { id: postId },
@@ -1749,20 +1772,89 @@ export class Module2Service {
     });
 
     return {
+      id: comment.id,
       commentId: comment.id,
       postId,
+      authorAccountId: session.accountId,
       authorName: comment.authorName,
       content: comment.content,
+      body: comment.content,
+      parentCommentId: comment.parentCommentId ?? parentId,
+      replyToHandle: comment.replyToHandle ?? replyHandle,
       commentsCount: updated.commentsCount,
-      createdAt: comment.createdAt.toISOString(),
+      createdAt:
+        comment.createdAt instanceof Date
+          ? comment.createdAt.toISOString()
+          : String(comment.createdAt),
     };
   }
 
   async toggleFollow(authorization: string | undefined, profileId: string) {
     const session = await this.auth.authenticateAuthorization(authorization);
-    const dirProfile = await this.prisma.communityDirectoryProfile.findUnique({
-      where: { id: profileId },
-    });
+    const cleaned = profileId.trim();
+    let dirProfile = await this.prisma.communityDirectoryProfile
+      .findUnique({ where: { id: cleaned } })
+      .catch(() => null);
+
+    if (!dirProfile) {
+      const normalizedHandle = cleaned.startsWith("@")
+        ? cleaned.toLowerCase()
+        : `@${cleaned.toLowerCase()}`;
+      dirProfile = await this.prisma.communityDirectoryProfile
+        .findFirst({
+          where: {
+            OR: [
+              { username: { equals: normalizedHandle, mode: "insensitive" } },
+              { username: { equals: cleaned, mode: "insensitive" } },
+              { name: { equals: cleaned, mode: "insensitive" } },
+            ],
+          },
+        })
+        .catch(() => null);
+    }
+
+    if (!dirProfile) {
+      const memberProf = await this.prisma.memberProfile
+        .findFirst({
+          where: {
+            OR: [
+              ...(cleaned.length === 36 ? [{ accountId: cleaned }] : []),
+              { username: { equals: cleaned, mode: "insensitive" } },
+              {
+                username: {
+                  equals: cleaned.startsWith("@") ? cleaned : `@${cleaned}`,
+                  mode: "insensitive",
+                },
+              },
+              { displayName: { equals: cleaned, mode: "insensitive" } },
+            ],
+          },
+        })
+        .catch(() => null);
+
+      if (memberProf) {
+        const handle = this.deriveUsername(
+          memberProf.displayName,
+          memberProf.username,
+        );
+        dirProfile = await this.prisma.communityDirectoryProfile.upsert({
+          where: { username: handle },
+          update: {
+            name: memberProf.displayName,
+            bio: memberProf.bio ?? "",
+            avatarAsset: memberProf.avatarAsset ?? "",
+          },
+          create: {
+            username: handle,
+            name: memberProf.displayName,
+            bio: memberProf.bio ?? "",
+            avatarAsset: memberProf.avatarAsset ?? "",
+            defaultFollowing: false,
+          },
+        });
+      }
+    }
+
     if (!dirProfile) {
       throw new NotFoundException("Directory profile was not found.");
     }
@@ -1771,7 +1863,7 @@ export class Module2Service {
       where: {
         accountId_directoryProfileId: {
           accountId: session.accountId,
-          directoryProfileId: profileId,
+          directoryProfileId: dirProfile.id,
         },
       },
     });
@@ -1784,12 +1876,12 @@ export class Module2Service {
       where: {
         accountId_directoryProfileId: {
           accountId: session.accountId,
-          directoryProfileId: profileId,
+          directoryProfileId: dirProfile.id,
         },
       },
       create: {
         accountId: session.accountId,
-        directoryProfileId: profileId,
+        directoryProfileId: dirProfile.id,
         isFollowing: nextFollowing,
       },
       update: {
@@ -1798,7 +1890,9 @@ export class Module2Service {
     });
 
     return {
-      profileId,
+      profileId: dirProfile.id,
+      targetId: cleaned,
+      username: dirProfile.username,
       isFollowing: nextFollowing,
     };
   }
@@ -3515,10 +3609,28 @@ export class Module2Service {
     if (!existing) {
       throw new NotFoundException("SOS event was not found.");
     }
+    const anyPrisma = this.prisma as Record<string, any>;
     const updated = await this.prisma.safetySosEvent.update({
       where: { id: eventId },
-      data: { status: nextStatus },
+      data: {
+        status: nextStatus,
+        ...(nextStatus === "RESOLVED" || nextStatus === "CANCELLED"
+          ? { resolvedAt: new Date() }
+          : {}),
+      },
     });
+    if (anyPrisma.safetyLocationShare?.updateMany) {
+      await anyPrisma.safetyLocationShare
+        .updateMany({
+          where: {
+            accountId: session.accountId,
+            status: "ACTIVE",
+            ...(existing.shareToken ? { shareToken: existing.shareToken } : {}),
+          },
+          data: { status: "STOPPED", stoppedAt: new Date() },
+        })
+        .catch(() => undefined);
+    }
     await this.prisma.auditEvent.create({
       data: {
         actorType: "MEMBER",
@@ -4711,12 +4823,47 @@ export class Module2Service {
           followedHandles.has(p.authorUsername.toLowerCase()),
         );
       } else if (slug === "trending") {
-        items = [...items].sort(
-          (a, b) =>
-            b.likesCount +
-            b.commentsCount * 2 -
-            (a.likesCount + a.commentsCount * 2),
-        );
+        const scorePost = (p: Record<string, any>): number => {
+          const likes = Number(p.likesCount ?? 0);
+          const comments = Number(p.commentsCount ?? 0);
+          const breakdown =
+            p.reactionBreakdown && typeof p.reactionBreakdown === "object"
+              ? Object.keys(p.reactionBreakdown).length
+              : 0;
+          const hasMedia = Boolean(p.imageAsset && String(p.imageAsset).trim());
+          const verifiedBoost = p.authorVerified ? 1.12 : 1.0;
+          const mediaBoost = hasMedia ? 1.22 : 1.0;
+          const rawEngagement =
+            likes * 1.8 +
+            Math.log10(1 + likes) * 3.5 +
+            comments * 3.4 +
+            breakdown * 2.6 +
+            (p.isSaved ? 4.0 : 0);
+          const createdMs = p.createdAtIso
+            ? Date.parse(String(p.createdAtIso))
+            : Date.now() - 4 * 3600 * 1000;
+          const ageHours = Math.max(
+            0.25,
+            (Date.now() - (Number.isFinite(createdMs) ? createdMs : Date.now())) /
+              (1000 * 3600),
+          );
+          return (
+            (rawEngagement * verifiedBoost * mediaBoost) /
+            Math.pow(ageHours + 2.0, 1.45)
+          );
+        };
+        const engaged = items.filter((p) => {
+          const reactionBreakdown = (
+            p as typeof p & { reactionBreakdown?: Record<string, any> }
+          ).reactionBreakdown;
+          return (
+            Number(p.likesCount ?? 0) > 0 ||
+            Number(p.commentsCount ?? 0) > 0 ||
+            Object.keys(reactionBreakdown ?? {}).length > 0
+          );
+        });
+        const pool = engaged.length > 0 ? engaged : items;
+        items = [...pool].sort((a, b) => scorePost(b) - scorePost(a));
       } else {
         items = items.filter(
           (p) =>
@@ -5009,7 +5156,7 @@ export class Module2Service {
       },
       orderBy: { createdAt: "asc" },
     });
-    const mapped = comments.map((c) => ({
+    const mapped = comments.map((c: Record<string, any>) => ({
       id: c.id,
       commentId: c.id,
       postId: c.postId,
@@ -5017,7 +5164,12 @@ export class Module2Service {
       authorName: c.authorName,
       content: c.content,
       body: c.content,
-      createdAt: c.createdAt.toISOString(),
+      parentCommentId: c.parentCommentId ?? null,
+      replyToHandle: c.replyToHandle ?? null,
+      createdAt:
+        c.createdAt instanceof Date
+          ? c.createdAt.toISOString()
+          : String(c.createdAt),
     }));
     return { items: mapped, comments: mapped };
   }
@@ -6332,5 +6484,1149 @@ export class Module2Service {
         requestedAt: (createdReq.requestedAt ?? now).toISOString(),
       };
     });
+  }
+
+  async deleteSosEvent(
+    authorization: string | undefined,
+    eventId: string,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const existing = await this.prisma.safetySosEvent
+      .findFirst({
+        where: { id: eventId, accountId: session.accountId },
+      })
+      .catch(() => null);
+    if (!existing) {
+      return { deleted: true, eventId };
+    }
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (existing.shareToken && anyPrisma.safetyLocationShare?.updateMany) {
+      await anyPrisma.safetyLocationShare
+        .updateMany({
+          where: { shareToken: existing.shareToken },
+          data: { status: "STOPPED", stoppedAt: new Date() },
+        })
+        .catch(() => undefined);
+    }
+    await this.prisma.safetySosEvent
+      .delete({ where: { id: eventId } })
+      .catch(() => undefined);
+    return { deleted: true, eventId };
+  }
+
+  async clearSosEvents(
+    authorization: string | undefined,
+    mode: "resolved" | "all" | "tests" = "all",
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    const whereClause: Record<string, any> = {
+      accountId: session.accountId,
+    };
+    if (mode === "tests") {
+      whereClause.OR = [
+        { isTestMode: true },
+        { status: { in: ["TEST_MODE", "CANCELLED"] } },
+      ];
+    } else if (mode === "resolved") {
+      whereClause.status = { in: ["RESOLVED", "CANCELLED", "TEST_MODE"] };
+    }
+    if (mode === "all" && anyPrisma.safetyLocationShare?.updateMany) {
+      await anyPrisma.safetyLocationShare
+        .updateMany({
+          where: { accountId: session.accountId, status: "ACTIVE" },
+          data: { status: "STOPPED", stoppedAt: new Date() },
+        })
+        .catch(() => undefined);
+    }
+    const res = await this.prisma.safetySosEvent
+      .deleteMany({ where: whereClause })
+      .catch(() => ({ count: 0 }));
+    return { clearedCount: res.count, mode };
+  }
+
+  async toggleJoinCommunityGroup(
+    authorization: string | undefined,
+    groupIdOrName: string,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const cleaned = decodeURIComponent(groupIdOrName).trim();
+    let group = await this.prisma.communityGroup
+      .findFirst({
+        where: {
+          OR: [
+            ...(cleaned.length === 36 ? [{ id: cleaned }] : []),
+            { name: { equals: cleaned, mode: "insensitive" } },
+          ],
+        },
+      })
+      .catch(() => null);
+
+    if (!group) {
+      group = await this.prisma.communityGroup.create({
+        data: {
+          name: cleaned.slice(0, 120) || "Sakhi Community Circle",
+          description: "Verified women community support circle",
+          category: "Community",
+          membersCount: 1,
+          newPostsToday: 0,
+        },
+      });
+    }
+
+    const updated = await this.prisma.communityGroup.update({
+      where: { id: group.id },
+      data: { membersCount: Math.max(1, group.membersCount + 1) },
+    });
+
+    await this.prisma.auditEvent
+      .create({
+        data: {
+          actorType: "MEMBER",
+          actorId: session.accountId,
+          action: "module2.circle.joined",
+          targetType: "community_group",
+          targetId: updated.id,
+          outcome: "joined",
+          requestId: randomUUID(),
+        },
+      })
+      .catch(() => undefined);
+
+    return {
+      groupId: updated.id,
+      name: updated.name,
+      membersCount: updated.membersCount,
+      joined: true,
+    };
+  }
+
+  // ===========================================================================
+  // MODULE 6: WOMEN-OWNED BUSINESS PAGES (SRS Section 8.1 - 8.5)
+  // ===========================================================================
+  private static readonly SRS_BUSINESS_CATEGORIES = [
+    "Fashion and clothing",
+    "Beauty and personal care",
+    "Food and catering",
+    "Health and fitness",
+    "Education and training",
+    "Home services",
+    "Professional consulting",
+    "Art and handicrafts",
+    "Retail and ecommerce",
+    "Events and photography",
+    "Freelancers and independent professionals",
+    "Other",
+  ];
+
+  async listBusinessCategories() {
+    const cfg = await SakhiAdminRbacRegistry.getPlatformConfig(this.prisma);
+    const merged = Array.from(
+      new Set([
+        ...Module2Service.SRS_BUSINESS_CATEGORIES,
+        ...(cfg.businessCategories ?? []),
+      ]),
+    );
+    return {
+      categories: merged,
+      total: merged.length,
+    };
+  }
+
+  private mapBusinessForViewer(
+    raw: Record<string, any>,
+    viewerAccountId: string | null,
+    viewerLat?: number,
+    viewerLng?: number,
+  ) {
+    const isOwner = Boolean(
+      viewerAccountId &&
+        raw.ownerAccountId &&
+        String(raw.ownerAccountId) === viewerAccountId,
+    );
+    const hidePhone = Boolean(raw.hidePhoneNumber);
+    const savedIds = Array.isArray(raw.savedByAccountIds)
+      ? (raw.savedByAccountIds as unknown[]).map((x) => String(x))
+      : [];
+    const isSaved = Boolean(viewerAccountId && savedIds.includes(viewerAccountId));
+
+    let distanceKm: number | null = null;
+    if (
+      typeof viewerLat === "number" &&
+      Number.isFinite(viewerLat) &&
+      typeof viewerLng === "number" &&
+      Number.isFinite(viewerLng) &&
+      typeof raw.latitude === "number" &&
+      Number.isFinite(raw.latitude) &&
+      typeof raw.longitude === "number" &&
+      Number.isFinite(raw.longitude)
+    ) {
+      distanceKm = this.haversineDistanceKm(
+        viewerLat,
+        viewerLng,
+        raw.latitude,
+        raw.longitude,
+      );
+    }
+
+    const rawPhone = raw.contactPhone ? String(raw.contactPhone).trim() : null;
+    const exposedPhone =
+      !rawPhone
+        ? null
+        : isOwner || !hidePhone
+          ? rawPhone
+          : null;
+    const maskedPhone = rawPhone ? this.maskPhone(rawPhone) : null;
+
+    return {
+      id: String(raw.id),
+      businessCode: String(raw.businessCode ?? "#BIZ-1000"),
+      businessName: String(raw.businessName ?? ""),
+      ownerAccountId: raw.ownerAccountId ? String(raw.ownerAccountId) : null,
+      ownerDisplayName: String(raw.ownerDisplayName ?? "Sakhi Entrepreneur"),
+      isOwnBusiness: isOwner,
+      category: String(raw.category ?? "Fashion and clothing"),
+      city: String(raw.city ?? "Bengaluru"),
+      serviceArea: raw.serviceArea ? String(raw.serviceArea) : String(raw.city ?? "Bengaluru"),
+      latitude: typeof raw.latitude === "number" ? raw.latitude : null,
+      longitude: typeof raw.longitude === "number" ? raw.longitude : null,
+      distanceKm,
+      priceRange: String(raw.priceRange ?? "₹500 – ₹2,500"),
+      description: String(raw.description ?? ""),
+      logoAsset: raw.logoAsset ? String(raw.logoAsset) : null,
+      coverImage: raw.coverImage ? String(raw.coverImage) : null,
+      contactPhone: exposedPhone,
+      contactPhoneMasked: maskedPhone,
+      hasPhoneConfigured: Boolean(rawPhone),
+      hidePhoneNumber: hidePhone,
+      whatsappNumber: raw.whatsappNumber ? String(raw.whatsappNumber) : null,
+      instagramHandle: raw.instagramHandle ? String(raw.instagramHandle) : null,
+      websiteOrInstagram: raw.websiteOrInstagram
+        ? String(raw.websiteOrInstagram)
+        : null,
+      businessHours:
+        raw.businessHours && typeof raw.businessHours === "object"
+          ? raw.businessHours
+          : {
+              mondayToFriday: "10:00 AM – 7:00 PM",
+              saturday: "10:00 AM – 5:00 PM",
+              sunday: "By Appointment",
+              isOpenNow: true,
+            },
+      productsServices: Array.isArray(raw.productsServices)
+        ? raw.productsServices
+        : [],
+      mediaGallery: Array.isArray(raw.mediaGallery) ? raw.mediaGallery : [],
+      offersAndPosts: Array.isArray(raw.offersAndPosts)
+        ? raw.offersAndPosts
+        : [],
+      isSaved,
+      savesCount: savedIds.length,
+      enquiriesCount: Number(raw.enquiriesCount ?? 0),
+      viewsCount: Number(raw.viewsCount ?? 0),
+      approvalStatus: String(raw.approvalStatus ?? "PENDING_APPROVAL"),
+      verificationBadgeStatus: String(raw.verificationBadgeStatus ?? "NONE"),
+      isVerifiedWomanOwned:
+        raw.verificationBadgeStatus === "VERIFIED_WOMAN_OWNED",
+      isFeatured: Boolean(raw.isFeatured),
+      createdAt:
+        raw.createdAt instanceof Date
+          ? raw.createdAt.toISOString()
+          : String(raw.createdAt ?? new Date().toISOString()),
+      updatedAt:
+        raw.updatedAt instanceof Date
+          ? raw.updatedAt.toISOString()
+          : String(raw.updatedAt ?? new Date().toISOString()),
+    };
+  }
+
+  async listMemberBusinesses(
+    authorization?: string,
+    query: {
+      search?: string;
+      category?: string;
+      city?: string;
+      lat?: number;
+      lng?: number;
+      radiusKm?: number;
+      savedOnly?: boolean;
+      ownerOnly?: boolean;
+    } = {},
+  ) {
+    let viewerAccountId: string | null = null;
+    if (authorization) {
+      try {
+        const session = await this.auth.authenticateAuthorization(authorization);
+        viewerAccountId = session.accountId;
+      } catch {
+        viewerAccountId = null;
+      }
+    }
+
+    const anyPrisma = this.prisma as Record<string, any>;
+    let rows: Array<Record<string, any>> = [];
+    if (anyPrisma.businessDirectoryListing?.findMany) {
+      rows = await anyPrisma.businessDirectoryListing
+        .findMany({
+          orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }],
+          take: 120,
+        })
+        .catch(() => []);
+    }
+
+    // Also merge any records from SakhiAdminRbacRegistry if not in DB yet
+    const regPayload = await SakhiAdminRbacRegistry.listBusinesses(this.prisma).catch(
+      () => null,
+    );
+    if (regPayload && Array.isArray(regPayload.businesses)) {
+      const seenIds = new Set(rows.map((r) => String(r.id)));
+      for (const b of regPayload.businesses) {
+        if (!seenIds.has(String(b.id))) {
+          rows.push(b as unknown as Record<string, any>);
+        }
+      }
+    }
+
+    // Owner-only queries are private. Public browse/search exposes only reviewed listings.
+    let items = rows
+      .filter((r) => {
+        const isOwner =
+          Boolean(viewerAccountId) &&
+          String(r.ownerAccountId ?? "") === viewerAccountId;
+        if (query.ownerOnly) return isOwner;
+        if (isOwner) return true;
+        const status = String(r.approvalStatus ?? "PENDING_APPROVAL").toUpperCase();
+        return status === "APPROVED" || status === "VERIFIED";
+      })
+      .map((r) =>
+        this.mapBusinessForViewer(r, viewerAccountId, query.lat, query.lng),
+      );
+
+    if (query.savedOnly) {
+      items = items.filter((b) => b.isSaved);
+    }
+
+    if (query.category && query.category.trim() && query.category !== "All") {
+      const catLower = query.category.trim().toLowerCase();
+      items = items.filter(
+        (b) =>
+          b.category.toLowerCase().includes(catLower) ||
+          catLower.includes(b.category.toLowerCase()),
+      );
+    }
+
+    if (query.city && query.city.trim()) {
+      const cityLower = query.city.trim().toLowerCase();
+      items = items.filter(
+        (b) =>
+          b.city.toLowerCase().includes(cityLower) ||
+          b.serviceArea.toLowerCase().includes(cityLower),
+      );
+    }
+
+    if (query.search && query.search.trim()) {
+      const q = query.search.trim().toLowerCase();
+      items = items.filter((b) => {
+        const productText = (b.productsServices as Array<Record<string, any>>)
+          .map((p) => `${p.title ?? ""} ${p.description ?? ""}`)
+          .join(" ")
+          .toLowerCase();
+        return (
+          b.businessName.toLowerCase().includes(q) ||
+          b.category.toLowerCase().includes(q) ||
+          b.city.toLowerCase().includes(q) ||
+          b.serviceArea.toLowerCase().includes(q) ||
+          b.description.toLowerCase().includes(q) ||
+          b.ownerDisplayName.toLowerCase().includes(q) ||
+          productText.includes(q)
+        );
+      });
+    }
+
+    if (
+      typeof query.lat === "number" &&
+      Number.isFinite(query.lat) &&
+      typeof query.lng === "number" &&
+      Number.isFinite(query.lng)
+    ) {
+      const maxRadius = query.radiusKm && query.radiusKm > 0 ? query.radiusKm : 50;
+      const nearby = items.filter(
+        (b) => b.distanceKm === null || b.distanceKm <= maxRadius,
+      );
+      items = (nearby.length > 0 ? nearby : items).sort(
+        (a, b) => (a.distanceKm ?? 9999) - (b.distanceKm ?? 9999),
+      );
+    }
+
+    const catPayload = await this.listBusinessCategories();
+    return {
+      businesses: items,
+      items,
+      categories: catPayload.categories,
+      total: items.length,
+    };
+  }
+
+  async getMemberBusinessDetail(
+    authorization: string | undefined,
+    businessId: string,
+  ) {
+    let viewerAccountId: string | null = null;
+    if (authorization) {
+      try {
+        const session = await this.auth.authenticateAuthorization(authorization);
+        viewerAccountId = session.accountId;
+      } catch {
+        viewerAccountId = null;
+      }
+    }
+
+    const anyPrisma = this.prisma as Record<string, any>;
+    let row = await anyPrisma.businessDirectoryListing
+      ?.findFirst({
+        where: {
+          OR: [
+            ...(businessId.length === 36 ? [{ id: businessId }] : []),
+            { businessCode: businessId },
+          ],
+        },
+      })
+      .catch(() => null);
+
+    if (!row) {
+      throw new NotFoundException("Business page was not found.");
+    }
+
+    const isOwner =
+      Boolean(viewerAccountId) &&
+      String(row.ownerAccountId ?? "") === viewerAccountId;
+    const status = String(row.approvalStatus ?? "PENDING_APPROVAL").toUpperCase();
+    if (!isOwner && status !== "APPROVED" && status !== "VERIFIED") {
+      throw new NotFoundException("Business page was not found.");
+    }
+
+    // Do not mutate view counts for private/pending listings before access checks.
+    if (anyPrisma.businessDirectoryListing?.update) {
+      row = await anyPrisma.businessDirectoryListing
+        .update({
+          where: { id: row.id },
+          data: { viewsCount: Number(row.viewsCount ?? 0) + 1 },
+        })
+        .catch(() => row);
+    }
+
+    return {
+      business: this.mapBusinessForViewer(row, viewerAccountId),
+    };
+  }
+
+  async createMemberBusiness(
+    authorization: string | undefined,
+    dto: Record<string, any>,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const profile = await this.prisma.memberProfile
+      .findUnique({ where: { accountId: session.accountId } })
+      .catch(() => null);
+
+    const id = randomUUID();
+    const businessCode = `#BIZ-${Math.floor(1000 + Math.random() * 9000)}`;
+    const ownerDisplayName =
+      profile?.displayName?.trim() || "Verified Sakhi Entrepreneur";
+    const businessName = String(dto.businessName ?? "").trim();
+    const category =
+      String(dto.category ?? "").trim() || "Fashion and clothing";
+    const city =
+      String(dto.city ?? profile?.location ?? "Bengaluru").trim() || "Bengaluru";
+    const serviceArea = String(dto.serviceArea ?? city).trim();
+    const description = String(dto.description ?? "").trim();
+    const priceRange = String(dto.priceRange ?? "₹500 – ₹2,500").trim();
+    const hidePhoneNumber = Boolean(dto.hidePhoneNumber);
+    const contactPhone = dto.contactPhone ? String(dto.contactPhone).trim() : null;
+    const whatsappNumber = dto.whatsappNumber
+      ? String(dto.whatsappNumber).trim()
+      : null;
+    const instagramHandle = dto.instagramHandle
+      ? String(dto.instagramHandle).trim()
+      : null;
+    const websiteOrInstagram =
+      dto.websiteOrInstagram
+        ? String(dto.websiteOrInstagram).trim()
+        : instagramHandle;
+    const logoAsset = dto.logoAsset ? String(dto.logoAsset).trim() : null;
+    const coverImage = dto.coverImage ? String(dto.coverImage).trim() : null;
+    const latitude =
+      typeof dto.latitude === "number" && Number.isFinite(dto.latitude)
+        ? dto.latitude
+        : null;
+    const longitude =
+      typeof dto.longitude === "number" && Number.isFinite(dto.longitude)
+        ? dto.longitude
+        : null;
+    const businessHours =
+      dto.businessHours && typeof dto.businessHours === "object"
+        ? dto.businessHours
+        : {
+            mondayToFriday: "10:00 AM – 7:00 PM",
+            saturday: "10:00 AM – 5:00 PM",
+            sunday: "Closed",
+            isOpenNow: true,
+          };
+    const productsServices = Array.isArray(dto.productsServices)
+      ? dto.productsServices
+      : [];
+    const mediaGallery = Array.isArray(dto.mediaGallery) ? dto.mediaGallery : [];
+    const offersAndPosts = Array.isArray(dto.offersAndPosts)
+      ? dto.offersAndPosts
+      : [];
+    const verificationBadgeStatus =
+      dto.requestVerificationBadge === false ? "NONE" : "PENDING_BADGE";
+
+    const anyPrisma = this.prisma as Record<string, any>;
+    let created: Record<string, any> | null = null;
+    try {
+      created = await anyPrisma.businessDirectoryListing.create({
+        data: {
+          id,
+          businessCode,
+          businessName,
+          ownerAccountId: session.accountId,
+          ownerDisplayName,
+          category,
+          city,
+          serviceArea,
+          latitude,
+          longitude,
+          priceRange,
+          description,
+          logoAsset,
+          coverImage,
+          contactPhone,
+          hidePhoneNumber,
+          whatsappNumber,
+          instagramHandle,
+          websiteOrInstagram,
+          businessHours,
+          productsServices,
+          mediaGallery,
+          offersAndPosts,
+          savedByAccountIds: [],
+          approvalStatus: "PENDING_APPROVAL",
+          verificationBadgeStatus,
+          isFeatured: false,
+          isReportedFraudulent: false,
+        },
+      });
+    } catch {
+      created = await anyPrisma.businessDirectoryListing.create({
+        data: {
+          id,
+          businessCode,
+          businessName,
+          ownerAccountId: session.accountId,
+          ownerDisplayName,
+          category,
+          city,
+          description,
+          contactPhone,
+          websiteOrInstagram,
+          approvalStatus: "PENDING_APPROVAL",
+          verificationBadgeStatus,
+          isFeatured: false,
+          isReportedFraudulent: false,
+        },
+      });
+    }
+
+    // Sync with SakhiAdminRbacRegistry so Super Admin immediately sees the listing
+    await SakhiAdminRbacRegistry.upsertBusinessListing(
+      this.prisma,
+      {
+        id,
+        businessName,
+        ownerDisplayName,
+        category,
+        city,
+        description,
+        contactPhone: contactPhone ?? undefined,
+        websiteOrInstagram: websiteOrInstagram ?? undefined,
+        approvalStatus: "PENDING_APPROVAL",
+        verificationBadgeStatus: verificationBadgeStatus as any,
+      },
+      ownerDisplayName,
+    ).catch(() => undefined);
+
+    // Link business profile on MemberProfile
+    await this.prisma.memberProfile
+      .update({
+        where: { accountId: session.accountId },
+        data: {
+          businessProfileName: businessName.slice(0, 120),
+          businessCategory: category.slice(0, 80),
+          businessProfileUrl: `sakhi://business/${id}`,
+        },
+      })
+      .catch(() => undefined);
+
+    return {
+      business: this.mapBusinessForViewer(
+        created ?? {
+          id,
+          businessCode,
+          businessName,
+          ownerAccountId: session.accountId,
+          ownerDisplayName,
+          category,
+          city,
+          serviceArea,
+          latitude,
+          longitude,
+          priceRange,
+          description,
+          logoAsset,
+          coverImage,
+          contactPhone,
+          hidePhoneNumber,
+          whatsappNumber,
+          instagramHandle,
+          websiteOrInstagram,
+          businessHours,
+          productsServices,
+          mediaGallery,
+          offersAndPosts,
+          approvalStatus: "PENDING_APPROVAL",
+          verificationBadgeStatus,
+        },
+        session.accountId,
+      ),
+    };
+  }
+
+  async updateMemberBusiness(
+    authorization: string | undefined,
+    businessId: string,
+    dto: Record<string, any>,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    const existing = await anyPrisma.businessDirectoryListing
+      ?.findFirst({
+        where: {
+          OR: [
+            ...(businessId.length === 36 ? [{ id: businessId }] : []),
+            { businessCode: businessId },
+          ],
+        },
+      })
+      .catch(() => null);
+
+    if (!existing) {
+      throw new NotFoundException("Business page was not found.");
+    }
+    if (
+      !existing.ownerAccountId ||
+      String(existing.ownerAccountId) !== session.accountId
+    ) {
+      throw new ForbiddenException(
+        "Only the business owner can edit this business page.",
+      );
+    }
+
+    // Any owner edit requires renewed review before public display.
+    const nextVerificationBadgeStatus =
+      String(existing.verificationBadgeStatus ?? "NONE") ===
+      "VERIFIED_WOMAN_OWNED"
+        ? "PENDING_BADGE"
+        : String(existing.verificationBadgeStatus ?? "NONE");
+
+    const nextData: Record<string, any> = {
+      approvalStatus: "PENDING_APPROVAL",
+      verificationBadgeStatus: nextVerificationBadgeStatus,
+      ...(dto.businessName !== undefined
+        ? { businessName: String(dto.businessName).trim() }
+        : {}),
+      ...(dto.category !== undefined
+        ? { category: String(dto.category).trim() }
+        : {}),
+      ...(dto.city !== undefined ? { city: String(dto.city).trim() } : {}),
+      ...(dto.serviceArea !== undefined
+        ? { serviceArea: String(dto.serviceArea).trim() }
+        : {}),
+      ...(dto.latitude !== undefined ? { latitude: dto.latitude } : {}),
+      ...(dto.longitude !== undefined ? { longitude: dto.longitude } : {}),
+      ...(dto.priceRange !== undefined
+        ? { priceRange: String(dto.priceRange).trim() }
+        : {}),
+      ...(dto.description !== undefined
+        ? { description: String(dto.description).trim() }
+        : {}),
+      ...(dto.logoAsset !== undefined ? { logoAsset: dto.logoAsset } : {}),
+      ...(dto.coverImage !== undefined ? { coverImage: dto.coverImage } : {}),
+      ...(dto.contactPhone !== undefined
+        ? { contactPhone: dto.contactPhone ? String(dto.contactPhone).trim() : null }
+        : {}),
+      ...(dto.hidePhoneNumber !== undefined
+        ? { hidePhoneNumber: Boolean(dto.hidePhoneNumber) }
+        : {}),
+      ...(dto.whatsappNumber !== undefined
+        ? {
+            whatsappNumber: dto.whatsappNumber
+              ? String(dto.whatsappNumber).trim()
+              : null,
+          }
+        : {}),
+      ...(dto.instagramHandle !== undefined
+        ? {
+            instagramHandle: dto.instagramHandle
+              ? String(dto.instagramHandle).trim()
+              : null,
+          }
+        : {}),
+      ...(dto.websiteOrInstagram !== undefined
+        ? {
+            websiteOrInstagram: dto.websiteOrInstagram
+              ? String(dto.websiteOrInstagram).trim()
+              : null,
+          }
+        : {}),
+      ...(dto.businessHours !== undefined
+        ? { businessHours: dto.businessHours }
+        : {}),
+      ...(dto.productsServices !== undefined
+        ? { productsServices: dto.productsServices }
+        : {}),
+      ...(dto.mediaGallery !== undefined
+        ? { mediaGallery: dto.mediaGallery }
+        : {}),
+      ...(dto.offersAndPosts !== undefined
+        ? { offersAndPosts: dto.offersAndPosts }
+        : {}),
+    };
+
+    let updated: Record<string, any> = { ...existing, ...nextData };
+    try {
+      updated = await anyPrisma.businessDirectoryListing.update({
+        where: { id: existing.id },
+        data: nextData,
+      });
+    } catch {
+      updated = await anyPrisma.businessDirectoryListing.update({
+        where: { id: existing.id },
+        data: {
+          businessName: nextData.businessName ?? existing.businessName,
+          category: nextData.category ?? existing.category,
+          city: nextData.city ?? existing.city,
+          description: nextData.description ?? existing.description,
+          contactPhone:
+            nextData.contactPhone !== undefined
+              ? nextData.contactPhone
+              : existing.contactPhone,
+          websiteOrInstagram:
+            nextData.websiteOrInstagram !== undefined
+              ? nextData.websiteOrInstagram
+              : existing.websiteOrInstagram,
+          approvalStatus: "PENDING_APPROVAL",
+          verificationBadgeStatus: nextData.verificationBadgeStatus,
+        },
+      });
+    }
+
+    return {
+      business: this.mapBusinessForViewer(updated, session.accountId),
+    };
+  }
+
+  async toggleSaveBusiness(
+    authorization: string | undefined,
+    businessId: string,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    const existing = await anyPrisma.businessDirectoryListing
+      ?.findFirst({
+        where: {
+          OR: [
+            ...(businessId.length === 36 ? [{ id: businessId }] : []),
+            { businessCode: businessId },
+          ],
+        },
+      })
+      .catch(() => null);
+    if (!existing) {
+      throw new NotFoundException("Business page was not found.");
+    }
+    const isOwner =
+      String(existing.ownerAccountId ?? "") === session.accountId;
+    const listingStatus = String(
+      existing.approvalStatus ?? "PENDING_APPROVAL",
+    ).toUpperCase();
+    if (!isOwner && listingStatus !== "APPROVED" && listingStatus !== "VERIFIED") {
+      throw new NotFoundException("Business page was not found.");
+    }
+
+    const currentSaved = Array.isArray(existing.savedByAccountIds)
+      ? (existing.savedByAccountIds as unknown[]).map((x) => String(x))
+      : [];
+    const alreadySaved = currentSaved.includes(session.accountId);
+    const nextSaved = alreadySaved
+      ? currentSaved.filter((id) => id !== session.accountId)
+      : [...currentSaved, session.accountId];
+
+    await anyPrisma.businessDirectoryListing
+      .update({
+        where: { id: existing.id },
+        data: { savedByAccountIds: nextSaved },
+      })
+      .catch(() => undefined);
+
+    return {
+      businessId: existing.id,
+      isSaved: !alreadySaved,
+      savesCount: nextSaved.length,
+    };
+  }
+
+  async reportBusiness(
+    authorization: string | undefined,
+    businessId: string,
+    dto: { reason: string; details?: string },
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    const existing = await anyPrisma.businessDirectoryListing
+      ?.findFirst({
+        where: {
+          OR: [
+            ...(businessId.length === 36 ? [{ id: businessId }] : []),
+            { businessCode: businessId },
+          ],
+        },
+      })
+      .catch(() => null);
+    if (!existing) {
+      throw new NotFoundException("Business page was not found.");
+    }
+    const isOwner =
+      String(existing.ownerAccountId ?? "") === session.accountId;
+    const listingStatus = String(
+      existing.approvalStatus ?? "PENDING_APPROVAL",
+    ).toUpperCase();
+    if (!isOwner && listingStatus !== "APPROVED" && listingStatus !== "VERIFIED") {
+      throw new NotFoundException("Business page was not found.");
+    }
+
+    const reasonText = dto.reason.trim();
+    const detailsText = dto.details?.trim() || "";
+    const combinedReason = detailsText
+      ? `${reasonText}: ${detailsText}`
+      : reasonText;
+
+    if (anyPrisma.businessReport?.create) {
+      await anyPrisma.businessReport
+        .create({
+          data: {
+            id: randomUUID(),
+            businessId: existing.id,
+            businessName: existing.businessName,
+            reporterAccountId: session.accountId,
+            reason: reasonText,
+            details: detailsText || null,
+            status: "OPEN",
+          },
+        })
+        .catch(() => undefined);
+    }
+
+    await anyPrisma.businessDirectoryListing
+      .update({
+        where: { id: existing.id },
+        data: {
+          isReportedFraudulent: true,
+          reportReason: combinedReason.slice(0, 500),
+        },
+      })
+      .catch(() => undefined);
+
+    await SakhiAdminRbacRegistry.reviewBusinessListing(
+      this.prisma,
+      existing.id,
+      {
+        isReportedFraudulent: true,
+        reviewNotes: `Reported by member: ${combinedReason}`,
+      },
+      "Member Safety Report",
+    ).catch(() => undefined);
+
+    return {
+      reported: true,
+      businessId: existing.id,
+      message:
+        "Business report submitted confidentially to Sakhi Trust & Safety moderators.",
+    };
+  }
+
+  async createBusinessEnquiry(
+    authorization: string | undefined,
+    businessId: string,
+    dto: { subjectOrProduct?: string; message: string; attachmentUrl?: string },
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const senderProfile = await this.prisma.memberProfile
+      .findUnique({ where: { accountId: session.accountId } })
+      .catch(() => null);
+    const anyPrisma = this.prisma as Record<string, any>;
+    const existing = await anyPrisma.businessDirectoryListing
+      ?.findFirst({
+        where: {
+          OR: [
+            ...(businessId.length === 36 ? [{ id: businessId }] : []),
+            { businessCode: businessId },
+          ],
+        },
+      })
+      .catch(() => null);
+    if (!existing) {
+      throw new NotFoundException("Business page was not found.");
+    }
+    const isBusinessOwner =
+      String(existing.ownerAccountId ?? "") === session.accountId;
+    const listingStatus = String(
+      existing.approvalStatus ?? "PENDING_APPROVAL",
+    ).toUpperCase();
+    if (!isBusinessOwner && listingStatus !== "APPROVED" && listingStatus !== "VERIFIED") {
+      throw new NotFoundException("Business page was not found.");
+    }
+
+    const nowIso = new Date().toISOString();
+    const senderName = senderProfile?.displayName ?? "Sakhi Member";
+    const senderHandle = this.deriveUsername(
+      senderName,
+      senderProfile?.username,
+    );
+    const subject =
+      dto.subjectOrProduct?.trim() || `Enquiry for ${existing.businessName}`;
+    const firstMsg = {
+      id: randomUUID(),
+      senderAccountId: session.accountId,
+      senderName,
+      senderRole: "CUSTOMER",
+      body: dto.message.trim(),
+      attachmentUrl: dto.attachmentUrl?.trim() || null,
+      createdAt: nowIso,
+    };
+
+    const enquiryId = randomUUID();
+    const enquiryCode = `#ENQ-${Math.floor(10000 + Math.random() * 90000)}`;
+
+    let createdEnquiry: Record<string, any> = {
+      id: enquiryId,
+      enquiryCode,
+      businessId: existing.id,
+      businessName: existing.businessName,
+      ownerAccountId: existing.ownerAccountId ?? null,
+      senderAccountId: session.accountId,
+      senderDisplayName: senderName,
+      senderUsername: senderHandle,
+      subjectOrProduct: subject,
+      status: "OPEN",
+      messages: [firstMsg],
+      unreadForOwner: true,
+      unreadForSender: false,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+
+    if (anyPrisma.businessEnquiry?.create) {
+      try {
+        const dbRow = await anyPrisma.businessEnquiry.create({
+          data: {
+            id: enquiryId,
+            enquiryCode,
+            businessId: existing.id,
+            businessName: existing.businessName,
+            ownerAccountId: existing.ownerAccountId ?? null,
+            senderAccountId: session.accountId,
+            senderDisplayName: senderName,
+            senderUsername: senderHandle,
+            subjectOrProduct: subject,
+            status: "OPEN",
+            messages: [firstMsg],
+            unreadForOwner: true,
+            unreadForSender: false,
+          },
+        });
+        createdEnquiry = {
+          ...dbRow,
+          createdAt: dbRow.createdAt.toISOString(),
+          updatedAt: dbRow.updatedAt.toISOString(),
+        };
+      } catch {
+        // Fallback to auditEvent persistence if migration not yet applied
+      }
+    }
+
+    await anyPrisma.businessDirectoryListing
+      .update({
+        where: { id: existing.id },
+        data: { enquiriesCount: Number(existing.enquiriesCount ?? 0) + 1 },
+      })
+      .catch(() => undefined);
+
+    await this.prisma.auditEvent
+      .create({
+        data: {
+          actorType: "MEMBER",
+          actorId: session.accountId,
+          action: "module6.business.enquiry_created",
+          targetType: "business_enquiry",
+          targetId: enquiryId,
+          outcome: "open",
+          requestId: randomUUID(),
+          redactedMetadata: createdEnquiry,
+        },
+      })
+      .catch(() => undefined);
+
+    return { enquiry: createdEnquiry };
+  }
+
+  async listBusinessEnquiries(authorization: string | undefined) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    const items: Array<Record<string, any>> = [];
+    const seenIds = new Set<string>();
+
+    if (anyPrisma.businessEnquiry?.findMany) {
+      const dbRows = await anyPrisma.businessEnquiry
+        .findMany({
+          where: {
+            OR: [
+              { senderAccountId: session.accountId },
+              { ownerAccountId: session.accountId },
+            ],
+          },
+          orderBy: { updatedAt: "desc" },
+          take: 100,
+        })
+        .catch(() => []);
+      for (const r of dbRows) {
+        seenIds.add(String(r.id));
+        items.push({
+          ...r,
+          isOwnerInbox: String(r.ownerAccountId ?? "") === session.accountId,
+          createdAt:
+            r.createdAt instanceof Date
+              ? r.createdAt.toISOString()
+              : String(r.createdAt),
+          updatedAt:
+            r.updatedAt instanceof Date
+              ? r.updatedAt.toISOString()
+              : String(r.updatedAt),
+        });
+      }
+    }
+
+    if (items.length === 0 && this.prisma.auditEvent?.findMany) {
+      const audits = await this.prisma.auditEvent
+        .findMany({
+          where: { action: "module6.business.enquiry_created" },
+          orderBy: { createdAt: "desc" },
+          take: 100,
+        })
+        .catch(() => []);
+      for (const a of audits) {
+        const meta = a.redactedMetadata as Record<string, any> | null;
+        if (
+          meta &&
+          typeof meta.id === "string" &&
+          !seenIds.has(meta.id) &&
+          (meta.senderAccountId === session.accountId ||
+            meta.ownerAccountId === session.accountId)
+        ) {
+          seenIds.add(meta.id);
+          items.push({
+            ...meta,
+            isOwnerInbox: meta.ownerAccountId === session.accountId,
+          });
+        }
+      }
+    }
+
+    return {
+      enquiries: items,
+      items,
+      unreadCount: items.filter((e) =>
+        e.isOwnerInbox ? Boolean(e.unreadForOwner) : Boolean(e.unreadForSender),
+      ).length,
+    };
+  }
+
+  async replyBusinessEnquiry(
+    authorization: string | undefined,
+    enquiryId: string,
+    dto: { message: string; status?: string },
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const profile = await this.prisma.memberProfile
+      .findUnique({ where: { accountId: session.accountId } })
+      .catch(() => null);
+    const anyPrisma = this.prisma as Record<string, any>;
+
+    let existing = await anyPrisma.businessEnquiry
+      ?.findUnique({ where: { id: enquiryId } })
+      .catch(() => null);
+
+    if (!existing) {
+      throw new NotFoundException("Business enquiry thread was not found.");
+    }
+
+    const isOwner = String(existing.ownerAccountId ?? "") === session.accountId;
+    const isSender = String(existing.senderAccountId) === session.accountId;
+    if (!isOwner && !isSender) {
+      throw new ForbiddenException(
+        "Only participants in this enquiry can send messages.",
+      );
+    }
+
+    const nowIso = new Date().toISOString();
+    const currentMsgs = Array.isArray(existing.messages)
+      ? existing.messages
+      : [];
+    const nextMsg = {
+      id: randomUUID(),
+      senderAccountId: session.accountId,
+      senderName: profile?.displayName ?? (isOwner ? "Business Owner" : "Member"),
+      senderRole: isOwner ? "BUSINESS_OWNER" : "CUSTOMER",
+      body: dto.message.trim(),
+      createdAt: nowIso,
+    };
+    const nextMessages = [...currentMsgs, nextMsg];
+    const nextStatus =
+      dto.status ?? (isOwner ? "REPLIED" : existing.status ?? "OPEN");
+
+    const updated = await anyPrisma.businessEnquiry.update({
+      where: { id: enquiryId },
+      data: {
+        messages: nextMessages,
+        status: nextStatus,
+        unreadForOwner: !isOwner,
+        unreadForSender: isOwner,
+      },
+    });
+
+    return {
+      enquiry: {
+        ...updated,
+        isOwnerInbox: isOwner,
+        createdAt:
+          updated.createdAt instanceof Date
+            ? updated.createdAt.toISOString()
+            : String(updated.createdAt),
+        updatedAt:
+          updated.updatedAt instanceof Date
+            ? updated.updatedAt.toISOString()
+            : String(updated.updatedAt),
+      },
+    };
   }
 }

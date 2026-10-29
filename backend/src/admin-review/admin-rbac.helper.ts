@@ -260,9 +260,20 @@ export interface BusinessListingRecord {
   ownerDisplayName: string;
   category: string;
   city: string;
+  serviceArea?: string | null;
+  priceRange?: string | null;
   description: string;
+  logoAsset?: string | null;
+  coverImage?: string | null;
   contactPhone: string | null;
+  hidePhoneNumber?: boolean;
+  whatsappNumber?: string | null;
+  instagramHandle?: string | null;
   websiteOrInstagram: string | null;
+  productsServices?: Array<Record<string, any>>;
+  offersAndPosts?: Array<Record<string, any>>;
+  enquiriesCount?: number;
+  viewsCount?: number;
   approvalStatus: "PENDING_APPROVAL" | "APPROVED" | "SUSPENDED" | "REJECTED";
   verificationBadgeStatus:
     | "NONE"
@@ -381,17 +392,17 @@ export class SakhiAdminRbacRegistry {
       },
     },
     businessCategories: [
-      "Fashion",
-      "Beauty",
-      "Food",
-      "Health",
-      "Education",
+      "Fashion and clothing",
+      "Beauty and personal care",
+      "Food and catering",
+      "Health and fitness",
+      "Education and training",
       "Home services",
-      "Consulting",
-      "Art",
-      "Retail",
-      "Events",
-      "Freelancers",
+      "Professional consulting",
+      "Art and handicrafts",
+      "Retail and ecommerce",
+      "Events and photography",
+      "Freelancers and independent professionals",
       "Other",
     ],
     announcementBanner:
@@ -691,13 +702,24 @@ export class SakhiAdminRbacRegistry {
       businessName: String(b.businessName ?? "Women-Owned Business"),
       ownerAccountId: b.ownerAccountId ? String(b.ownerAccountId) : null,
       ownerDisplayName: String(b.ownerDisplayName ?? "Verified Sakhi Member"),
-      category: String(b.category ?? "Women-Owned Boutique & Apparel"),
+      category: String(b.category ?? "Fashion and clothing"),
       city: String(b.city ?? "Bengaluru"),
+      serviceArea: b.serviceArea ? String(b.serviceArea) : String(b.city ?? "Bengaluru"),
+      priceRange: b.priceRange ? String(b.priceRange) : "₹500 – ₹2,500",
       description: String(b.description ?? ""),
+      logoAsset: b.logoAsset ? String(b.logoAsset) : null,
+      coverImage: b.coverImage ? String(b.coverImage) : null,
       contactPhone: b.contactPhone ? String(b.contactPhone) : null,
+      hidePhoneNumber: Boolean(b.hidePhoneNumber),
+      whatsappNumber: b.whatsappNumber ? String(b.whatsappNumber) : null,
+      instagramHandle: b.instagramHandle ? String(b.instagramHandle) : null,
       websiteOrInstagram: b.websiteOrInstagram
         ? String(b.websiteOrInstagram)
         : null,
+      productsServices: Array.isArray(b.productsServices) ? b.productsServices : [],
+      offersAndPosts: Array.isArray(b.offersAndPosts) ? b.offersAndPosts : [],
+      enquiriesCount: Number(b.enquiriesCount ?? 0),
+      viewsCount: Number(b.viewsCount ?? 0),
       approvalStatus:
         b.approvalStatus === "APPROVED" ||
         b.approvalStatus === "SUSPENDED" ||
@@ -1140,6 +1162,18 @@ this.staffMap.set(staff.id, staff);
   // ---------------------------------------------------------------------------
   static async listBusinesses(prisma: PrismaService) {
     await this.ensureHydrated(prisma);
+    const anyPrisma = prisma as unknown as Record<string, any>;
+    if (anyPrisma.businessDirectoryListing?.findMany) {
+      const freshRows = await anyPrisma.businessDirectoryListing
+        .findMany({ orderBy: { createdAt: "desc" } })
+        .catch(() => null);
+      if (Array.isArray(freshRows)) {
+        for (const row of freshRows) {
+          const mapped = this.mapDbRowToBusiness(row);
+          this.businessMap.set(mapped.id, mapped);
+        }
+      }
+    }
     // Also discover member profiles that have a businessProfileName configured
     try {
       const profilesWithBiz = await prisma.memberProfile

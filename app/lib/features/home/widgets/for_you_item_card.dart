@@ -29,23 +29,39 @@ class ForYouItemCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(20),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
         child: Container(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(20),
+            gradient: LinearGradient(
+              begin: const Alignment(-0.9, -1.0),
+              end: const Alignment(0.9, 1.0),
+              colors: [
+                Colors.white.withValues(alpha: 0.88),
+                const Color(0xD8FDF4FA),
+                iconBgColor.withValues(alpha: 0.42),
+                Colors.white.withValues(alpha: 0.84),
+              ],
+              stops: const [0.0, 0.45, 0.82, 1.0],
+            ),
             border: Border.all(
-              color: iconColor.withValues(alpha: 0.14),
-              width: 1.0,
+              color: Colors.white.withValues(alpha: 0.94),
+              width: 1.5,
             ),
             boxShadow: [
               BoxShadow(
-                color: AppColors.primaryPurple.withValues(alpha: 0.045),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
+                color: iconColor.withValues(alpha: 0.08),
+                blurRadius: 18,
+                offset: const Offset(0, 7),
+              ),
+              BoxShadow(
+                color: Colors.white.withValues(alpha: 0.85),
+                blurRadius: 1.5,
+                offset: const Offset(0, -1),
               ),
             ],
           ),
@@ -55,11 +71,18 @@ class ForYouItemCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Container(
-                  width: 5,
+                  width: 5.5,
                   decoration: BoxDecoration(
-                    color: iconColor,
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        iconColor.withValues(alpha: 0.95),
+                        iconColor.withValues(alpha: 0.65),
+                      ],
+                    ),
                     borderRadius: const BorderRadius.horizontal(
-                      left: Radius.circular(18),
+                      left: Radius.circular(20),
                     ),
                   ),
                 ),
@@ -75,9 +98,20 @@ class ForYouItemCard extends StatelessWidget {
                           width: 44,
                           height: 44,
                           decoration: BoxDecoration(
-                            color: iconBgColor,
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Colors.white.withValues(alpha: 0.85),
+                                iconBgColor,
+                              ],
+                            ),
                             borderRadius: BorderRadius.circular(
                               AppSpacing.radiusMd,
+                            ),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.92),
+                              width: 1.2,
                             ),
                           ),
                           child: Icon(icon, color: iconColor, size: 22),
@@ -104,17 +138,24 @@ class ForYouItemCard extends StatelessWidget {
                                     Container(
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 8,
-                                        vertical: 2,
+                                        vertical: 2.5,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: iconBgColor,
+                                        color: iconBgColor.withValues(
+                                          alpha: 0.9,
+                                        ),
                                         borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.85,
+                                          ),
+                                        ),
                                       ),
                                       child: Text(
                                         badgeText!,
                                         style: TextStyle(
                                           fontSize: 10.5,
-                                          fontWeight: FontWeight.w700,
+                                          fontWeight: FontWeight.w800,
                                           color: iconColor,
                                         ),
                                       ),
@@ -133,7 +174,7 @@ class ForYouItemCard extends StatelessWidget {
                             ],
                           ),
                         ),
-                        Icon(
+                        const Icon(
                           Icons.chevron_right_rounded,
                           color: AppColors.textMuted,
                           size: 22,

@@ -41,6 +41,22 @@ class BackendApiClient {
            ),
        _httpClient = httpClient ?? HttpClient(),
        _secureStorage = secureStorage ?? const FlutterSecureStorage() {
+    if (kReleaseMode) {
+      final parsedBase = Uri.tryParse(this.baseUrl);
+      final isApprovedHostedApi =
+          parsedBase != null &&
+          parsedBase.scheme == 'https' &&
+          parsedBase.host == 'sakhi-staging-api.onrender.com' &&
+          parsedBase.path.replaceFirst(RegExp(r'/+$'), '') == '/api/v1' &&
+          parsedBase.userInfo.isEmpty &&
+          parsedBase.query.isEmpty &&
+          parsedBase.fragment.isEmpty;
+      if (!isApprovedHostedApi) {
+        throw ArgumentError(
+          'Release builds must use the public Sakhi HTTPS Render API.',
+        );
+      }
+    }
     _httpClient.connectionTimeout = const Duration(seconds: 8);
     _httpClient.idleTimeout = const Duration(seconds: 4);
   }

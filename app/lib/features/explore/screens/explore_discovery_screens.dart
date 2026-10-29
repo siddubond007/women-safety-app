@@ -15,6 +15,7 @@ import '../../../core/widgets/sakhi_chip.dart';
 import '../../../core/widgets/sakhi_empty_state.dart';
 import '../../../core/widgets/sakhi_section_header.dart';
 import '../../../core/widgets/sakhi_remote_media_image.dart';
+import '../../business/screens/business_hub_screen.dart';
 import '../../community/widgets/feed_post_card.dart';
 import '../../followers/screens/followers_following_screen.dart';
 import '../../safety/models/safety_models.dart';
@@ -23,37 +24,87 @@ Future<void> showCircleMembershipUnavailable(
   BuildContext context,
   String circleName,
 ) async {
-  await showDialog<void>(
-    context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: const Text('Joining circles is not available yet'),
+  final state = SakhiPrototypeState.instance;
+  await state.joinOrCreateCommunityCircle(circleName);
+  if (!context.mounted) return;
+  final isJoined = state.isCircleJoined(circleName);
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
       content: Text(
-        '$circleName is available to discover. The current backend does not persist circle memberships, so no join was recorded.',
+        isJoined
+            ? 'Joined "$circleName" circle!'
+            : 'Left "$circleName" circle.',
       ),
-      actions: [
-        FilledButton(
-          onPressed: () => Navigator.of(dialogContext).pop(),
-          child: const Text('Got it'),
-        ),
-      ],
     ),
   );
 }
 
-class SakhiJoinCircleButton extends StatelessWidget {
+class SakhiJoinCircleButton extends StatefulWidget {
   const SakhiJoinCircleButton({super.key, required this.circleName});
 
   final String circleName;
 
   @override
-  Widget build(BuildContext context) {
-    return TextButton(
-      onPressed: () => showCircleMembershipUnavailable(context, circleName),
-      style: TextButton.styleFrom(
-        foregroundColor: AppColors.primaryPurple,
-        textStyle: const TextStyle(fontWeight: FontWeight.w800),
+  State<SakhiJoinCircleButton> createState() => _SakhiJoinCircleButtonState();
+}
+
+class _SakhiJoinCircleButtonState extends State<SakhiJoinCircleButton> {
+  bool _busy = false;
+
+  Future<void> _toggleJoin() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final state = SakhiPrototypeState.instance;
+    await state.joinOrCreateCommunityCircle(widget.circleName);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    final isJoined = state.isCircleJoined(widget.circleName);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          isJoined
+              ? 'You joined ${widget.circleName}!'
+              : 'You left ${widget.circleName}.',
+        ),
       ),
-      child: const Text('Join'),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = SakhiPrototypeState.instance;
+    return AnimatedBuilder(
+      animation: state,
+      builder: (context, _) {
+        final joined = state.isCircleJoined(widget.circleName);
+        return FilledButton.tonal(
+          onPressed: _busy ? null : _toggleJoin,
+          style: FilledButton.styleFrom(
+            backgroundColor: joined
+                ? AppColors.pastelLavender
+                : AppColors.primaryPurple,
+            foregroundColor: joined ? AppColors.primaryPurple : Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            minimumSize: const Size(0, 34),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(999),
+            ),
+          ),
+          child: _busy
+              ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Text(
+                  joined ? 'Joined ✓' : 'Join',
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+        );
+      },
     );
   }
 }
@@ -180,6 +231,7 @@ class _CategoryDestinationScreenState extends State<CategoryDestinationScreen> {
             onRefresh: _loadCategory,
             color: AppColors.primaryPurple,
             child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(
                 AppSpacing.screenPaddingH,
                 4,
@@ -357,6 +409,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
   String _activeFilter = 'All';
   List<FeedPostModel> _posts = const [];
   List<FollowerUserModel> _members = const [];
+  List<BusinessPageModel> _businesses = const [];
   bool _loading = false;
   bool _failed = false;
   bool _postsUnavailable = false;
@@ -396,6 +449,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
         _requestedQuery = '';
         _posts = const [];
         _members = const [];
+        _businesses = const [];
         _loading = false;
         _failed = false;
         _postsUnavailable = false;
@@ -425,16 +479,24 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
       limit: 30,
     );
     final membersFuture = state.searchVisibleMembers(query);
+    final businessesFuture = state.fetchBusinesses(search: query);
     final postsResult = await postsFuture;
     final membersResult = await membersFuture;
+    final businessesResult = await businessesFuture;
 
     if (!mounted || query != _controller.text.trim()) return;
     setState(() {
       _posts = postsResult ?? const [];
       _members = membersResult ?? const [];
+      _businesses = businessesResult
+          .map(BusinessPageModel.fromJson)
+          .toList(growable: false);
       _postsUnavailable = postsResult == null;
       _membersUnavailable = membersResult == null;
-      _failed = postsResult == null && membersResult == null;
+      _failed =
+          postsResult == null &&
+          membersResult == null &&
+          businessesResult.isEmpty;
       _loading = false;
     });
   }
@@ -528,7 +590,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                 textInputAction: TextInputAction.search,
                 onSubmitted: (value) => _scheduleSearch(value, immediate: true),
                 decoration: InputDecoration(
-                  hintText: 'Search people, topics, circles...',
+                  hintText: 'Search people, topics, circles, businesses...',
                   prefixIcon: const Icon(Icons.search_rounded),
                   suffixIcon: _controller.text.isEmpty
                       ? null
@@ -596,7 +658,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                     const SakhiEmptyState(
                       icon: Icons.search_rounded,
                       title: 'Find your Sakhi community',
-                      message: 'Search visible member profiles and community posts. Results depend on current privacy settings and available community data.',
+                      message: 'Search visible member profiles, community posts, circles, and women-owned businesses.',
                     ),
                   ] else if (_loading) ...[
                     const SizedBox(height: 44),
@@ -730,38 +792,76 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                         )
                       else
                         ...groups.map(
-                          (group) => SakhiCard(
-                            child: ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              leading: const CircleAvatar(
-                                backgroundColor: AppColors.pastelLavender,
-                                child: Icon(
-                                  Icons.groups_rounded,
-                                  color: AppColors.primaryPurple,
+                          (group) => Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: SakhiCard(
+                              child: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: const CircleAvatar(
+                                  backgroundColor: AppColors.pastelLavender,
+                                  child: Icon(
+                                    Icons.groups_rounded,
+                                    color: AppColors.primaryPurple,
+                                  ),
                                 ),
-                              ),
-                              title: Text(group.name),
-                              subtitle: Text(
-                                '${group.membersCount} members • ${group.description}',
+                                title: Text(group.name),
+                                subtitle: Text(
+                                  '${group.membersCount} members • ${group.description}',
+                                ),
+                                trailing: SakhiJoinCircleButton(
+                                  circleName: group.name,
+                                ),
                               ),
                             ),
                           ),
                         ),
                     ],
-                    if (_activeFilter == 'Businesses') ...[
-                      const SakhiSectionHeader(
-                        title: 'Linked Women-Owned Businesses',
-                      ),
+                    if (_activeFilter == 'All' ||
+                        _activeFilter == 'Businesses') ...[
+                      const SizedBox(height: 12),
+                      const SakhiSectionHeader(title: 'Women-Owned Businesses'),
                       const SizedBox(height: 10),
-                      if (_membersUnavailable)
+                      if (_businesses.isEmpty && businessMembers.isEmpty)
                         const _InlineEmptyResult(
-                          text: 'Business search is unavailable. Retry to load privacy-filtered profiles.',
+                          text:
+                              'No women-owned businesses matched this search.',
                         )
-                      else if (businessMembers.isEmpty)
-                        const _InlineEmptyResult(
-                          text: 'No verified member with a linked business profile matched this search.',
-                        )
-                      else
+                      else ...[
+                        ..._businesses.map(
+                          (biz) => Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: SakhiCard(
+                              child: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: const CircleAvatar(
+                                  backgroundColor: Color(0xFFFFF3E0),
+                                  child: Icon(
+                                    Icons.storefront_rounded,
+                                    color: Color(0xFFB45309),
+                                  ),
+                                ),
+                                title: Text(
+                                  biz.businessName,
+                                  style: AppTypography.cardTitle,
+                                ),
+                                subtitle: Text(
+                                  '${biz.category} • ${biz.city} • ${biz.priceRange}',
+                                ),
+                                trailing: const Icon(
+                                  Icons.chevron_right_rounded,
+                                ),
+                                onTap: () => Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => BusinessProfileDetailScreen(
+                                      businessId: biz.id,
+                                      initialModel: biz,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                         ...businessMembers.map(
                           (member) => Padding(
                             padding: const EdgeInsets.only(bottom: 8),
@@ -800,6 +900,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                             ),
                           ),
                         ),
+                      ],
                     ],
                   ],
                 ],
@@ -849,8 +950,12 @@ class _SearchResultMemberProfileScreenState
         .replaceFirst(RegExp(r'^@'), '')
         .toLowerCase();
     final localPosts = <FeedPostModel>[
-      for (final p in [...state.communityPosts, ...state.exploreRecommendedPosts])
-        if ((widget.member.id.isNotEmpty && p.authorAccountId == widget.member.id) ||
+      for (final p in [
+        ...state.communityPosts,
+        ...state.exploreRecommendedPosts,
+      ])
+        if ((widget.member.id.isNotEmpty &&
+                p.authorAccountId == widget.member.id) ||
             (handleClean.isNotEmpty &&
                 p.authorUsername
                         .trim()
@@ -969,6 +1074,7 @@ class _SearchResultMemberProfileScreenState
         onRefresh: _loadProfileOverview,
         color: AppColors.primaryPurple,
         child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.screenPaddingH,
             12,
@@ -1028,7 +1134,6 @@ class _SearchResultMemberProfileScreenState
                     ),
                   ],
                   const SizedBox(height: 14),
-                  // Clickable Posts | Followers | Following Row
                   Container(
                     padding: const EdgeInsets.symmetric(vertical: 10),
                     decoration: BoxDecoration(
@@ -1063,8 +1168,7 @@ class _SearchResultMemberProfileScreenState
                         _MemberStatItem(
                           count: '$_followingCount',
                           label: 'Following',
-                          onTap: () =>
-                              _openConnections(initialFollowing: true),
+                          onTap: () => _openConnections(initialFollowing: true),
                         ),
                       ],
                     ),
@@ -1178,8 +1282,7 @@ class _SearchResultMemberProfileScreenState
               const SakhiEmptyState(
                 icon: Icons.grid_on_outlined,
                 title: 'No public posts yet',
-                message:
-                    'When this member shares posts visible to your account, they will appear here.',
+                message: 'When this member shares posts visible to your account, they will appear here.',
               )
             else
               GridView.builder(
@@ -1386,6 +1489,63 @@ class _NearbyCirclesScreenState extends State<NearbyCirclesScreen> {
     });
   }
 
+  Future<void> _showCreateCircleSheet() async {
+    final nameCtrl = TextEditingController();
+    final descCtrl = TextEditingController();
+    final created = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Create Local Sakhi Circle'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Circle Name *',
+                hintText: 'e.g., Guntur Women Safety & Wellness Circle',
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: descCtrl,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Description',
+                hintText: 'Local support, safe commute updates & networking',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final name = nameCtrl.text.trim();
+              if (name.length < 3) return;
+              await SakhiPrototypeState.instance.joinOrCreateCommunityCircle(
+                name,
+                description: descCtrl.text.trim().isNotEmpty
+                    ? descCtrl.text.trim()
+                    : 'Local verified Sakhi circle in $_locationLabel',
+                category: 'Local Community',
+              );
+              if (ctx.mounted) Navigator.pop(ctx, true);
+            },
+            child: const Text('Create & Join'),
+          ),
+        ],
+      ),
+    );
+    if (created == true && mounted) {
+      await _loadNearbyCircles(requestGps: false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final safety = SakhiSafetyController.instance;
@@ -1400,6 +1560,14 @@ class _NearbyCirclesScreenState extends State<NearbyCirclesScreen> {
         ),
         actions: [
           IconButton(
+            tooltip: 'Create Circle',
+            icon: const Icon(
+              Icons.add_circle_outline_rounded,
+              color: AppColors.primaryPurple,
+            ),
+            onPressed: _showCreateCircleSheet,
+          ),
+          IconButton(
             tooltip: 'Refresh GPS',
             icon: const Icon(
               Icons.my_location_rounded,
@@ -1413,6 +1581,7 @@ class _NearbyCirclesScreenState extends State<NearbyCirclesScreen> {
         onRefresh: () => _loadNearbyCircles(requestGps: true),
         color: AppColors.primaryPurple,
         child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.screenPaddingH,
             8,
@@ -1485,14 +1654,17 @@ class _NearbyCirclesScreenState extends State<NearbyCirclesScreen> {
               const Padding(
                 padding: EdgeInsets.all(20),
                 child: SakhiQuoteLoader.inline(
-                  statusLabel: 'Finding active Sakhi circles near your location…',
+                  statusLabel:
+                      'Finding active Sakhi circles near your location…',
                 ),
               )
             else if (_circles.isEmpty)
-              const SakhiEmptyState(
+              SakhiEmptyState(
                 icon: Icons.groups_outlined,
-                title: 'No circles found in this radius',
-                message: 'Try expanding the radius to 50 km.',
+                title: 'No circles found in this radius yet',
+                message: 'Try expanding the radius to 50 km or start the first verified Sakhi circle in your area.',
+                actionLabel: '+ Create Local Circle',
+                onAction: _showCreateCircleSheet,
               )
             else
               ..._circles.map(
@@ -1607,7 +1779,7 @@ class _InlineEmptyResult extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.cardSurface,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.borderSubtle),
       ),

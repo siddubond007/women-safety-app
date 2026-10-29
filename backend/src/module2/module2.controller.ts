@@ -30,9 +30,13 @@ import {
   ReportUserOrPostDto,
   RequestAccountDeletionDto,
   RequestMediaUploadDto,
+  CreateBusinessEnquiryDto,
+  ReplyBusinessEnquiryDto,
+  ReportBusinessDto,
   ToggleBlockedUserDto,
   ToggleTwoFactorDto,
   UpdateAvatarDto,
+  UpsertMemberBusinessDto,
   UpdateModule2ProfileDto,
   UpdateNotificationPreferenceDto,
   UpdatePrivacyPreferenceDto,
@@ -620,5 +624,160 @@ export class Module2Controller {
     @Body() dto: RequestAccountDeletionDto,
   ) {
     return this.service.requestAccountDeletion(authorization, dto);
+  }
+
+  @Patch("safety/sos/:eventId/resolve")
+  patchResolveSos(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("eventId") eventId: string,
+  ) {
+    return this.service.updateSosStatus(authorization, eventId, "RESOLVED");
+  }
+
+  @Delete("safety/sos/:eventId")
+  deleteSosEvent(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("eventId") eventId: string,
+  ) {
+    return this.service.deleteSosEvent(authorization, eventId);
+  }
+
+  @Post("safety/sos/clear")
+  @HttpCode(200)
+  clearSosEventsPost(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() body?: { mode?: "resolved" | "all" | "tests" },
+  ) {
+    return this.service.clearSosEvents(authorization, body?.mode ?? "all");
+  }
+
+  @Delete("safety/sos")
+  clearSosEventsDelete(
+    @Headers("authorization") authorization: string | undefined,
+    @Query("mode") mode?: "resolved" | "all" | "tests",
+  ) {
+    return this.service.clearSosEvents(authorization, mode ?? "all");
+  }
+
+  @Post("groups/:groupId/join")
+  @HttpCode(200)
+  toggleJoinGroup(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("groupId") groupId: string,
+  ) {
+    return this.service.toggleJoinCommunityGroup(authorization, groupId);
+  }
+
+  // ===========================================================================
+  // MODULE 6: WOMEN-OWNED BUSINESS PAGES ROUTES (SRS Section 8.1 - 8.5)
+  // ===========================================================================
+  @Get("businesses/categories")
+  listBusinessCategories() {
+    return this.service.listBusinessCategories();
+  }
+
+  @Get("businesses/enquiries/list")
+  listBusinessEnquiries(
+    @Headers("authorization") authorization: string | undefined,
+  ) {
+    return this.service.listBusinessEnquiries(authorization);
+  }
+
+  @Post("businesses/enquiries/:enquiryId/messages")
+  @HttpCode(200)
+  replyBusinessEnquiry(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("enquiryId") enquiryId: string,
+    @Body() dto: ReplyBusinessEnquiryDto,
+  ) {
+    return this.service.replyBusinessEnquiry(authorization, enquiryId, dto);
+  }
+
+  @Get("businesses")
+  listBusinesses(
+    @Headers("authorization") authorization?: string,
+    @Query("search") search?: string,
+    @Query("category") category?: string,
+    @Query("city") city?: string,
+    @Query("lat") lat?: string,
+    @Query("lng") lng?: string,
+    @Query("radiusKm") radiusKm?: string,
+    @Query("savedOnly") savedOnly?: string,
+    @Query("ownerOnly") ownerOnly?: string,
+  ) {
+    return this.service.listMemberBusinesses(authorization, {
+      search,
+      category,
+      city,
+      lat: lat !== undefined ? Number(lat) : undefined,
+      lng: lng !== undefined ? Number(lng) : undefined,
+      radiusKm: radiusKm !== undefined ? Number(radiusKm) : undefined,
+      savedOnly: savedOnly === "true" || savedOnly === "1",
+      ownerOnly: ownerOnly === "true" || ownerOnly === "1",
+    });
+  }
+
+  @Get("businesses/:businessId")
+  getBusinessDetail(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("businessId") businessId: string,
+  ) {
+    return this.service.getMemberBusinessDetail(authorization, businessId);
+  }
+
+  @Post("businesses")
+  @HttpCode(201)
+  createBusiness(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: UpsertMemberBusinessDto,
+  ) {
+    return this.service.createMemberBusiness(authorization, dto);
+  }
+
+  @Put("businesses/:businessId")
+  updateBusinessPut(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("businessId") businessId: string,
+    @Body() dto: UpsertMemberBusinessDto,
+  ) {
+    return this.service.updateMemberBusiness(authorization, businessId, dto);
+  }
+
+  @Patch("businesses/:businessId")
+  updateBusinessPatch(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("businessId") businessId: string,
+    @Body() dto: Partial<UpsertMemberBusinessDto>,
+  ) {
+    return this.service.updateMemberBusiness(authorization, businessId, dto);
+  }
+
+  @Post("businesses/:businessId/save")
+  @HttpCode(200)
+  toggleSaveBusiness(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("businessId") businessId: string,
+  ) {
+    return this.service.toggleSaveBusiness(authorization, businessId);
+  }
+
+  @Post("businesses/:businessId/report")
+  @HttpCode(201)
+  reportBusiness(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("businessId") businessId: string,
+    @Body() dto: ReportBusinessDto,
+  ) {
+    return this.service.reportBusiness(authorization, businessId, dto);
+  }
+
+  @Post("businesses/:businessId/enquiries")
+  @HttpCode(201)
+  createBusinessEnquiry(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("businessId") businessId: string,
+    @Body() dto: CreateBusinessEnquiryDto,
+  ) {
+    return this.service.createBusinessEnquiry(authorization, businessId, dto);
   }
 }

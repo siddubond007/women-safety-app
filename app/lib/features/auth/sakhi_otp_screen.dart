@@ -31,6 +31,8 @@ class _SakhiOtpScreenState extends State<SakhiOtpScreen> {
   final _codeFocusNode = FocusNode();
   late AuthOtpSession _session;
   Timer? _timer;
+  Timer? _autoVerifyTimer;
+  String? _lastAutoVerifiedCode;
   int _secondsUntilResend = 0;
   bool _isVerifying = false;
   bool _isResending = false;
@@ -49,7 +51,27 @@ class _SakhiOtpScreenState extends State<SakhiOtpScreen> {
   }
 
   void _handleCodeChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
+    final current = _codeController.text.trim();
+    _autoVerifyTimer?.cancel();
+    if (current.length < 6) {
+      _lastAutoVerifiedCode = null;
+      return;
+    }
+    if (current.length == 6 &&
+        !_isVerifying &&
+        !_isResending &&
+        _lastAutoVerifiedCode != current) {
+      _autoVerifyTimer = Timer(const Duration(milliseconds: 180), () {
+        if (!mounted || _isVerifying || _isResending) return;
+        final latest = _codeController.text.trim();
+        if (latest.length == 6 && _lastAutoVerifiedCode != latest) {
+          _lastAutoVerifiedCode = latest;
+          unawaited(_verify());
+        }
+      });
+    }
   }
 
   void _handleFocusChanged() {
@@ -59,6 +81,7 @@ class _SakhiOtpScreenState extends State<SakhiOtpScreen> {
   @override
   void dispose() {
     _timer?.cancel();
+    _autoVerifyTimer?.cancel();
     _codeController.removeListener(_handleCodeChanged);
     _codeFocusNode.removeListener(_handleFocusChanged);
     _codeController.dispose();
@@ -113,6 +136,7 @@ class _SakhiOtpScreenState extends State<SakhiOtpScreen> {
   }
 
   void _deleteOtpDigit() {
+    _autoVerifyTimer?.cancel();
     if (_isVerifying || _isResending || _codeController.text.isEmpty) return;
     final next = _codeController.text.substring(
       0,
@@ -233,8 +257,10 @@ class _SakhiOtpScreenState extends State<SakhiOtpScreen> {
   }
 
   Future<void> _verify() async {
+    _autoVerifyTimer?.cancel();
     FocusScope.of(context).unfocus();
     if (_isVerifying) return;
+    _lastAutoVerifiedCode = _codeController.text.trim();
     if (_codeController.text.trim().length != 6) {
       setState(() => _statusMessage = 'Enter all six digits.');
       _codeFocusNode.requestFocus();

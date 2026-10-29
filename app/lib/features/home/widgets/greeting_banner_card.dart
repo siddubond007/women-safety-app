@@ -16,29 +16,59 @@ class GreetingBannerCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        height: 158,
+        height: 162,
         decoration: BoxDecoration(
           gradient: const LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFFF9EAF8), Color(0xFFF1E0FA), Color(0xFFFCEAF3)],
+            colors: [
+              Color(0xEEFFEBF5),
+              Color(0xDDF2DDFA),
+              Color(0xECFFF5FB),
+            ],
+            stops: [0.0, 0.52, 1.0],
           ),
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(26),
           border: Border.all(
-            color: AppColors.primaryPurple.withValues(alpha: 0.14),
-            width: 1.1,
+            color: Colors.white.withValues(alpha: 0.95),
+            width: 1.6,
           ),
           boxShadow: [
             BoxShadow(
-              color: AppColors.primaryPurple.withValues(alpha: 0.08),
-              blurRadius: 18,
-              offset: const Offset(0, 8),
+              color: AppColors.primaryPurple.withValues(alpha: 0.10),
+              blurRadius: 24,
+              offset: const Offset(0, 10),
+            ),
+            BoxShadow(
+              color: Colors.white.withValues(alpha: 0.90),
+              blurRadius: 2,
+              offset: const Offset(0, -1),
             ),
           ],
         ),
         clipBehavior: Clip.antiAlias,
         child: Stack(
           children: [
+            // Top-left iOS 26 Liquid Glass specular light reflection
+            Positioned(
+              left: -24,
+              top: -32,
+              child: IgnorePointer(
+                child: Container(
+                  width: 160,
+                  height: 110,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        Colors.white.withValues(alpha: 0.72),
+                        Colors.white.withValues(alpha: 0.0),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
             Positioned(
               right: 0,
               top: 0,
@@ -70,14 +100,24 @@ class GreetingBannerCard extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 10,
-                      vertical: 4,
+                      vertical: 4.5,
                     ),
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: 0.88),
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
-                        color: AppColors.primaryPurple.withValues(alpha: 0.16),
+                        color: Colors.white,
+                        width: 1.2,
                       ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.primaryPurple.withValues(
+                            alpha: 0.06,
+                          ),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                     ),
                     child: const Row(
                       mainAxisSize: MainAxisSize.min,
@@ -106,9 +146,9 @@ class GreetingBannerCard extends StatelessWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: AppTypography.heroTitle.copyWith(
-                      fontSize: 20,
+                      fontSize: 20.5,
                       height: 1.18,
-                      letterSpacing: -0.3,
+                      letterSpacing: -0.35,
                     ),
                   ),
                   const SizedBox(height: 6),
@@ -117,7 +157,7 @@ class GreetingBannerCard extends StatelessWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: AppTypography.subtitle.copyWith(
-                      color: AppColors.textSecondary.withValues(alpha: 0.92),
+                      color: AppColors.textSecondary.withValues(alpha: 0.94),
                       fontSize: 12.5,
                       height: 1.32,
                     ),
