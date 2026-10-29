@@ -7,10 +7,12 @@ services:
     plan: free
     region: singapore
     rootDir: backend
-    buildCommand: npm ci --include=dev && npx prisma generate && npm run build
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /api/v1/health/ready
     envVars:
+      - key: NODE_VERSION
+        value: 24.22.0
       - key: NODE_ENV
         value: production
       - key: SAKHI_ENV
@@ -25,6 +27,12 @@ services:
         value: "18"
       - key: SAKHI_APP_DATABASE_URL
         sync: false
+      # Dedicated least-privilege migrator URL; never use the application role for DDL.
+      - key: SAKHI_MIGRATOR_DATABASE_URL
+        sync: false
+      # Enabled only for the explicitly scoped Module 6 staging migration build.
+      - key: SAKHI_RUN_MODULE6_MIGRATION
+        value: "false"
       - key: SAKHI_STAGING_TEST_PHONE_ALLOWLIST
         sync: false
       - key: SAKHI_STAGING_TEST_OTP_CODE
