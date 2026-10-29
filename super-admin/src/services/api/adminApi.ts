@@ -1,7 +1,8 @@
 import { adminAuthService, isStagingTestAdminMode } from "../auth/adminAuthService";
 
 export const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3001/api/v1"
+  // Safe hosted fallback: no client should call its own localhost when a deploy variable is missing.
+  import.meta.env.VITE_API_BASE_URL ?? "https://sakhi-staging-api.onrender.com/api/v1"
 ).replace(/\/+$/, "");
 
 export class AdminApiError extends Error {
