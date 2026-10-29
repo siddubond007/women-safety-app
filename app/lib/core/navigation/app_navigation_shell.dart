@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../features/community/screens/community_screen.dart';
 import '../../features/community/screens/sakhi_post_creation_flow.dart';
@@ -15,7 +16,8 @@ import '../widgets/sakhi_bottom_nav.dart';
 import '../widgets/sakhi_create_hub_sheet.dart';
 import 'app_routes.dart';
 
-/// Main interactive shell with persistent navigation and the Sakhi Create Hub.
+/// Main interactive shell with persistent iOS 26 Liquid Glass navigation,
+/// Sakhi Create Hub, and full Android back-button / gesture protection.
 class AppNavigationShell extends StatefulWidget {
   final int initialTabIndex;
 
@@ -27,8 +29,9 @@ class AppNavigationShell extends StatefulWidget {
 
 class _AppNavigationShellState extends State<AppNavigationShell> {
   late int _currentIndex;
-  // Optional sub-tab override for Wellness inside the bottom-nav shell
+  final List<int> _tabHistory = <int>[];
   String? _activeSubScreenRoute;
+  DateTime? _lastBackPressedAt;
 
   @override
   void initState() {
@@ -39,18 +42,17 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
 
   void _handleTabSelected(int index) {
     setState(() {
+      if (_currentIndex != index && _currentIndex >= 0 && _currentIndex <= 3) {
+        _tabHistory.remove(index);
+        _tabHistory.add(_currentIndex);
+      }
       _currentIndex = index;
       _activeSubScreenRoute = null;
     });
   }
 
   void _handleRouteFromChild(String routeName) {
-    if (routeName == AppRoutes.safety) {
-      setState(() {
-        _currentIndex = 4;
-        _activeSubScreenRoute = null;
-      });
-    } else if (routeName == AppRoutes.wellness) {
+    if (routeName == AppRoutes.safety || routeName == AppRoutes.wellness) {
       setState(() {
         _activeSubScreenRoute = routeName;
       });
@@ -59,14 +61,72 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
     }
   }
 
+  void _returnFromSubScreen() {
+    setState(() {
+      _activeSubScreenRoute = null;
+      if (_currentIndex > 3) {
+        _currentIndex = 0;
+      }
+    });
+  }
+
+  void _handleSystemBack(bool didPop) {
+    if (didPop) return;
+    // 1. If viewing an embedded sub-screen (Wellness or Safety), return to current tab
+    if (_activeSubScreenRoute != null || _currentIndex > 3) {
+      _returnFromSubScreen();
+      return;
+    }
+    // 2. If on Explore, Community, or Profile tab, navigate back to previous tab or Home
+    if (_currentIndex != 0) {
+      setState(() {
+        if (_tabHistory.isNotEmpty) {
+          _currentIndex = _tabHistory.removeLast();
+        } else {
+          _currentIndex = 0;
+        }
+      });
+      return;
+    }
+    // 3. Already on Home tab: require double-back within 2 seconds to exit app
+    final now = DateTime.now();
+    if (_lastBackPressedAt == null ||
+        now.difference(_lastBackPressedAt!) > const Duration(seconds: 2)) {
+      _lastBackPressedAt = now;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: const Text(
+              'Press back again to exit Sakhi',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: AppColors.primaryPurple,
+            duration: const Duration(seconds: 2),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
+        );
+      return;
+    }
+    SystemNavigator.pop();
+  }
+
   @override
   Widget build(BuildContext context) {
     Widget activeBody;
     if (_activeSubScreenRoute == AppRoutes.wellness) {
-      activeBody = const WellnessScreen(showBackButton: false);
-    } else if (_activeSubScreenRoute == AppRoutes.safety || _currentIndex == 4) {
+      activeBody = WellnessScreen(
+        showBackButton: true,
+        onBackTap: _returnFromSubScreen,
+      );
+    } else if (_activeSubScreenRoute == AppRoutes.safety ||
+        _currentIndex == 4) {
       activeBody = SafetyScreen(
-        showBackButton: false,
+        showBackButton: true,
+        onBackTap: _returnFromSubScreen,
         onNavigateRoute: _handleRouteFromChild,
       );
     } else {
@@ -94,13 +154,17 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
       }
     }
 
-    return Scaffold(
-      backgroundColor: AppColors.scaffoldBackground,
-      body: activeBody,
-      bottomNavigationBar: SakhiBottomNav(
-        currentIndex: _currentIndex,
-        onTabSelected: _handleTabSelected,
-        onCenterAddTap: () => _showCenterActionModal(),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) => _handleSystemBack(didPop),
+      child: Scaffold(
+        backgroundColor: AppColors.scaffoldBackground,
+        body: activeBody,
+        bottomNavigationBar: SakhiBottomNav(
+          currentIndex: _activeSubScreenRoute != null ? 0 : _currentIndex,
+          onTabSelected: _handleTabSelected,
+          onCenterAddTap: () => _showCenterActionModal(),
+        ),
       ),
     );
   }

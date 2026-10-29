@@ -64,7 +64,8 @@ class SakhiHomeScreen extends StatelessWidget {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
             ),
-            leading: const Icon(Icons.shield_outlined, color: SakhiColors.purple),
+            leading:
+                const Icon(Icons.shield_outlined, color: SakhiColors.purple),
             title: const Text('Safety & support'),
             subtitle: const Text('SOS check-ins, helplines & trusted contacts'),
             onTap: () {
@@ -103,7 +104,8 @@ class SakhiApp extends StatelessWidget {
         final mq = MediaQuery.of(context);
         return MediaQuery(
           data: mq.copyWith(
-            textScaler: mq.textScaler.clamp(minScaleFactor: 0.85, maxScaleFactor: 1.2),
+            textScaler:
+                mq.textScaler.clamp(minScaleFactor: 0.85, maxScaleFactor: 1.2),
           ),
           child: child ?? const SizedBox.shrink(),
         );
@@ -116,18 +118,28 @@ class SakhiApp extends StatelessWidget {
         AppRoutes.wellness: (_) => const WellnessScreen(showBackButton: true),
         AppRoutes.safety: (_) => const SafetyScreen(showBackButton: true),
         AppRoutes.profile: (_) => const Scaffold(body: ProfileScreen()),
+        AppRoutes.memberProfile: (_) => const Scaffold(body: ProfileScreen()),
         AppRoutes.editProfile: (_) => const EditProfileScreen(),
         AppRoutes.privacySettings: (_) => const PrivacySettingsScreen(),
         AppRoutes.notificationPreferences: (_) =>
             const NotificationPreferencesScreen(),
         AppRoutes.followers: (_) => const FollowersFollowingScreen(),
+        AppRoutes.following: (_) =>
+            const FollowersFollowingScreen(initialFollowing: true),
+        AppRoutes.groups: (_) => const Scaffold(body: ExploreScreen()),
+        AppRoutes.myGroups: (_) => const Scaffold(body: ExploreScreen()),
         AppRoutes.accountSecurity: (_) => const AccountSecurityScreen(),
         AppRoutes.moreOptions: (_) => const MoreOptionsMenuScreen(),
-        AppRoutes.discreetComplaintHub: (_) => const DiscreetComplaintHubScreen(),
-        AppRoutes.complaintWizard: (_) => const ComplaintSubmissionWizardScreen(),
-        AppRoutes.complaintTracker: (_) => const ComplaintTrackingLookupScreen(),
-        AppRoutes.complaintTrackingLookup: (_) => const ComplaintTrackingLookupScreen(),
-        AppRoutes.quickExitJournal: (_) => const QuickExitWellnessCamouflageScreen(),
+        AppRoutes.discreetComplaintHub: (_) =>
+            const DiscreetComplaintHubScreen(),
+        AppRoutes.complaintWizard: (_) =>
+            const ComplaintSubmissionWizardScreen(),
+        AppRoutes.complaintTracker: (_) =>
+            const ComplaintTrackingLookupScreen(),
+        AppRoutes.complaintTrackingLookup: (_) =>
+            const ComplaintTrackingLookupScreen(),
+        AppRoutes.quickExitJournal: (_) =>
+            const QuickExitWellnessCamouflageScreen(),
       },
       home: SakhiStartupRouter(authService: authService),
     );

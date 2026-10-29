@@ -689,6 +689,9 @@ String? validateAuthEmail(String? value) {
 
 String? validateRequiredName(String? value) {
   if (value == null || value.trim().isEmpty) return 'Enter your name.';
+  if (RegExp(r'\d').hasMatch(value)) {
+    return 'Full name cannot contain numbers.';
+  }
   if (value.trim().length < 2) return 'Enter at least 2 characters.';
   return null;
 }

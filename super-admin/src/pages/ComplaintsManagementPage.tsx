@@ -266,14 +266,16 @@ function formatCleanText(raw?: string | null): string {
   return raw.replace(/_/g, " ");
 }
 
+const COMPLAINTS_MSG_TIME_FMT = new Intl.DateTimeFormat("en-IN", {
+  day: "2-digit",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
 function formatMessageTime(iso: string): string {
   try {
-    return new Intl.DateTimeFormat("en-IN", {
-      day: "2-digit",
-      month: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(new Date(iso));
+    return COMPLAINTS_MSG_TIME_FMT.format(new Date(iso));
   } catch {
     return iso;
   }
@@ -1149,7 +1151,7 @@ export function ComplaintsManagementPage() {
           const Icon = tab.icon;
           const active = activeTab === tab.id;
           return (
-            <button
+            <button className="button button--secondary"
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id as typeof activeTab)}
@@ -1620,7 +1622,7 @@ export function ComplaintsManagementPage() {
                     </div>
                   </label>
                 </div>
-                <button
+                <button className="button button--secondary"
                   type="button"
                   disabled={submitting}
                   onClick={() => void handleAssignAndClassify()}
@@ -1790,7 +1792,7 @@ export function ComplaintsManagementPage() {
                       }
                     }}
                   />
-                  <button
+                  <button className="button button--secondary"
                     type="button"
                     disabled={submitting}
                     onClick={() => void handleSendDirectMessageToComplainant()}
@@ -1848,7 +1850,7 @@ export function ComplaintsManagementPage() {
                   {(
                     VALID_NEXT_STATUSES[selectedComplaint.status] ?? ALL_STATUSES
                   ).map((st) => (
-                    <button
+                    <button className="button button--secondary"
                       key={st}
                       type="button"
                       onClick={() => setNextStatus(st)}
@@ -1903,7 +1905,7 @@ export function ComplaintsManagementPage() {
                     fontSize: "13px",
                   }}
                 />
-                <button
+                <button className="button button--secondary"
                   type="button"
                   disabled={submitting}
                   onClick={() => void handleUpdateStatus()}
@@ -1970,7 +1972,7 @@ export function ComplaintsManagementPage() {
                     </option>
                     <option value="SUPER_ADMIN">Super Admin Only</option>
                   </select>
-                  <button
+                  <button className="button button--secondary"
                     type="button"
                     disabled={submitting}
                     onClick={() => void handleAddInternalNote()}
@@ -2216,7 +2218,7 @@ export function ComplaintsManagementPage() {
                           )}
                         </div>
                         <div style={{ display: "flex", gap: "10px" }}>
-                          <button
+                          <button className="button button--secondary"
                             type="button"
                             disabled={submitting || Boolean(ev.isPurged)}
                             onClick={() =>
@@ -2239,7 +2241,7 @@ export function ComplaintsManagementPage() {
                           >
                             Reveal Evidence (Logs Audit)
                           </button>
-                          <button
+                          <button className="button button--secondary"
                             type="button"
                             disabled={submitting || Boolean(ev.isPurged)}
                             onClick={() =>
@@ -2352,7 +2354,7 @@ export function ComplaintsManagementPage() {
             </label>
           </div>
 
-          <button
+          <button className="button button--secondary"
             type="button"
             disabled={submitting}
             onClick={() => void handleMergeCluster()}
@@ -2458,7 +2460,7 @@ export function ComplaintsManagementPage() {
             </label>
           </div>
 
-          <button
+          <button className="button button--secondary"
             type="button"
             disabled={submitting}
             onClick={() => void handleMaliciousSafeguard()}
@@ -2528,7 +2530,7 @@ export function ComplaintsManagementPage() {
                       {formatSeverityLabel(cat.defaultSeverity)}
                     </small>
                   </div>
-                  <button
+                  <button className="button button--secondary"
                     type="button"
                     disabled={submitting}
                     onClick={() => void handleToggleCategory(cat)}
@@ -2577,7 +2579,7 @@ export function ComplaintsManagementPage() {
                   fontSize: "13px",
                 }}
               />
-              <button
+              <button className="button button--secondary"
                 type="button"
                 disabled={submitting}
                 onClick={() => void handleAddCategory()}
@@ -2672,7 +2674,7 @@ export function ComplaintsManagementPage() {
                 />
               </label>
             </div>
-            <button
+            <button className="button button--secondary"
               type="button"
               disabled={submitting}
               onClick={() => void handleSaveRetentionPolicy()}

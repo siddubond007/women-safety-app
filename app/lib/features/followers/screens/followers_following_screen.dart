@@ -15,9 +15,22 @@ import '../../explore/screens/explore_discovery_screens.dart';
 
 /// Screen 08 — Followers & Following + Member Options Modal
 class FollowersFollowingScreen extends StatefulWidget {
-  const FollowersFollowingScreen({super.key, this.initialFollowing = false});
+  const FollowersFollowingScreen({
+    super.key,
+    this.initialFollowing = false,
+    this.targetMemberId,
+    this.targetMemberName,
+    this.targetMemberUsername,
+    this.initialFollowersCount,
+    this.initialFollowingCount,
+  });
 
   final bool initialFollowing;
+  final String? targetMemberId;
+  final String? targetMemberName;
+  final String? targetMemberUsername;
+  final int? initialFollowersCount;
+  final int? initialFollowingCount;
 
   @override
   State<FollowersFollowingScreen> createState() =>
@@ -48,6 +61,7 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
     });
     final items = await SakhiPrototypeState.instance.fetchMemberConnections(
       following: requestedFollowing,
+      targetMemberId: widget.targetMemberId,
     );
     if (!mounted || requestedFollowing != _showingFollowingOnly) return;
     setState(() {
@@ -487,9 +501,25 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
           animation: state,
           builder: (context, _) {
             final user = state.currentUser;
-            final handle = user.username.isEmpty
-                ? '@ananya_rao'
-                : user.username;
+            final isTargetMember =
+                widget.targetMemberId != null &&
+                widget.targetMemberId!.trim().isNotEmpty;
+            final displayTitleName = isTargetMember
+                ? (widget.targetMemberName ?? 'Sakhi Member')
+                : user.displayName;
+            final handle = isTargetMember
+                ? (widget.targetMemberUsername ?? '@member')
+                : (user.username.isEmpty ? '@ananya_rao' : user.username);
+            final followersTotal = isTargetMember
+                ? (!_showingFollowingOnly && !_loadingConnections
+                      ? _members.length
+                      : (widget.initialFollowersCount ?? 0))
+                : user.followersCount;
+            final followingTotal = isTargetMember
+                ? (_showingFollowingOnly && !_loadingConnections
+                      ? _members.length
+                      : (widget.initialFollowingCount ?? 0))
+                : user.followingCount;
             final query = _searchController.text.trim().toLowerCase();
             final filtered = _members.where((u) {
               if (query.isEmpty) return true;
@@ -521,7 +551,7 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
                       ),
                       Expanded(
                         child: Text(
-                          '${user.displayName} ($handle)',
+                          '$displayTitleName ($handle)',
                           textAlign: TextAlign.center,
                           style: AppTypography.sectionTitle.copyWith(
                             fontSize: 16.5,
@@ -559,7 +589,7 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
                                 ),
                               ),
                               child: Text(
-                                'Followers (${user.followersCount})',
+                                'Followers ($followersTotal)',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   color: !_showingFollowingOnly
@@ -592,7 +622,7 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
                                 ),
                               ),
                               child: Text(
-                                'Following (${user.followingCount})',
+                                'Following ($followingTotal)',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   color: _showingFollowingOnly
@@ -737,7 +767,9 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
                                               ? SakhiPillButton(
                                                   label: person.isFollowing
                                                       ? 'Following'
-                                                      : 'Follow Back',
+                                                      : (person.followsMe
+                                                            ? 'Follow Back'
+                                                            : 'Follow'),
                                                   isFilled: !person.isFollowing,
                                                   padding:
                                                       const EdgeInsets.symmetric(

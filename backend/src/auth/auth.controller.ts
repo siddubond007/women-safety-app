@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Headers, HttpCode, Post } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  HttpCode,
+  Post,
+  Query,
+} from "@nestjs/common";
 import {
   ApiBearerAuth,
   ApiOkResponse,
@@ -23,6 +31,18 @@ export class AuthController {
   })
   registrationPolicy() {
     return this.auth.getRegistrationPolicy();
+  }
+
+  @Get("username-availability")
+  @ApiOkResponse({
+    description:
+      "Checks whether a requested @username handle is available across Sakhi accounts.",
+  })
+  usernameAvailability(
+    @Headers("authorization") authorization: string | undefined,
+    @Query("username") username?: string,
+  ) {
+    return this.auth.checkUsernameAvailability(username, authorization);
   }
 
   @Post("otp/request")

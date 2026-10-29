@@ -670,7 +670,7 @@ export function AdminRolesAndConfigPage() {
               >
                 {newlyIssuedToken.token}
               </code>
-              <button
+              <button className="button button--secondary"
                 type="button"
                 onClick={() => {
                   void navigator.clipboard?.writeText(newlyIssuedToken.token);
@@ -807,7 +807,7 @@ export function AdminRolesAndConfigPage() {
           const Icon = t.icon;
           const active = activeTab === t.id;
           return (
-            <button
+            <button className="button button--secondary"
               key={t.id}
               type="button"
               onClick={() => setActiveTab(t.id as typeof activeTab)}
@@ -992,7 +992,7 @@ export function AdminRolesAndConfigPage() {
                 </span>
               </label>
 
-              <button
+              <button className="button button--secondary"
                 type="button"
                 disabled={submitting}
                 onClick={() => void handleCreateStaff()}
@@ -1176,7 +1176,7 @@ export function AdminRolesAndConfigPage() {
                       ).map((permKey) => {
                         const activePerm = s.permissions[permKey];
                         return (
-                          <button
+                          <button className="button button--secondary"
                             key={permKey}
                             type="button"
                             disabled={submitting}
@@ -1424,7 +1424,7 @@ export function AdminRolesAndConfigPage() {
                     }}
                   >
                     <strong style={{ fontSize: "13.5px" }}>{label}</strong>
-                    <button
+                    <button className="button button--secondary"
                       type="button"
                       disabled={submitting}
                       onClick={() => void handleToggleFeatureFlag(key)}
@@ -1711,7 +1711,7 @@ export function AdminRolesAndConfigPage() {
                 />
               </label>
             </div>
-            <button
+            <button className="button button--secondary"
               type="button"
               disabled={submitting}
               onClick={() => void handleSavePlatformSettings()}
