@@ -128,9 +128,7 @@ describe("Sakhi database-target guard", () => {
     const stagingUrl =
       "postgresql://sakhi_staging_app.wmlpokholjfadyohdlgo:UNIT_TEST_FAKE_PASSWORD_0123456789ABCDEF0123456789@aws-0-ap-south-1.pooler.supabase.com:5432/postgres?schema=public&sslmode=verify-full&sslrootcert=prod-ca-2021.crt";
 
-    expect(
-      assertSakhiDatabaseTarget(stagingUrl, "app", "staging"),
-    ).toEqual({
+    expect(assertSakhiDatabaseTarget(stagingUrl, "app", "staging")).toEqual({
       environment: "staging",
       databaseName: "postgres",
       username: "sakhi_staging_app.wmlpokholjfadyohdlgo",
@@ -138,7 +136,10 @@ describe("Sakhi database-target guard", () => {
 
     expect(() =>
       assertSakhiDatabaseTarget(
-        stagingUrl.replace("aws-0-ap-south-1.pooler.supabase.com", "example.com"),
+        stagingUrl.replace(
+          "aws-0-ap-south-1.pooler.supabase.com",
+          "example.com",
+        ),
         "app",
         "staging",
       ),
@@ -146,13 +147,36 @@ describe("Sakhi database-target guard", () => {
 
     expect(() =>
       assertSakhiDatabaseTarget(
-        stagingUrl.replace("sakhi_staging_app.wmlpokholjfadyohdlgo", "postgres.wmlpokholjfadyohdlgo"),
+        stagingUrl.replace(
+          "sakhi_staging_app.wmlpokholjfadyohdlgo",
+          "postgres.wmlpokholjfadyohdlgo",
+        ),
         "app",
         "staging",
       ),
     ).toThrow(/Staging database target rejected/);
   });
 
+  it("accepts the dedicated staging migrator only with the Supabase root CA", () => {
+    const stagingMigratorUrl =
+      "postgresql://sakhi_staging_migrator.wmlpokholjfadyohdlgo:UNIT_TEST_FAKE_PASSWORD_0123456789ABCDEF0123456789@aws-0-ap-south-1.pooler.supabase.com:5432/postgres?schema=public&sslmode=verify-full&sslrootcert=/etc/secrets/prod-ca-2021.crt";
+
+    expect(
+      assertSakhiDatabaseTarget(stagingMigratorUrl, "migrator", "staging"),
+    ).toEqual({
+      environment: "staging",
+      databaseName: "postgres",
+      username: "sakhi_staging_migrator.wmlpokholjfadyohdlgo",
+    });
+
+    expect(() =>
+      assertSakhiDatabaseTarget(
+        stagingMigratorUrl.replace("sslrootcert=", "sslcert="),
+        "migrator",
+        "staging",
+      ),
+    ).toThrow(/Staging database target rejected/);
+  });
   it("permits staging runtime only with production mode, HTTPS-ready host binding, and OTP disabled", () => {
     const stagingConfig = {
       SAKHI_ENV: "staging",

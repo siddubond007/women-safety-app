@@ -72,16 +72,10 @@ export function assertSakhiDatabaseTarget(
   const decodedPassword = decodeURIComponent(parsed.password);
   const commonCredentialsValid = !isPlaceholderPassword(decodedPassword);
   const schemaMatches = parsed.searchParams.get("schema") === "public";
+  const stagingRootCertificate = parsed.searchParams.get("sslrootcert") ?? "";
   const stagingTlsCertificateMatches =
-    purpose === "migrator"
-      ? (parsed.searchParams.get("sslcert") ?? "")
-          .replace(/\\/g, "/")
-          .endsWith("/prod-ca-2021.crt") ||
-        parsed.searchParams.get("sslcert") === "prod-ca-2021.crt"
-      : (parsed.searchParams.get("sslrootcert") ?? "")
-          .replace(/\\/g, "/")
-          .endsWith("/prod-ca-2021.crt") ||
-        parsed.searchParams.get("sslrootcert") === "prod-ca-2021.crt";
+    stagingRootCertificate.replace(/\\/g, "/").endsWith("/prod-ca-2021.crt") ||
+    stagingRootCertificate === "prod-ca-2021.crt";
 
   if (environment === "staging") {
     // Staging is allowed to reach exactly the dedicated Supabase project
@@ -199,7 +193,8 @@ export function validateRuntimeEnvironment(
       stagingTestPhoneAllowlist.some(
         (phone) => phone !== "+91*" && !/^\+[1-9]\d{7,14}$/.test(phone),
       ) ||
-      new Set(stagingTestPhoneAllowlist).size !== stagingTestPhoneAllowlist.length
+      new Set(stagingTestPhoneAllowlist).size !==
+        stagingTestPhoneAllowlist.length
     ) {
       throw new Error(
         'Staging test login requires unique E.164 phone numbers, or the staging-only wildcard "+91*" by itself.',
