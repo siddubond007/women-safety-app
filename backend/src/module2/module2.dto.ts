@@ -22,11 +22,17 @@ export class UpdateModule2ProfileDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(80)
+  @Matches(/^[^\d]+$/, {
+    message: "Full name cannot contain numbers.",
+  })
   displayName!: string;
 
   @IsOptional()
   @IsString()
-  @Matches(/^@?[a-z0-9_]{3,24}$/)
+  @Matches(/^@?[a-zA-Z0-9_]{3,24}$/, {
+    message:
+      "Username must contain 3–24 letters, numbers, or underscores.",
+  })
   username?: string;
 
   @IsString()
@@ -63,6 +69,9 @@ export class UpdateProfileDto {
   @IsOptional()
   @IsString()
   @MaxLength(80)
+  @Matches(/^[^\d]+$/, {
+    message: "Full name cannot contain numbers.",
+  })
   displayName?: string;
 
   @IsOptional()
@@ -266,10 +275,16 @@ export class ReactToPostDto {
     "LIKE",
     "LOVE",
     "SUPPORT",
+    "SOLIDARITY",
     "INSPIRED",
     "HAPPY",
+    "HAHA",
+    "CRYING",
+    "SAD",
+    "FIERCE",
     "GRATEFUL",
     "STRONG",
+    "APPLAUD",
     "CARE",
   ])
   reactionType!: string;
@@ -433,6 +448,34 @@ export class RecordSafetyEventDto {
   longitude?: number;
 
   @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100000)
+  accuracyMeters?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  batteryPercent?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  triggerSource?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(4)
+  simSlotIndex?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  simCarrierName?: string;
+
+  @IsOptional()
   @IsBoolean()
   isTestMode?: boolean;
 
@@ -552,20 +595,33 @@ export class StartLocationShareDto {
 }
 
 export class ToggleTwoFactorDto {
+  @IsOptional()
   @IsBoolean()
-  enabled!: boolean;
+  enabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  twoFactorEnabled?: boolean;
 }
 
 export class UpdateSecurityPinDto {
+  @IsOptional()
   @IsString()
   @MinLength(4)
   @MaxLength(6)
-  currentPin!: string;
+  currentPin?: string;
 
+  @IsOptional()
   @IsString()
   @MinLength(4)
   @MaxLength(6)
-  newPin!: string;
+  newPin?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(4)
+  @MaxLength(6)
+  pin?: string;
 }
 
 export class ReportUserOrPostDto {

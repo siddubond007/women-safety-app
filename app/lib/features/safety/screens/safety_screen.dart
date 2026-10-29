@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../../core/constants/mock_data.dart';
 import '../../../core/widgets/sakhi_botanical_flower.dart';
 import '../../../core/widgets/sakhi_quote_loader.dart';
 import '../../complaints/screens/complaint_tracking_screens.dart';
@@ -16,11 +17,13 @@ import '../widgets/sakhi_live_osm_map.dart';
 /// (`01_Safety_Hub_Main_Dashboard_UI.jpg`)
 class SafetyScreen extends StatefulWidget {
   final bool showBackButton;
+  final VoidCallback? onBackTap;
   final ValueChanged<String>? onNavigateRoute;
 
   const SafetyScreen({
     super.key,
     this.showBackButton = false,
+    this.onBackTap,
     this.onNavigateRoute,
   });
 
@@ -90,12 +93,19 @@ class _SafetyScreenState extends State<SafetyScreen>
                   // Top Header Bar: Shield-Lotus + "Safety" + Shortcut Gear + SOS Pill
                   Row(
                     children: [
-                      if (widget.showBackButton &&
+                      if (widget.showBackButton ||
                           Navigator.of(context).canPop())
                         IconButton(
+                          tooltip: 'Back to Home',
                           icon: const Icon(Icons.arrow_back_rounded),
                           color: SakhiModule4Colors.textPrimary,
-                          onPressed: () => Navigator.of(context).pop(),
+                          onPressed: () {
+                            if (widget.onBackTap != null) {
+                              widget.onBackTap!();
+                            } else if (Navigator.of(context).canPop()) {
+                              Navigator.of(context).pop();
+                            }
+                          },
                         ),
                       Container(
                         width: 36,
@@ -844,6 +854,12 @@ class _SosWorkflowScreenState extends State<SosWorkflowScreen> {
       _sosDispatched = true;
     });
     await _controller.activateSosEvent(isTestMode: widget.isTestMode);
+    if (!widget.isTestMode && mounted) {
+      await _controller.dispatchSosAlertToContacts(
+        context,
+        isAutomaticSosTrigger: true,
+      );
+    }
   }
 
   void _cancelSosDuringCountdown() {
@@ -1093,22 +1109,24 @@ class _SosWorkflowScreenState extends State<SosWorkflowScreen> {
                 ],
                 const SizedBox(height: 10),
 
-                // Step 2: Emergency Contacts Alert Preparation
+                // Step 2: Emergency Contacts Automatic SMS Dispatch Status
                 _WorkflowStatusStepCard(
                   icon: Icons.people_alt_rounded,
                   iconBg: SakhiModule4Colors.primaryPlum,
                   title: selectedCount > 0
-                      ? 'Emergency Contacts ($selectedCount Selected)'
+                      ? 'Emergency Contacts ($selectedCount Selected • ${_controller.selectedSimLabel})'
                       : 'No Emergency Contacts Added Yet',
                   subtitle: widget.isTestMode
                       ? 'Safe Test Mode: External SMS/WhatsApp dispatch suppressed'
                       : selectedCount > 0
-                      ? '$contactNames • Tap below to send live GPS alert via SMS/WhatsApp'
-                      : 'Add trusted contacts in Emergency Contacts to send one-tap SMS/WhatsApp alerts',
+                      ? (_sosDispatched
+                            ? 'Automatic SOS SMS & Live GPS link dispatched to $contactNames (${_controller.batteryLabel} battery)'
+                            : 'Auto-dispatching live GPS & ${_controller.batteryLabel} battery SMS to $contactNames')
+                      : 'Add trusted contacts in Emergency Contacts for automatic direct SMS dispatch',
                   pillText: widget.isTestMode
                       ? 'Test Mode'
                       : selectedCount > 0
-                      ? 'Ready'
+                      ? (_sosDispatched ? 'Sent' : 'Auto-SMS')
                       : 'Configure',
                   pillBg: const Color(0xFFF2E6F7),
                   pillTextColor: SakhiModule4Colors.primaryPlum,
@@ -1726,24 +1744,90 @@ class _NearestPoliceStationsScreenState
                     ),
                   ),
 
-                // Real Nearby Police Station Cards
-                ...stations.map(
-                  (station) => Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _PoliceStationCard(
-                      station: station,
-                      onDirections: () => _controller.launchDirectionsToStation(
-                        context,
-                        station,
-                      ),
-                      onCall: () => _controller.launchPhoneCall(
-                        context,
-                        station.phoneNumber,
-                        label: station.name,
+                // 1. Within Selected Radius Police Stations
+                if (_controller.withinRadiusPoliceStations.isNotEmpty) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      'Within Selected Radius (<= ${(_controller.selectedSearchRadiusMeters / 1000).round()} km) • ${_controller.withinRadiusPoliceStations.length} Found',
+                      style: const TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w800,
+                        color: SakhiModule4Colors.verifiedEmerald,
                       ),
                     ),
                   ),
-                ),
+                  ..._controller.withinRadiusPoliceStations.map(
+                    (station) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _PoliceStationCard(
+                        station: station,
+                        onDirections: () =>
+                            _controller.launchDirectionsToStation(
+                              context,
+                              station,
+                            ),
+                        onCall: () => _controller.launchPhoneCall(
+                          context,
+                          station.phoneNumber,
+                          label: station.name,
+                        ),
+                      ),
+                    ),
+                  ),
+                ] else if (_controller.extendedRadiusPoliceStations.isNotEmpty) ...[
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF6ECF8),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: SakhiModule4Colors.borderSubtle),
+                    ),
+                    child: Text(
+                      'No police station mapped within ${(_controller.selectedSearchRadiusMeters / 1000).round()} km. Showing verified police stations just outside your selected radius below:',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: SakhiModule4Colors.primaryPlum,
+                      ),
+                    ),
+                  ),
+                ],
+
+                // 2. Suggested Nearby Police Stations (Extended Radius)
+                if (_controller.extendedRadiusPoliceStations.isNotEmpty) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4, bottom: 8),
+                    child: Text(
+                      'Suggested Nearby Police Stations (Beyond ${(_controller.selectedSearchRadiusMeters / 1000).round()} km) • ${_controller.extendedRadiusPoliceStations.length} Found',
+                      style: const TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w800,
+                        color: SakhiModule4Colors.primaryPlum,
+                      ),
+                    ),
+                  ),
+                  ..._controller.extendedRadiusPoliceStations.map(
+                    (station) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _PoliceStationCard(
+                        station: station,
+                        onDirections: () =>
+                            _controller.launchDirectionsToStation(
+                              context,
+                              station,
+                            ),
+                        onCall: () => _controller.launchPhoneCall(
+                          context,
+                          station.phoneNumber,
+                          label: station.name,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -2010,6 +2094,96 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // Default Emergency SMS SIM Card Selector (Single/Dual SIM Auto-Dispatch)
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: SakhiModule4Colors.primaryPlum.withValues(
+                        alpha: 0.35,
+                      ),
+                    ),
+                    boxShadow: SakhiModule4Colors.cardShadow,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.sim_card_rounded,
+                            color: SakhiModule4Colors.primaryPlum,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Emergency SMS SIM (${_controller.selectedSimLabel})',
+                              style: const TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w800,
+                                color: SakhiModule4Colors.textPrimary,
+                              ),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () => _controller
+                                .refreshAvailableSimCards(
+                                  requestPermission: true,
+                                ),
+                            child: const Text(
+                              'Detect SIMs',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _controller.availableSimCards.length > 1
+                            ? 'Dual SIM detected — select which SIM card Sakhi should use to automatically send emergency SOS messages:'
+                            : 'When SOS is triggered, Sakhi automatically sends your live GPS & real battery (${_controller.batteryLabel}) SMS using your active SIM.',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: SakhiModule4Colors.textSecondary,
+                        ),
+                      ),
+                      if (_controller.availableSimCards.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          children: _controller.availableSimCards.map((sim) {
+                            final selected =
+                                _controller.selectedSimSubscriptionId ==
+                                sim.subscriptionId;
+                            return ChoiceChip(
+                              label: Text(sim.label),
+                              selected: selected,
+                              selectedColor: SakhiModule4Colors.primaryPlum,
+                              labelStyle: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                                color: selected
+                                    ? Colors.white
+                                    : SakhiModule4Colors.textPrimary,
+                              ),
+                              onSelected: (_) =>
+                                  _controller.selectSimForSos(sim),
+                            );
+                          }).toList(),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+
                 // Info Banner
                 Container(
                   padding: const EdgeInsets.all(14),
@@ -2921,15 +3095,120 @@ class _AddTrustedContactCardInlineState
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text(
-            'Add Trusted Emergency Contact',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: SakhiModule4Colors.textPrimary,
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Expanded(
+                child: Text(
+                  'Add Trusted Emergency Contact',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: SakhiModule4Colors.textPrimary,
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: () {
+                  final members = SakhiPrototypeState.instance.followers;
+                  showModalBottomSheet<void>(
+                    context: context,
+                    backgroundColor: Colors.white,
+                    shape: const RoundedRectangleBorder(
+                      borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(24),
+                      ),
+                    ),
+                    builder: (ctx) => SafeArea(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Select Verified Sakhi Member',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                color: SakhiModule4Colors.textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            const Text(
+                              'Tap a member from your Sakhi circle to pre-fill their name and relationship:',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: SakhiModule4Colors.textSecondary,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            if (members.isEmpty)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 16),
+                                child: Text(
+                                  'No directory members cached yet — enter name and mobile number below.',
+                                ),
+                              )
+                            else
+                              Flexible(
+                                child: ListView.builder(
+                                  shrinkWrap: true,
+                                  itemCount: members.length,
+                                  itemBuilder: (_, idx) {
+                                    final m = members[idx];
+                                    return ListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      leading: CircleAvatar(
+                                        backgroundColor: const Color(
+                                          0xFFF2E6F7,
+                                        ),
+                                        child: Text(
+                                          m.name.isNotEmpty ? m.name[0] : 'S',
+                                          style: const TextStyle(
+                                            color:
+                                                SakhiModule4Colors.primaryPlum,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ),
+                                      title: Text(
+                                        m.name,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      subtitle: Text(m.username),
+                                      trailing: const Icon(
+                                        Icons.add_circle_outline_rounded,
+                                        color: SakhiModule4Colors.primaryPlum,
+                                      ),
+                                      onTap: () {
+                                        setState(() {
+                                          _nameCtrl.text = m.name;
+                                          _selectedRelationship = 'Best Friend';
+                                        });
+                                        Navigator.pop(ctx);
+                                      },
+                                    );
+                                  },
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.people_outline_rounded, size: 16),
+                label: const Text(
+                  'Pick Sakhi Member',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           TextField(
             key: const Key('add-contact-name-input'),
             controller: _nameCtrl,

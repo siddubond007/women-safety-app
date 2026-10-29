@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
@@ -34,15 +36,32 @@ class FeedPostCard extends StatelessWidget {
   });
 
   static const Map<String, Map<String, String>> _reactions = {
-    'LIKE': {'emoji': '❤️', 'label': 'Like'},
-    'LOVE': {'emoji': '🥰', 'label': 'Love'},
-    'SUPPORT': {'emoji': '🤝', 'label': 'Support'},
+    'LOVE': {'emoji': '❤️', 'label': 'Love'},
+    'SUPPORT': {'emoji': '🌸', 'label': 'Support'},
+    'SOLIDARITY': {'emoji': '🤝', 'label': 'Solidarity'},
+    'HAHA': {'emoji': '😂', 'label': 'Haha'},
+    'CRYING': {'emoji': '😢', 'label': 'Crying'},
+    'FIERCE': {'emoji': '🔥', 'label': 'Fierce'},
+    'GRATEFUL': {'emoji': '🙏', 'label': 'Grateful'},
+    'APPLAUD': {'emoji': '👏', 'label': 'Applaud'},
+    // Legacy compatibility keys
+    'LIKE': {'emoji': '❤️', 'label': 'Love'},
     'INSPIRED': {'emoji': '✨', 'label': 'Inspired'},
     'HAPPY': {'emoji': '😊', 'label': 'Happy'},
-    'GRATEFUL': {'emoji': '🙏', 'label': 'Grateful'},
     'STRONG': {'emoji': '💪', 'label': 'Strong'},
     'CARE': {'emoji': '🌸', 'label': 'Care'},
   };
+
+  static const List<Map<String, String>> _wheelReactions = [
+    {'key': 'LOVE', 'emoji': '❤️', 'label': 'Love', 'fx': 'Pulse Heart'},
+    {'key': 'SUPPORT', 'emoji': '🌸', 'label': 'Support', 'fx': 'Lotus Bloom'},
+    {'key': 'SOLIDARITY', 'emoji': '🤝', 'label': 'Solidarity', 'fx': 'Sisterhood'},
+    {'key': 'HAHA', 'emoji': '😂', 'label': 'Haha', 'fx': 'Joy Burst'},
+    {'key': 'CRYING', 'emoji': '😢', 'label': 'Crying', 'fx': 'Empathy Tear'},
+    {'key': 'FIERCE', 'emoji': '🔥', 'label': 'Fierce', 'fx': 'Power Flame'},
+    {'key': 'GRATEFUL', 'emoji': '🙏', 'label': 'Grateful', 'fx': 'Warmth'},
+    {'key': 'APPLAUD', 'emoji': '👏', 'label': 'Applaud', 'fx': 'Ovation'},
+  ];
 
   bool _isRemoteUrl(String path) =>
       path.startsWith('http://') ||
@@ -423,6 +442,108 @@ class FeedPostCard extends StatelessWidget {
                       ),
                     ],
                   ),
+                  if (post.comments.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 11,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.pastelLavender.withValues(alpha: 0.42),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          for (final c in post.comments.take(2))
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 3),
+                              child: RichText(
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                text: TextSpan(
+                                  style: AppTypography.bodyRegular.copyWith(
+                                    fontSize: 12.5,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                  children: [
+                                    TextSpan(
+                                      text: '${c.authorName}: ',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        color: AppColors.primaryPurple,
+                                      ),
+                                    ),
+                                    TextSpan(text: c.body),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          if (post.comments.length > 2)
+                            InkWell(
+                              onTap: () => _showCommentsSheet(context),
+                              child: Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Text(
+                                  'View all ${post.commentsCount} comments',
+                                  style: AppTypography.subtitle.copyWith(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.primaryPurple,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  if (post.allowComments) ...[
+                    const SizedBox(height: 9),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(999),
+                      onTap: () => _showCommentsSheet(context),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.78),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: AppColors.borderSubtle),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.add_comment_outlined,
+                              size: 16,
+                              color: AppColors.primaryPurple,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Write a supportive comment…',
+                                style: AppTypography.subtitle.copyWith(
+                                  fontSize: 12,
+                                  color: AppColors.textMuted,
+                                ),
+                              ),
+                            ),
+                            const Text(
+                              'Reply',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.primaryPurple,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -433,48 +554,64 @@ class FeedPostCard extends StatelessWidget {
   }
 
   Future<void> _openAuthorProfile(BuildContext context) async {
+    final state = SakhiPrototypeState.instance;
     final username = post.authorUsername.trim();
-    if (username.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('This post does not include a public member handle.'),
-        ),
-      );
-      return;
-    }
-    final members = await SakhiPrototypeState.instance.searchVisibleMembers(
-      username,
-    );
-    if (!context.mounted) return;
-    if (members == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Member profile could not be loaded. Check your connection and retry.',
-          ),
-        ),
-      );
-      return;
-    }
     final normalized = username.replaceFirst(RegExp(r'^@'), '').toLowerCase();
     FollowerUserModel? member;
-    for (final candidate in members) {
-      if (candidate.username.replaceFirst(RegExp(r'^@'), '').toLowerCase() ==
-          normalized) {
+
+    // 1. Resolve by exact authorAccountId or exact @username from local directory first
+    for (final candidate in state.followers) {
+      if (post.authorAccountId.isNotEmpty &&
+          candidate.id == post.authorAccountId) {
+        member = candidate;
+        break;
+      }
+      if (normalized.isNotEmpty &&
+          candidate.username.replaceFirst(RegExp(r'^@'), '').toLowerCase() ==
+              normalized) {
         member = candidate;
         break;
       }
     }
-    if (member == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'This member is private or does not appear in verified search results.',
-          ),
-        ),
-      );
-      return;
+
+    // 2. Query backend search if not in local cache
+    if (member == null && username.isNotEmpty) {
+      final members = await state.searchVisibleMembers(username);
+      if (!context.mounted) return;
+      if (members != null) {
+        for (final candidate in members) {
+          if (post.authorAccountId.isNotEmpty &&
+              candidate.id == post.authorAccountId) {
+            member = candidate;
+            break;
+          }
+          if (candidate.username
+                  .replaceFirst(RegExp(r'^@'), '')
+                  .toLowerCase() ==
+              normalized) {
+            member = candidate;
+            break;
+          }
+        }
+      }
     }
+
+    // 3. Fallback to direct profile model keyed by post.authorAccountId & post.authorUsername
+    member ??= FollowerUserModel(
+      id: post.authorAccountId,
+      name: post.authorName,
+      username: username.isNotEmpty
+          ? (username.startsWith('@') ? username : '@$username')
+          : '@sakhi_member',
+      location: post.locationTag ?? 'India',
+      avatarAsset: post.authorAvatar,
+      isFollowing: false,
+      isVerified: post.authorVerified,
+      canFollow: post.authorAccountId.isNotEmpty &&
+          post.authorAccountId != state.currentUser.accountId,
+    );
+
+    if (!context.mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => SearchResultMemberProfileScreen(member: member!),
@@ -654,72 +791,80 @@ class FeedPostCard extends StatelessWidget {
   }
 
   void _showReactionPickerSheet(BuildContext context) {
-    showModalBottomSheet<void>(
+    HapticFeedback.mediumImpact();
+    showGeneralDialog<void>(
       context: context,
-      backgroundColor: AppColors.cardSurface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 22),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'React to ${post.authorName}\'s post',
-                style: AppTypography.sectionTitle,
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: _reactions.entries.map((entry) {
-                  final selected = post.viewerReaction == entry.key;
-                  return InkWell(
-                    borderRadius: BorderRadius.circular(20),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      SakhiPrototypeState.instance.reactToPost(post, entry.key);
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: selected
-                            ? AppColors.primaryPurple.withValues(alpha: 0.14)
-                            : AppColors.pastelLavender,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: selected
-                              ? AppColors.primaryPurple
-                              : Colors.transparent,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            entry.value['emoji']!,
-                            style: const TextStyle(fontSize: 18),
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            entry.value['label']!,
-                            style: AppTypography.bodyMedium,
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ],
+      barrierDismissible: true,
+      barrierLabel: 'Close reaction wheel',
+      barrierColor: Colors.black.withValues(alpha: 0.38),
+      transitionDuration: const Duration(milliseconds: 220),
+      pageBuilder: (dialogContext, anim1, anim2) {
+        return _SakhiRadialReactionWheelDialog(
+          post: post,
+          reactions: _wheelReactions,
+          onSelectReaction: (reactionKey, emoji, label) async {
+            HapticFeedback.lightImpact();
+            await SakhiPrototypeState.instance.reactToPost(post, reactionKey);
+          },
+        );
+      },
+      transitionBuilder: (ctx, anim, _, child) {
+        final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutBack);
+        return FadeTransition(
+          opacity: anim,
+          child: ScaleTransition(scale: curved, child: child),
+        );
+      },
+    );
+  }
+
+  void _showEditCommentDialog(
+    BuildContext context,
+    PostCommentItem comment,
+    VoidCallback onUpdated,
+  ) {
+    final editCtrl = TextEditingController(text: comment.body);
+    showDialog<void>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        backgroundColor: AppColors.cardSurface,
+        title: const Text('Edit Comment', style: AppTypography.sectionTitle),
+        content: TextField(
+          controller: editCtrl,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            hintText: 'Update your comment...',
           ),
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: const Text('Cancel'),
+          ),
+          SakhiPillButton(
+            label: 'Save',
+            onPressed: () async {
+              final nextText = editCtrl.text.trim();
+              if (nextText.isEmpty) return;
+              final ok = await SakhiPrototypeState.instance.editComment(
+                post.id,
+                comment.id,
+                nextText,
+              );
+              if (!dialogCtx.mounted) return;
+              Navigator.of(dialogCtx).pop();
+              onUpdated();
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    ok ? 'Comment updated.' : 'Could not update comment.',
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
       ),
     );
   }
@@ -736,144 +881,169 @@ class FeedPostCard extends StatelessWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setModalState) => Padding(
-          padding: EdgeInsets.only(
-            left: 20,
-            right: 20,
-            top: 18,
-            bottom: MediaQuery.of(ctx).viewInsets.bottom + 18,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Comments on ${post.authorName}\'s post (${post.comments.length})',
-                style: AppTypography.sectionTitle,
-              ),
-              const SizedBox(height: 10),
-              if (post.comments.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 16),
-                  child: Text(
-                    'No comments yet. Share a supportive note!',
-                    style: AppTypography.subtitle,
-                  ),
-                )
-              else
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 240),
-                  child: ListView.separated(
-                    shrinkWrap: true,
-                    itemCount: post.comments.length,
-                    separatorBuilder: (_, _) => const Divider(height: 16),
-                    itemBuilder: (context, idx) {
-                      final comment = post.comments[idx];
-                      return Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SakhiAvatar(
-                            imageAsset: comment.authorAvatar,
-                            fallbackLabel: comment.authorName,
-                            size: 34,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '${comment.authorName} • ${comment.createdAt}',
-                                  style: AppTypography.bodyMedium.copyWith(
-                                    fontSize: 12.5,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  comment.body,
-                                  style: AppTypography.bodyRegular,
-                                ),
-                              ],
+      builder: (ctx) => AnimatedBuilder(
+        animation: state,
+        builder: (ctx, _) => StatefulBuilder(
+          builder: (context, setModalState) => Padding(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 18,
+              bottom: MediaQuery.of(ctx).viewInsets.bottom + 18,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Comments on ${post.authorName}\'s post (${post.comments.length})',
+                  style: AppTypography.sectionTitle,
+                ),
+                const SizedBox(height: 10),
+                if (post.comments.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Text(
+                      'No comments yet. Share a supportive note!',
+                      style: AppTypography.subtitle,
+                    ),
+                  )
+                else
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 240),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: post.comments.length,
+                      separatorBuilder: (_, _) => const Divider(height: 16),
+                      itemBuilder: (context, idx) {
+                        final comment = post.comments[idx];
+                        return Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SakhiAvatar(
+                              imageAsset: comment.authorAvatar,
+                              fallbackLabel: comment.authorName,
+                              size: 34,
                             ),
-                          ),
-                          if (comment.canDelete || post.isOwnPost)
-                            IconButton(
-                              tooltip: 'Delete comment',
-                              icon: const Icon(
-                                Icons.delete_outline,
-                                size: 18,
-                                color: AppColors.sosRed,
-                              ),
-                              onPressed: () async {
-                                final removed = await state.removeComment(
-                                  post.id,
-                                  comment.id,
-                                );
-                                if (!ctx.mounted) return;
-                                setModalState(() {});
-                                ScaffoldMessenger.of(ctx).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      removed ? 'Comment removed.' : 'Could not remove this comment. No change was made.',
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '${comment.authorName} • ${comment.createdAt}',
+                                    style: AppTypography.bodyMedium.copyWith(
+                                      fontSize: 12.5,
                                     ),
                                   ),
-                                );
-                              },
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    comment.body,
+                                    style: AppTypography.bodyRegular,
+                                  ),
+                                ],
+                              ),
                             ),
-                        ],
-                      );
-                    },
-                  ),
-                ),
-              if (!post.allowComments)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 14),
-                  child: Text(
-                    'Comments are turned off for this post.',
-                    style: AppTypography.subtitle,
-                  ),
-                ),
-              if (post.allowComments) ...[
-                const SizedBox(height: 10),
-                TextField(
-                  controller: controller,
-                  decoration: const InputDecoration(
-                    hintText: 'Write an encouraging reply...',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: SakhiPillButton(
-                    label: 'Post Comment',
-                    onPressed: isSubmittingComment
-                        ? null
-                        : () async {
-                            final text = controller.text.trim();
-                            if (text.isEmpty) return;
-                            setModalState(() => isSubmittingComment = true);
-                            final submitted = await state.addPostComment(
-                              post,
-                              text,
-                            );
-                            if (!ctx.mounted) return;
-                            setModalState(() {
-                              isSubmittingComment = false;
-                              if (submitted) controller.clear();
-                            });
-                            ScaffoldMessenger.of(ctx).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  submitted ? 'Comment added!' : 'Comment could not be posted. Your text is still here; retry when connected.',
+                            if (comment.canEdit || comment.isOwnComment)
+                              IconButton(
+                                tooltip: 'Edit comment',
+                                visualDensity: VisualDensity.compact,
+                                icon: const Icon(
+                                  Icons.edit_outlined,
+                                  size: 17,
+                                  color: AppColors.primaryPurple,
+                                ),
+                                onPressed: () => _showEditCommentDialog(
+                                  ctx,
+                                  comment,
+                                  () => setModalState(() {}),
                                 ),
                               ),
-                            );
-                          },
+                            if (comment.canDelete ||
+                                comment.isOwnComment ||
+                                post.isOwnPost)
+                              IconButton(
+                                tooltip: 'Delete comment',
+                                visualDensity: VisualDensity.compact,
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  size: 18,
+                                  color: AppColors.sosRed,
+                                ),
+                                onPressed: () async {
+                                  final removed = await state.removeComment(
+                                    post.id,
+                                    comment.id,
+                                  );
+                                  if (!ctx.mounted) return;
+                                  setModalState(() {});
+                                  ScaffoldMessenger.of(ctx).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        removed
+                                            ? 'Comment removed.'
+                                            : 'Could not remove this comment. No change was made.',
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                          ],
+                        );
+                      },
+                    ),
                   ),
-                ),
+                if (!post.allowComments)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 14),
+                    child: Text(
+                      'Comments are turned off for this post.',
+                      style: AppTypography.subtitle,
+                    ),
+                  ),
+                if (post.allowComments) ...[
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: controller,
+                    decoration: const InputDecoration(
+                      hintText: 'Write an encouraging reply...',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: SakhiPillButton(
+                      label: 'Post Comment',
+                      onPressed: isSubmittingComment
+                          ? null
+                          : () async {
+                              final text = controller.text.trim();
+                              if (text.isEmpty) return;
+                              setModalState(() => isSubmittingComment = true);
+                              final submitted = await state.addPostComment(
+                                post,
+                                text,
+                              );
+                              if (!ctx.mounted) return;
+                              setModalState(() {
+                                isSubmittingComment = false;
+                                if (submitted) controller.clear();
+                              });
+                              ScaffoldMessenger.of(ctx).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    submitted
+                                        ? 'Comment added!'
+                                        : 'Comment could not be posted. Your text is still here; retry when connected.',
+                                  ),
+                                ),
+                              );
+                            },
+                    ),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
@@ -1226,6 +1396,330 @@ class FeedPostCard extends StatelessWidget {
                 ),
               ],
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SakhiRadialReactionWheelDialog extends StatefulWidget {
+  final FeedPostModel post;
+  final List<Map<String, String>> reactions;
+  final Future<void> Function(String key, String emoji, String label)
+  onSelectReaction;
+
+  const _SakhiRadialReactionWheelDialog({
+    required this.post,
+    required this.reactions,
+    required this.onSelectReaction,
+  });
+
+  @override
+  State<_SakhiRadialReactionWheelDialog> createState() =>
+      _SakhiRadialReactionWheelDialogState();
+}
+
+class _SakhiRadialReactionWheelDialogState
+    extends State<_SakhiRadialReactionWheelDialog>
+    with SingleTickerProviderStateMixin {
+  int? _hoveredIndex;
+  String? _burstEmoji;
+  String? _burstLabel;
+  late final AnimationController _burstController;
+
+  @override
+  void initState() {
+    super.initState();
+    final currentKey = widget.post.viewerReaction;
+    if (currentKey != null) {
+      final idx = widget.reactions.indexWhere((r) => r['key'] == currentKey);
+      if (idx != -1) _hoveredIndex = idx;
+    }
+    _burstController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 520),
+    );
+  }
+
+  @override
+  void dispose() {
+    _burstController.dispose();
+    super.dispose();
+  }
+
+  void _updateHoverFromOffset(Offset localPosition, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final dx = localPosition.dx - center.dx;
+    final dy = localPosition.dy - center.dy;
+    final dist = math.sqrt(dx * dx + dy * dy);
+    if (dist < 34 || dist > 165) return;
+
+    var angle = math.atan2(dy, dx);
+    if (angle < 0) angle += 2 * math.pi;
+    final sectorAngle = (2 * math.pi) / widget.reactions.length;
+    final normalized = (angle + math.pi / 2 + sectorAngle / 2) % (2 * math.pi);
+    final index = (normalized / sectorAngle).floor() % widget.reactions.length;
+    if (_hoveredIndex != index) {
+      HapticFeedback.selectionClick();
+      setState(() => _hoveredIndex = index);
+    }
+  }
+
+  Future<void> _triggerSelection(int index) async {
+    final item = widget.reactions[index];
+    setState(() {
+      _hoveredIndex = index;
+      _burstEmoji = item['emoji'];
+      _burstLabel = item['label'];
+    });
+    _burstController.forward(from: 0);
+    await widget.onSelectReaction(
+      item['key']!,
+      item['emoji']!,
+      item['label']!,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 380));
+    if (mounted && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const double wheelSize = 320;
+    const double orbitRadius = 112;
+    final hovered = _hoveredIndex != null
+        ? widget.reactions[_hoveredIndex!]
+        : null;
+
+    return Center(
+      child: Material(
+        color: Colors.transparent,
+        child: GestureDetector(
+          onPanUpdate: (details) => _updateHoverFromOffset(
+            details.localPosition,
+            const Size(wheelSize, wheelSize),
+          ),
+          onPanEnd: (_) {
+            if (_hoveredIndex != null) {
+              _triggerSelection(_hoveredIndex!);
+            }
+          },
+          child: SizedBox(
+            width: wheelSize,
+            height: wheelSize + 54,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Top iOS 26 Liquid Glass Pill Header
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 7,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.84),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.9),
+                        ),
+                      ),
+                      child: Text(
+                        hovered != null
+                            ? '${hovered['emoji']} ${hovered['label']} • ${hovered['fx']}'
+                            : 'Slide or Tap to React • Sakhi Sisterhood Wheel',
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.primaryPurple,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: wheelSize,
+                  height: wheelSize,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      // Frosted iOS 26 Liquid Glass Outer Radial Ring
+                      ClipOval(
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+                          child: Container(
+                            width: wheelSize,
+                            height: wheelSize,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: RadialGradient(
+                                colors: [
+                                  const Color(0xFFFDF4FA).withValues(alpha: 0.55),
+                                  const Color(0xFFF3E2FA).withValues(alpha: 0.88),
+                                ],
+                              ),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.9),
+                                width: 2,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppColors.primaryPurple.withValues(
+                                    alpha: 0.22,
+                                  ),
+                                  blurRadius: 32,
+                                  spreadRadius: 4,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      // Center Hub showing active / hovered reaction or animated emoji burst
+                      AnimatedBuilder(
+                        animation: _burstController,
+                        builder: (context, _) {
+                          final burstScale =
+                              1.0 + math.sin(_burstController.value * math.pi) * 0.45;
+                          return Transform.scale(
+                            scale: _burstEmoji != null ? burstScale : 1.0,
+                            child: Container(
+                              width: 96,
+                              height: 96,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: const LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    Color(0xFF88299F),
+                                    Color(0xFF5A1868),
+                                  ],
+                                ),
+                                border: Border.all(
+                                  color: Colors.white,
+                                  width: 2.5,
+                                ),
+                                boxShadow: const [
+                                  BoxShadow(
+                                    color: Color(0x445A1868),
+                                    blurRadius: 16,
+                                    offset: Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    _burstEmoji ??
+                                        hovered?['emoji'] ??
+                                        '🌸',
+                                    style: const TextStyle(fontSize: 30),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    _burstLabel ??
+                                        hovered?['label'] ??
+                                        'React',
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      // 8 Radial Reaction Nodes around the 360° wheel
+                      for (int i = 0; i < widget.reactions.length; i++)
+                        Builder(
+                          builder: (context) {
+                            final item = widget.reactions[i];
+                            final angle =
+                                -math.pi / 2 +
+                                (i * 2 * math.pi / widget.reactions.length);
+                            final dx = orbitRadius * math.cos(angle);
+                            final dy = orbitRadius * math.sin(angle);
+                            final isSelected =
+                                _hoveredIndex == i ||
+                                widget.post.viewerReaction == item['key'];
+
+                            return Transform.translate(
+                              offset: Offset(dx, dy),
+                              child: GestureDetector(
+                                onTap: () => _triggerSelection(i),
+                                child: AnimatedScale(
+                                  duration: const Duration(milliseconds: 150),
+                                  scale: isSelected ? 1.24 : 1.0,
+                                  child: Container(
+                                    width: 64,
+                                    height: 64,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: isSelected
+                                          ? AppColors.primaryPurple
+                                          : Colors.white.withValues(alpha: 0.92),
+                                      border: Border.all(
+                                        color: isSelected
+                                            ? Colors.white
+                                            : AppColors.borderSubtle,
+                                        width: isSelected ? 2.2 : 1.2,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: AppColors.primaryPurple
+                                              .withValues(
+                                                alpha: isSelected ? 0.32 : 0.08,
+                                              ),
+                                          blurRadius: isSelected ? 14 : 6,
+                                          offset: const Offset(0, 3),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Text(
+                                          item['emoji']!,
+                                          style: const TextStyle(fontSize: 22),
+                                        ),
+                                        const SizedBox(height: 1),
+                                        Text(
+                                          item['label']!,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 8.5,
+                                            fontWeight: FontWeight.w800,
+                                            color: isSelected
+                                                ? Colors.white
+                                                : AppColors.textPrimary,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

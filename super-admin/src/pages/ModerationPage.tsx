@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, RefreshCw, ShieldAlert } from "lucide-react";
+import { CheckCircle2, MessageSquareText, RefreshCw, ShieldAlert } from "lucide-react";
 import { StatusPill } from "../components/StatusPill";
 import { adminApi, API_BASE_URL } from "../services/api/adminApi";
 
@@ -46,6 +46,7 @@ export function ModerationPage({ section = "moderation" }: { section?: string })
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [reviewerComments, setReviewerComments] = useState<Record<string, string>>({});
 
   const fetchOperations = useCallback(async () => {
     const [ops, drive] = await Promise.all([
@@ -97,12 +98,17 @@ export function ModerationPage({ section = "moderation" }: { section?: string })
   }, [fetchOperations]);
 
   async function resolveReport(reportId: string, actionType: string) {
+    const customNote = (reviewerComments[reportId] ?? "").trim();
+    const resolvedReason =
+      customNote.length >= 3
+        ? customNote
+        : `Action ${actionType} recorded by Trust & Safety reviewer.`;
     try {
       await adminApi(`/admin-review/reports/${reportId}/resolve`, {
         method: "POST",
         body: {
           actionType,
-          reason: `Action ${actionType} recorded by Trust & Safety reviewer.`,
+          reason: resolvedReason,
         },
       });
       setNotice(`Report ${reportId.slice(0, 8)} resolved with ${actionType}.`);
@@ -129,7 +135,7 @@ export function ModerationPage({ section = "moderation" }: { section?: string })
       <section className="page-heading">
         <div>
           <div className="eyebrow">
-            <span className="eyebrow-line" /> TRUST, SAFETY & PLATFORM OPERATIONS
+            <span className="eyebrow-line" /> TRUST, SAFETY &amp; PLATFORM OPERATIONS
           </div>
           <h1>
             {section === "emergency"
@@ -140,7 +146,7 @@ export function ModerationPage({ section = "moderation" }: { section?: string })
                   ? "Audit Trail & Security Events"
                   : "Trust & Safety Moderation Queue"}
           </h1>
-          <p>Confidential member reports, moderation decisions, SOS telemetry, and Google Drive hierarchy health.</p>
+          <p>Confidential member reports, reviewer decision notes, SOS telemetry, and Google Drive hierarchy health.</p>
         </div>
         <div className="heading-meta">
           <StatusPill tone="green">CONFIDENTIAL QUEUE</StatusPill>
@@ -167,7 +173,7 @@ export function ModerationPage({ section = "moderation" }: { section?: string })
           <div className="panel-heading">
             <div>
               <span className="panel-kicker">PRIVATE GOOGLE DRIVE STORAGE</span>
-              <h2>Google Drive Hierarchy & OAuth Connection</h2>
+              <h2>Google Drive Hierarchy &amp; OAuth Connection</h2>
               <p>
                 Root folder: <code>{String(driveStatus.storageFolder ?? "Sakhi Media")}</code> · Configured:{" "}
                 <strong>{String(Boolean(driveStatus.configured))}</strong> · Connected:{" "}
@@ -187,7 +193,7 @@ export function ModerationPage({ section = "moderation" }: { section?: string })
             <div className="panel-heading">
               <div>
                 <span className="panel-kicker">SRS SECTION 5.4</span>
-                <h2>Confidential Content & Member Reports ({data.reports.length})</h2>
+                <h2>Confidential Content &amp; Member Reports ({data.reports.length})</h2>
                 <p>Reporter identities remain strictly confidential and are never exposed to the reported member.</p>
               </div>
               <ShieldAlert size={20} />
@@ -197,10 +203,10 @@ export function ModerationPage({ section = "moderation" }: { section?: string })
                 <thead>
                   <tr>
                     <th>Target</th>
-                    <th>Reason</th>
+                    <th>Reason &amp; Details</th>
                     <th>Status</th>
                     <th>Submitted</th>
-                    <th>Actions</th>
+                    <th>Reviewer Comment &amp; Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -215,27 +221,71 @@ export function ModerationPage({ section = "moderation" }: { section?: string })
                     <tr key={rep.id}>
                       <td>
                         <strong>{rep.targetHandle}</strong>
+                        {rep.targetType && (
+                          <div style={{ fontSize: 11.5, color: "#6E6275" }}>
+                            Type: {rep.targetType}
+                          </div>
+                        )}
                       </td>
-                      <td>{rep.reason}</td>
+                      <td>
+                        <div>{rep.reason}</div>
+                        {rep.details && (
+                          <small style={{ color: "#6E6275", display: "block", marginTop: 2 }}>
+                            {rep.details}
+                          </small>
+                        )}
+                      </td>
                       <td>
                         <StatusPill tone={rep.status === "SUBMITTED" ? "amber" : "green"}>{rep.status}</StatusPill>
                       </td>
                       <td>{new Date(rep.createdAt).toLocaleString("en-IN")}</td>
-                      <td style={{ display: "flex", gap: 8 }}>
-                        <button
-                          className="button button--secondary"
-                          type="button"
-                          onClick={() => void resolveReport(rep.id, "REMOVE_POST")}
-                        >
-                          Remove Post
-                        </button>
-                        <button
-                          className="button button--secondary"
-                          type="button"
-                          onClick={() => void resolveReport(rep.id, "DISMISS_REPORT")}
-                        >
-                          Dismiss
-                        </button>
+                      <td>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 260 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <MessageSquareText size={14} color="#6E6275" />
+                            <input
+                              type="text"
+                              placeholder="Reviewer decision note / comment..."
+                              value={reviewerComments[rep.id] ?? ""}
+                              onChange={(e) =>
+                                setReviewerComments((prev) => ({
+                                  ...prev,
+                                  [rep.id]: e.target.value,
+                                }))
+                              }
+                              style={{
+                                width: "100%",
+                                padding: "6px 10px",
+                                borderRadius: 8,
+                                border: "1px solid #DFC9E3",
+                                fontSize: 12.5,
+                              }}
+                            />
+                          </div>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <button
+                              className="button button--secondary"
+                              type="button"
+                              onClick={() => void resolveReport(rep.id, "REMOVE_POST")}
+                            >
+                              Remove Post
+                            </button>
+                            <button
+                              className="button button--secondary"
+                              type="button"
+                              onClick={() => void resolveReport(rep.id, "SUSPEND_MEMBER")}
+                            >
+                              Suspend Member
+                            </button>
+                            <button
+                              className="button button--secondary"
+                              type="button"
+                              onClick={() => void resolveReport(rep.id, "DISMISS_REPORT")}
+                            >
+                              Dismiss
+                            </button>
+                          </div>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -248,23 +298,25 @@ export function ModerationPage({ section = "moderation" }: { section?: string })
             <div className="panel-heading">
               <div>
                 <span className="panel-kicker">EMERGENCY TELEMETRY</span>
-                <h2>Recorded SOS & Safety Events ({data.sosEvents.length})</h2>
+                <h2>SOS &amp; Safety Check-In Events ({data.sosEvents.length})</h2>
+                <p>Live emergency dispatches and safety check-in records from Module 4.</p>
               </div>
             </div>
             <div className="table-scroll">
               <table className="operations-table">
                 <thead>
                   <tr>
-                    <th>Event Type</th>
-                    <th>Location Label</th>
+                    <th>Event ID</th>
+                    <th>Type</th>
                     <th>Status</th>
+                    <th>Location</th>
                     <th>Recorded At</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.sosEvents.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="member-empty-cell">
+                      <td colSpan={5} className="member-empty-cell">
                         No SOS events recorded yet.
                       </td>
                     </tr>
@@ -272,12 +324,13 @@ export function ModerationPage({ section = "moderation" }: { section?: string })
                   {data.sosEvents.map((ev) => (
                     <tr key={ev.id}>
                       <td>
-                        <strong>{ev.eventType}</strong>
+                        <code>{ev.id.slice(0, 8)}</code>
+                      </td>
+                      <td>{ev.eventType}</td>
+                      <td>
+                        <StatusPill tone={ev.status === "ACTIVE" ? "urgent" : "green"}>{ev.status}</StatusPill>
                       </td>
                       <td>{ev.locationLabel}</td>
-                      <td>
-                        <StatusPill tone="rose">{ev.status}</StatusPill>
-                      </td>
                       <td>{new Date(ev.createdAt).toLocaleString("en-IN")}</td>
                     </tr>
                   ))}
@@ -289,8 +342,9 @@ export function ModerationPage({ section = "moderation" }: { section?: string })
           <section className="panel queue-panel">
             <div className="panel-heading">
               <div>
-                <span className="panel-kicker">IMMUTABLE AUDIT TRAIL</span>
-                <h2>Recent Security & Governance Audit Events ({data.auditEvents.length})</h2>
+                <span className="panel-kicker">SECURITY &amp; GOVERNANCE</span>
+                <h2>Platform Audit Trail ({data.auditEvents.length})</h2>
+                <p>Immutable log of member and administrator security actions.</p>
               </div>
             </div>
             <div className="table-scroll">
@@ -305,17 +359,17 @@ export function ModerationPage({ section = "moderation" }: { section?: string })
                   </tr>
                 </thead>
                 <tbody>
-                  {data.auditEvents.map((ev) => (
-                    <tr key={ev.id}>
-                      <td>{ev.actorType}</td>
+                  {data.auditEvents.map((audit) => (
+                    <tr key={audit.id}>
+                      <td>{audit.actorType}</td>
                       <td>
-                        <code>{ev.action}</code>
+                        <code>{audit.action}</code>
                       </td>
-                      <td>{ev.targetType}</td>
+                      <td>{audit.targetType}</td>
                       <td>
-                        <StatusPill tone="green">{ev.outcome}</StatusPill>
+                        <StatusPill tone="green">{audit.outcome}</StatusPill>
                       </td>
-                      <td>{new Date(ev.createdAt).toLocaleString("en-IN")}</td>
+                      <td>{new Date(audit.createdAt).toLocaleString("en-IN")}</td>
                     </tr>
                   ))}
                 </tbody>

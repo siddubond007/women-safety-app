@@ -59,7 +59,19 @@ export class CreateProfileDto {
   @IsNotEmpty()
   @MinLength(2)
   @MaxLength(100)
+  @Matches(/^[^\d]+$/, {
+    message: "Full name cannot contain numbers.",
+  })
   displayName!: string;
+
+  @ApiPropertyOptional({ example: "@aarohi_sharma" })
+  @IsOptional()
+  @IsString()
+  @Matches(/^@?[a-zA-Z0-9_]{3,24}$/, {
+    message:
+      "Username must be 3 to 24 characters using letters, numbers, or underscores.",
+  })
+  username?: string | null;
 
   @ApiProperty({ example: "1999-04-12" })
   @IsString()

@@ -46,6 +46,96 @@ class _SakhiLiveOsmMapState extends State<SakhiLiveOsmMap> {
       TransformationController();
   int _zoomAdjustment = 0;
   bool _needsCentering = true;
+  bool _isExpandedHalfScreen = false;
+
+  double get _effectiveHeight => _isExpandedHalfScreen
+      ? math.max(widget.height + 190, 420.0)
+      : widget.height;
+
+  void _adjustZoom(int delta) {
+    final nextZoom = (widget.initialZoom.round() + _zoomAdjustment + delta)
+        .clamp(3, 18);
+    if (nextZoom == _zoom) return;
+    setState(() {
+      _zoomAdjustment += delta;
+      _transformController.value = Matrix4.identity();
+      _needsCentering = true;
+    });
+  }
+
+  void _recenterMap() {
+    setState(() {
+      _transformController.value = Matrix4.identity();
+      _needsCentering = true;
+    });
+  }
+
+  void _toggleExpandHalfScreen() {
+    setState(() {
+      _isExpandedHalfScreen = !_isExpandedHalfScreen;
+      _needsCentering = true;
+    });
+  }
+
+  void _openFullScreenMap(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final screenH = MediaQuery.of(ctx).size.height;
+        return Container(
+          height: screenH * 0.88,
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: SakhiLiveOsmMap(
+                  height: screenH * 0.88,
+                  initialZoom: _zoom.toDouble(),
+                  latitude: widget.latitude,
+                  longitude: widget.longitude,
+                  hasLiveGps: widget.hasLiveGps,
+                  locationLabel: widget.locationLabel,
+                  accuracyMeters: widget.accuracyMeters,
+                  policeStations: widget.policeStations,
+                  onRequestGpsTap: widget.onRequestGpsTap,
+                  onStationTap: widget.onStationTap,
+                ),
+              ),
+              Positioned(
+                bottom: 20,
+                left: 20,
+                right: 20,
+                child: SafeArea(
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF5A1868),
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size.fromHeight(48),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    icon: const Icon(Icons.fullscreen_exit_rounded),
+                    label: const Text(
+                      'Close Full-Screen Map',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
   bool get _hasValidGps =>
       widget.hasLiveGps &&
@@ -243,27 +333,27 @@ class _SakhiLiveOsmMapState extends State<SakhiLiveOsmMap> {
           decoration: BoxDecoration(
             color: const Color(0x332196F3),
             shape: BoxShape.circle,
-            border: Border.all(color: const Color(0x772196F3), width: 1),
+            border: Border.all(color: const Color(0x772196F3), width: 1.4),
           ),
         ),
       ),
     );
     children.add(
       Positioned(
-        left: centerX - 8,
-        top: centerY - 8,
+        left: centerX - 9,
+        top: centerY - 9,
         child: Container(
-          width: 16,
-          height: 16,
+          width: 18,
+          height: 18,
           decoration: BoxDecoration(
             color: const Color(0xFF1479E8),
             shape: BoxShape.circle,
             border: Border.all(color: Colors.white, width: 3),
             boxShadow: const [
               BoxShadow(
-                color: Color(0x44000000),
-                blurRadius: 5,
-                offset: Offset(0, 2),
+                color: Color(0x551479E8),
+                blurRadius: 8,
+                spreadRadius: 2,
               ),
             ],
           ),
@@ -277,7 +367,7 @@ class _SakhiLiveOsmMapState extends State<SakhiLiveOsmMap> {
         _transformController.value = Matrix4.identity()
           ..translateByDouble(
             viewportWidth / 2 - canvasSize / 2,
-            widget.height / 2 - canvasSize / 2,
+            _effectiveHeight / 2 - canvasSize / 2,
             0.0,
             1.0,
           );
@@ -304,8 +394,10 @@ class _SakhiLiveOsmMapState extends State<SakhiLiveOsmMap> {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: widget.height,
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOutCubic,
+      height: _effectiveHeight,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(18),
         child: LayoutBuilder(
@@ -395,20 +487,191 @@ class _SakhiLiveOsmMapState extends State<SakhiLiveOsmMap> {
                             color: const Color(0xF7FFFFFF),
                             borderRadius: BorderRadius.circular(12),
                           ),
-                          child: Text(
-                            widget.accuracyMeters != null &&
-                                    widget.accuracyMeters!.isFinite &&
-                                    widget.accuracyMeters! > 0
-                                ? 'GPS accuracy ${widget.accuracyMeters!.toStringAsFixed(0)} m'
-                                : 'GPS active',
-                            style: const TextStyle(
-                              color: Color(0xFF1769AA),
-                              fontSize: 10,
-                              fontWeight: FontWeight.w800,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 7,
+                                height: 7,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF1E7E55),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                widget.accuracyMeters != null &&
+                                        widget.accuracyMeters!.isFinite &&
+                                        widget.accuracyMeters! > 0
+                                    ? 'GPS accuracy ${widget.accuracyMeters!.toStringAsFixed(0)} m'
+                                    : 'GPS active',
+                                style: const TextStyle(
+                                  color: Color(0xFF1769AA),
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                if (_hasValidGps && _isExpandedHalfScreen)
+                  Positioned(
+                    top: 46,
+                    left: 8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xEE22112B),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        'LIVE GPS • ${widget.latitude.toStringAsFixed(5)}, ${widget.longitude.toStringAsFixed(5)} • Zoom $_zoom',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                if (_hasValidGps)
+                  Positioned(
+                    right: 8,
+                    bottom: 28,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Material(
+                          color: const Color(0xF5FFFFFF),
+                          borderRadius: BorderRadius.circular(10),
+                          elevation: 2,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(10),
+                            onTap: () => _adjustZoom(1),
+                            child: const SizedBox(
+                              width: 34,
+                              height: 34,
+                              child: Icon(
+                                Icons.add_rounded,
+                                size: 20,
+                                color: Color(0xFF5A1868),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Material(
+                          color: const Color(0xF5FFFFFF),
+                          borderRadius: BorderRadius.circular(10),
+                          elevation: 2,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(10),
+                            onTap: () => _adjustZoom(-1),
+                            child: const SizedBox(
+                              width: 34,
+                              height: 34,
+                              child: Icon(
+                                Icons.remove_rounded,
+                                size: 20,
+                                color: Color(0xFF5A1868),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Material(
+                          color: const Color(0xF5FFFFFF),
+                          borderRadius: BorderRadius.circular(10),
+                          elevation: 2,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(10),
+                            onTap: _recenterMap,
+                            child: const SizedBox(
+                              width: 34,
+                              height: 34,
+                              child: Icon(
+                                Icons.my_location_rounded,
+                                size: 18,
+                                color: Color(0xFF1769AA),
+                              ),
                             ),
                           ),
                         ),
                       ],
+                    ),
+                  ),
+                Positioned(
+                  left: 8,
+                  bottom: 6,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Material(
+                        color: const Color(0xF5FFFFFF),
+                        borderRadius: BorderRadius.circular(999),
+                        elevation: 2,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(999),
+                          onTap: _toggleExpandHalfScreen,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 5,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  _isExpandedHalfScreen
+                                      ? Icons.unfold_less_rounded
+                                      : Icons.unfold_more_rounded,
+                                  size: 15,
+                                  color: const Color(0xFF5A1868),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  _isExpandedHalfScreen
+                                      ? 'Compact Map'
+                                      : 'Expand Map',
+                                  style: const TextStyle(
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF5A1868),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Material(
+                        color: const Color(0xF5FFFFFF),
+                        borderRadius: BorderRadius.circular(999),
+                        elevation: 2,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(999),
+                          onTap: () => _openFullScreenMap(context),
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 9,
+                              vertical: 5,
+                            ),
+                            child: Icon(
+                              Icons.open_in_full_rounded,
+                              size: 13,
+                              color: Color(0xFF5A1868),
+                            ),
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),

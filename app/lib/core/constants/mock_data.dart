@@ -321,6 +321,10 @@ class FollowerUserModel {
   final String avatarAsset;
   final bool isVerified;
   final bool canFollow;
+  final bool followsMe;
+  final int postsCount;
+  final int followersCount;
+  final int followingCount;
   final List<String> interests;
   final String? businessProfileUrl;
   final String? businessProfileName;
@@ -335,6 +339,10 @@ class FollowerUserModel {
     this.bio,
     required this.avatarAsset,
     required this.isFollowing,
+    this.followsMe = false,
+    this.postsCount = 0,
+    this.followersCount = 0,
+    this.followingCount = 0,
     this.isVerified = false,
     this.canFollow = true,
     this.interests = const <String>[],
@@ -347,7 +355,7 @@ class FollowerUserModel {
 
   factory FollowerUserModel.fromJson(Map<String, dynamic> json) {
     final id = (json['id'] ?? json['accountId'] ?? '').toString();
-    final name = json['name']?.toString() ?? '';
+    final name = (json['name'] ?? json['displayName'] ?? '').toString();
     final rawAvatar = (json['avatarUrl'] ?? json['avatarAsset'] ?? '')
         .toString();
     final rawInterests = json['interests'];
@@ -359,6 +367,10 @@ class FollowerUserModel {
       bio: json['bio'] as String?,
       avatarAsset: rawAvatar,
       isFollowing: json['isFollowing'] == true,
+      followsMe: json['followsMe'] == true,
+      postsCount: (json['postsCount'] as num?)?.toInt() ?? 0,
+      followersCount: (json['followersCount'] as num?)?.toInt() ?? 0,
+      followingCount: (json['followingCount'] as num?)?.toInt() ?? 0,
       isVerified:
           json['isVerified'] == true ||
           json['verificationStatus'] == 'VERIFIED',
@@ -821,14 +833,25 @@ class SakhiPrototypeState extends ChangeNotifier {
       );
       final rawComments = res['comments'] ?? res['items'];
       if (rawComments is List) {
-        final idx = communityPosts.indexWhere((p) => p.id == postId);
-        if (idx != -1) {
-          communityPosts[idx].comments = rawComments
-              .whereType<Map<String, dynamic>>()
-              .map(PostCommentItem.fromJson)
-              .toList();
-          communityPosts[idx].commentsCount =
-              communityPosts[idx].comments.length;
+        final parsed = rawComments
+            .whereType<Map<String, dynamic>>()
+            .map(PostCommentItem.fromJson)
+            .toList();
+        var updatedAny = false;
+        for (final collection in [
+          communityPosts,
+          exploreRecommendedPosts,
+          profilePosts,
+        ]) {
+          for (final p in collection) {
+            if (p.id == postId) {
+              p.comments = List<PostCommentItem>.from(parsed);
+              p.commentsCount = parsed.length;
+              updatedAny = true;
+            }
+          }
+        }
+        if (updatedAny) {
           notifyListeners();
         }
       }
@@ -1097,18 +1120,59 @@ class SakhiPrototypeState extends ChangeNotifier {
   }
 
   Future<bool?> checkUsernameAvailability(String username) async {
+    final clean = username.trim().replaceFirst(RegExp(r'^@'), '').toLowerCase();
+    if (clean.length < 3 || !RegExp(r'^[a-z0-9_]{3,24}$').hasMatch(clean)) {
+      return false;
+    }
+    final ownHandle = currentUser.username
+        .trim()
+        .replaceFirst(RegExp(r'^@'), '')
+        .toLowerCase();
+    if (ownHandle.isNotEmpty && clean == ownHandle) {
+      return true;
+    }
+    // Immediate local case-insensitive uniqueness check against known directory & posts
+    for (final m in followers) {
+      final existing = m.username
+          .trim()
+          .replaceFirst(RegExp(r'^@'), '')
+          .toLowerCase();
+      if (existing == clean && m.id != currentUser.accountId) {
+        return false;
+      }
+    }
+    for (final p in [...communityPosts, ...exploreRecommendedPosts]) {
+      final existing = p.authorUsername
+          .trim()
+          .replaceFirst(RegExp(r'^@'), '')
+          .toLowerCase();
+      if (existing == clean && p.authorAccountId != currentUser.accountId) {
+        return false;
+      }
+    }
+    final query = Uri(queryParameters: {'username': '@$clean'}).query;
     try {
       final token = await _client.readAccessToken();
-      if (token == null || token.isEmpty) return null;
-      final query = Uri(queryParameters: {'username': username}).query;
+      if (token != null && token.isNotEmpty) {
+        final response = await _client.get(
+          'module2/username-availability?$query',
+          authenticated: true,
+        );
+        if (response['available'] is bool) {
+          return response['available'] as bool;
+        }
+      }
+    } catch (_) {}
+    try {
       final response = await _client.get(
-        'module2/username-availability?$query',
-        authenticated: true,
+        'auth/username-availability?$query',
+        authenticated: false,
       );
-      return response['available'] as bool?;
-    } catch (_) {
-      return null;
-    }
+      if (response['available'] is bool) {
+        return response['available'] as bool;
+      }
+    } catch (_) {}
+    return null;
   }
 
   Future<bool> updateProfile({
@@ -1572,11 +1636,14 @@ class SakhiPrototypeState extends ChangeNotifier {
   /// connection/API failure; an empty list is a confirmed empty result.
   Future<List<FollowerUserModel>?> fetchMemberConnections({
     required bool following,
+    String? targetMemberId,
   }) async {
-    // Avoid invoking platform secure storage from disconnected/demo screens.
-    // A live authenticated app has already completed bootstrap before lists
-    // are loaded; otherwise render the honest unavailable state and let the
-    // user retry once a backend session is established.
+    if (targetMemberId != null && targetMemberId.trim().isNotEmpty) {
+      return fetchTargetMemberConnections(
+        targetMemberId.trim(),
+        following: following,
+      );
+    }
     if (!_isBackendSynced) return null;
     final token = await _client.readAccessToken();
     if (token == null || token.isEmpty) return null;
@@ -1591,6 +1658,70 @@ class SakhiPrototypeState extends ChangeNotifier {
           .whereType<Map<String, dynamic>>()
           .map(FollowerUserModel.fromJson)
           .toList(growable: false);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<List<FollowerUserModel>?> fetchTargetMemberConnections(
+    String targetId, {
+    required bool following,
+  }) async {
+    try {
+      final token = await _client.readAccessToken();
+      if (token == null || token.isEmpty) return null;
+      final type = following ? 'following' : 'followers';
+      final response = await _client.get(
+        'module2/members/${Uri.encodeComponent(targetId)}/connections?mode=$type&type=$type',
+        authenticated: true,
+      );
+      final rawItems = response['items'] ?? response['members'];
+      if (rawItems is! List) return <FollowerUserModel>[];
+      return rawItems
+          .whereType<Map<String, dynamic>>()
+          .map(FollowerUserModel.fromJson)
+          .toList(growable: false);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> fetchTargetMemberProfileOverview(
+    String targetId,
+  ) async {
+    try {
+      final token = await _client.readAccessToken();
+      if (token == null || token.isEmpty) return null;
+      final response = await _client.get(
+        'module2/members/${Uri.encodeComponent(targetId)}/profile-overview',
+        authenticated: true,
+      );
+      return response;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> fetchNearbyCircles({
+    double? lat,
+    double? lng,
+    double radiusKm = 25,
+    String? city,
+  }) async {
+    try {
+      final token = await _client.readAccessToken();
+      final params = <String, String>{
+        'radiusKm': radiusKm.toStringAsFixed(0),
+        if (lat != null && lat.isFinite) 'lat': lat.toStringAsFixed(5),
+        if (lng != null && lng.isFinite) 'lng': lng.toStringAsFixed(5),
+        if (city != null && city.trim().isNotEmpty) 'city': city.trim(),
+      };
+      final qs = Uri(queryParameters: params).query;
+      final response = await _client.get(
+        'module2/nearby-circles?$qs',
+        authenticated: token != null && token.isNotEmpty,
+      );
+      return response;
     } catch (_) {
       return null;
     }
@@ -2005,24 +2136,50 @@ class SakhiPrototypeState extends ChangeNotifier {
     unawaited(
       _sendAuthenticatedRequest((client) async {
         await client.put(
-          'module2/security',
+          'module2/security/two-factor',
           authenticated: true,
-          body: {'twoFactorEnabled': currentUser.twoFactorEnabled},
+          body: {
+            'enabled': currentUser.twoFactorEnabled,
+            'twoFactorEnabled': currentUser.twoFactorEnabled,
+          },
         );
       }),
     );
   }
 
-  void updateSecurityPin(String newPin) {
+  void updateSecurityPin(String newPin, {String? currentPin}) {
     unawaited(
       _sendAuthenticatedRequest((client) async {
         await client.put(
-          'module2/security',
+          'module2/security/pin',
           authenticated: true,
-          body: {'pin': newPin},
+          body: {
+            'currentPin': currentPin ?? '0000',
+            'newPin': newPin,
+            'pin': newPin,
+          },
         );
       }),
     );
+  }
+
+  Future<bool> requestAccountDeletion({String? reason}) async {
+    try {
+      final token = await _client.readAccessToken();
+      if (token == null || token.isEmpty) return true;
+      await _client.post(
+        'module2/account/delete',
+        authenticated: true,
+        body: {
+          'confirmation': 'DELETE',
+          if (reason != null && reason.trim().isNotEmpty)
+            'reason': reason.trim(),
+        },
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<bool> reportUserOrPost({

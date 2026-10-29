@@ -4,6 +4,7 @@ import {
   Clock3,
   Eye,
   EyeOff,
+  MessageSquareText,
   RefreshCw,
   ShieldCheck,
   XCircle,
@@ -62,17 +63,19 @@ type PendingDirectoryMember = {
 
 type ReviewDecision = "approve" | "reject";
 
+const ELIGIBILITY_DATE_TIME_FMT = new Intl.DateTimeFormat("en-IN", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
 function formatDateTime(value: string | null | undefined): string {
   if (!value) return "Not available";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Not available";
-  return new Intl.DateTimeFormat("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  return ELIGIBILITY_DATE_TIME_FMT.format(date);
 }
 
 export function EligibilityReviewPage() {
@@ -86,6 +89,9 @@ export function EligibilityReviewPage() {
   const [decision, setDecision] = useState<ReviewDecision | null>(null);
   const [reason, setReason] = useState(
     "Approved female eligibility and minimum age verification.",
+  );
+  const [overrideComment, setOverrideComment] = useState(
+    "Verified female eligibility & age policy via Super Admin review.",
   );
   const [evidenceAttested, setEvidenceAttested] = useState(true);
   const [showPhones, setShowPhones] = useState(false);
@@ -210,6 +216,10 @@ export function EligibilityReviewPage() {
         : preset === "REJECTED"
           ? "REJECTED"
           : "UNVERIFIED";
+    const customReason =
+      overrideComment.trim().length >= 10
+        ? `${overrideComment.trim()} (${member.displayName} → ${preset})`
+        : `Admin set ${member.displayName} eligibility status to ${preset} from Eligibility & Verification page.`;
     try {
       try {
         await adminApi(
@@ -220,7 +230,7 @@ export function EligibilityReviewPage() {
               preset,
               accountStatus: nextAccountStatus,
               verificationStatus: nextVerificationStatus,
-              reason: `Admin set ${member.displayName} eligibility status to ${preset} from Eligibility & Verification page.`,
+              reason: customReason,
             },
           },
         );
@@ -233,7 +243,7 @@ export function EligibilityReviewPage() {
               accountStatus: nextAccountStatus,
               verificationStatus: nextVerificationStatus,
               allowStagingOverride: true,
-              reason: `Admin set ${member.displayName} eligibility status to ${preset} from Eligibility & Verification page.`,
+              reason: customReason,
             },
           },
         );
@@ -447,7 +457,7 @@ export function EligibilityReviewPage() {
               )
             </h3>
             <label className="member-filter-select" style={{ marginBottom: 10 }}>
-              <span>Audit reason (10–500 chars)</span>
+              <span>Audit reason / reviewer comment (10–500 chars)</span>
               <input
                 type="text"
                 value={reason}
@@ -489,12 +499,43 @@ export function EligibilityReviewPage() {
               All Registered Users — Change Status Anytime ({pendingMembers.length})
             </h2>
             <p style={{ margin: "4px 0 0", fontSize: 13, color: "#6E6275" }}>
-              Click any button below to set any registered user to <strong>Verified</strong>, <strong>Pending</strong>, <strong>Incomplete</strong>, or <strong>Rejected</strong> even if Decentro DigiLocker verification is still pending.
+              Enter an optional audit comment/reason below and click any button to set any registered user to <strong>Verified</strong>, <strong>Pending</strong>, <strong>Incomplete</strong>, or <strong>Rejected</strong>.
             </p>
           </div>
           <Link className="button button--secondary" to="/members">
             Open Full 360° Member Directory
           </Link>
+        </div>
+
+        <div
+          style={{
+            marginBottom: 14,
+            padding: "10px 14px",
+            borderRadius: 12,
+            background: "rgba(250, 245, 251, 0.85)",
+            border: "1px solid #DFC9E3",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+          }}
+        >
+          <MessageSquareText size={16} color="#5A1868" />
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: "#5A1868", whiteSpace: "nowrap" }}>
+            Reviewer Override Comment:
+          </span>
+          <input
+            type="text"
+            value={overrideComment}
+            onChange={(e) => setOverrideComment(e.target.value)}
+            placeholder="Enter audit comment or reason for status change..."
+            style={{
+              flex: 1,
+              padding: "7px 12px",
+              borderRadius: 8,
+              border: "1px solid #D3B8DB",
+              fontSize: 13,
+            }}
+          />
         </div>
 
         <div className="table-scroll">

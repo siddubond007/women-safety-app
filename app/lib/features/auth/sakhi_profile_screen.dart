@@ -58,10 +58,35 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
   static const List<String> _suggestedInterests = <String>[
     'Health & Wellness',
     'Safety & Support',
+    'Mental Wellness',
+    'WomenInTech',
     'Women Businesses',
     'Education & Career',
-    'Community Stories',
     'Menstrual Care',
+    'Fitness & Nutrition',
+    'Mindfulness & Yoga',
+    'Travel',
+    'Reading',
+    'Art & Creativity',
+  ];
+
+  static const List<String> _allCuratedInterests = <String>[
+    'Health & Wellness',
+    'Safety & Support',
+    'Mental Wellness',
+    'WomenInTech',
+    'Women Businesses',
+    'Education & Career',
+    'Menstrual Care',
+    'Fitness & Nutrition',
+    'Mindfulness & Yoga',
+    'Travel',
+    'Reading',
+    'Art & Creativity',
+    'Legal Rights',
+    'Motherhood & Family',
+    'Financial Independence',
+    'Sustainable Living',
   ];
 
   static const List<Map<String, String>> _portraitPresets =
@@ -116,48 +141,86 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
   }
 
   Future<void> _showAddInterestDialog() async {
-    final controller = TextEditingController();
-    final value = await showDialog<String>(
+    await showModalBottomSheet<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Add an interest'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLength: 40,
-          decoration: const InputDecoration(hintText: 'e.g. Entrepreneurship'),
-          onSubmitted: (value) => Navigator.of(dialogContext).pop(value.trim()),
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (ctx, setModalState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Choose Sakhi Community Interests',
+                  style: TextStyle(
+                    color: Color(0xFF34183D),
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Select from official Sakhi community & wellness topics:',
+                  style: TextStyle(color: Color(0xFF6B4F78), fontSize: 13),
+                ),
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _allCuratedInterests.map((interest) {
+                    final isSelected = _selectedInterests.contains(interest);
+                    return FilterChip(
+                      label: Text(isSelected ? '$interest ✓' : interest),
+                      selected: isSelected,
+                      showCheckmark: false,
+                      selectedColor: const Color(0xFF5D196A),
+                      backgroundColor: const Color(0xFFF3E8F8),
+                      labelStyle: TextStyle(
+                        color: isSelected
+                            ? Colors.white
+                            : const Color(0xFF4A1B58),
+                        fontSize: 12.5,
+                        fontWeight:
+                            isSelected ? FontWeight.w700 : FontWeight.w600,
+                      ),
+                      onSelected: (selected) {
+                        setState(() {
+                          if (selected) {
+                            if (_selectedInterests.length < 16 &&
+                                !_selectedInterests.contains(interest)) {
+                              _selectedInterests.add(interest);
+                            }
+                          } else {
+                            _selectedInterests.remove(interest);
+                          }
+                        });
+                        setModalState(() {});
+                      },
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton(
+                    onPressed: () => Navigator.of(sheetContext).pop(),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF5D196A),
+                    ),
+                    child: const Text('Done'),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.of(dialogContext).pop(controller.text.trim()),
-            child: const Text('Add interest'),
-          ),
-        ],
       ),
     );
-    controller.dispose();
-    if (!mounted || value == null) return;
-    final normalized = value.trim();
-    if (normalized.isEmpty) return;
-    if (_selectedInterests.contains(normalized)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('That interest is already selected.')),
-      );
-      return;
-    }
-    if (_selectedInterests.length >= 16) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Choose up to 16 interests.')),
-      );
-      return;
-    }
-    setState(() => _selectedInterests.add(normalized));
   }
 
   Future<void> _chooseDateOfBirth() async {
@@ -764,10 +827,14 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
                       fieldKey: const Key('auth-profile-name-field'),
                       controller: _nameController,
                       label: '',
-                      hint: 'Enter your full name or preferred name',
+                      hint: 'Enter your full name (letters only)',
                       textCapitalization: TextCapitalization.words,
                       textInputAction: TextInputAction.next,
                       autofillHints: const [AutofillHints.name],
+                      inputFormatters: [
+                        FilteringTextInputFormatter.deny(RegExp(r'[0-9]')),
+                        LengthLimitingTextInputFormatter(100),
+                      ],
                       validator: validateRequiredName,
                     ),
                     const SizedBox(height: 14),
@@ -785,39 +852,72 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
                             fontWeight: FontWeight.w700,
                           ),
                         ),
-                        Container(
-                          key: isDobVerified
-                              ? const Key('auth-age-status-badge')
-                              : null,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFE3F5EC),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: const Color(0xFFB3DFC7)),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.check_circle_rounded,
-                                size: 14,
-                                color: Color(0xFF1E7E52),
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                'Age Verified ($minAgeLabel+)',
-                                style: const TextStyle(
+                        if (_dateOfBirth != null && isDobVerified)
+                          Container(
+                            key: const Key('auth-age-status-badge'),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFE3F5EC),
+                              borderRadius: BorderRadius.circular(14),
+                              border:
+                                  Border.all(color: const Color(0xFFB3DFC7)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.check_circle_rounded,
+                                  size: 14,
                                   color: Color(0xFF1E7E52),
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.w700,
                                 ),
-                              ),
-                            ],
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Age Verified ($minAgeLabel+)',
+                                  style: const TextStyle(
+                                    color: Color(0xFF1E7E52),
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        else if (_dateOfBirth != null && !isDobVerified)
+                          Container(
+                            key: const Key('auth-age-invalid-badge'),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFEBEE),
+                              borderRadius: BorderRadius.circular(14),
+                              border:
+                                  Border.all(color: const Color(0xFFEF9A9A)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.cancel_rounded,
+                                  size: 14,
+                                  color: Color(0xFFC62828),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Age Not Verified ($minAgeLabel+ Required)',
+                                  style: const TextStyle(
+                                    color: Color(0xFFC62828),
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
                       ],
                     ),
                     if (isDobVerified &&
@@ -886,6 +986,23 @@ class _SakhiProfileScreenState extends State<SakhiProfileScreen> {
                               ),
                             ],
                           ),
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 5, left: 4),
+                      child: Text(
+                        _dateOfBirth != null && !isDobVerified
+                            ? 'Not applicable: Sakhi requires members to be at least $minAgeLabel years old.'
+                            : 'Minimum age requirement: $minAgeLabel+ years (verified upon selecting your date of birth).',
+                        style: TextStyle(
+                          color: _dateOfBirth != null && !isDobVerified
+                              ? const Color(0xFFC62828)
+                              : const Color(0xFF6B4F78),
+                          fontSize: 11.5,
+                          fontWeight: _dateOfBirth != null && !isDobVerified
+                              ? FontWeight.w700
+                              : FontWeight.w500,
                         ),
                       ),
                     ),

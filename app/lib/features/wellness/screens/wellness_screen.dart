@@ -13,8 +13,13 @@ import '../widgets/wellness_category_tile.dart';
 /// Screen 4 — Wellness Hub
 class WellnessScreen extends StatelessWidget {
   final bool showBackButton;
+  final VoidCallback? onBackTap;
 
-  const WellnessScreen({super.key, this.showBackButton = false});
+  const WellnessScreen({
+    super.key,
+    this.showBackButton = false,
+    this.onBackTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -29,11 +34,18 @@ class WellnessScreen extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  if (showBackButton && Navigator.of(context).canPop())
+                  if (showBackButton || Navigator.of(context).canPop())
                     IconButton(
+                      tooltip: 'Back to Home',
                       icon: const Icon(Icons.arrow_back_rounded),
                       color: AppColors.textPrimary,
-                      onPressed: () => Navigator.of(context).pop(),
+                      onPressed: () {
+                        if (onBackTap != null) {
+                          onBackTap!();
+                        } else if (Navigator.of(context).canPop()) {
+                          Navigator.of(context).pop();
+                        }
+                      },
                     ),
                   Expanded(
                     child: SakhiBrandHeader(

@@ -450,7 +450,7 @@ export function BusinessManagementPage() {
                 }}
               />
             </label>
-            <button
+            <button className="button button--secondary"
               type="button"
               disabled={submitting}
               onClick={() => void handleCreateBusiness()}

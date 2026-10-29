@@ -899,12 +899,95 @@ class _ProfileScreenState extends State<ProfileScreen> {
             Widget thumbnail;
             if (source.isEmpty) {
               thumbnail = Container(
-                color: AppColors.pastelLavender,
-                alignment: Alignment.center,
-                child: Icon(
-                  isSavedGrid ? Icons.bookmark_rounded : Icons.notes_rounded,
-                  color: AppColors.primaryPurple,
-                  size: 30,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Color(0xFFFDF2F7),
+                      Color(0xFFF3E6FA),
+                    ],
+                  ),
+                  border: Border.all(color: AppColors.borderSubtle),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.85),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                      child: Text(
+                        (post.categoryBadge ?? post.categorySlug)
+                            .replaceAll('_', ' '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 8.5,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.primaryPurple,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Text(
+                          post.content.trim().isNotEmpty
+                              ? post.content.trim()
+                              : 'Community Post',
+                          maxLines: 4,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 10.5,
+                            height: 1.25,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.favorite_rounded,
+                          size: 11,
+                          color: AppColors.heartPink,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          '${post.likesCount}',
+                          style: const TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Icon(
+                          Icons.chat_bubble_outline_rounded,
+                          size: 11,
+                          color: AppColors.primaryPurple,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          '${post.commentsCount}',
+                          style: const TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               );
             } else if (source.startsWith('http://') ||
