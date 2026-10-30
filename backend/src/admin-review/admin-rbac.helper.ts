@@ -1177,46 +1177,6 @@ this.staffMap.set(staff.id, staff);
       const mapped = this.mapDbRowToBusiness(row);
       this.businessMap.set(mapped.id, mapped);
     }
-    // Also discover member profiles that have a businessProfileName configured
-    try {
-      const profilesWithBiz = await prisma.memberProfile
-        .findMany({
-          where: { businessProfileName: { not: null } },
-          take: 50,
-        })
-        .catch(() => []);
-      for (const p of profilesWithBiz) {
-        if (!p.businessProfileName) continue;
-        const bizId = `biz_profile_${p.accountId}`;
-        if (!this.businessMap.has(bizId)) {
-          this.businessMap.set(bizId, {
-            id: bizId,
-            businessCode: `#BIZ-${p.accountId.slice(0, 4).toUpperCase()}`,
-            businessName: p.businessProfileName,
-            ownerAccountId: p.accountId,
-            ownerDisplayName: p.displayName,
-            category:
-              p.businessCategory ?? "Women-Owned Boutique & Apparel",
-            city: p.location || "Bengaluru",
-            description: p.bio || "Women-owned business on Sakhi.",
-            contactPhone: null,
-            websiteOrInstagram: p.businessProfileUrl ?? null,
-            approvalStatus: "APPROVED",
-            verificationBadgeStatus: "VERIFIED_WOMAN_OWNED",
-            isFeatured: false,
-            isReportedFraudulent: false,
-            reportReason: null,
-            reviewedBy: "System Profile Sync",
-            reviewNotes: "Synced from verified member business profile",
-            createdAt: p.createdAt.toISOString(),
-            updatedAt: p.updatedAt.toISOString(),
-          });
-        }
-      }
-    } catch {
-      // Ignore if memberProfile table is unavailable in mock
-    }
-
     const items = Array.from(this.businessMap.values()).sort(
       (a, b) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),

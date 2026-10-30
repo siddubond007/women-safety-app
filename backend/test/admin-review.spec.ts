@@ -483,4 +483,43 @@ describe("AdminReviewService reviewer-token boundary", () => {
       SakhiAdminRbacRegistry.resetForTesting();
     }
   });
+  it("does not treat profile-only business names as approved directory listings", async () => {
+    configureLocalReviewer();
+    SakhiAdminRbacRegistry.resetForTesting();
+    const memberProfileFindMany = vi.fn().mockResolvedValue([
+      {
+        accountId: "0891332c-2add-45f6-8ed1-cab2325606e7",
+        displayName: "Member With Profile Business Name",
+        businessProfileName: "Profile-Only Business",
+        businessCategory: "Fashion and clothing",
+        location: "Tirupati",
+        bio: "Profile bio",
+        businessProfileUrl: null,
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      },
+    ]);
+    const prisma = {
+      adminStaffAccount: { findMany: vi.fn().mockResolvedValue([]) },
+      businessDirectoryListing: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      memberProfile: { findMany: memberProfileFindMany },
+      auditEvent: { findMany: vi.fn().mockResolvedValue([]) },
+      platformConfigSetting: {
+        findUnique: vi.fn().mockResolvedValue(null),
+      },
+    } as unknown as PrismaService;
+
+    try {
+      const service = new AdminReviewService(prisma);
+      const result = await service.listBusinesses(reviewerToken);
+
+      expect(result.metrics.totalBusinesses).toBe(0);
+      expect(result.businesses).toEqual([]);
+      expect(memberProfileFindMany).not.toHaveBeenCalled();
+    } finally {
+      SakhiAdminRbacRegistry.resetForTesting();
+    }
+  });
 });
