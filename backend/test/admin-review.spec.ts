@@ -369,4 +369,118 @@ describe("AdminReviewService reviewer-token boundary", () => {
     expect(upsertMock).toHaveBeenCalledOnce();
     expect(auditCreateMock).toHaveBeenCalledOnce();
   });
+  it("commits business listings to the primary table and audit log in one transaction", async () => {
+    configureLocalReviewer();
+    SakhiAdminRbacRegistry.resetForTesting();
+    const rows: Record<string, any>[] = [];
+    const upsert = vi.fn(async (args: Record<string, any>) => {
+      const existing = rows.find((item) => item.id === args.where.id);
+      if (existing) Object.assign(existing, args.update);
+      else rows.push({ ...args.create });
+      return rows.find((item) => item.id === args.where.id);
+    });
+    const auditCreate = vi.fn().mockResolvedValue({ id: "business-audit-1" });
+    const transactionClient = {
+      businessDirectoryListing: { upsert },
+      auditEvent: { create: auditCreate },
+    };
+    const prisma = {
+      adminStaffAccount: { findMany: vi.fn().mockResolvedValue([]) },
+      businessDirectoryListing: {
+        findMany: vi.fn(async () => rows),
+        upsert,
+      },
+      auditEvent: {
+        findMany: vi.fn().mockResolvedValue([]),
+        create: auditCreate,
+      },
+      platformConfigSetting: {
+        findUnique: vi.fn().mockResolvedValue(null),
+      },
+      $transaction: vi.fn(
+        async (callback: (client: typeof transactionClient) => Promise<unknown>) =>
+          callback(transactionClient),
+      ),
+    } as unknown as PrismaService;
+
+    try {
+      const service = new AdminReviewService(prisma);
+      const result = await service.upsertBusiness(
+        {
+          businessName: "Sakhi Durable Test Studio",
+          ownerDisplayName: "Staging Test Owner",
+          category: "Fashion and clothing",
+          city: "Tirupati",
+          description: "Temporary staging verification listing.",
+        },
+        reviewerToken,
+      );
+
+      expect(result.saved).toBe(true);
+      expect(result.business.businessName).toBe("Sakhi Durable Test Studio");
+      expect(prisma.$transaction).toHaveBeenCalledOnce();
+      expect(upsert).toHaveBeenCalledOnce();
+      expect(auditCreate).toHaveBeenCalledOnce();
+
+      const directory = await service.listBusinesses(reviewerToken);
+      expect(directory.businesses).toHaveLength(1);
+      expect(directory.businesses[0]?.businessName).toBe(
+        "Sakhi Durable Test Studio",
+      );
+    } finally {
+      SakhiAdminRbacRegistry.resetForTesting();
+    }
+  });
+
+  it("does not report a business listing saved when the primary table write fails", async () => {
+    configureLocalReviewer();
+    SakhiAdminRbacRegistry.resetForTesting();
+    const upsert = vi.fn().mockRejectedValue(new Error("database unavailable"));
+    const auditCreate = vi.fn().mockResolvedValue({ id: "should-not-commit" });
+    const transactionClient = {
+      businessDirectoryListing: { upsert },
+      auditEvent: { create: auditCreate },
+    };
+    const prisma = {
+      adminStaffAccount: { findMany: vi.fn().mockResolvedValue([]) },
+      businessDirectoryListing: {
+        findMany: vi.fn().mockResolvedValue([]),
+        upsert,
+      },
+      auditEvent: {
+        findMany: vi.fn().mockResolvedValue([]),
+        create: auditCreate,
+      },
+      platformConfigSetting: {
+        findUnique: vi.fn().mockResolvedValue(null),
+      },
+      $transaction: vi.fn(
+        async (callback: (client: typeof transactionClient) => Promise<unknown>) =>
+          callback(transactionClient),
+      ),
+    } as unknown as PrismaService;
+
+    try {
+      const service = new AdminReviewService(prisma);
+      await expect(
+        service.upsertBusiness(
+          {
+            businessName: "Sakhi Failed Persistence Test",
+            ownerDisplayName: "Staging Test Owner",
+            category: "Fashion and clothing",
+            city: "Tirupati",
+          },
+          reviewerToken,
+        ),
+      ).rejects.toThrow(ServiceUnavailableException);
+
+      expect(upsert).toHaveBeenCalledOnce();
+      expect(auditCreate).not.toHaveBeenCalled();
+
+      const directory = await service.listBusinesses(reviewerToken);
+      expect(directory.businesses).toHaveLength(0);
+    } finally {
+      SakhiAdminRbacRegistry.resetForTesting();
+    }
+  });
 });

@@ -338,10 +338,9 @@ function sha256Hex(value: string): string {
 }
 
 /**
- * Shared singleton registry backed by PostgreSQL (`admin_staff_accounts`,
- * `business_directory_listings`, `platform_config_settings`) with automatic
- * `AuditEvent` snapshot fallback so that created staff accounts, business listings,
- * and platform configs persist reliably even before a schema migration is run.
+ * Shared singleton registry backed by PostgreSQL. Staff accounts and platform
+ * config retain AuditEvent snapshot fallback; Module 6 business listings require
+ * a successful write to the primary business directory table.
  */
 export class SakhiAdminRbacRegistry {
   private static readonly staffMap = new Map<string, AdminStaffRecord>();
@@ -580,10 +579,7 @@ export class SakhiAdminRbacRegistry {
           }
         }
       }
-      if (
-        (!loadedBizFromTable || this.businessMap.size === 0) &&
-        prisma.auditEvent?.findMany
-      ) {
+      if (!loadedBizFromTable && prisma.auditEvent?.findMany) {
         const snaps = await prisma.auditEvent
           .findMany({
             where: { action: "module10.business_listing.snapshot" },
@@ -1163,16 +1159,23 @@ this.staffMap.set(staff.id, staff);
   static async listBusinesses(prisma: PrismaService) {
     await this.ensureHydrated(prisma);
     const anyPrisma = prisma as unknown as Record<string, any>;
-    if (anyPrisma.businessDirectoryListing?.findMany) {
-      const freshRows = await anyPrisma.businessDirectoryListing
-        .findMany({ orderBy: { createdAt: "desc" } })
-        .catch(() => null);
-      if (Array.isArray(freshRows)) {
-        for (const row of freshRows) {
-          const mapped = this.mapDbRowToBusiness(row);
-          this.businessMap.set(mapped.id, mapped);
-        }
-      }
+    if (!anyPrisma.businessDirectoryListing?.findMany) {
+      throw new ServiceUnavailableException(
+        "Business directory storage is unavailable. Verify the Module 6 database migration and Prisma client.",
+      );
+    }
+    const freshRows = await anyPrisma.businessDirectoryListing.findMany({
+      orderBy: { createdAt: "desc" },
+    });
+    if (!Array.isArray(freshRows)) {
+      throw new ServiceUnavailableException(
+        "Business directory storage returned an invalid response.",
+      );
+    }
+    this.businessMap.clear();
+    for (const row of freshRows) {
+      const mapped = this.mapDbRowToBusiness(row);
+      this.businessMap.set(mapped.id, mapped);
     }
     // Also discover member profiles that have a businessProfileName configured
     try {
@@ -1352,24 +1355,26 @@ this.staffMap.set(staff.id, staff);
       throw new NotFoundException(`Business listing ${businessId} not found.`);
     }
 
-    if (body.approvalStatus) existing.approvalStatus = body.approvalStatus;
+    // Work on a copy so failed persistence cannot mutate the in-memory record.
+    const updated: BusinessListingRecord = { ...existing };
+    if (body.approvalStatus) updated.approvalStatus = body.approvalStatus;
     if (body.verificationBadgeStatus) {
-      existing.verificationBadgeStatus = body.verificationBadgeStatus;
+      updated.verificationBadgeStatus = body.verificationBadgeStatus;
     }
     if (typeof body.isFeatured === "boolean") {
-      existing.isFeatured = body.isFeatured;
+      updated.isFeatured = body.isFeatured;
     }
     if (typeof body.isReportedFraudulent === "boolean") {
-      existing.isReportedFraudulent = body.isReportedFraudulent;
+      updated.isReportedFraudulent = body.isReportedFraudulent;
     }
     if (body.reviewNotes !== undefined) {
-      existing.reviewNotes = body.reviewNotes.trim();
+      updated.reviewNotes = body.reviewNotes.trim();
     }
-    existing.reviewedBy = actorLabel;
-    existing.updatedAt = new Date().toISOString();
+    updated.reviewedBy = actorLabel;
+    updated.updatedAt = new Date().toISOString();
 
-    await this.persistBusinessRecord(prisma, existing, actorLabel);
-    return existing;
+    await this.persistBusinessRecord(prisma, updated, actorLabel);
+    return updated;
   }
 
   private static async persistBusinessRecord(
@@ -1377,74 +1382,102 @@ this.staffMap.set(staff.id, staff);
     record: BusinessListingRecord,
     actorLabel: string,
   ): Promise<void> {
-    this.businessMap.set(record.id, record);
     const anyPrisma = prisma as unknown as Record<string, any>;
-    if (
-      anyPrisma.businessDirectoryListing?.upsert &&
-      /^[0-9a-f-]{36}$/i.test(record.id)
-    ) {
-      await anyPrisma.businessDirectoryListing
-        .upsert({
-          where: { id: record.id },
-          update: {
-            businessName: record.businessName,
-            ownerDisplayName: record.ownerDisplayName,
-            category: record.category,
-            city: record.city,
-            description: record.description,
-            contactPhone: record.contactPhone,
-            websiteOrInstagram: record.websiteOrInstagram,
-            approvalStatus: record.approvalStatus,
-            verificationBadgeStatus: record.verificationBadgeStatus,
-            isFeatured: record.isFeatured,
-            isReportedFraudulent: record.isReportedFraudulent,
-            reportReason: record.reportReason,
-            reviewedBy: record.reviewedBy,
-            reviewNotes: record.reviewNotes,
-            updatedAt: new Date(record.updatedAt),
-          },
-          create: {
-            id: record.id,
-            businessCode: record.businessCode,
-            businessName: record.businessName,
-            ownerAccountId: record.ownerAccountId,
-            ownerDisplayName: record.ownerDisplayName,
-            category: record.category,
-            city: record.city,
-            description: record.description,
-            contactPhone: record.contactPhone,
-            websiteOrInstagram: record.websiteOrInstagram,
-            approvalStatus: record.approvalStatus,
-            verificationBadgeStatus: record.verificationBadgeStatus,
-            isFeatured: record.isFeatured,
-            isReportedFraudulent: record.isReportedFraudulent,
-            reportReason: record.reportReason,
-            reviewedBy: record.reviewedBy,
-            reviewNotes: record.reviewNotes,
-            createdAt: new Date(record.createdAt),
-            updatedAt: new Date(record.updatedAt),
-          },
-        })
-        .catch(() => null);
+    if (!anyPrisma.businessDirectoryListing?.upsert) {
+      throw new ServiceUnavailableException(
+        "Business directory storage is unavailable. Apply the Module 6 database migration before saving listings.",
+      );
     }
 
-    if (prisma.auditEvent?.create) {
-      await prisma.auditEvent
-        .create({
-          data: {
-            actorType: "ADMIN",
-            action: "module10.business_listing.snapshot",
-            targetType: "business_directory_listing",
-            targetId: record.id,
-            outcome: record.approvalStatus,
-            requestId: randomUUID(),
-            redactedMetadata: JSON.parse(
-              JSON.stringify({ ...record, actorLabel }),
-            ),
+    const upsertArgs = {
+      where: { id: record.id },
+      update: {
+        businessName: record.businessName,
+        ownerDisplayName: record.ownerDisplayName,
+        category: record.category,
+        city: record.city,
+        description: record.description,
+        contactPhone: record.contactPhone,
+        websiteOrInstagram: record.websiteOrInstagram,
+        approvalStatus: record.approvalStatus,
+        verificationBadgeStatus: record.verificationBadgeStatus,
+        isFeatured: record.isFeatured,
+        isReportedFraudulent: record.isReportedFraudulent,
+        reportReason: record.reportReason,
+        reviewedBy: record.reviewedBy,
+        reviewNotes: record.reviewNotes,
+        updatedAt: new Date(record.updatedAt),
+      },
+      create: {
+        id: record.id,
+        businessCode: record.businessCode,
+        businessName: record.businessName,
+        ownerAccountId: record.ownerAccountId,
+        ownerDisplayName: record.ownerDisplayName,
+        category: record.category,
+        city: record.city,
+        description: record.description,
+        contactPhone: record.contactPhone,
+        websiteOrInstagram: record.websiteOrInstagram,
+        approvalStatus: record.approvalStatus,
+        verificationBadgeStatus: record.verificationBadgeStatus,
+        isFeatured: record.isFeatured,
+        isReportedFraudulent: record.isReportedFraudulent,
+        reportReason: record.reportReason,
+        reviewedBy: record.reviewedBy,
+        reviewNotes: record.reviewNotes,
+        createdAt: new Date(record.createdAt),
+        updatedAt: new Date(record.updatedAt),
+      },
+    };
+    const auditData = {
+      actorType: "ADMIN",
+      action: "module10.business_listing.snapshot",
+      targetType: "business_directory_listing",
+      targetId: record.id,
+      outcome: record.approvalStatus,
+      requestId: randomUUID(),
+      redactedMetadata: JSON.parse(
+        JSON.stringify({ ...record, actorLabel }),
+      ),
+    };
+
+    try {
+      if (
+        typeof anyPrisma.$transaction === "function" &&
+        anyPrisma.auditEvent?.create
+      ) {
+        await anyPrisma.$transaction(
+          async (transaction: Record<string, any>) => {
+            await transaction.businessDirectoryListing.upsert(upsertArgs);
+            await transaction.auditEvent.create({ data: auditData });
           },
-        })
-        .catch(() => null);
+        );
+      } else {
+        // The primary business table is mandatory; audit snapshots are secondary.
+        await anyPrisma.businessDirectoryListing.upsert(upsertArgs);
+        if (anyPrisma.auditEvent?.create) {
+          await anyPrisma.auditEvent.create({ data: auditData });
+        }
+      }
+    } catch (error) {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        (error as { code?: unknown }).code === "P2002"
+      ) {
+        throw new ConflictException(
+          "A business listing with this business code already exists.",
+        );
+      }
+      throw new ServiceUnavailableException(
+        "Business listing changes could not be durably committed to PostgreSQL. No success was recorded; verify database connectivity and retry.",
+      );
     }
+
+    // Update the process cache only after the durable database write succeeds.
+    this.businessMap.set(record.id, record);
   }
 
   // ---------------------------------------------------------------------------
