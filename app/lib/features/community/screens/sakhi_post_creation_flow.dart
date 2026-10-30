@@ -865,7 +865,8 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
       const SizedBox(height: 8),
       if (_recentPhotos.isEmpty)
         GridView.count(
-          crossAxisCount: 3,
+          padding: EdgeInsets.zero,
+                  crossAxisCount: 3,
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           crossAxisSpacing: 8,
@@ -905,7 +906,8 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
         const Text('Recent selections', style: AppTypography.bodyMedium),
         const SizedBox(height: 8),
         GridView.count(
-          crossAxisCount: 3,
+          padding: EdgeInsets.zero,
+                  crossAxisCount: 3,
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           crossAxisSpacing: 8,

@@ -90,7 +90,7 @@ class _SafetyScreenState extends State<SafetyScreen>
               onRefresh: () => _controller.syncSafetyOverview(),
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 96),
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 132),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [

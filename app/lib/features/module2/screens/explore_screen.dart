@@ -154,6 +154,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 const SakhiSectionHeader(title: 'Explore by category'),
                 const SizedBox(height: 10),
                 GridView.count(
+                  padding: EdgeInsets.zero,
                   crossAxisCount: 2,
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),

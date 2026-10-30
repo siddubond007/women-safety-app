@@ -1105,7 +1105,8 @@ class _ComplaintSubmissionWizardScreenState
         const SizedBox(height: 14),
 
         GridView.builder(
-          shrinkWrap: true,
+          padding: EdgeInsets.zero,
+                  shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           itemCount: categories.length,
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(

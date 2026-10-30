@@ -265,6 +265,8 @@ export interface BusinessListingRecord {
   description: string;
   logoAsset?: string | null;
   coverImage?: string | null;
+  mediaGallery?: string[];
+  businessHours?: Record<string, any> | null;
   contactPhone: string | null;
   hidePhoneNumber?: boolean;
   whatsappNumber?: string | null;
@@ -705,6 +707,13 @@ export class SakhiAdminRbacRegistry {
       description: String(b.description ?? ""),
       logoAsset: b.logoAsset ? String(b.logoAsset) : null,
       coverImage: b.coverImage ? String(b.coverImage) : null,
+      mediaGallery: Array.isArray(b.mediaGallery)
+        ? b.mediaGallery.map((x: unknown) => String(x))
+        : [],
+      businessHours:
+        b.businessHours && typeof b.businessHours === "object"
+          ? b.businessHours
+          : null,
       contactPhone: b.contactPhone ? String(b.contactPhone) : null,
       hidePhoneNumber: Boolean(b.hidePhoneNumber),
       whatsappNumber: b.whatsappNumber ? String(b.whatsappNumber) : null,
@@ -1241,13 +1250,60 @@ this.staffMap.set(staff.id, staff);
 
     const record: BusinessListingRecord = {
       id,
-      businessCode,
+      businessCode:
+        typeof body.businessCode === "string" && body.businessCode.trim()
+          ? body.businessCode.trim()
+          : businessCode,
       businessName,
-      ownerAccountId: existing?.ownerAccountId ?? null,
+      ownerAccountId:
+        typeof body.ownerAccountId === "string" && body.ownerAccountId.trim()
+          ? body.ownerAccountId.trim()
+          : (existing?.ownerAccountId ?? null),
       ownerDisplayName,
       category,
       city,
+      serviceArea:
+        typeof body.serviceArea === "string" && body.serviceArea.trim()
+          ? body.serviceArea.trim()
+          : (existing?.serviceArea ?? city),
+      priceRange:
+        typeof body.priceRange === "string" && body.priceRange.trim()
+          ? body.priceRange.trim()
+          : (existing?.priceRange ?? "₹500 – ₹2,500"),
       description,
+      logoAsset:
+        typeof body.logoAsset === "string" && body.logoAsset.trim()
+          ? body.logoAsset.trim()
+          : (existing?.logoAsset ?? null),
+      coverImage:
+        typeof body.coverImage === "string" && body.coverImage.trim()
+          ? body.coverImage.trim()
+          : (existing?.coverImage ?? null),
+      mediaGallery: Array.isArray(body.mediaGallery)
+        ? body.mediaGallery.map((x) => String(x))
+        : (existing?.mediaGallery ?? []),
+      businessHours:
+        body.businessHours && typeof body.businessHours === "object"
+          ? (body.businessHours as Record<string, any>)
+          : (existing?.businessHours ?? null),
+      productsServices: Array.isArray(body.productsServices)
+        ? (body.productsServices as Array<Record<string, any>>)
+        : (existing?.productsServices ?? []),
+      offersAndPosts: Array.isArray(body.offersAndPosts)
+        ? (body.offersAndPosts as Array<Record<string, any>>)
+        : (existing?.offersAndPosts ?? []),
+      hidePhoneNumber:
+        typeof body.hidePhoneNumber === "boolean"
+          ? body.hidePhoneNumber
+          : (existing?.hidePhoneNumber ?? false),
+      whatsappNumber:
+        typeof body.whatsappNumber === "string"
+          ? body.whatsappNumber.trim()
+          : (existing?.whatsappNumber ?? null),
+      instagramHandle:
+        typeof body.instagramHandle === "string"
+          ? body.instagramHandle.trim()
+          : (existing?.instagramHandle ?? null),
       contactPhone:
         typeof body.contactPhone === "string"
           ? body.contactPhone.trim()

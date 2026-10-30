@@ -342,6 +342,9 @@ export class Module2Controller {
   ) {
     return this.service.addPostComment(authorization, postId, {
       content: (dto.content ?? dto.body ?? "").trim(),
+      body: dto.body,
+      parentCommentId: dto.parentCommentId,
+      replyToHandle: dto.replyToHandle,
     });
   }
 

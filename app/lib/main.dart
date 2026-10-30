@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'core/branding/app_brand.dart';
+import 'core/constants/mock_data.dart';
 import 'core/navigation/app_navigation_shell.dart';
 import 'core/navigation/app_routes.dart';
 import 'core/theme/app_theme.dart';
@@ -73,7 +74,9 @@ class SakhiHomeScreen extends StatelessWidget {
               Navigator.of(context).push(
                 MaterialPageRoute<void>(
                   builder: (_) => Scaffold(
-                    appBar: AppBar(title: const Text('Safety & support preview')),
+                    appBar: AppBar(
+                      title: const Text('Safety & support preview'),
+                    ),
                     body: const Padding(
                       padding: EdgeInsets.all(20),
                       child: Text(
@@ -110,9 +113,11 @@ class _SakhiAppState extends State<SakhiApp> {
 
   @override
   Widget build(BuildContext context) {
+    // Do NOT set restorationScopeId on MaterialApp without RestorableRouteFuture
+    // on every route — omitting it ensures Android background/resume never wipes
+    // pushed MaterialPageRoutes or resets the Navigator back to home!
     return MaterialApp(
       navigatorKey: _navigatorKey,
-      restorationScopeId: 'sakhi_root_app',
       title: AppBrand.appName,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
@@ -128,7 +133,9 @@ class _SakhiAppState extends State<SakhiApp> {
       },
       routes: {
         '/home': (_) => SakhiProtectedHomeGate(authService: _authService),
-        '/dashboard': (_) => const AppNavigationShell(),
+        '/dashboard': (_) => const AppNavigationShell(
+          key: ValueKey<String>('sakhi_dashboard_shell'),
+        ),
         AppRoutes.explore: (_) => const Scaffold(body: ExploreScreen()),
         AppRoutes.community: (_) => const Scaffold(body: CommunityScreen()),
         AppRoutes.wellness: (_) => const WellnessScreen(showBackButton: true),
@@ -159,7 +166,7 @@ class _SakhiAppState extends State<SakhiApp> {
         AppRoutes.businessHub: (_) =>
             const WomenBusinessHubScreen(showBackButton: true),
         AppRoutes.businessCreate: (_) =>
-            const BusinessRegistrationWizardScreen(),
+            const BusinessRegistrationWizardScreen(forceCreateNew: true),
         AppRoutes.businessEnquiries: (_) =>
             const BusinessEnquiryInboxScreen(),
       },
@@ -179,18 +186,36 @@ class SakhiStartupRouter extends StatefulWidget {
 
 class _SakhiStartupRouterState extends State<SakhiStartupRouter> {
   late Future<AuthAccountState?> _restoreFuture;
+  AuthAccountState? _resolvedState;
   bool _continueWithoutRestore = false;
 
   @override
   void initState() {
     super.initState();
-    _restoreFuture = widget.authService.restoreSession();
+    // If SakhiPrototypeState already has an active synced user in memory,
+    // immediately render AppNavigationShell without showing a full-screen reload!
+    if (SakhiPrototypeState.instance.isBackendSynced &&
+        SakhiPrototypeState.instance.currentUser.accountId.trim().isNotEmpty) {
+      _resolvedState = AuthAccountState.existingAccount;
+    }
+    _restoreFuture = widget.authService.restoreSession().then((val) {
+      if (mounted) {
+        setState(() => _resolvedState = val);
+      }
+      return val;
+    });
   }
 
   void _retryRestore() {
     setState(() {
       _continueWithoutRestore = false;
-      _restoreFuture = widget.authService.restoreSession();
+      _resolvedState = null;
+      _restoreFuture = widget.authService.restoreSession().then((val) {
+        if (mounted) {
+          setState(() => _resolvedState = val);
+        }
+        return val;
+      });
     });
   }
 
@@ -211,11 +236,17 @@ class _SakhiStartupRouterState extends State<SakhiStartupRouter> {
   @override
   Widget build(BuildContext context) {
     if (_continueWithoutRestore) return _onboarding(context);
+    if (_resolvedState == AuthAccountState.existingAccount) {
+      return const AppNavigationShell(
+        key: ValueKey<String>('sakhi_root_shell'),
+      );
+    }
 
     return FutureBuilder<AuthAccountState?>(
       future: _restoreFuture,
       builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
+        if (snapshot.connectionState != ConnectionState.done &&
+            _resolvedState == null) {
           return const Scaffold(
             backgroundColor: SakhiColors.blush,
             body: SakhiQuoteLoader.fullScreen(
@@ -224,7 +255,7 @@ class _SakhiStartupRouterState extends State<SakhiStartupRouter> {
           );
         }
 
-        if (snapshot.hasError) {
+        if (snapshot.hasError && _resolvedState == null) {
           return Scaffold(
             backgroundColor: SakhiColors.blush,
             body: SafeArea(
@@ -278,9 +309,11 @@ class _SakhiStartupRouterState extends State<SakhiStartupRouter> {
           );
         }
 
-        final restoredState = snapshot.data;
+        final restoredState = _resolvedState ?? snapshot.data;
         if (restoredState == AuthAccountState.existingAccount) {
-          return const AppNavigationShell();
+          return const AppNavigationShell(
+            key: ValueKey<String>('sakhi_root_shell'),
+          );
         }
         if (restoredState != null) {
           return SakhiAuthStatusScreen(
@@ -307,15 +340,33 @@ class SakhiProtectedHomeGate extends StatefulWidget {
 
 class _SakhiProtectedHomeGateState extends State<SakhiProtectedHomeGate> {
   late Future<AuthAccountState?> _state;
+  AuthAccountState? _cachedState;
 
   @override
   void initState() {
     super.initState();
-    _state = widget.authService.restoreSession();
+    if (SakhiPrototypeState.instance.isBackendSynced &&
+        SakhiPrototypeState.instance.currentUser.accountId.trim().isNotEmpty) {
+      _cachedState = AuthAccountState.existingAccount;
+    }
+    _state = widget.authService.restoreSession().then((val) {
+      if (mounted) {
+        setState(() => _cachedState = val);
+      }
+      return val;
+    });
   }
 
   void _recheck() {
-    setState(() => _state = widget.authService.restoreSession());
+    setState(() {
+      _cachedState = null;
+      _state = widget.authService.restoreSession().then((val) {
+        if (mounted) {
+          setState(() => _cachedState = val);
+        }
+        return val;
+      });
+    });
   }
 
   Future<void> _returnToLogin() async {
@@ -333,10 +384,16 @@ class _SakhiProtectedHomeGateState extends State<SakhiProtectedHomeGate> {
 
   @override
   Widget build(BuildContext context) {
+    if (_cachedState == AuthAccountState.existingAccount) {
+      return const AppNavigationShell(
+        key: ValueKey<String>('sakhi_gate_shell'),
+      );
+    }
     return FutureBuilder<AuthAccountState?>(
       future: _state,
       builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
+        if (snapshot.connectionState != ConnectionState.done &&
+            _cachedState == null) {
           return const Scaffold(
             backgroundColor: SakhiColors.blush,
             body: SakhiQuoteLoader.fullScreen(
@@ -344,9 +401,12 @@ class _SakhiProtectedHomeGateState extends State<SakhiProtectedHomeGate> {
             ),
           );
         }
-        if (snapshot.data == AuthAccountState.existingAccount &&
+        final resolved = _cachedState ?? snapshot.data;
+        if (resolved == AuthAccountState.existingAccount &&
             !snapshot.hasError) {
-          return const AppNavigationShell();
+          return const AppNavigationShell(
+            key: ValueKey<String>('sakhi_gate_shell'),
+          );
         }
         return Scaffold(
           backgroundColor: SakhiColors.blush,

@@ -746,7 +746,7 @@ model BusinessDirectoryListing {
   serviceArea             String?  @map("service_area") @db.VarChar(160)
   latitude                Float?
   longitude               Float?
-  priceRange              String   @default("₹500 – ₹2,500") @map("price_range") @db.VarChar(80)
+  priceRange              String   @default("INR 500 - INR 2,500") @map("price_range") @db.VarChar(80)
   description             String   @db.Text
   logoAsset               String?  @map("logo_asset") @db.Text
   coverImage              String?  @map("cover_image") @db.Text

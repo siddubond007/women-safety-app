@@ -99,7 +99,7 @@ class _HomeScreenState extends State<HomeScreen> {
             onRefresh: () => state.syncFromBackend(),
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.only(bottom: 96),
+              padding: const EdgeInsets.only(bottom: 132),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [

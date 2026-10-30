@@ -960,6 +960,16 @@ export class CreateBusinessEnquiryDto {
 
   @IsOptional()
   @IsString()
+  @IsIn(["In-App Chat", "WhatsApp", "Phone Call"])
+  preferredContactMethod?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  customerPhoneOrWhatsapp?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(512)
   attachmentUrl?: string;
 }

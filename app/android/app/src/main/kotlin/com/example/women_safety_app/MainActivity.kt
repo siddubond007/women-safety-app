@@ -111,6 +111,8 @@ class MainActivity : FlutterActivity(), SensorEventListener {
         }
     }
 
+    override fun shouldRestoreAndSaveState(): Boolean = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as? SensorManager
@@ -168,6 +170,67 @@ class MainActivity : FlutterActivity(), SensorEventListener {
                     } catch (e: Exception) {
                         result.error("DIAL_ERROR", e.message, null)
                     }
+                }
+
+                "openWhatsAppChat" -> {
+                    val rawPhone = call.argument<String>("phone") ?: ""
+                    val message = call.argument<String>("message") ?: "Hello! I found your women-owned business on Sakhi."
+                    val preferBusiness = call.argument<Boolean>("preferBusiness")
+                    var digits = rawPhone.replace(Regex("[^0-9]"), "")
+                    if (digits.length == 10) {
+                        digits = "91$digits"
+                    }
+                    val encodedMsg = Uri.encode(message)
+                    val deepLinkUri = if (digits.isNotEmpty()) {
+                        Uri.parse("whatsapp://send?phone=$digits&text=$encodedMsg")
+                    } else {
+                        Uri.parse("whatsapp://send?text=$encodedMsg")
+                    }
+                    val webUri = if (digits.isNotEmpty()) {
+                        Uri.parse("https://api.whatsapp.com/send?phone=$digits&text=$encodedMsg")
+                    } else {
+                        Uri.parse("https://api.whatsapp.com/send?text=$encodedMsg")
+                    }
+                    val packageOrder = when (preferBusiness) {
+                        true -> listOf("com.whatsapp.w4b", "com.whatsapp")
+                        false -> listOf("com.whatsapp", "com.whatsapp.w4b")
+                        else -> emptyList()
+                    }
+                    var launched = false
+                    for (pkg in packageOrder) {
+                        try {
+                            val pkgIntent = Intent(Intent.ACTION_VIEW, deepLinkUri).apply {
+                                setPackage(pkg)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            if (pkgIntent.resolveActivity(packageManager) != null) {
+                                startActivity(pkgIntent)
+                                launched = true
+                                break
+                            }
+                        } catch (_: Exception) {}
+                    }
+                    if (!launched) {
+                        try {
+                            val directIntent = Intent(Intent.ACTION_VIEW, deepLinkUri).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            startActivity(directIntent)
+                            launched = true
+                        } catch (_: Exception) {
+                            try {
+                                val fallbackIntent = Intent(Intent.ACTION_VIEW, webUri).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                startActivity(fallbackIntent)
+                                launched = true
+                            } catch (e: Exception) {
+                                result.error("WHATSAPP_ERROR", e.message, null)
+                                return@setMethodCallHandler
+                            }
+                        }
+                    }
+                    result.success(launched)
                 }
 
                 "openExternalUrl" -> {

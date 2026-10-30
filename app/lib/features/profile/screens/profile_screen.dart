@@ -468,7 +468,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             },
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.only(bottom: 96),
+              padding: const EdgeInsets.only(bottom: 132),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1007,7 +1007,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (context, constraints) {
         final columns = constraints.maxWidth >= 560 ? 4 : 3;
         return GridView.builder(
-          shrinkWrap: true,
+          padding: EdgeInsets.zero,
+                  shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           itemCount: posts.length,
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(

@@ -124,9 +124,16 @@ class PostCommentItem {
   });
 
   factory PostCommentItem.fromJson(Map<String, dynamic> json) {
-    final authorId = json['authorAccountId']?.toString() ?? '';
+    final authorId = (json['authorAccountId'] ?? json['accountId'] ?? '')
+        .toString();
     final authorName = json['authorName']?.toString() ?? 'Sakhi Member';
     final rawAvatar = json['authorAvatar']?.toString() ?? '';
+    final currentUserId = SakhiPrototypeState.instance.currentUser.accountId;
+    final isOwn =
+        json['isOwnComment'] == true ||
+        (authorId.isNotEmpty &&
+            currentUserId.isNotEmpty &&
+            authorId == currentUserId);
     return PostCommentItem(
       id: (json['id'] ?? json['commentId'] ?? '').toString(),
       authorAccountId: authorId,
@@ -137,9 +144,9 @@ class PostCommentItem {
       createdAt: json['createdAt']?.toString() ?? 'Just now',
       parentCommentId: json['parentCommentId']?.toString(),
       replyToHandle: json['replyToHandle']?.toString(),
-      isOwnComment: json['isOwnComment'] == true,
-      canEdit: json['canEdit'] == true || json['isOwnComment'] == true,
-      canDelete: json['canDelete'] == true || json['isOwnComment'] == true,
+      isOwnComment: isOwn,
+      canEdit: json['canEdit'] == true || isOwn,
+      canDelete: json['canDelete'] == true || isOwn,
     );
   }
 }
@@ -2002,6 +2009,11 @@ class SakhiPrototypeState extends ChangeNotifier {
         serverJson['authorName'] ??= currentUser.displayName;
         serverJson['authorUsername'] ??= currentUser.username;
         serverJson['authorAvatar'] ??= currentUser.avatarAsset;
+        serverJson['parentCommentId'] ??= parentCommentId;
+        serverJson['replyToHandle'] ??= replyToHandle;
+        serverJson['isOwnComment'] = true;
+        serverJson['canEdit'] = true;
+        serverJson['canDelete'] = true;
         final serverComment = PostCommentItem.fromJson(serverJson);
         final idx = post.comments.indexWhere(
           (comment) => comment.id == item.id,
@@ -2637,6 +2649,7 @@ class SakhiPrototypeState extends ChangeNotifier {
   // MODULE 6: WOMEN-OWNED BUSINESS PAGES CLIENT METHODS (SRS Section 8.1 - 8.5)
   // ===========================================================================
   List<Map<String, dynamic>> cachedBusinesses = <Map<String, dynamic>>[];
+  List<Map<String, dynamic>> myBusinessPages = <Map<String, dynamic>>[];
   Map<String, dynamic>? myBusinessPage;
   List<Map<String, dynamic>> get businesses => cachedBusinesses;
 
@@ -2728,18 +2741,29 @@ class SakhiPrototypeState extends ChangeNotifier {
             .map((m) => Map<String, dynamic>.from(m))
             .toList();
         if (ownerOnly) {
+          myBusinessPages = parsed;
           myBusinessPage = parsed.isEmpty ? null : parsed.first;
-        } else if (!savedOnly &&
-            (search == null || search.isEmpty) &&
-            (category == null || category == 'All') &&
-            (city == null || city.isEmpty)) {
-          cachedBusinesses = parsed;
+        } else {
+          final approvedOnly = parsed.where((m) {
+            final status = (m['approvalStatus'] ?? 'PENDING_APPROVAL')
+                .toString()
+                .toUpperCase();
+            return status == 'APPROVED' || status == 'VERIFIED';
+          }).toList();
+          if (!savedOnly &&
+              (search == null || search.isEmpty) &&
+              (category == null || category == 'All') &&
+              (city == null || city.isEmpty)) {
+            cachedBusinesses = approvedOnly;
+          }
+          notifyListeners();
+          return approvedOnly;
         }
         notifyListeners();
         return parsed;
       }
     } catch (_) {}
-    return ownerOnly ? const <Map<String, dynamic>>[] : cachedBusinesses;
+    return ownerOnly ? myBusinessPages : cachedBusinesses;
   }
 
   Future<Map<String, dynamic>?> createOrUpdateBusiness(
@@ -2763,9 +2787,17 @@ class SakhiPrototypeState extends ChangeNotifier {
           : Map<String, dynamic>.from(res);
       final id = biz['id']?.toString() ?? '';
       if (id.isNotEmpty) {
-        cachedBusinesses.removeWhere((b) => b['id']?.toString() == id);
-        cachedBusinesses.insert(0, biz);
+        biz['isOwnBusiness'] = true;
+        myBusinessPages.removeWhere((b) => b['id']?.toString() == id);
+        myBusinessPages.insert(0, biz);
         myBusinessPage = biz;
+        final status = (biz['approvalStatus'] ?? 'PENDING_APPROVAL')
+            .toString()
+            .toUpperCase();
+        cachedBusinesses.removeWhere((b) => b['id']?.toString() == id);
+        if (status == 'APPROVED' || status == 'VERIFIED') {
+          cachedBusinesses.insert(0, biz);
+        }
         notifyListeners();
       }
       return biz;
@@ -2778,14 +2810,17 @@ class SakhiPrototypeState extends ChangeNotifier {
     final idx = cachedBusinesses.indexWhere(
       (b) => b['id']?.toString() == businessId,
     );
+    final previousIsSaved = idx == -1
+        ? null
+        : cachedBusinesses[idx]['isSaved'] == true;
+    final previousSavesCount = idx == -1
+        ? null
+        : (cachedBusinesses[idx]['savesCount'] as num?)?.toInt() ?? 0;
+
     if (idx != -1) {
-      final current = cachedBusinesses[idx]['isSaved'] == true;
-      cachedBusinesses[idx]['isSaved'] = !current;
-      final count = (cachedBusinesses[idx]['savesCount'] as num?)?.toInt() ?? 0;
-      cachedBusinesses[idx]['savesCount'] = (count + (current ? -1 : 1)).clamp(
-        0,
-        999999,
-      );
+      cachedBusinesses[idx]['isSaved'] = !previousIsSaved!;
+      cachedBusinesses[idx]['savesCount'] =
+          (previousSavesCount! + (previousIsSaved ? -1 : 1)).clamp(0, 999999);
       notifyListeners();
     }
     try {
@@ -2801,7 +2836,12 @@ class SakhiPrototypeState extends ChangeNotifier {
       }
       return true;
     } catch (_) {
-      return idx != -1;
+      if (idx != -1) {
+        cachedBusinesses[idx]['isSaved'] = previousIsSaved;
+        cachedBusinesses[idx]['savesCount'] = previousSavesCount;
+        notifyListeners();
+      }
+      return false;
     }
   }
 
@@ -2830,6 +2870,8 @@ class SakhiPrototypeState extends ChangeNotifier {
     required String businessId,
     required String message,
     String? subjectOrProduct,
+    String? preferredContactMethod,
+    String? customerPhoneOrWhatsapp,
   }) async {
     try {
       final res = await _client.post(
@@ -2839,6 +2881,12 @@ class SakhiPrototypeState extends ChangeNotifier {
           'message': message.trim(),
           if (subjectOrProduct != null && subjectOrProduct.trim().isNotEmpty)
             'subjectOrProduct': subjectOrProduct.trim(),
+          if (preferredContactMethod != null &&
+              preferredContactMethod.trim().isNotEmpty)
+            'preferredContactMethod': preferredContactMethod.trim(),
+          if (customerPhoneOrWhatsapp != null &&
+              customerPhoneOrWhatsapp.trim().isNotEmpty)
+            'customerPhoneOrWhatsapp': customerPhoneOrWhatsapp.trim(),
         },
       );
       final enq = res['enquiry'] is Map<String, dynamic>

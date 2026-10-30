@@ -145,7 +145,8 @@ class _WellnessScreenState extends State<WellnessScreen> {
           const SakhiSectionHeader(title: 'Explore wellness'),
           const SizedBox(height: 11),
           GridView.count(
-            crossAxisCount: 2,
+            padding: EdgeInsets.zero,
+                  crossAxisCount: 2,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             crossAxisSpacing: 10,

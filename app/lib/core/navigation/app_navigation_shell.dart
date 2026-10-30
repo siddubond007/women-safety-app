@@ -20,6 +20,7 @@ import '../widgets/sakhi_liquid_glass.dart';
 import 'app_routes.dart';
 
 /// Main interactive shell with persistent iOS 26 Liquid Glass navigation,
+/// lazy-mounted IndexedStack across tabs so form & scroll state is never lost,
 /// full lifecycle state retention across minimize/resume, Sakhi Create Hub,
 /// global hardware SOS shortcut listener, and Android back-button protection.
 class AppNavigationShell extends StatefulWidget {
@@ -37,6 +38,7 @@ class _AppNavigationShellState extends State<AppNavigationShell>
     'sakhi/native_actions',
   );
   final PageStorageBucket _storageBucket = PageStorageBucket();
+  final Set<int> _mountedTabs = <int>{0};
   late int _currentIndex;
   String? _activeSubScreenRoute;
   DateTime? _lastBackPressedAt;
@@ -54,6 +56,7 @@ class _AppNavigationShellState extends State<AppNavigationShell>
       _currentIndex = proto.activeShellTabIndex;
       _activeSubScreenRoute = proto.activeShellSubRoute;
     }
+    _mountedTabs.add(_currentIndex.clamp(0, 3));
     unawaited(proto.syncFromBackend());
 
     // Register global 3x Volume / Power / Shake hardware SOS callback so it works
@@ -120,12 +123,12 @@ class _AppNavigationShellState extends State<AppNavigationShell>
         proto.activeShellTabHistory.add(_currentIndex);
       }
       _currentIndex = index;
+      _mountedTabs.add(index.clamp(0, 3));
       _activeSubScreenRoute = null;
       proto.activeShellTabIndex = index;
       proto.activeShellSubRoute = null;
     });
     if (index == 2) {
-      // Viewing Community marks current community posts as seen so Home counter updates!
       proto.markCommunityPostsAsSeen();
     }
   }
@@ -154,7 +157,6 @@ class _AppNavigationShellState extends State<AppNavigationShell>
         proto.activeShellTabIndex = 0;
       }
     });
-    // Re-ensure global hardware SOS trigger remains active after closing SafetyScreen
     SakhiSafetyController.instance.onDiscreetShortcutTriggered =
         _handleGlobalHardwareShortcutTrigger;
   }
@@ -173,6 +175,7 @@ class _AppNavigationShellState extends State<AppNavigationShell>
         } else {
           _currentIndex = 0;
         }
+        _mountedTabs.add(_currentIndex.clamp(0, 3));
         proto.activeShellTabIndex = _currentIndex;
       });
       return;
@@ -216,7 +219,10 @@ class _AppNavigationShellState extends State<AppNavigationShell>
       );
     }
     if (_activeSubScreenRoute == AppRoutes.businessHub) {
-      return const WomenBusinessHubScreen(showBackButton: true);
+      return WomenBusinessHubScreen(
+        showBackButton: true,
+        onBackTap: _returnFromSubScreen,
+      );
     }
     if (_activeSubScreenRoute == AppRoutes.safety || _currentIndex == 4) {
       return SafetyScreen(
@@ -226,36 +232,40 @@ class _AppNavigationShellState extends State<AppNavigationShell>
       );
     }
 
-    switch (_currentIndex) {
-      case 0:
-        return HomeScreen(
-          key: const PageStorageKey<String>('sakhi_tab_home'),
-          onNavigateTab: _handleTabSelected,
-          onNavigateRoute: _handleRouteFromChild,
-        );
-      case 1:
-        return ExploreScreen(
-          key: const PageStorageKey<String>('sakhi_tab_explore'),
-          onNavigateRoute: _handleRouteFromChild,
-        );
-      case 2:
-        return const CommunityScreen(
-          key: PageStorageKey<String>('sakhi_tab_community'),
-        );
-      case 3:
-        return ProfileScreen(
-          key: const PageStorageKey<String>('sakhi_tab_profile'),
-          onNavigateRoute: _handleRouteFromChild,
-          onNavigateTab: _handleTabSelected,
-          onCreateTap: () => _showCenterActionModal(),
-        );
-      default:
-        return HomeScreen(
-          key: const PageStorageKey<String>('sakhi_tab_home'),
-          onNavigateTab: _handleTabSelected,
-          onNavigateRoute: _handleRouteFromChild,
-        );
-    }
+    final safeIndex = _currentIndex.clamp(0, 3);
+    _mountedTabs.add(safeIndex);
+
+    return IndexedStack(
+      index: safeIndex,
+      children: [
+        _mountedTabs.contains(0)
+            ? HomeScreen(
+                key: const PageStorageKey<String>('sakhi_tab_home'),
+                onNavigateTab: _handleTabSelected,
+                onNavigateRoute: _handleRouteFromChild,
+              )
+            : const SizedBox.shrink(),
+        _mountedTabs.contains(1)
+            ? ExploreScreen(
+                key: const PageStorageKey<String>('sakhi_tab_explore'),
+                onNavigateRoute: _handleRouteFromChild,
+              )
+            : const SizedBox.shrink(),
+        _mountedTabs.contains(2)
+            ? const CommunityScreen(
+                key: PageStorageKey<String>('sakhi_tab_community'),
+              )
+            : const SizedBox.shrink(),
+        _mountedTabs.contains(3)
+            ? ProfileScreen(
+                key: const PageStorageKey<String>('sakhi_tab_profile'),
+                onNavigateRoute: _handleRouteFromChild,
+                onNavigateTab: _handleTabSelected,
+                onCreateTap: () => _showCenterActionModal(),
+              )
+            : const SizedBox.shrink(),
+      ],
+    );
   }
 
   @override
@@ -297,6 +307,7 @@ class _AppNavigationShellState extends State<AppNavigationShell>
     final proto = SakhiPrototypeState.instance;
     setState(() {
       _currentIndex = 2;
+      _mountedTabs.add(2);
       _activeSubScreenRoute = null;
       proto.activeShellTabIndex = 2;
       proto.activeShellSubRoute = null;

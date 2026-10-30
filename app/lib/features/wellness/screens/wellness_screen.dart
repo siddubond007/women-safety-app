@@ -3,14 +3,14 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/sakhi_botanical_flower.dart';
-import '../../../shared/widgets/sakhi_crisp_art.dart';
 import '../../../core/widgets/sakhi_brand_header.dart';
 import '../../../core/widgets/sakhi_dialogs.dart';
 import '../../../core/widgets/sakhi_section_header.dart';
+import '../../../shared/widgets/sakhi_crisp_art.dart';
 import '../widgets/guided_meditation_card.dart';
 import '../widgets/wellness_category_tile.dart';
 
-/// Screen 4 — Wellness Hub
+/// Screen 4 — Wellness Hub (iOS 26 Liquid Glass & Zero Unwanted Grid Padding)
 class WellnessScreen extends StatelessWidget {
   final bool showBackButton;
   final VoidCallback? onBackTap;
@@ -24,11 +24,12 @@ class WellnessScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.scaffoldBackground,
+      backgroundColor: Colors.transparent,
       body: SafeArea(
         bottom: false,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.only(bottom: 24),
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.only(bottom: 132),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -75,14 +76,15 @@ class WellnessScreen extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Hero Card: "Your Wellbeing Matters" with standalone reusable botanical flowers
+                    // Hero Card: "Your Wellbeing Matters" with iOS 26 Liquid Glass specular border
                     Container(
                       height: 164,
                       decoration: BoxDecoration(
                         gradient: AppColors.wellnessBannerGradient,
                         borderRadius: BorderRadius.circular(24),
                         border: Border.all(
-                          color: AppColors.primaryPurple.withValues(alpha: 0.14),
+                          color: Colors.white.withValues(alpha: 0.92),
+                          width: 1.5,
                         ),
                         boxShadow: AppSpacing.cardShadow,
                       ),
@@ -123,7 +125,12 @@ class WellnessScreen extends StatelessWidget {
                             ),
                           ),
                           Padding(
-                            padding: const EdgeInsets.fromLTRB(20, 20, 145, 18),
+                            padding: const EdgeInsets.fromLTRB(
+                              20,
+                              20,
+                              145,
+                              18,
+                            ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               mainAxisAlignment: MainAxisAlignment.center,
@@ -136,8 +143,9 @@ class WellnessScreen extends StatelessWidget {
                                 Text(
                                   'Explore tools and resources\nto feel better, every day.',
                                   style: AppTypography.subtitle.copyWith(
-                                    color: AppColors.textSecondary
-                                        .withValues(alpha: 0.88),
+                                    color: AppColors.textSecondary.withValues(
+                                      alpha: 0.88,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -147,9 +155,11 @@ class WellnessScreen extends StatelessWidget {
                       ),
                     ),
 
-                    const SizedBox(height: 16),
-                    // 4 Wellness Category Tiles (2x2 Grid) with distinct flowers
+                    const SizedBox(height: 14),
+                    // 4 Wellness Category Tiles (2x2 Grid) — padding: EdgeInsets.zero
+                    // prevents MediaQuery.padding.bottom from adding a 108px blank gap!
                     GridView.count(
+                      padding: EdgeInsets.zero,
                       crossAxisCount: 2,
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
@@ -204,7 +214,7 @@ class WellnessScreen extends StatelessWidget {
                       ],
                     ),
 
-                    const SizedBox(height: 22),
+                    const SizedBox(height: 18),
                     SakhiSectionHeader(
                       title: "Today's Pick",
                       actionLabel: 'See all',
@@ -213,7 +223,7 @@ class WellnessScreen extends StatelessWidget {
                         'Viewing all daily wellness picks.',
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 10),
 
                     // Guided Meditation Card with Playback Toggle
                     const GuidedMeditationCard(),
@@ -223,10 +233,22 @@ class WellnessScreen extends StatelessWidget {
                     Container(
                       width: double.infinity,
                       decoration: BoxDecoration(
-                        color: AppColors.pastelQuoteBg,
-                        borderRadius:
-                            BorderRadius.circular(AppSpacing.radiusLg),
-                        border: Border.all(color: AppColors.borderSubtle),
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.white.withValues(alpha: 0.88),
+                            AppColors.pastelQuoteBg.withValues(alpha: 0.90),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(
+                          AppSpacing.radiusLg,
+                        ),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.95),
+                          width: 1.4,
+                        ),
+                        boxShadow: AppSpacing.cardShadow,
                       ),
                       clipBehavior: Clip.antiAlias,
                       child: Stack(

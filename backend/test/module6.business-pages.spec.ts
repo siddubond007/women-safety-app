@@ -1,4 +1,8 @@
-import { ForbiddenException, NotFoundException } from "@nestjs/common";
+import {
+  ForbiddenException,
+  InternalServerErrorException,
+  NotFoundException,
+} from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import { AuthenticationService } from "../src/auth/auth.service.js";
 import { PrismaService } from "../src/database/prisma.service.js";
@@ -12,7 +16,7 @@ function makeService(
   listing: Record<string, unknown>,
   overrides: Record<string, any> = {},
 ) {
-  const auth = {
+  const auth = overrides.auth ?? {
     authenticateAuthorization: vi.fn().mockResolvedValue({
       accountId: viewerId,
       account: { status: "ACTIVE", verificationStatus: "VERIFIED" },
@@ -113,6 +117,43 @@ describe("Module 6 business page access control", () => {
     expect(prisma.businessDirectoryListing.update).not.toHaveBeenCalled();
   });
 
+  it("does not report a listing as saved when persistence fails", async () => {
+    const listing = { ...pendingListing(), approvalStatus: "APPROVED" };
+    const update = vi.fn().mockRejectedValue(new Error("database unavailable"));
+    const { service, prisma } = makeService(listing, {
+      businessDirectoryListing: {
+        findFirst: vi.fn().mockResolvedValue(listing),
+        update,
+        create: vi.fn(),
+      },
+    });
+
+    await expect(
+      service.toggleSaveBusiness("Bearer viewer-token", businessId),
+    ).rejects.toBeInstanceOf(InternalServerErrorException);
+
+    expect(update).toHaveBeenCalledOnce();
+  });
+
+  it("returns the saved state only after the listing update succeeds", async () => {
+    const listing = { ...pendingListing(), approvalStatus: "APPROVED" };
+    const update = vi
+      .fn()
+      .mockResolvedValue({ ...listing, savedByAccountIds: [viewerId] });
+    const { service } = makeService(listing, {
+      businessDirectoryListing: {
+        findFirst: vi.fn().mockResolvedValue(listing),
+        update,
+        create: vi.fn(),
+      },
+    });
+
+    await expect(
+      service.toggleSaveBusiness("Bearer viewer-token", businessId),
+    ).resolves.toMatchObject({ businessId, isSaved: true, savesCount: 1 });
+    expect(update).toHaveBeenCalledOnce();
+  });
+
   it("does not let a member report a listing that is not publicly visible", async () => {
     const { service, prisma } = makeService(pendingListing());
 
@@ -124,6 +165,51 @@ describe("Module 6 business page access control", () => {
 
     expect(prisma.businessReport.create).not.toHaveBeenCalled();
     expect(prisma.businessDirectoryListing.update).not.toHaveBeenCalled();
+  });
+
+  it("does not confirm a business report when durable report persistence fails", async () => {
+    const listing = { ...pendingListing(), approvalStatus: "APPROVED" };
+    const { service, prisma } = makeService(listing, {
+      businessReport: {
+        create: vi.fn().mockRejectedValue(new Error("database unavailable")),
+      },
+    });
+
+    await expect(
+      service.reportBusiness("Bearer viewer-token", businessId, {
+        reason: "Suspicious listing",
+      }),
+    ).rejects.toBeInstanceOf(InternalServerErrorException);
+
+    expect(prisma.businessReport.create).toHaveBeenCalledOnce();
+    expect(prisma.businessDirectoryListing.update).not.toHaveBeenCalled();
+  });
+
+  it("confirms a business report only after its durable record is saved", async () => {
+    const listing = { ...pendingListing(), approvalStatus: "APPROVED" };
+    const createReport = vi.fn().mockResolvedValue({ id: "report-1" });
+    const { service, prisma } = makeService(listing, {
+      businessReport: { create: createReport },
+    });
+
+    const result = await service.reportBusiness(
+      "Bearer viewer-token",
+      businessId,
+      {
+        reason: "Suspicious listing",
+        details: "Contact details appear fraudulent",
+      },
+    );
+
+    expect(result.reported).toBe(true);
+    expect(createReport).toHaveBeenCalledOnce();
+    expect(createReport.mock.calls[0]?.[0].data).toMatchObject({
+      businessId,
+      reporterAccountId: viewerId,
+      reason: "Suspicious listing",
+      details: "Contact details appear fraudulent",
+      status: "OPEN",
+    });
   });
 
   it("does not let a non-owner enquire about a pending listing", async () => {
@@ -154,5 +240,93 @@ describe("Module 6 business page access control", () => {
     const update = prisma.businessDirectoryListing.update.mock.calls[0]?.[0];
     expect(update.data.approvalStatus).toBe("PENDING_APPROVAL");
     expect(update.data.verificationBadgeStatus).toBe("PENDING_BADGE");
+  });
+  describe("business enquiry status permissions", () => {
+    const enquiry = (status = "OPEN") => ({
+      id: "enquiry-1",
+      ownerAccountId: ownerId,
+      senderAccountId: viewerId,
+      status,
+      messages: [],
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    });
+
+    it("does not allow a customer to change the enquiry status", async () => {
+      const update = vi.fn();
+      const { service } = makeService(pendingListing(), {
+        businessEnquiry: {
+          findUnique: vi.fn().mockResolvedValue(enquiry("OPEN")),
+          update,
+        },
+      });
+
+      await expect(service.replyBusinessEnquiry("Bearer viewer-token", "enquiry-1", {
+        message: "Thanks",
+        status: "RESOLVED",
+      })).rejects.toBeInstanceOf(ForbiddenException);
+      expect(update).not.toHaveBeenCalled();
+    });
+
+    it("preserves the current status when a customer sends a message without a status", async () => {
+      const update = vi.fn().mockImplementation(async ({ data }) => ({
+        ...enquiry("REPLIED"), ...data,
+      }));
+      const { service } = makeService(pendingListing(), {
+        businessEnquiry: {
+          findUnique: vi.fn().mockResolvedValue(enquiry("REPLIED")),
+          update,
+        },
+      });
+
+      await service.replyBusinessEnquiry("Bearer viewer-token", "enquiry-1", {
+        message: "I have one more question",
+      });
+      expect(update.mock.calls[0]?.[0].data.status).toBe("REPLIED");
+    });
+
+    it("does not allow a business owner to reopen a thread through a reply", async () => {
+      const update = vi.fn();
+      const auth = { authenticateAuthorization: vi.fn().mockResolvedValue({
+        accountId: ownerId,
+        account: { status: "ACTIVE", verificationStatus: "VERIFIED" },
+      }) };
+      const { service } = makeService(pendingListing(), {
+        auth,
+        businessEnquiry: {
+          findUnique: vi.fn().mockResolvedValue(enquiry("OPEN")),
+          update,
+        },
+      });
+
+      await expect(service.replyBusinessEnquiry("Bearer owner-token", "enquiry-1", {
+        message: "Reply",
+        status: "OPEN",
+      })).rejects.toBeInstanceOf(ForbiddenException);
+      expect(update).not.toHaveBeenCalled();
+    });
+
+    it("allows the business owner to resolve an enquiry", async () => {
+      const update = vi.fn().mockImplementation(async ({ data }) => ({
+        ...enquiry("OPEN"), ...data,
+      }));
+      const auth = { authenticateAuthorization: vi.fn().mockResolvedValue({
+        accountId: ownerId,
+        account: { status: "ACTIVE", verificationStatus: "VERIFIED" },
+      }) };
+      const { service } = makeService(pendingListing(), {
+        auth,
+        businessEnquiry: {
+          findUnique: vi.fn().mockResolvedValue(enquiry("OPEN")),
+          update,
+        },
+      });
+
+      await service.replyBusinessEnquiry("Bearer owner-token", "enquiry-1", {
+        message: "This has been resolved",
+        status: "RESOLVED",
+      });
+      expect(update.mock.calls[0]?.[0].data.status).toBe("RESOLVED");
+    });
   });
 });

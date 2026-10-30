@@ -207,7 +207,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 AppSpacing.screenPaddingH,
                 8,
                 AppSpacing.screenPaddingH,
-                96,
+                132,
               ),
               children: [
                 Row(
@@ -377,6 +377,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 const SakhiSectionHeader(title: 'Browse by Category'),
                 const SizedBox(height: 12),
                 GridView.count(
+                  padding: EdgeInsets.zero,
                   crossAxisCount: 2,
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),

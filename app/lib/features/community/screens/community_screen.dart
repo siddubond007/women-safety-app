@@ -474,7 +474,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
             onRefresh: _refreshLiveFeed,
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.only(bottom: 96),
+              padding: const EdgeInsets.only(bottom: 132),
               child: Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: AppSpacing.screenPaddingH,

@@ -1621,7 +1621,8 @@ class _SakhiInstagramCommentsSheetState
   Widget build(BuildContext context) {
     final state = SakhiPrototypeState.instance;
     final mq = MediaQuery.of(context);
-    final sheetHeight = (mq.size.height * 0.78).clamp(380.0, 720.0);
+    final maxAllowedHeight = (mq.size.height - mq.viewInsets.bottom - mq.padding.top - 24).clamp(240.0, 740.0);
+    final sheetHeight = (mq.size.height * 0.78).clamp(240.0, maxAllowedHeight);
 
     return AnimatedBuilder(
       animation: state,
@@ -1812,7 +1813,12 @@ class _SakhiInstagramCommentsSheetState
                                                   ),
                                                 ),
                                                 if (comment.canEdit ||
-                                                    comment.isOwnComment) ...[
+                                                    comment.isOwnComment ||
+                                                    (comment.authorAccountId.isNotEmpty &&
+                                                        comment.authorAccountId ==
+                                                            state.currentUser.accountId) ||
+                                                    comment.authorName.trim().toLowerCase() ==
+                                                        state.currentUser.displayName.trim().toLowerCase()) ...[
                                                   const SizedBox(width: 12),
                                                   InkWell(
                                                     borderRadius:
@@ -1844,6 +1850,11 @@ class _SakhiInstagramCommentsSheetState
                                                 ],
                                                 if (comment.canDelete ||
                                                     comment.isOwnComment ||
+                                                    (comment.authorAccountId.isNotEmpty &&
+                                                        comment.authorAccountId ==
+                                                            state.currentUser.accountId) ||
+                                                    comment.authorName.trim().toLowerCase() ==
+                                                        state.currentUser.displayName.trim().toLowerCase() ||
                                                     widget.post.isOwnPost) ...[
                                                   const SizedBox(width: 12),
                                                   InkWell(
