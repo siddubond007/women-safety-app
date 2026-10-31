@@ -3,9 +3,7 @@ import '../../../core/constants/mock_data.dart';
 import '../../../core/navigation/app_routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/sakhi_card.dart';
-import '../../../core/widgets/sakhi_chip.dart';
 import '../../../core/widgets/sakhi_dialogs.dart';
 import '../../../core/widgets/sakhi_settings_row.dart';
 import '../../auth/auth_service_factory.dart';
@@ -216,44 +214,7 @@ class MoreOptionsMenuScreen extends StatelessWidget {
                   ),
                 ),
 
-                const SizedBox(height: 20),
-                const Text(
-                  'Related Settings Screens',
-                  style: AppTypography.sectionTitle,
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    SakhiChip(
-                      label: 'Privacy Settings (Screen 8)',
-                      onTap: () => Navigator.of(context)
-                          .pushNamed(AppRoutes.privacySettings),
-                    ),
-                    SakhiChip(
-                      label: 'Notifications (Screen 9)',
-                      onTap: () => Navigator.of(context).pushNamed(
-                        AppRoutes.notificationPreferences,
-                      ),
-                    ),
-                    SakhiChip(
-                      label: 'Account & Security (Screen 11)',
-                      onTap: () => Navigator.of(context)
-                          .pushNamed(AppRoutes.accountSecurity),
-                    ),
-                    SakhiChip(
-                      label: 'Edit Profile (Screen 7)',
-                      onTap: () =>
-                          Navigator.of(context).pushNamed(AppRoutes.editProfile),
-                    ),
-                    SakhiChip(
-                      label: 'Followers (Screen 10)',
-                      onTap: () =>
-                          Navigator.of(context).pushNamed(AppRoutes.followers),
-                    ),
-                  ],
-                ),
+
               ],
             ),
           );

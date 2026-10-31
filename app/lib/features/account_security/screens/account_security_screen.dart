@@ -1,3 +1,6 @@
+import '../../auth/sakhi_login_screen.dart';
+import '../../../core/navigation/app_routes.dart';
+import '../../auth/auth_service_factory.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/constants/mock_data.dart';
@@ -207,12 +210,23 @@ class AccountSecurityScreen extends StatelessWidget {
                   return;
                 }
                 await state.requestAccountDeletion(reason: reasonCtrl.text.trim());
+                try {
+                  await authServiceForCurrentBuild().logout();
+                } catch (_) {}
                 if (!ctx.mounted) return;
                 Navigator.of(ctx).pop();
                 if (!context.mounted) return;
                 SakhiDialogs.showPrototypeSnackbar(
                   context,
-                  'Account deletion request recorded.',
+                  'Account deletion request recorded. Signing out…',
+                );
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute<void>(
+                    builder: (_) => SakhiLoginScreen(
+                      authService: authServiceForCurrentBuild(),
+                    ),
+                  ),
+                  (route) => false,
                 );
               },
             ),

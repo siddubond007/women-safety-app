@@ -1,3 +1,4 @@
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
@@ -175,6 +176,158 @@ class _FeedPostCardState extends State<FeedPostCard> {
     if (_wheelDialogOpen) {
       _dragReleaseSignal.value++;
     }
+  }
+
+  Widget _buildFormattedPostContent(BuildContext context, String rawContent) {
+    var body = rawContent.trim();
+    var isCommunityQuestion = false;
+    if (body.startsWith('Community Question\n')) {
+      isCommunityQuestion = true;
+      body = body.substring('Community Question\n'.length).trim();
+    } else if (body.startsWith('Community Question:')) {
+      isCommunityQuestion = true;
+      body = body.substring('Community Question:'.length).trim();
+    }
+
+    String? resourceUrl;
+    final resourceLineMatch = RegExp(
+      r'\n?Resource:\s*(https?://\S+)',
+      caseSensitive: false,
+    ).firstMatch(body);
+    if (resourceLineMatch != null) {
+      resourceUrl = resourceLineMatch.group(1)?.trim();
+      body = body.replaceRange(
+        resourceLineMatch.start,
+        resourceLineMatch.end,
+        '',
+      ).trim();
+    } else {
+      final anyUrlMatch = RegExp(r'(https?://\S+)').firstMatch(body);
+      if (anyUrlMatch != null) {
+        resourceUrl = anyUrlMatch.group(1)?.trim();
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (isCommunityQuestion)
+          Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFFF3E4FA), Color(0xFFFFEAF2)],
+              ),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: AppColors.primaryPurple.withValues(alpha: 0.28),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.help_outline_rounded,
+                  size: 14,
+                  color: AppColors.primaryPurple,
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  'Community Question • Advice Welcome',
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.primaryPurple,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        if (body.isNotEmpty)
+          Text(
+            body,
+            style: isCommunityQuestion
+                ? AppTypography.bodyMedium.copyWith(
+                    fontSize: 14.5,
+                    color: AppColors.textPrimary,
+                    height: 1.4,
+                  )
+                : AppTypography.bodyRegular,
+          ),
+        if (resourceUrl != null && resourceUrl.isNotEmpty) ...[
+          const SizedBox(height: 9),
+          InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () async {
+              final uri = Uri.tryParse(resourceUrl!);
+              if (uri != null) {
+                try {
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                } catch (_) {}
+              }
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.85),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: AppColors.primaryPurple.withValues(alpha: 0.3),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color: AppColors.pastelLavender,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(
+                      Icons.link_rounded,
+                      size: 16,
+                      color: AppColors.primaryPurple,
+                    ),
+                  ),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Shared Community Resource',
+                          style: AppTypography.caption.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.primaryPurple,
+                            fontSize: 11,
+                          ),
+                        ),
+                        Text(
+                          resourceUrl,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.subtitle.copyWith(
+                            fontSize: 11.5,
+                            decoration: TextDecoration.underline,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(
+                    Icons.open_in_new_rounded,
+                    size: 15,
+                    color: AppColors.primaryPurple,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
   }
 
   @override
@@ -366,7 +519,7 @@ class _FeedPostCardState extends State<FeedPostCard> {
                   ),
 
                   const SizedBox(height: 11),
-                  Text(post.content, style: AppTypography.bodyRegular),
+                  _buildFormattedPostContent(context, post.content),
 
                   if (post.hashtags.isNotEmpty) ...[
                     const SizedBox(height: 6),

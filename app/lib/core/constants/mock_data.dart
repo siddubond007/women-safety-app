@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:math' as math;
 import 'dart:async';
 
@@ -660,7 +662,72 @@ class NotificationPrefItem {
 /// Unified domain state and backend repository store for Module 2 & Module 3.
 class SakhiPrototypeState extends ChangeNotifier {
   static final SakhiPrototypeState instance = SakhiPrototypeState._internal();
-  SakhiPrototypeState._internal();
+  SakhiPrototypeState._internal() {
+    unawaited(_restoreLocalCache());
+  }
+
+  static const FlutterSecureStorage _localCacheStorage = FlutterSecureStorage();
+  static const String _localCacheKey = 'sakhi_prototype_state_cache_v1';
+
+  Future<void> _restoreLocalCache() async {
+    try {
+      final raw = await _localCacheStorage.read(key: _localCacheKey);
+      if (raw == null || raw.trim().isEmpty) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) return;
+      if (!_isBackendSynced) {
+        final u = decoded['currentUser'];
+        if (u is Map<String, dynamic>) {
+          currentUser.accountId = u['accountId']?.toString() ?? currentUser.accountId;
+          currentUser.displayName = u['displayName']?.toString() ?? currentUser.displayName;
+          currentUser.username = u['username']?.toString() ?? currentUser.username;
+          currentUser.bio = u['bio']?.toString() ?? currentUser.bio;
+          currentUser.location = u['location']?.toString() ?? currentUser.location;
+          currentUser.avatarAsset = u['avatarAsset']?.toString() ?? currentUser.avatarAsset;
+          currentUser.email = u['email']?.toString() ?? currentUser.email;
+          currentUser.postsCount = (u['postsCount'] as num?)?.toInt() ?? currentUser.postsCount;
+          currentUser.followersCount = (u['followersCount'] as num?)?.toInt() ?? currentUser.followersCount;
+          currentUser.followingCount = (u['followingCount'] as num?)?.toInt() ?? currentUser.followingCount;
+          currentUser.businessProfileUrl = u['businessProfileUrl']?.toString();
+        }
+        final jc = decoded['joinedCircleNames'];
+        if (jc is List) {
+          joinedCircleNames.addAll(jc.map((e) => e.toString()));
+        }
+        final sp = decoded['seenPostIds'];
+        if (sp is List) {
+          _seenPostIds.addAll(sp.map((e) => e.toString()));
+        }
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _persistLocalCache() async {
+    try {
+      final snapshot = <String, dynamic>{
+        'currentUser': <String, dynamic>{
+          'accountId': currentUser.accountId,
+          'displayName': currentUser.displayName,
+          'username': currentUser.username,
+          'bio': currentUser.bio,
+          'location': currentUser.location,
+          'avatarAsset': currentUser.avatarAsset,
+          'email': currentUser.email,
+          'postsCount': currentUser.postsCount,
+          'followersCount': currentUser.followersCount,
+          'followingCount': currentUser.followingCount,
+          'businessProfileUrl': currentUser.businessProfileUrl,
+        },
+        'joinedCircleNames': joinedCircleNames.toList(),
+        'seenPostIds': _seenPostIds.take(250).toList(),
+      };
+      await _localCacheStorage.write(
+        key: _localCacheKey,
+        value: jsonEncode(snapshot),
+      );
+    } catch (_) {}
+  }
 
   BackendApiClient? _apiClient;
   dynamic _boundBackend;
@@ -1425,6 +1492,7 @@ class SakhiPrototypeState extends ChangeNotifier {
       _isBackendSynced = true;
       lastSyncError = null;
       lastSyncSource = 'PostgreSQL Live DB';
+      unawaited(_persistLocalCache());
     } catch (_) {
       _isBackendSynced = false;
       lastSyncError = 'Live Sakhi data could not be loaded. Check the connection and retry.';
@@ -1573,9 +1641,8 @@ class SakhiPrototypeState extends ChangeNotifier {
           'bio': bio.trim(),
           'location': location.trim(),
           if (interests != null) 'interests': currentUser.interests,
-          if (email != null && email.trim().isNotEmpty) 'email': email.trim(),
-          if (businessProfileUrl != null &&
-              businessProfileUrl.trim().isNotEmpty)
+          if (email != null) 'email': email.trim(),
+          if (businessProfileUrl != null)
             'businessProfileUrl': businessProfileUrl.trim(),
           if (avatarAsset != null && avatarAsset.trim().isNotEmpty)
             'avatarAsset': avatarAsset.trim(),
@@ -1611,6 +1678,7 @@ class SakhiPrototypeState extends ChangeNotifier {
           (response['avatarAsset'] as String).isNotEmpty) {
         currentUser.avatarAsset = response['avatarAsset'] as String;
       }
+      unawaited(_persistLocalCache());
       notifyListeners();
       return true;
     } catch (_) {

@@ -1137,30 +1137,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onTap: () => showDialog<void>(
                   context: context,
                   builder: (dialogContext) => Dialog(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(8),
-                      child: FeedPostCard(
-                        post: post,
-                        showVerifiedCheck: true,
-                        onLikeTap: () => state.togglePostLike(post),
-                        onSaveTap: () async {
-                          final ok = await state.togglePostSaved(post);
-                          if (mounted) {
-                            setState(() {
-                              if (!post.isSaved) {
-                                _savedPosts = _savedPosts
-                                    .where((p) => p.id != post.id)
-                                    .toList(growable: false);
-                              }
-                            });
-                          }
-                          if (isSavedGrid &&
-                              !post.isSaved &&
-                              dialogContext.mounted) {
-                            Navigator.of(dialogContext).pop();
-                          }
-                          return ok;
-                        },
+                    backgroundColor: Colors.transparent,
+                    insetPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 24,
+                    ),
+                    child: AnimatedBuilder(
+                      animation: state,
+                      builder: (context, _) => SingleChildScrollView(
+                        padding: const EdgeInsets.all(4),
+                        child: FeedPostCard(
+                          post: post,
+                          showVerifiedCheck: true,
+                          onLikeTap: () => state.togglePostLike(post),
+                          onSaveTap: () async {
+                            final ok = await state.togglePostSaved(post);
+                            if (mounted) {
+                              setState(() {
+                                if (!post.isSaved) {
+                                  _savedPosts = _savedPosts
+                                      .where((p) => p.id != post.id)
+                                      .toList(growable: false);
+                                }
+                              });
+                            }
+                            if (isSavedGrid &&
+                                !post.isSaved &&
+                                dialogContext.mounted) {
+                              Navigator.of(dialogContext).pop();
+                            }
+                            return ok;
+                          },
+                        ),
                       ),
                     ),
                   ),

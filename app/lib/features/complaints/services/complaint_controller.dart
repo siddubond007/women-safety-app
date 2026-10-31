@@ -1,3 +1,4 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -35,7 +36,39 @@ const int kMaxComplaintEvidenceFiles = 5;
 /// `/api/v1/admin-review/complaints/*`).
 class SakhiComplaintController extends ChangeNotifier {
   SakhiComplaintController({BackendApiClient? apiClient})
-    : _apiClient = apiClient ?? BackendApiClient();
+    : _apiClient = apiClient ?? BackendApiClient() {
+    unawaited(_restorePersistedPasskeys());
+  }
+
+  static const FlutterSecureStorage _secureStorage = FlutterSecureStorage();
+  static const String _passkeysCacheKey = 'sakhi_complaints_passkeys_cache_v1';
+
+  Future<void> _restorePersistedPasskeys() async {
+    try {
+      final raw = await _secureStorage.read(key: _passkeysCacheKey);
+      if (raw == null || raw.trim().isEmpty) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        decoded.forEach((k, v) {
+          final ref = k.toString().trim().toUpperCase();
+          final pk = v.toString().trim();
+          if (ref.isNotEmpty && pk.isNotEmpty) {
+            _sessionIssuedPasskeys[ref] = pk;
+          }
+        });
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _persistPasskeys() async {
+    try {
+      await _secureStorage.write(
+        key: _passkeysCacheKey,
+        value: jsonEncode(_sessionIssuedPasskeys),
+      );
+    } catch (_) {}
+  }
 
   static SakhiComplaintController instance = SakhiComplaintController();
 
@@ -765,6 +798,7 @@ class SakhiComplaintController extends ChangeNotifier {
 
       _sessionIssuedPasskeys[created.referenceNumber.toUpperCase()] =
           issuedPasskey;
+      unawaited(_persistPasskeys());
       _complaints.removeWhere(
         (c) =>
             c.referenceNumber.toUpperCase() ==

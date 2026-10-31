@@ -128,6 +128,8 @@ class _AppNavigationShellState extends State<AppNavigationShell>
       proto.activeShellTabIndex = index;
       proto.activeShellSubRoute = null;
     });
+    SakhiSafetyController.instance.onDiscreetShortcutTriggered =
+        _handleGlobalHardwareShortcutTrigger;
     if (index == 2) {
       proto.markCommunityPostsAsSeen();
     }
@@ -283,7 +285,9 @@ class _AppNavigationShellState extends State<AppNavigationShell>
           ),
         ),
         bottomNavigationBar: SakhiBottomNav(
-          currentIndex: _currentIndex.clamp(0, 3),
+          currentIndex: (_activeSubScreenRoute != null || _currentIndex > 3)
+              ? -1
+              : _currentIndex.clamp(0, 3),
           onTabSelected: _handleTabSelected,
           onCenterAddTap: () => _showCenterActionModal(),
         ),

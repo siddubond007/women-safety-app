@@ -539,12 +539,16 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
                 ? (!_showingFollowingOnly && !_loadingConnections
                       ? _members.length
                       : (widget.initialFollowersCount ?? 0))
-                : user.followersCount;
+                : (!_showingFollowingOnly && !_loadingConnections && !_connectionsUnavailable
+                      ? _members.length
+                      : user.followersCount);
             final followingTotal = isTargetMember
                 ? (_showingFollowingOnly && !_loadingConnections
                       ? _members.length
                       : (widget.initialFollowingCount ?? 0))
-                : user.followingCount;
+                : (_showingFollowingOnly && !_loadingConnections && !_connectionsUnavailable
+                      ? _members.length
+                      : user.followingCount);
             final query = _searchController.text.trim().toLowerCase();
             final filtered = _members.where((u) {
               if (query.isEmpty) return true;
@@ -668,7 +672,7 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
 
                   const SizedBox(height: 12),
                   SakhiSearchField(
-                    hintText: 'Search followers...',
+                    hintText: _showingFollowingOnly ? 'Search following...' : 'Search followers...',
                     controller: _searchController,
                     onChanged: (_) => setState(() {}),
                     onClear: () {

@@ -1351,13 +1351,21 @@ class _SearchResultMemberProfileScreenState
                     onTap: () => showDialog<void>(
                       context: context,
                       builder: (dialogContext) => Dialog(
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.all(8),
-                          child: FeedPostCard(
-                            post: post,
-                            showVerifiedCheck: true,
-                            onLikeTap: () => state.togglePostLike(post),
-                            onSaveTap: () => state.togglePostSaved(post),
+                        backgroundColor: Colors.transparent,
+                        insetPadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 24,
+                        ),
+                        child: AnimatedBuilder(
+                          animation: state,
+                          builder: (context, _) => SingleChildScrollView(
+                            padding: const EdgeInsets.all(4),
+                            child: FeedPostCard(
+                              post: post,
+                              showVerifiedCheck: true,
+                              onLikeTap: () => state.togglePostLike(post),
+                              onSaveTap: () => state.togglePostSaved(post),
+                            ),
                           ),
                         ),
                       ),
@@ -1509,7 +1517,7 @@ class _NearbyCirclesScreenState extends State<NearbyCirclesScreen> {
     );
     if (!mounted) return;
 
-    final rawCircles = res?['circles'];
+    final rawCircles = res?['activeCircles'] ?? res?['circles'];
     final parsedCircles = rawCircles is List
         ? rawCircles
               .whereType<Map<String, dynamic>>()

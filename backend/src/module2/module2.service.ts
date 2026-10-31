@@ -694,6 +694,7 @@ export class Module2Service {
 
   async bootstrap(authorization?: string) {
     const session = await this.auth.authenticateAuthorization(authorization);
+    await this.ensureDefaultCatalogSeeded(session.accountId).catch(() => undefined);
 
     const [
       profile,
@@ -6188,13 +6189,20 @@ export class Module2Service {
       });
       const candidates = followedRows
         .map((item) => item.directoryProfile)
-        .filter((item) => item && item.username)
+        .filter((item): item is NonNullable<typeof item> => Boolean(item && item.username))
         .filter((item) => !blockedHandles.has(normalizeHandle(item.username)));
-      const usernames = [...new Set(candidates.map((item) => item.username))];
-      if (usernames.length > 0) {
-        rawProfiles = await this.prisma.memberProfile.findMany({
+      const handleVariants = [
+        ...new Set(
+          candidates.flatMap((item) => {
+            const clean = item.username.replace(/^@+/, "");
+            return [item.username, clean, `@${clean}`, `@${clean.toLowerCase()}`, clean.toLowerCase()];
+          }),
+        ),
+      ];
+      if (handleVariants.length > 0) {
+        const matchedProfiles = await this.prisma.memberProfile.findMany({
           where: {
-            username: { in: usernames },
+            username: { in: handleVariants },
             account: {
               is: {
                 status: "ACTIVE",
@@ -6214,14 +6222,37 @@ export class Module2Service {
             },
           },
         });
-        const directoryByHandle = new Map(
-          candidates.map((item) => [item.username, item.id]),
+        const profileByNormHandle = new Map(
+          matchedProfiles.map((p) => [normalizeHandle(p.username ?? ""), p]),
         );
-        rawProfiles = rawProfiles.map((profile) => ({
-          ...profile,
-          directoryProfileId:
-            directoryByHandle.get(profile.username ?? "") ?? null,
-        }));
+        rawProfiles = candidates.map((cand) => {
+          const norm = normalizeHandle(cand.username);
+          const matched = profileByNormHandle.get(norm);
+          if (matched) {
+            return {
+              ...matched,
+              directoryProfileId: cand.id,
+            };
+          }
+          return {
+            accountId: cand.id,
+            displayName: cand.name,
+            username: cand.username.startsWith("@") ? cand.username : `@${cand.username}`,
+            bio: cand.bio ?? "",
+            avatarAsset: cand.avatarAsset ?? "",
+            avatarMediaAssetId: null,
+            interests: [],
+            businessProfileUrl: null,
+            businessProfileName: null,
+            businessCategory: null,
+            account: {
+              status: "ACTIVE",
+              verificationStatus: "VERIFIED",
+              privacyPreference: null,
+            },
+            directoryProfileId: cand.id,
+          };
+        });
       }
     } else if (ownedDirectory) {
       const followerRows = await this.prisma.memberFollow.findMany({
