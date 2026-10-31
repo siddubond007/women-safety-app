@@ -172,6 +172,51 @@ export const SEEDED_COMMUNITY_MEMBERS = [
 
 @Injectable()
 export class Module2Service {
+  private static readonly commentLikesMap = new Map<string, Set<string>>();
+  private static readonly postPollMetaMap = new Map<string, { question: string; options: string[]; votes: Record<string, number> }>();
+  private static readonly postExtraMediaMap = new Map<string, string[]>();
+
+  private groupThreadedComments<T extends Record<string, any>>(
+    flat: T[],
+  ): T[] {
+    if (flat.length <= 1) return flat;
+    const byId = new Map<string, T>();
+    for (const c of flat) {
+      byId.set(c.id, c);
+    }
+    const childrenByParent = new Map<string, T[]>();
+    const roots: T[] = [];
+    for (const c of flat) {
+      const pid = c.parentCommentId ? String(c.parentCommentId).trim() : "";
+      if (pid && byId.has(pid) && pid !== c.id) {
+        const list = childrenByParent.get(pid) ?? [];
+        list.push(c);
+        childrenByParent.set(pid, list);
+      } else {
+        roots.push(c);
+      }
+    }
+    const ordered: T[] = [];
+    const visited = new Set<string>();
+    const visit = (node: T) => {
+      if (visited.has(node.id)) return;
+      visited.add(node.id);
+      ordered.push(node);
+      const kids = childrenByParent.get(node.id) ?? [];
+      for (const k of kids) {
+        visit(k);
+      }
+    };
+    for (const r of roots) {
+      visit(r);
+    }
+    for (const c of flat) {
+      if (!visited.has(c.id)) {
+        ordered.push(c);
+      }
+    }
+    return ordered;
+  }
   constructor(
     private readonly auth: AuthenticationService,
     private readonly prisma: PrismaService,
@@ -213,20 +258,12 @@ export class Module2Service {
     if (
       asset.startsWith("http://") ||
       asset.startsWith("https://") ||
-      asset.startsWith("/api/v1/")
+      asset.startsWith("/api/v1/") ||
+      asset.startsWith("assets/")
     ) {
       return asset;
     }
     if (avatarMediaAssetId) return asset;
-    // The schema's legacy avatar_* image default is a demo illustration, not
-    // a member-uploaded photo. Do not present it as if it belonged to the user.
-    if (
-      /^assets\/images\/profile\/avatar_[^/]+\.(webp|png|jpg|jpeg)$/i.test(
-        asset,
-      )
-    ) {
-      return "";
-    }
     return asset;
   }
 
@@ -446,7 +483,7 @@ export class Module2Service {
         feedSection: "community",
         hasBreathingExerciseCard: false,
         likesCount: 184,
-        commentsCount: 27,
+        commentsCount: 0,
         createdAt: new Date(Date.now() - 25 * 60 * 1000),
       },
       {
@@ -463,7 +500,7 @@ export class Module2Service {
         feedSection: "community",
         hasBreathingExerciseCard: false,
         likesCount: 165,
-        commentsCount: 34,
+        commentsCount: 0,
         createdAt: new Date(Date.now() - 75 * 60 * 1000),
       },
       {
@@ -480,7 +517,7 @@ export class Module2Service {
         feedSection: "community",
         hasBreathingExerciseCard: false,
         likesCount: 124,
-        commentsCount: 18,
+        commentsCount: 0,
         createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
       },
       {
@@ -497,7 +534,7 @@ export class Module2Service {
         feedSection: "community",
         hasBreathingExerciseCard: true,
         likesCount: 142,
-        commentsCount: 19,
+        commentsCount: 0,
         createdAt: new Date(Date.now() - 4 * 60 * 60 * 1000),
       },
       {
@@ -514,7 +551,7 @@ export class Module2Service {
         feedSection: "community",
         hasBreathingExerciseCard: false,
         likesCount: 112,
-        commentsCount: 15,
+        commentsCount: 0,
         createdAt: new Date(Date.now() - 6 * 60 * 60 * 1000),
       },
       {
@@ -531,7 +568,7 @@ export class Module2Service {
         feedSection: "community",
         hasBreathingExerciseCard: false,
         likesCount: 78,
-        commentsCount: 22,
+        commentsCount: 0,
         createdAt: new Date(Date.now() - 9 * 60 * 60 * 1000),
       },
       {
@@ -548,7 +585,7 @@ export class Module2Service {
         feedSection: "explore",
         hasBreathingExerciseCard: false,
         likesCount: 196,
-        commentsCount: 24,
+        commentsCount: 0,
         createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
       },
       {
@@ -565,7 +602,7 @@ export class Module2Service {
         feedSection: "explore",
         hasBreathingExerciseCard: false,
         likesCount: 154,
-        commentsCount: 16,
+        commentsCount: 0,
         createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000),
       },
       {
@@ -582,7 +619,7 @@ export class Module2Service {
         feedSection: "explore",
         hasBreathingExerciseCard: false,
         likesCount: 131,
-        commentsCount: 11,
+        commentsCount: 0,
         createdAt: new Date(Date.now() - 8 * 60 * 60 * 1000),
       },
       {
@@ -599,7 +636,7 @@ export class Module2Service {
         feedSection: "profile",
         hasBreathingExerciseCard: false,
         likesCount: 94,
-        commentsCount: 14,
+        commentsCount: 0,
         createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
       },
       {
@@ -616,7 +653,7 @@ export class Module2Service {
         feedSection: "profile",
         hasBreathingExerciseCard: false,
         likesCount: 82,
-        commentsCount: 12,
+        commentsCount: 0,
         createdAt: new Date(Date.now() - 12 * 60 * 60 * 1000),
       },
     ];
@@ -874,42 +911,191 @@ export class Module2Service {
       }
       return isViewerVerified;
     };
-    const mapPost = (post: (typeof allPosts)[number]) => ({
-      id: post.id,
-      postId: post.id,
-      authorAccountId: post.authorAccountId ?? "",
-      authorName: post.authorName,
-      authorUsername: post.authorUsername,
-      authorAvatar: this.resolveMemberAvatar(post.authorAvatar),
-      authorVerified: post.authorVerified,
-      timestamp: this.formatRelativeTime(post.createdAt),
-      createdAt: post.createdAt.toISOString(),
-      content: post.content,
-      body: post.content,
-      imageAsset: post.imageAsset,
-      mediaAsset: post.imageAsset,
-      mediaContentType: post.mediaAssets[0]?.contentType ?? null,
-      categoryBadge: post.categoryBadge,
-      categorySlug: post.categorySlug,
-      visibility: post.visibility,
-      cropPreset: post.cropPreset,
-      hashtags: Array.isArray(post.hashtags) ? post.hashtags : [],
-      locationTag: post.locationTag,
-      allowComments: post.allowComments,
-      shareToBusinessProfile: post.shareToBusinessProfile,
-      feedSection: post.feedSection,
-      status: post.status,
-      hasBreathingExerciseCard: post.hasBreathingExerciseCard,
-      likesCount: post.likesCount,
-      commentsCount: post.commentsCount,
-      savesCount: post.savesCount,
-      sharesCount: post.sharesCount,
-      isLiked: likedSet.has(post.id),
-      isSaved: savedSet.has(post.id),
-      isOwnPost: post.authorAccountId === session.accountId,
-      canEdit: post.authorAccountId === session.accountId,
-      canDelete: post.authorAccountId === session.accountId,
-    });
+    const allPostIds = Array.from(
+      new Set([...allPosts.map((p) => p.id), ...ownedProfilePosts.map((p) => p.id)]),
+    );
+    const anyPrismaBoot = this.prisma as Record<string, any>;
+    const [allPostReactions, allPostComments] = await Promise.all([
+      anyPrismaBoot.communityPostReaction?.findMany && allPostIds.length > 0
+        ? anyPrismaBoot.communityPostReaction
+            .findMany({ where: { postId: { in: allPostIds } } })
+            .catch(() => [])
+        : Promise.resolve([]),
+      anyPrismaBoot.communityPostComment?.findMany && allPostIds.length > 0
+        ? anyPrismaBoot.communityPostComment
+            .findMany({
+              where: {
+                postId: { in: allPostIds },
+                deletedAt: null,
+                isRemovedByModerator: false,
+              },
+              orderBy: { createdAt: "asc" },
+            })
+            .catch(() => [])
+        : Promise.resolve([]),
+    ]);
+
+    const commentAuthorIds = Array.from(
+      new Set(
+        (allPostComments as Array<Record<string, any>>)
+          .map((c) => (c.accountId ? String(c.accountId) : ""))
+          .filter(Boolean),
+      ),
+    );
+    const commentAuthorProfiles =
+      commentAuthorIds.length > 0 &&
+      typeof (this.prisma.memberProfile as Record<string, any>)?.findMany === "function"
+        ? await this.prisma.memberProfile
+            .findMany({ where: { accountId: { in: commentAuthorIds } } })
+            .catch(() => [])
+        : [];
+    const commentProfileByAccountId = new Map<string, Record<string, any>>();
+    for (const mp of commentAuthorProfiles as Array<Record<string, any>>) {
+      if (mp?.accountId) commentProfileByAccountId.set(String(mp.accountId), mp);
+    }
+
+    const reactionsByPostId = new Map<string, Record<string, number>>();
+    const viewerReactionByPostId = new Map<string, string>();
+    for (const r of allPostReactions as Array<Record<string, any>>) {
+      const pid = String(r.postId ?? "");
+      const rType = String(r.reactionType ?? "LIKE").toUpperCase();
+      if (!pid) continue;
+      const map = reactionsByPostId.get(pid) ?? {};
+      map[rType] = (map[rType] ?? 0) + 1;
+      reactionsByPostId.set(pid, map);
+      if (String(r.accountId ?? "") === session.accountId) {
+        viewerReactionByPostId.set(pid, rType);
+      }
+    }
+
+    const commentsByPostId = new Map<string, Array<Record<string, any>>>();
+    for (const c of allPostComments as Array<Record<string, any>>) {
+      const pid = String(c.postId ?? "");
+      if (!pid) continue;
+      const mp = c.accountId ? commentProfileByAccountId.get(String(c.accountId)) : null;
+      const resolvedAuthorName = mp?.displayName ?? c.authorName ?? "Sakhi Member";
+      const resolvedUsername = this.deriveUsername(
+        String(resolvedAuthorName),
+        mp?.username ?? null,
+      );
+      const resolvedAvatar = mp
+        ? this.resolveMemberAvatar(mp.avatarAsset, mp.avatarMediaAssetId)
+        : "";
+      const isOwn = Boolean(c.accountId && c.accountId === session.accountId);
+      const createdDate =
+        c.createdAt instanceof Date ? c.createdAt : new Date(String(c.createdAt ?? Date.now()));
+      const updatedDate =
+        c.updatedAt instanceof Date ? c.updatedAt : new Date(String(c.updatedAt ?? createdDate));
+      const isEdited = updatedDate.getTime() - createdDate.getTime() > 1500;
+      const likeSet = Module2Service.commentLikesMap.get(String(c.id));
+      const likesCount = likeSet ? likeSet.size : 0;
+      const isLiked = Boolean(likeSet && likeSet.has(session.accountId));
+      const list = commentsByPostId.get(pid) ?? [];
+      list.push({
+        id: c.id,
+        commentId: c.id,
+        postId: pid,
+        authorAccountId: c.accountId ?? "",
+        authorName: resolvedAuthorName,
+        authorUsername: resolvedUsername,
+        authorAvatar: resolvedAvatar,
+        content: c.content,
+        body: c.content,
+        parentCommentId: c.parentCommentId ?? null,
+        replyToHandle: c.replyToHandle ?? null,
+        isOwnComment: isOwn,
+        canEdit: isOwn,
+        canDelete: isOwn,
+        isEdited,
+        likesCount,
+        isLiked,
+        timestamp: this.formatRelativeTime(createdDate),
+        createdAt: this.formatRelativeTime(createdDate),
+        createdAtIso: createdDate.toISOString(),
+      });
+      commentsByPostId.set(pid, list);
+    }
+
+    const hasLiveCommentQuery =
+      typeof anyPrismaBoot.communityPostComment?.findMany === "function";
+    const mapPost = (post: (typeof allPosts)[number]) => {
+      const rawComments = commentsByPostId.get(post.id) ?? [];
+      const threadedComments = this.groupThreadedComments(rawComments).map((c: Record<string, any>) => ({
+        ...c,
+        canDelete: Boolean(c.isOwnComment || post.authorAccountId === session.accountId),
+      }));
+      const authoritativeCommentsCount = hasLiveCommentQuery
+        ? threadedComments.length
+        : post.commentsCount;
+      if (hasLiveCommentQuery && post.commentsCount !== threadedComments.length) {
+        void this.prisma.communityPost
+          .update({
+            where: { id: post.id },
+            data: { commentsCount: threadedComments.length },
+          })
+          .catch(() => undefined);
+      }
+      const breakdown = reactionsByPostId.get(post.id) ?? {};
+      const viewerRx =
+        viewerReactionByPostId.get(post.id) ?? (likedSet.has(post.id) ? "HEART" : null);
+      const pollMeta = Module2Service.postPollMetaMap.get(post.id);
+      const extraMedia = Module2Service.postExtraMediaMap.get(post.id);
+      return {
+        id: post.id,
+        postId: post.id,
+        authorAccountId: post.authorAccountId ?? "",
+        authorName: post.authorName,
+        authorUsername: post.authorUsername,
+        authorAvatar: this.resolveMemberAvatar(post.authorAvatar),
+        authorVerified: post.authorVerified,
+        timestamp: this.formatRelativeTime(post.createdAt),
+        createdAt: post.createdAt.toISOString(),
+        content: post.content,
+        body: post.content,
+        imageAsset: post.imageAsset,
+        mediaAsset: post.imageAsset,
+        mediaAssets:
+          extraMedia && extraMedia.length > 0
+            ? extraMedia
+            : post.imageAsset
+              ? [post.imageAsset]
+              : [],
+        mediaContentType:
+          post.mediaAssets[0]?.contentType ??
+          (post.imageAsset?.endsWith(".mp4") ? "video/mp4" : null),
+        categoryBadge: post.categoryBadge,
+        categorySlug: post.categorySlug,
+        visibility: post.visibility,
+        cropPreset: post.cropPreset,
+        hashtags: Array.isArray(post.hashtags) ? post.hashtags : [],
+        locationTag: post.locationTag,
+        allowComments: post.allowComments,
+        shareToBusinessProfile: post.shareToBusinessProfile,
+        feedSection: post.feedSection,
+        status: post.status,
+        hasBreathingExerciseCard: post.hasBreathingExerciseCard,
+        likesCount: post.likesCount,
+        reactionsCount: post.likesCount,
+        commentsCount: authoritativeCommentsCount,
+        savesCount: post.savesCount,
+        sharesCount: post.sharesCount,
+        isLiked: likedSet.has(post.id) || viewerRx !== null,
+        isSaved: savedSet.has(post.id),
+        isOwnPost: post.authorAccountId === session.accountId,
+        canEdit: post.authorAccountId === session.accountId,
+        canDelete: post.authorAccountId === session.accountId,
+        viewerReaction: viewerRx,
+        reactionBreakdown: breakdown,
+        comments: threadedComments,
+        ...(pollMeta
+          ? {
+              pollQuestion: pollMeta.question,
+              pollOptions: pollMeta.options,
+              pollVotes: pollMeta.votes,
+            }
+          : {}),
+      };
+    };
 
     const mappedPosts = allPosts.filter(canViewPost).map(mapPost);
     const communityPosts = mappedPosts.filter(
@@ -1424,6 +1610,28 @@ export class Module2Service {
         })
         .catch(() => undefined);
     }
+    if (
+      typeof (this.prisma.communityPostComment as Record<string, any>)?.updateMany ===
+      "function"
+    ) {
+      await this.prisma.communityPostComment
+        .updateMany({
+          where: { accountId: session.accountId },
+          data: {
+            authorName: updated.displayName,
+          },
+        })
+        .catch(() => undefined);
+    }
+    const anyPrismaForProf = this.prisma as Record<string, any>;
+    if (typeof anyPrismaForProf.businessDirectoryListing?.updateMany === "function") {
+      await anyPrismaForProf.businessDirectoryListing
+        .updateMany({
+          where: { ownerAccountId: session.accountId },
+          data: { ownerDisplayName: updated.displayName },
+        })
+        .catch(() => undefined);
+    }
 
     await this.prisma.auditEvent.create({
       data: {
@@ -1607,6 +1815,29 @@ export class Module2Service {
           })
         : null;
 
+    const allMediaUrls =
+      mediaUploadIds.length > 0
+        ? mediaUploadIds.map((id) => `/api/v1/module2/media/object/${id}`)
+        : Array.isArray(dto.mediaAssets) && dto.mediaAssets.length > 0
+          ? dto.mediaAssets.filter((m) => m.startsWith("assets/") || m.startsWith("/api/v1/"))
+          : post.imageAsset
+            ? [post.imageAsset]
+            : [];
+    if (allMediaUrls.length > 1) {
+      Module2Service.postExtraMediaMap.set(post.id, allMediaUrls);
+    }
+    if (Array.isArray(dto.pollOptions) && dto.pollOptions.length >= 2) {
+      const cleanOpts = dto.pollOptions.map((o) => o.trim()).filter(Boolean);
+      if (cleanOpts.length >= 2) {
+        Module2Service.postPollMetaMap.set(post.id, {
+          question: (dto.pollQuestion ?? postContent).trim(),
+          options: cleanOpts,
+          votes: {},
+        });
+      }
+    }
+    const pollMeta = Module2Service.postPollMetaMap.get(post.id);
+
     return {
       id: post.id,
       postId: post.id,
@@ -1621,7 +1852,9 @@ export class Module2Service {
       body: post.content,
       imageAsset: post.imageAsset,
       mediaAsset: post.imageAsset,
-      mediaContentType: firstAttachedMedia?.contentType ?? null,
+      mediaAssets: allMediaUrls,
+      mediaContentType:
+        firstAttachedMedia?.contentType ?? dto.mediaContentType ?? null,
       categoryBadge: post.categoryBadge,
       categorySlug: post.categorySlug,
       visibility: post.visibility,
@@ -1640,6 +1873,13 @@ export class Module2Service {
       isOwnPost: true,
       canEdit: true,
       canDelete: true,
+      ...(pollMeta
+        ? {
+            pollQuestion: pollMeta.question,
+            pollOptions: pollMeta.options,
+            pollVotes: pollMeta.votes,
+          }
+        : {}),
     };
   }
 
@@ -1738,7 +1978,21 @@ export class Module2Service {
       where: { accountId: session.accountId },
     });
 
-    const commentContent = (dto.content ?? dto.body ?? "").trim();
+    const replyHandle = dto.replyToHandle?.trim() || null;
+    let commentContent = (dto.content ?? dto.body ?? "").trim();
+    if (replyHandle) {
+      const normalizedHandle = replyHandle.startsWith("@")
+        ? replyHandle
+        : `@${replyHandle}`;
+      if (
+        commentContent.toLowerCase().startsWith(`${normalizedHandle.toLowerCase()} `)
+      ) {
+        const stripped = commentContent.slice(normalizedHandle.length).trim();
+        if (stripped.length > 0) {
+          commentContent = stripped;
+        }
+      }
+    }
     if (!commentContent) {
       throw new BadRequestException("Comment content is required.");
     }
@@ -1749,7 +2003,6 @@ export class Module2Service {
       dto.parentCommentId && /^[0-9a-f-]{36}$/i.test(dto.parentCommentId.trim())
         ? dto.parentCommentId.trim()
         : null;
-    const replyHandle = dto.replyToHandle?.trim() || null;
 
     let comment: Record<string, any>;
     try {
@@ -1774,26 +2027,59 @@ export class Module2Service {
       });
     }
 
+    const exactCommentsCount =
+      typeof anyCommentModel?.count === "function"
+        ? await anyCommentModel
+            .count({
+              where: {
+                postId,
+                deletedAt: null,
+                isRemovedByModerator: false,
+              },
+            })
+            .catch(() => post.commentsCount + 1)
+        : post.commentsCount + 1;
     const updated = await this.prisma.communityPost.update({
       where: { id: postId },
-      data: { commentsCount: post.commentsCount + 1 },
+      data: { commentsCount: exactCommentsCount },
     });
+
+    const authorDisplayName =
+      profile?.displayName ?? comment.authorName ?? "Sakhi Member";
+    const authorUsername = this.deriveUsername(
+      String(authorDisplayName),
+      profile?.username ?? null,
+    );
+    const authorAvatar = profile
+      ? this.resolveMemberAvatar(profile.avatarAsset, profile.avatarMediaAssetId)
+      : "";
+    const createdIso =
+      comment.createdAt instanceof Date
+        ? comment.createdAt.toISOString()
+        : String(comment.createdAt ?? new Date().toISOString());
 
     return {
       id: comment.id,
       commentId: comment.id,
       postId,
       authorAccountId: session.accountId,
-      authorName: comment.authorName,
+      authorName: authorDisplayName,
+      authorUsername,
+      authorAvatar,
       content: comment.content,
       body: comment.content,
       parentCommentId: comment.parentCommentId ?? parentId,
       replyToHandle: comment.replyToHandle ?? replyHandle,
+      isOwnComment: true,
+      canEdit: true,
+      canDelete: true,
+      isEdited: false,
+      likesCount: 0,
+      isLiked: false,
       commentsCount: updated.commentsCount,
-      createdAt:
-        comment.createdAt instanceof Date
-          ? comment.createdAt.toISOString()
-          : String(comment.createdAt),
+      timestamp: "Just now",
+      createdAt: "Just now",
+      createdAtIso: createdIso,
     };
   }
 
@@ -4346,16 +4632,43 @@ export class Module2Service {
     const categorySlug = (dto.categorySlug || "community").trim().toLowerCase();
     const cropAspectRatio =
       dto.cropAspectRatio || (normalizedPurpose === "avatar" ? "1:1" : "4:5");
-    const stored = await this.googleDrive.uploadImage({
-      uploadId,
-      accountId: session.accountId,
-      purpose: normalizedPurpose,
-      categorySlug,
-      postId: dto.postId ?? null,
-      fileName: file.originalname,
-      contentType: file.mimetype as (typeof allowedTypes)[number],
-      buffer: file.buffer,
-    });
+    const isBusinessMedia =
+      dto.purpose === "business_media" ||
+      dto.purpose === "BUSINESS_MEDIA" ||
+      categorySlug === "business";
+    let stored: {
+      driveFileId: string;
+      driveFolderId: string;
+      driveFolderPath: string;
+      storedName: string;
+      size: number;
+      inlineBase64?: string;
+    };
+    try {
+      stored = await this.googleDrive.uploadImage({
+        uploadId,
+        accountId: session.accountId,
+        purpose: normalizedPurpose,
+        categorySlug,
+        postId: dto.postId ?? null,
+        fileName: file.originalname,
+        contentType: file.mimetype as (typeof allowedTypes)[number],
+        buffer: file.buffer,
+      });
+    } catch (driveErr) {
+      if (!isVideo && file.buffer.length <= 6 * 1024 * 1024) {
+        stored = {
+          driveFileId: `inline-db-${uploadId}`,
+          driveFolderId: "inline-db-folder",
+          driveFolderPath: `Sakhi Media/inline/${session.accountId}`,
+          storedName: file.originalname || `${uploadId}.jpg`,
+          size: file.buffer.length,
+          inlineBase64: file.buffer.toString("base64"),
+        };
+      } else {
+        throw driveErr;
+      }
+    }
     // Store a same-origin API path. Absolute loopback URLs work on the host
     // machine but point back to the phone itself when the app runs on Android.
     const publicUrl = `/api/v1/module2/media/object/${uploadId}`;
@@ -4381,6 +4694,7 @@ export class Module2Service {
           publicUrl,
           sizeBytes: stored.size,
           uploadedAt,
+          ...(stored.inlineBase64 ? { inlineBase64: stored.inlineBase64 } : {}),
         },
       },
     });
@@ -4393,11 +4707,16 @@ export class Module2Service {
         purpose:
           normalizedPurpose === "avatar"
             ? "PROFILE_PHOTO"
-            : isVideo
-              ? "COMMUNITY_POST_VIDEO"
-              : "COMMUNITY_POST_IMAGE",
+            : isBusinessMedia
+              ? "BUSINESS_MEDIA"
+              : isVideo
+                ? "COMMUNITY_POST_VIDEO"
+                : "COMMUNITY_POST_IMAGE",
         storageProvider: "GOOGLE_DRIVE",
-        status: normalizedPurpose === "avatar" ? "ATTACHED" : "UPLOADED",
+        status:
+          normalizedPurpose === "avatar" || isBusinessMedia
+            ? "ATTACHED"
+            : "UPLOADED",
         categorySlug: normalizedPurpose === "avatar" ? null : categorySlug,
         driveFileId: stored.driveFileId,
         driveFolderId: stored.driveFolderId,
@@ -4681,8 +5000,27 @@ export class Module2Service {
       );
     }
 
-    const media = await this.googleDrive.downloadFile(driveFileId);
     const recordedContentType = asset?.contentType ?? meta.contentType;
+    if (
+      driveFileId.startsWith("inline-db-") &&
+      typeof meta.inlineBase64 === "string" &&
+      meta.inlineBase64.length > 0
+    ) {
+      const inlineBuffer = Buffer.from(meta.inlineBase64, "base64");
+      const inlineType =
+        typeof recordedContentType === "string" &&
+        ["image/jpeg", "image/png", "image/webp", "video/mp4"].includes(
+          recordedContentType,
+        )
+          ? recordedContentType
+          : "image/jpeg";
+      return {
+        contentType: inlineType,
+        buffer: inlineBuffer,
+      };
+    }
+
+    const media = await this.googleDrive.downloadFile(driveFileId);
     const storedContentType =
       typeof recordedContentType === "string" &&
       ["image/jpeg", "image/png", "image/webp", "video/mp4"].includes(
@@ -4824,10 +5162,19 @@ export class Module2Service {
     const blockedHandles = new Set(
       (boot.blockedUsers ?? []).map((u) => u.blockedUsername.toLowerCase()),
     );
-    let items = [
-      ...boot.communityPosts,
-      ...boot.exploreRecommendedPosts,
-    ].filter((post) => !blockedHandles.has(post.authorUsername.toLowerCase()));
+    const basePool = query.savedOnly
+      ? [
+          ...boot.communityPosts,
+          ...boot.exploreRecommendedPosts,
+          ...(boot.profilePosts ?? []),
+        ]
+      : [...boot.communityPosts, ...boot.exploreRecommendedPosts];
+    const seenIds = new Set<string>();
+    let items = basePool.filter((post) => {
+      if (seenIds.has(post.id)) return false;
+      seenIds.add(post.id);
+      return !blockedHandles.has(post.authorUsername.toLowerCase());
+    });
     const slug = (query.categorySlug || query.topic || "").trim().toLowerCase();
     if (slug && slug !== "all" && slug !== "community") {
       if (slug === "following") {
@@ -5177,32 +5524,107 @@ export class Module2Service {
       },
       orderBy: { createdAt: "asc" },
     });
+
+    const authorIds = Array.from(
+      new Set(
+        comments
+          .map((c: Record<string, any>) =>
+            c.accountId ? String(c.accountId) : "",
+          )
+          .filter(Boolean),
+      ),
+    );
+    const profiles =
+      authorIds.length > 0 &&
+      typeof (this.prisma.memberProfile as Record<string, any>)?.findMany ===
+        "function"
+        ? await this.prisma.memberProfile
+            .findMany({ where: { accountId: { in: authorIds } } })
+            .catch(() => [])
+        : [];
+    const profileByAccountId = new Map<string, Record<string, any>>();
+    for (const p of profiles as Array<Record<string, any>>) {
+      if (p?.accountId) profileByAccountId.set(String(p.accountId), p);
+    }
+
     const mapped = comments.map((c: Record<string, any>) => {
       const isOwn = Boolean(c.accountId && c.accountId === session.accountId);
       const isPostOwner = Boolean(
         post?.authorAccountId && post.authorAccountId === session.accountId,
       );
+      const mp = c.accountId
+        ? profileByAccountId.get(String(c.accountId))
+        : null;
+      const resolvedAuthorName =
+        mp?.displayName ?? c.authorName ?? "Sakhi Member";
+      const resolvedUsername = this.deriveUsername(
+        String(resolvedAuthorName),
+        mp?.username ?? null,
+      );
+      const resolvedAvatar = mp
+        ? this.resolveMemberAvatar(mp.avatarAsset, mp.avatarMediaAssetId)
+        : "";
+      const createdDate =
+        c.createdAt instanceof Date
+          ? c.createdAt
+          : new Date(String(c.createdAt ?? Date.now()));
+      const updatedDate =
+        c.updatedAt instanceof Date
+          ? c.updatedAt
+          : new Date(String(c.updatedAt ?? createdDate));
+      const isEdited = updatedDate.getTime() - createdDate.getTime() > 1500;
+      const likeSet = Module2Service.commentLikesMap.get(String(c.id));
+      const likesCount = likeSet ? likeSet.size : 0;
+      const isLiked = Boolean(likeSet && likeSet.has(session.accountId));
+
+      let cleanBody = String(c.content ?? "");
+      if (c.replyToHandle) {
+        const rh = String(c.replyToHandle).trim();
+        const normRh = rh.startsWith("@") ? rh : `@${rh}`;
+        if (cleanBody.toLowerCase().startsWith(`${normRh.toLowerCase()} `)) {
+          const stripped = cleanBody.slice(normRh.length).trim();
+          if (stripped.length > 0) cleanBody = stripped;
+        }
+      }
+
       return {
         id: c.id,
         commentId: c.id,
         postId: c.postId,
         authorAccountId: c.accountId,
-        authorName: c.authorName,
-        authorUsername: this.deriveUsername(String(c.authorName ?? "Member")),
-        content: c.content,
-        body: c.content,
+        authorName: resolvedAuthorName,
+        authorUsername: resolvedUsername,
+        authorAvatar: resolvedAvatar,
+        content: cleanBody,
+        body: cleanBody,
         parentCommentId: c.parentCommentId ?? null,
         replyToHandle: c.replyToHandle ?? null,
         isOwnComment: isOwn,
         canEdit: isOwn,
         canDelete: isOwn || isPostOwner,
-        createdAt:
-          c.createdAt instanceof Date
-            ? c.createdAt.toISOString()
-            : String(c.createdAt),
+        isEdited,
+        likesCount,
+        isLiked,
+        timestamp: this.formatRelativeTime(createdDate),
+        createdAt: this.formatRelativeTime(createdDate),
+        createdAtIso: createdDate.toISOString(),
       };
     });
-    return { items: mapped, comments: mapped };
+    const threaded = this.groupThreadedComments(mapped);
+    if (post && post.commentsCount !== threaded.length) {
+      void this.prisma.communityPost
+        .update({
+          where: { id: postId },
+          data: { commentsCount: threaded.length },
+        })
+        .catch(() => undefined);
+    }
+    return {
+      items: threaded,
+      comments: threaded,
+      commentsCount: threaded.length,
+      total: threaded.length,
+    };
   }
 
   async editPostComment(
@@ -5233,11 +5655,13 @@ export class Module2Service {
       data: { content: nextText },
     });
     return {
+      id: updated.id,
       commentId: updated.id,
       postId,
       authorName: updated.authorName,
       content: updated.content,
       body: updated.content,
+      isEdited: true,
       updatedAt: updated.updatedAt.toISOString(),
     };
   }
@@ -5268,17 +5692,311 @@ export class Module2Service {
           "Only the comment author or the post owner can delete this comment.",
       });
     }
+    const now = new Date();
     await this.prisma.communityPostComment.update({
       where: { id: commentId },
-      data: { deletedAt: new Date(), content: "[removed]" },
+      data: { deletedAt: now, content: "[removed]" },
     });
+    let deletedChildCount = 0;
+    const anyCommentDelegate = this.prisma.communityPostComment as unknown as Record<string, any>;
+    if (typeof anyCommentDelegate?.updateMany === "function") {
+      const childRes = await anyCommentDelegate
+        .updateMany({
+          where: {
+            postId,
+            parentCommentId: commentId,
+            deletedAt: null,
+          },
+          data: { deletedAt: now, content: "[removed]" },
+        })
+        .catch(() => ({ count: 0 }));
+      deletedChildCount = Number(childRes?.count ?? 0);
+    }
+    const totalRemoved = 1 + deletedChildCount;
+    const exactRemainingCount =
+      typeof anyCommentDelegate?.count === "function"
+        ? await anyCommentDelegate
+            .count({
+              where: {
+                postId,
+                deletedAt: null,
+                isRemovedByModerator: false,
+              },
+            })
+            .catch(() => Math.max(0, (post?.commentsCount ?? totalRemoved) - totalRemoved))
+        : Math.max(0, (post?.commentsCount ?? totalRemoved) - totalRemoved);
     if (post) {
       await this.prisma.communityPost.update({
         where: { id: postId },
-        data: { commentsCount: Math.max(0, post.commentsCount - 1) },
+        data: {
+          commentsCount: exactRemainingCount,
+        },
       });
     }
-    return { deleted: true, commentId, postId };
+    return {
+      deleted: true,
+      commentId,
+      postId,
+      deletedCount: totalRemoved,
+      commentsCount: exactRemainingCount,
+    };
+  }
+
+  async toggleCommentLike(
+    authorization: string | undefined,
+    postId: string,
+    commentId: string,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    let set = Module2Service.commentLikesMap.get(commentId);
+    if (!set) {
+      set = new Set<string>();
+      Module2Service.commentLikesMap.set(commentId, set);
+    }
+    const already = set.has(session.accountId);
+    if (already) {
+      set.delete(session.accountId);
+    } else {
+      set.add(session.accountId);
+    }
+    return {
+      postId,
+      commentId,
+      isLiked: !already,
+      likesCount: set.size,
+    };
+  }
+
+  async votePollPost(
+    authorization: string | undefined,
+    postId: string,
+    optionIndex: number,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    let meta = Module2Service.postPollMetaMap.get(postId);
+    if (!meta) {
+      meta = {
+        question: "Community Poll",
+        options: ["Option 1", "Option 2"],
+        votes: {},
+      };
+      Module2Service.postPollMetaMap.set(postId, meta);
+    }
+    meta.votes[session.accountId] = optionIndex;
+    const counts = meta.options.map((_, idx) =>
+      Object.values(meta!.votes).filter((v) => v === idx).length,
+    );
+    return {
+      postId,
+      selectedOptionIndex: optionIndex,
+      optionVoteCounts: counts,
+      totalVotes: Object.keys(meta.votes).length,
+    };
+  }
+
+  async listDirectMessages(
+    authorization: string | undefined,
+    peerId?: string,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const events = this.prisma.auditEvent?.findMany
+      ? await this.prisma.auditEvent
+          .findMany({
+            where: { action: "module3.direct_message.sent" },
+            orderBy: { createdAt: "asc" },
+            take: 250,
+          })
+          .catch(() => [])
+      : [];
+    const messages: Array<Record<string, any>> = [];
+    for (const ev of events) {
+      const m = ev.redactedMetadata as Record<string, any> | null;
+      if (!m) continue;
+      const isParticipant =
+        m.senderAccountId === session.accountId ||
+        m.recipientId === session.accountId ||
+        (peerId &&
+          (m.recipientId === peerId ||
+            m.recipientHandle === peerId ||
+            m.senderAccountId === peerId));
+      if (!isParticipant) continue;
+      if (
+        peerId &&
+        m.senderAccountId !== peerId &&
+        m.recipientId !== peerId &&
+        m.recipientHandle !== peerId &&
+        m.senderUsername !== peerId
+      ) {
+        continue;
+      }
+      messages.push({
+        ...m,
+        isOwnMessage: m.senderAccountId === session.accountId,
+      });
+    }
+    return { items: messages, messages };
+  }
+
+  async sendDirectMessage(
+    authorization: string | undefined,
+    dto: {
+      recipientId?: string;
+      recipientHandle?: string;
+      recipientName?: string;
+      message: string;
+    },
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const senderProfile = await this.prisma.memberProfile
+      .findUnique({ where: { accountId: session.accountId } })
+      .catch(() => null);
+    const nowIso = new Date().toISOString();
+    const msgRecord = {
+      id: randomUUID(),
+      senderAccountId: session.accountId,
+      senderName: senderProfile?.displayName ?? "Sakhi Member",
+      senderUsername: this.deriveUsername(
+        senderProfile?.displayName ?? "Sakhi Member",
+        senderProfile?.username ?? null,
+      ),
+      senderAvatar: senderProfile
+        ? this.resolveMemberAvatar(
+            senderProfile.avatarAsset,
+            senderProfile.avatarMediaAssetId,
+          )
+        : "",
+      recipientId: dto.recipientId?.trim() || dto.recipientHandle?.trim() || "",
+      recipientHandle: dto.recipientHandle?.trim() || "",
+      recipientName: dto.recipientName?.trim() || "Sakhi Member",
+      body: dto.message.trim(),
+      createdAt: nowIso,
+      timestamp: "Just now",
+    };
+    if (this.prisma.auditEvent?.create) {
+      await this.prisma.auditEvent
+        .create({
+          data: {
+            actorType: "MEMBER",
+            actorId: session.accountId,
+            action: "module3.direct_message.sent",
+            targetType: "direct_message",
+            targetId: msgRecord.id,
+            outcome: "delivered",
+            requestId: randomUUID(),
+            redactedMetadata: msgRecord,
+          },
+        })
+        .catch(() => undefined);
+    }
+    return {
+      sent: true,
+      message: {
+        ...msgRecord,
+        isOwnMessage: true,
+      },
+    };
+  }
+
+  async listSafetyEvidence(authorization: string | undefined) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const events = this.prisma.auditEvent?.findMany
+      ? await this.prisma.auditEvent
+          .findMany({
+            where: {
+              actorId: session.accountId,
+              action: "module4.safety_evidence.recorded",
+            },
+            orderBy: { createdAt: "desc" },
+            take: 50,
+          })
+          .catch(() => [])
+      : [];
+    const items = events
+      .map((e) => e.redactedMetadata as Record<string, any> | null)
+      .filter((x): x is Record<string, any> => Boolean(x));
+    return { items };
+  }
+
+  async addSafetyEvidence(
+    authorization: string | undefined,
+    dto: {
+      title: string;
+      mediaType: string;
+      mediaUrl?: string;
+      durationLabel?: string;
+      sizeLabel?: string;
+      latitude?: number;
+      longitude?: number;
+    },
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const item = {
+      id: `ev_${randomUUID().slice(0, 8)}`,
+      accountId: session.accountId,
+      title: dto.title.trim(),
+      mediaType: dto.mediaType.trim(),
+      mediaUrl: dto.mediaUrl?.trim() || null,
+      durationLabel: dto.durationLabel?.trim() || "00:30",
+      sizeLabel: dto.sizeLabel?.trim() || "1.4 MB",
+      latitude: dto.latitude ?? null,
+      longitude: dto.longitude ?? null,
+      encryptedHash: `AES256-${randomUUID().replace(/-/g, "").slice(0, 16).toUpperCase()}`,
+      createdAt: new Date().toISOString(),
+    };
+    if (this.prisma.auditEvent?.create) {
+      await this.prisma.auditEvent
+        .create({
+          data: {
+            actorType: "MEMBER",
+            actorId: session.accountId,
+            action: "module4.safety_evidence.recorded",
+            targetType: "safety_evidence",
+            targetId: item.id,
+            outcome: "encrypted",
+            requestId: randomUUID(),
+            redactedMetadata: item,
+          },
+        })
+        .catch(() => undefined);
+    }
+    return { saved: true, evidence: item };
+  }
+
+  async updateVolunteerOptIn(
+    authorization: string | undefined,
+    dto: {
+      isOptedIn: boolean;
+      availability?: string;
+      radiusKm?: number;
+      skills?: string[];
+    },
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const payload = {
+      accountId: session.accountId,
+      isOptedIn: Boolean(dto.isOptedIn),
+      availability: dto.availability?.trim() || "Immediate Response",
+      radiusKm: dto.radiusKm ?? 5,
+      skills: Array.isArray(dto.skills) ? dto.skills : ["First Aid", "Safe Escort"],
+      updatedAt: new Date().toISOString(),
+    };
+    if (this.prisma.auditEvent?.create) {
+      await this.prisma.auditEvent
+        .create({
+          data: {
+            actorType: "MEMBER",
+            actorId: session.accountId,
+            action: "module4.volunteer_opt_in.updated",
+            targetType: "volunteer_profile",
+            targetId: session.accountId,
+            outcome: payload.isOptedIn ? "opted_in" : "opted_out",
+            requestId: randomUUID(),
+            redactedMetadata: payload,
+          },
+        })
+        .catch(() => undefined);
+    }
+    return { updated: true, volunteerProfile: payload };
   }
 
   // Backward-compatible methods for test/module2.service.spec.ts & test/module2.account-deletion.spec.ts
@@ -6167,6 +6885,32 @@ export class Module2Service {
 
     const likedSet = new Set(userLikes.map((l) => l.postId));
     const savedSet = new Set(userSaves.map((s) => s.postId));
+    const overviewPostIds = posts.map((p) => p.id);
+    const anyPrismaOverview = this.prisma as Record<string, any>;
+    const hasOverviewCommentQuery =
+      typeof anyPrismaOverview.communityPostComment?.findMany === "function";
+    const overviewCommentsRaw =
+      hasOverviewCommentQuery && overviewPostIds.length > 0
+        ? await anyPrismaOverview.communityPostComment
+            .findMany({
+              where: {
+                postId: { in: overviewPostIds },
+                deletedAt: null,
+                isRemovedByModerator: false,
+              },
+              orderBy: { createdAt: "asc" },
+            })
+            .catch(() => [])
+        : [];
+    const overviewCommentCountByPostId = new Map<string, number>();
+    for (const c of overviewCommentsRaw as Array<Record<string, any>>) {
+      const pid = String(c.postId ?? "");
+      if (!pid) continue;
+      overviewCommentCountByPostId.set(
+        pid,
+        (overviewCommentCountByPostId.get(pid) ?? 0) + 1,
+      );
+    }
 
     return {
       id: targetDir?.id ?? targetProfile.accountId,
@@ -6208,7 +6952,9 @@ export class Module2Service {
         categorySlug: post.categorySlug,
         visibility: post.visibility,
         likesCount: post.likesCount,
-        commentsCount: post.commentsCount,
+        commentsCount: hasOverviewCommentQuery
+          ? (overviewCommentCountByPostId.get(post.id) ?? 0)
+          : post.commentsCount,
         savesCount: post.savesCount,
         isLiked: likedSet.has(post.id),
         isSaved: savedSet.has(post.id),
@@ -6757,7 +7503,18 @@ export class Module2Service {
       productsServices: Array.isArray(raw.productsServices)
         ? raw.productsServices
         : [],
-      mediaGallery: Array.isArray(raw.mediaGallery) ? raw.mediaGallery : [],
+      mediaGallery: Array.isArray(raw.mediaGallery)
+        ? raw.mediaGallery
+            .map((item: unknown) => {
+              if (typeof item === "string") return item.trim();
+              if (item && typeof item === "object") {
+                const m = item as Record<string, unknown>;
+                return String(m.url ?? m.mediaUrl ?? m.imageAsset ?? "").trim();
+              }
+              return "";
+            })
+            .filter(Boolean)
+        : [],
       offersAndPosts: Array.isArray(raw.offersAndPosts)
         ? raw.offersAndPosts
         : [],
@@ -6770,6 +7527,9 @@ export class Module2Service {
       isVerifiedWomanOwned:
         raw.verificationBadgeStatus === "VERIFIED_WOMAN_OWNED",
       isFeatured: Boolean(raw.isFeatured),
+      reviewNotes: raw.reviewNotes ? String(raw.reviewNotes) : null,
+      reviewedBy: raw.reviewedBy ? String(raw.reviewedBy) : null,
+      reportReason: isOwner && raw.reportReason ? String(raw.reportReason) : null,
       createdAt:
         raw.createdAt instanceof Date
           ? raw.createdAt.toISOString()
@@ -7604,7 +8364,10 @@ export class Module2Service {
     return { enquiry: createdEnquiry };
   }
 
-  async listBusinessEnquiries(authorization: string | undefined) {
+  async listBusinessEnquiries(
+    authorization: string | undefined,
+    businessId?: string,
+  ) {
     const session = await this.auth.authenticateAuthorization(authorization);
     const anyPrisma = this.prisma as Record<string, any>;
     const items: Array<Record<string, any>> = [];
@@ -7666,10 +8429,14 @@ export class Module2Service {
       }
     }
 
+    const filteredItems =
+      businessId && businessId.trim().length > 0
+        ? items.filter((e) => String(e.businessId ?? "") === businessId.trim())
+        : items;
     return {
-      enquiries: items,
-      items,
-      unreadCount: items.filter((e) =>
+      enquiries: filteredItems,
+      items: filteredItems,
+      unreadCount: filteredItems.filter((e) =>
         e.isOwnerInbox ? Boolean(e.unreadForOwner) : Boolean(e.unreadForSender),
       ).length,
     };

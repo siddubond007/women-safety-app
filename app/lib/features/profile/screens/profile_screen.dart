@@ -1102,7 +1102,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                         const SizedBox(width: 3),
                         Text(
-                          '${post.commentsCount}',
+                          '${post.comments.isNotEmpty ? post.comments.length : post.commentsCount}',
                           style: const TextStyle(
                             fontSize: 9.5,
                             fontWeight: FontWeight.w700,
@@ -1143,7 +1143,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         post: post,
                         showVerifiedCheck: true,
                         onLikeTap: () => state.togglePostLike(post),
-                        onSaveTap: () => state.togglePostSaved(post),
+                        onSaveTap: () async {
+                          final ok = await state.togglePostSaved(post);
+                          if (mounted) {
+                            setState(() {
+                              if (!post.isSaved) {
+                                _savedPosts = _savedPosts
+                                    .where((p) => p.id != post.id)
+                                    .toList(growable: false);
+                              }
+                            });
+                          }
+                          if (isSavedGrid &&
+                              !post.isSaved &&
+                              dialogContext.mounted) {
+                            Navigator.of(dialogContext).pop();
+                          }
+                          return ok;
+                        },
                       ),
                     ),
                   ),

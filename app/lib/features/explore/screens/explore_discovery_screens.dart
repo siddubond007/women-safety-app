@@ -1174,38 +1174,58 @@ class _SearchResultMemberProfileScreenState
                     ),
                   ),
                   const SizedBox(height: 14),
-                  SizedBox(
-                    width: double.infinity,
-                    child: member.canFollow
-                        ? FilledButton(
-                            onPressed: _updatingFollow ? null : _toggleFollow,
-                            style: FilledButton.styleFrom(
-                              backgroundColor: member.isFollowing
-                                  ? AppColors.pastelLavender
-                                  : AppColors.primaryPurple,
-                              foregroundColor: member.isFollowing
-                                  ? AppColors.primaryPurple
-                                  : Colors.white,
-                            ),
-                            child: _updatingFollow
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : Text(
-                                    followLabel,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                          )
-                        : const OutlinedButton(
-                            onPressed: null,
-                            child: Text('Follow unavailable'),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: member.canFollow
+                            ? FilledButton(
+                                onPressed: _updatingFollow
+                                    ? null
+                                    : _toggleFollow,
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: member.isFollowing
+                                      ? AppColors.pastelLavender
+                                      : AppColors.primaryPurple,
+                                  foregroundColor: member.isFollowing
+                                      ? AppColors.primaryPurple
+                                      : Colors.white,
+                                ),
+                                child: _updatingFollow
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : Text(
+                                        followLabel,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                              )
+                            : const OutlinedButton(
+                                onPressed: null,
+                                child: Text('Follow unavailable'),
+                              ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () =>
+                              showSakhiDirectMessageSheet(context, member),
+                          icon: const Icon(
+                            Icons.chat_bubble_outline_rounded,
+                            size: 16,
                           ),
+                          label: const Text(
+                            'Message',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -1245,27 +1265,54 @@ class _SearchResultMemberProfileScreenState
             if (businessUrl.isNotEmpty) ...[
               const SizedBox(height: 14),
               SakhiCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Linked Business Profile',
-                      style: AppTypography.sectionTitle,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      (member.businessProfileName ?? '').trim().isNotEmpty
-                          ? member.businessProfileName!
-                          : 'Women-owned business',
-                      style: AppTypography.cardTitle,
-                    ),
-                    if ((member.businessCategory ?? '').trim().isNotEmpty) ...[
-                      const SizedBox(height: 3),
-                      Text(
-                        member.businessCategory!,
-                        style: AppTypography.subtitle,
+                onTap: () {
+                  final bizId = businessUrl
+                      .replaceFirst('sakhi://business/', '')
+                      .trim();
+                  if (bizId.isNotEmpty) {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) =>
+                            BusinessProfileDetailScreen(businessId: bizId),
                       ),
-                    ],
+                    );
+                  }
+                },
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Linked Business Profile',
+                            style: AppTypography.sectionTitle,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            (member.businessProfileName ?? '')
+                                    .trim()
+                                    .isNotEmpty
+                                ? member.businessProfileName!
+                                : 'Women-owned business',
+                            style: AppTypography.cardTitle,
+                          ),
+                          if ((member.businessCategory ?? '')
+                              .trim()
+                              .isNotEmpty) ...[
+                            const SizedBox(height: 3),
+                            Text(
+                              member.businessCategory!,
+                              style: AppTypography.subtitle,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const Icon(
+                      Icons.chevron_right_rounded,
+                      color: AppColors.primaryPurple,
+                    ),
                   ],
                 ),
               ),

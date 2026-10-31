@@ -72,7 +72,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ];
     _selectedAvatar = user.avatarAsset;
     _businessProfileEnabled =
-        (user.businessProfileUrl ?? '').trim().isNotEmpty || true;
+        (user.businessProfileUrl ?? '').trim().isNotEmpty;
     final locationSetting = SakhiPrototypeState.instance.privacySettings
         .where((setting) => setting.id == 'show_location')
         .firstOrNull;
@@ -171,8 +171,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       username: handle,
       email: _emailController.text.trim(),
       businessProfileUrl: _businessProfileEnabled
-          ? (SakhiPrototypeState.instance.currentUser.businessProfileUrl ??
-                'https://sakhi.community/business')
+          ? (SakhiPrototypeState.instance.currentUser.businessProfileUrl ?? '')
           : '',
       bio: _bioController.text.trim(),
       location: _locationController.text.trim(),

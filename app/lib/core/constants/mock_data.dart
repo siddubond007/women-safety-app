@@ -94,6 +94,24 @@ class FeedCategoryModel {
   ];
 }
 
+String formatSakhiRelativeTimestamp(String? raw) {
+  if (raw == null || raw.trim().isEmpty) return 'Just now';
+  final trimmed = raw.trim();
+  if (!trimmed.contains('T') && !RegExp(r'^\d{4}-\d{2}-\d{2}').hasMatch(trimmed)) {
+    return trimmed;
+  }
+  final parsed = DateTime.tryParse(trimmed);
+  if (parsed == null) return trimmed;
+  final diff = DateTime.now().difference(parsed.toLocal());
+  if (diff.inSeconds < 45) return 'Just now';
+  if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+  if (diff.inHours < 24) return '${diff.inHours}h ago';
+  if (diff.inDays < 7) return '${diff.inDays}d ago';
+  final weeks = (diff.inDays / 7).floor();
+  if (weeks < 5) return '${weeks}w ago';
+  return '${parsed.day}/${parsed.month}/${parsed.year}';
+}
+
 class PostCommentItem {
   final String id;
   final String authorAccountId;
@@ -101,12 +119,15 @@ class PostCommentItem {
   final String authorUsername;
   final String authorAvatar;
   String body;
-  final String createdAt;
+  String createdAt;
   final String? parentCommentId;
   final String? replyToHandle;
   final bool isOwnComment;
   final bool canEdit;
   final bool canDelete;
+  bool isEdited;
+  int likesCount;
+  bool isLiked;
 
   PostCommentItem({
     required this.id,
@@ -121,32 +142,83 @@ class PostCommentItem {
     this.isOwnComment = false,
     this.canEdit = false,
     this.canDelete = false,
+    this.isEdited = false,
+    this.likesCount = 0,
+    this.isLiked = false,
   });
 
   factory PostCommentItem.fromJson(Map<String, dynamic> json) {
     final authorId = (json['authorAccountId'] ?? json['accountId'] ?? '')
         .toString();
     final authorName = json['authorName']?.toString() ?? 'Sakhi Member';
-    final rawAvatar = json['authorAvatar']?.toString() ?? '';
-    final currentUserId = SakhiPrototypeState.instance.currentUser.accountId;
+    var rawAvatar = (json['authorAvatar'] ?? json['avatarAsset'] ?? '')
+        .toString()
+        .trim();
+    final currentUser = SakhiPrototypeState.instance.currentUser;
+    final currentUserId = currentUser.accountId;
     final isOwn =
         json['isOwnComment'] == true ||
         (authorId.isNotEmpty &&
             currentUserId.isNotEmpty &&
             authorId == currentUserId);
+    if (rawAvatar.isEmpty && isOwn && currentUser.avatarAsset.isNotEmpty) {
+      rawAvatar = currentUser.avatarAsset;
+    }
+    if (rawAvatar.isEmpty) {
+      for (final f in SakhiPrototypeState.instance.followers) {
+        if ((authorId.isNotEmpty && f.id == authorId) ||
+            f.name.trim().toLowerCase() == authorName.trim().toLowerCase()) {
+          if (f.avatarAsset.isNotEmpty) {
+            rawAvatar = f.avatarAsset;
+            break;
+          }
+        }
+      }
+    }
+    var rawUsername = (json['authorUsername'] ?? '').toString().trim();
+    if (rawUsername.isEmpty || rawUsername == '@member') {
+      if (isOwn && currentUser.username.isNotEmpty) {
+        rawUsername = currentUser.username;
+      } else {
+        rawUsername =
+            '@${authorName.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_')}';
+      }
+    }
+    if (!rawUsername.startsWith('@')) {
+      rawUsername = '@$rawUsername';
+    }
+
+    final replyHandle = json['replyToHandle']?.toString().trim();
+    var cleanBody =
+        (json['body'] ?? json['content'] ?? json['text'] ?? '').toString().trim();
+    if (replyHandle != null && replyHandle.isNotEmpty) {
+      final normRh = replyHandle.startsWith('@') ? replyHandle : '@$replyHandle';
+      if (cleanBody.toLowerCase().startsWith('${normRh.toLowerCase()} ')) {
+        final stripped = cleanBody.substring(normRh.length).trim();
+        if (stripped.isNotEmpty) {
+          cleanBody = stripped;
+        }
+      }
+    }
+
+    final rawTime = (json['timestamp'] ?? json['createdAt'] ?? 'Just now').toString();
+
     return PostCommentItem(
       id: (json['id'] ?? json['commentId'] ?? '').toString(),
       authorAccountId: authorId,
       authorName: authorName,
-      authorUsername: json['authorUsername']?.toString() ?? '@member',
+      authorUsername: rawUsername,
       authorAvatar: rawAvatar,
-      body: (json['body'] ?? json['content'] ?? json['text'] ?? '').toString(),
-      createdAt: json['createdAt']?.toString() ?? 'Just now',
+      body: cleanBody,
+      createdAt: formatSakhiRelativeTimestamp(rawTime),
       parentCommentId: json['parentCommentId']?.toString(),
-      replyToHandle: json['replyToHandle']?.toString(),
+      replyToHandle: (replyHandle != null && replyHandle.isNotEmpty) ? replyHandle : null,
       isOwnComment: isOwn,
       canEdit: json['canEdit'] == true || isOwn,
       canDelete: json['canDelete'] == true || isOwn,
+      isEdited: json['isEdited'] == true,
+      likesCount: (json['likesCount'] as num?)?.toInt() ?? 0,
+      isLiked: json['isLiked'] == true,
     );
   }
 }
@@ -225,6 +297,11 @@ class FeedPostModel {
   String? viewerReaction;
   Map<String, int> reactionBreakdown;
   List<PostCommentItem> comments;
+  List<String> mediaAssets;
+  String? pollQuestion;
+  List<String> pollOptions;
+  List<int> pollVoteCounts;
+  int? viewerPollChoice;
 
   FeedPostModel({
     required this.id,
@@ -258,16 +335,29 @@ class FeedPostModel {
     this.viewerReaction,
     Map<String, int>? reactionBreakdown,
     List<PostCommentItem>? comments,
+    List<String>? mediaAssets,
+    this.pollQuestion,
+    List<String>? pollOptions,
+    List<int>? pollVoteCounts,
+    this.viewerPollChoice,
   }) : reactionBreakdown = reactionBreakdown ?? <String, int>{},
-       comments = comments ?? <PostCommentItem>[];
+       comments = comments ?? <PostCommentItem>[],
+       mediaAssets = mediaAssets ??
+           (imageAsset != null && imageAsset.isNotEmpty
+               ? <String>[imageAsset]
+               : <String>[]),
+       pollOptions = pollOptions ?? <String>[],
+       pollVoteCounts = pollVoteCounts ?? <int>[];
 
   String get audience => visibility;
   String get timeAgo => timestamp;
   String? get reactionType => viewerReaction;
   int get reactionsCount => likesCount;
-  List<String> get mediaItems => imageAsset != null && imageAsset!.isNotEmpty
-      ? <String>[imageAsset!]
-      : const <String>[];
+  List<String> get mediaItems => mediaAssets.isNotEmpty
+      ? mediaAssets
+      : (imageAsset != null && imageAsset!.isNotEmpty
+            ? <String>[imageAsset!]
+            : const <String>[]);
 
   factory FeedPostModel.fromJson(Map<String, dynamic> json) {
     final authorId = json['authorAccountId']?.toString() ?? '';
@@ -326,8 +416,9 @@ class FeedPostModel {
       likesCount:
           ((json['reactionsCount'] ?? json['likesCount']) as num?)?.toInt() ??
           0,
-      commentsCount:
-          (json['commentsCount'] as num?)?.toInt() ?? parsedComments.length,
+      commentsCount: rawComments is List
+          ? parsedComments.length
+          : ((json['commentsCount'] as num?)?.toInt() ?? 0),
       savesCount: (json['savesCount'] as num?)?.toInt() ?? 0,
       sharesCount: (json['sharesCount'] as num?)?.toInt() ?? 0,
       isLiked: json['isLiked'] == true || json['likedByViewer'] == true,
@@ -338,7 +429,47 @@ class FeedPostModel {
       viewerReaction: json['viewerReaction'] as String?,
       reactionBreakdown: parsedBreakdown,
       comments: parsedComments,
+      mediaAssets: (json['mediaAssets'] is List)
+          ? (json['mediaAssets'] as List)
+                .map((e) => e.toString().trim())
+                .where((s) => s.isNotEmpty)
+                .toList()
+          : null,
+      pollQuestion: json['pollQuestion']?.toString(),
+      pollOptions: (json['pollOptions'] is List)
+          ? (json['pollOptions'] as List)
+                .map((e) => e.toString().trim())
+                .where((s) => s.isNotEmpty)
+                .toList()
+          : _extractInlinePollOptions(
+              (json['content'] ?? json['body'] ?? '').toString(),
+            ),
+      pollVoteCounts: (json['optionVoteCounts'] is List)
+          ? (json['optionVoteCounts'] as List)
+                .map((e) => (e is num) ? e.toInt() : 0)
+                .toList()
+          : null,
     );
+  }
+
+  static List<String> _extractInlinePollOptions(String text) {
+    if (!text.contains('📊') && !text.toLowerCase().contains('poll:')) {
+      return <String>[];
+    }
+    final lines = text.split('\n');
+    final opts = <String>[];
+    for (final line in lines) {
+      final trimmed = line.trim();
+      if (trimmed.startsWith('• ') ||
+          trimmed.startsWith('- ') ||
+          RegExp(r'^[1-6][\)\.]\s+').hasMatch(trimmed)) {
+        final cleaned = trimmed
+            .replaceFirst(RegExp(r'^([•\-]|[1-6][\)\.])\s*'), '')
+            .trim();
+        if (cleaned.isNotEmpty) opts.add(cleaned);
+      }
+    }
+    return opts.length >= 2 ? opts : <String>[];
   }
 }
 
@@ -897,7 +1028,73 @@ class SakhiPrototypeState extends ChangeNotifier {
     await syncFromBackend();
   }
 
-  Future<void> loadComments(String postId) async {
+  List<PostCommentItem> groupThreadedComments(List<PostCommentItem> flat) {
+    if (flat.length <= 1) return List<PostCommentItem>.from(flat);
+    final byId = <String, PostCommentItem>{};
+    for (final c in flat) {
+      byId[c.id] = c;
+    }
+    final childrenByParent = <String, List<PostCommentItem>>{};
+    final roots = <PostCommentItem>[];
+    for (final c in flat) {
+      final pid = c.parentCommentId?.trim() ?? '';
+      if (pid.isNotEmpty && byId.containsKey(pid) && pid != c.id) {
+        childrenByParent.putIfAbsent(pid, () => <PostCommentItem>[]).add(c);
+      } else {
+        roots.add(c);
+      }
+    }
+    final ordered = <PostCommentItem>[];
+    final visited = <String>{};
+    void visit(PostCommentItem node) {
+      if (!visited.add(node.id)) return;
+      ordered.add(node);
+      final kids = childrenByParent[node.id];
+      if (kids != null) {
+        for (final k in kids) {
+          visit(k);
+        }
+      }
+    }
+
+    for (final r in roots) {
+      visit(r);
+    }
+    for (final c in flat) {
+      if (!visited.contains(c.id)) {
+        ordered.add(c);
+      }
+    }
+    return ordered;
+  }
+
+  List<FeedPostModel> _findAllPosts(String postId, [FeedPostModel? activePost]) {
+    final results = <FeedPostModel>[];
+    for (final collection in [
+      communityPosts,
+      exploreRecommendedPosts,
+      profilePosts,
+    ]) {
+      for (final post in collection) {
+        if (post.id == postId && !results.any((r) => identical(r, post))) {
+          results.add(post);
+        }
+      }
+    }
+    if (activePost != null &&
+        activePost.id == postId &&
+        !results.any((r) => identical(r, activePost))) {
+      results.add(activePost);
+    }
+    return results;
+  }
+
+  FeedPostModel resolveLivePost(FeedPostModel fallback) {
+    final matches = _findAllPosts(fallback.id, fallback);
+    return matches.isNotEmpty ? matches.first : fallback;
+  }
+
+  Future<void> loadComments(String postId, [FeedPostModel? activePost]) async {
     try {
       final token = await _client.readAccessToken();
       if (token == null || token.isEmpty) return;
@@ -911,21 +1108,26 @@ class SakhiPrototypeState extends ChangeNotifier {
             .whereType<Map<String, dynamic>>()
             .map(PostCommentItem.fromJson)
             .toList();
-        var updatedAny = false;
-        for (final collection in [
-          communityPosts,
-          exploreRecommendedPosts,
-          profilePosts,
-        ]) {
-          for (final p in collection) {
-            if (p.id == postId) {
-              p.comments = List<PostCommentItem>.from(parsed);
-              p.commentsCount = parsed.length;
-              updatedAny = true;
-            }
-          }
+        final targets = _findAllPosts(postId, activePost);
+        for (final p in targets) {
+          // Preserve any in-flight optimistic comments ('pending_...') not yet in server response
+          final pendingItems = p.comments.where(
+            (c) =>
+                c.id.startsWith('pending_') &&
+                !parsed.any(
+                  (s) =>
+                      s.body.trim() == c.body.trim() &&
+                      s.authorName == c.authorName,
+                ),
+          );
+          final combined = groupThreadedComments(<PostCommentItem>[
+            ...parsed,
+            ...pendingItems,
+          ]);
+          p.comments = combined;
+          p.commentsCount = combined.length;
         }
-        if (updatedAny) {
+        if (targets.isNotEmpty) {
           notifyListeners();
         }
       }
@@ -1033,14 +1235,58 @@ class SakhiPrototypeState extends ChangeNotifier {
             .toList();
       }
 
+      final existingPostStateById = <String, FeedPostModel>{};
+      for (final p in [
+        ...communityPosts,
+        ...exploreRecommendedPosts,
+        ...profilePosts,
+      ]) {
+        if (p.id.isNotEmpty) {
+          existingPostStateById[p.id] = p;
+        }
+      }
+
+      FeedPostModel mergeSyncedPost(Map<String, dynamic> json) {
+        final parsed = FeedPostModel.fromJson(json);
+        final prev = existingPostStateById[parsed.id];
+        if (prev != null) {
+          if (parsed.comments.isEmpty && prev.comments.isNotEmpty) {
+            parsed.comments = List<PostCommentItem>.from(prev.comments);
+            parsed.commentsCount = parsed.comments.length;
+          } else if (parsed.comments.isNotEmpty) {
+            parsed.comments = groupThreadedComments(parsed.comments);
+            parsed.commentsCount = parsed.comments.length;
+          } else if (json['comments'] is List) {
+            parsed.commentsCount = parsed.comments.length;
+          }
+          if (parsed.viewerReaction == null &&
+              prev.viewerReaction != null &&
+              parsed.isLiked) {
+            parsed.viewerReaction = prev.viewerReaction;
+          }
+          if (parsed.reactionBreakdown.isEmpty &&
+              prev.reactionBreakdown.isNotEmpty &&
+              parsed.likesCount > 0) {
+            parsed.reactionBreakdown = Map<String, int>.from(
+              prev.reactionBreakdown,
+            );
+          }
+          if (parsed.pollOptions.isEmpty && prev.pollOptions.isNotEmpty) {
+            parsed.pollQuestion = prev.pollQuestion;
+            parsed.pollOptions = List<String>.from(prev.pollOptions);
+            parsed.pollVoteCounts = List<int>.from(prev.pollVoteCounts);
+            parsed.viewerPollChoice = prev.viewerPollChoice;
+          }
+        }
+        return parsed;
+      }
+
       final rawCommunity = data['communityPosts'] ?? data['posts'];
       if (rawCommunity is List) {
         communityPosts
           ..clear()
           ..addAll(
-            rawCommunity.whereType<Map<String, dynamic>>().map(
-              FeedPostModel.fromJson,
-            ),
+            rawCommunity.whereType<Map<String, dynamic>>().map(mergeSyncedPost),
           );
       }
       final rawExplorePosts = data['exploreRecommendedPosts'];
@@ -1048,9 +1294,9 @@ class SakhiPrototypeState extends ChangeNotifier {
         exploreRecommendedPosts
           ..clear()
           ..addAll(
-            rawExplorePosts.whereType<Map<String, dynamic>>().map(
-              FeedPostModel.fromJson,
-            ),
+            rawExplorePosts
+                .whereType<Map<String, dynamic>>()
+                .map(mergeSyncedPost),
           );
       }
       totalDatabasePosts =
@@ -1064,7 +1310,7 @@ class SakhiPrototypeState extends ChangeNotifier {
           ..addAll(
             rawProfilePosts
                 .whereType<Map<String, dynamic>>()
-                .map(FeedPostModel.fromJson)
+                .map(mergeSyncedPost)
                 .where(
                   (post) =>
                       post.id.isNotEmpty &&
@@ -1661,22 +1907,25 @@ class SakhiPrototypeState extends ChangeNotifier {
     final previousBreakdown = Map<String, int>.from(post.reactionBreakdown);
     final isRemoving = previousReaction == reactionType;
 
-    if (previousReaction != null) {
-      final oldVal = (post.reactionBreakdown[previousReaction] ?? 1) - 1;
-      if (oldVal <= 0) {
-        post.reactionBreakdown.remove(previousReaction);
-      } else {
-        post.reactionBreakdown[previousReaction] = oldVal;
+    final targets = _findAllPosts(post.id, post);
+    for (final t in targets) {
+      if (previousReaction != null) {
+        final oldVal = (t.reactionBreakdown[previousReaction] ?? 1) - 1;
+        if (oldVal <= 0) {
+          t.reactionBreakdown.remove(previousReaction);
+        } else {
+          t.reactionBreakdown[previousReaction] = oldVal;
+        }
       }
+      if (!isRemoving) {
+        t.reactionBreakdown[reactionType] =
+            (t.reactionBreakdown[reactionType] ?? 0) + 1;
+      }
+      final delta = isRemoving ? -1 : (previousReaction == null ? 1 : 0);
+      t.likesCount = (previousCount + delta).clamp(0, 999999);
+      t.viewerReaction = isRemoving ? null : reactionType;
+      t.isLiked = !isRemoving;
     }
-    if (!isRemoving) {
-      post.reactionBreakdown[reactionType] =
-          (post.reactionBreakdown[reactionType] ?? 0) + 1;
-    }
-    final delta = isRemoving ? -1 : (previousReaction == null ? 1 : 0);
-    post.likesCount = (post.likesCount + delta).clamp(0, 999999);
-    post.viewerReaction = isRemoving ? null : reactionType;
-    post.isLiked = !isRemoving;
     notifyListeners();
 
     if (!isServerPost) return true;
@@ -1913,11 +2162,13 @@ class SakhiPrototypeState extends ChangeNotifier {
     final previousSaved = post.isSaved;
     final previousCount = post.savesCount;
 
-    post.isSaved = !previousSaved;
-    post.savesCount = (previousCount + (post.isSaved ? 1 : -1)).clamp(
-      0,
-      999999,
-    );
+    final targets = _findAllPosts(post.id, post);
+    final nextSaved = !previousSaved;
+    final nextCount = (previousCount + (nextSaved ? 1 : -1)).clamp(0, 999999);
+    for (final t in targets) {
+      t.isSaved = nextSaved;
+      t.savesCount = nextCount;
+    }
     notifyListeners();
 
     if (!isServerPost) return true;
@@ -1927,16 +2178,22 @@ class SakhiPrototypeState extends ChangeNotifier {
         authenticated: true,
       );
       if (response['isSaved'] is bool) {
-        post.isSaved = response['isSaved'] as bool;
-        post.savesCount =
+        final confirmedSaved = response['isSaved'] as bool;
+        final confirmedCount =
             (response['savesCount'] as num?)?.toInt() ??
-            (previousCount + (post.isSaved ? 1 : -1)).clamp(0, 999999);
+            (previousCount + (confirmedSaved ? 1 : -1)).clamp(0, 999999);
+        for (final t in _findAllPosts(post.id, post)) {
+          t.isSaved = confirmedSaved;
+          t.savesCount = confirmedCount;
+        }
         notifyListeners();
       }
       return true;
     } catch (_) {
-      post.isSaved = previousSaved;
-      post.savesCount = previousCount;
+      for (final t in _findAllPosts(post.id, post)) {
+        t.isSaved = previousSaved;
+        t.savesCount = previousCount;
+      }
       notifyListeners();
       return false;
     }
@@ -1961,18 +2218,32 @@ class SakhiPrototypeState extends ChangeNotifier {
     String? parentCommentId,
     String? replyToHandle,
   }) async {
-    final trimmed = commentText.trim();
+    var trimmed = commentText.trim();
+    if (replyToHandle != null && replyToHandle.trim().isNotEmpty) {
+      final normRh = replyToHandle.trim().startsWith('@')
+          ? replyToHandle.trim()
+          : '@${replyToHandle.trim()}';
+      if (trimmed.toLowerCase().startsWith('${normRh.toLowerCase()} ')) {
+        final stripped = trimmed.substring(normRh.length).trim();
+        if (stripped.isNotEmpty) {
+          trimmed = stripped;
+        }
+      }
+    }
     if (trimmed.isEmpty || trimmed.length > 500 || !post.allowComments) {
       return false;
     }
     final isServerPost = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(post.id);
     if (!isServerPost && _isBackendSynced) return false;
 
+    final targets = _findAllPosts(post.id, post);
     final item = PostCommentItem(
       id: 'pending_${DateTime.now().microsecondsSinceEpoch}',
       authorAccountId: currentUser.accountId,
       authorName: currentUser.displayName,
-      authorUsername: currentUser.username,
+      authorUsername: currentUser.username.isNotEmpty
+          ? currentUser.username
+          : '@${currentUser.displayName.toLowerCase().replaceAll(' ', '_')}',
       authorAvatar: currentUser.avatarAsset,
       body: trimmed,
       createdAt: 'Just now',
@@ -1982,8 +2253,13 @@ class SakhiPrototypeState extends ChangeNotifier {
       canEdit: true,
       canDelete: true,
     );
-    post.comments.add(item);
-    post.commentsCount++;
+    for (final t in targets) {
+      t.comments = groupThreadedComments(<PostCommentItem>[
+        ...t.comments,
+        item,
+      ]);
+      t.commentsCount = t.comments.length;
+    }
     notifyListeners();
 
     if (!isServerPost) return true;
@@ -2007,26 +2283,36 @@ class SakhiPrototypeState extends ChangeNotifier {
         serverJson['body'] ??= serverJson['content'] ?? trimmed;
         serverJson['authorAccountId'] ??= currentUser.accountId;
         serverJson['authorName'] ??= currentUser.displayName;
-        serverJson['authorUsername'] ??= currentUser.username;
-        serverJson['authorAvatar'] ??= currentUser.avatarAsset;
+        if ((serverJson['authorUsername'] ?? '').toString().isEmpty) {
+          serverJson['authorUsername'] = currentUser.username;
+        }
+        if ((serverJson['authorAvatar'] ?? '').toString().isEmpty) {
+          serverJson['authorAvatar'] = currentUser.avatarAsset;
+        }
         serverJson['parentCommentId'] ??= parentCommentId;
         serverJson['replyToHandle'] ??= replyToHandle;
         serverJson['isOwnComment'] = true;
         serverJson['canEdit'] = true;
         serverJson['canDelete'] = true;
         final serverComment = PostCommentItem.fromJson(serverJson);
-        final idx = post.comments.indexWhere(
-          (comment) => comment.id == item.id,
-        );
-        if (idx != -1 && serverComment.id.isNotEmpty) {
-          post.comments[idx] = serverComment;
+        for (final t in _findAllPosts(post.id, post)) {
+          final idx = t.comments.indexWhere(
+            (comment) => comment.id == item.id,
+          );
+          if (idx != -1 && serverComment.id.isNotEmpty) {
+            t.comments[idx] = serverComment;
+            t.comments = groupThreadedComments(t.comments);
+          }
+          t.commentsCount = t.comments.length;
         }
       }
       notifyListeners();
       return true;
     } catch (_) {
-      post.comments.removeWhere((comment) => comment.id == item.id);
-      post.commentsCount = (post.commentsCount - 1).clamp(0, 999999);
+      for (final t in _findAllPosts(post.id, post)) {
+        t.comments.removeWhere((comment) => comment.id == item.id);
+        t.commentsCount = t.comments.length;
+      }
       notifyListeners();
       return false;
     }
@@ -2041,14 +2327,17 @@ class SakhiPrototypeState extends ChangeNotifier {
   Future<bool> editComment(
     String postId,
     String commentId,
-    String newBody,
-  ) async {
+    String newBody, [
+    FeedPostModel? activePost,
+  ]) async {
     final trimmed = newBody.trim();
     if (trimmed.isEmpty || trimmed.length > 500) return false;
-    final post = _findPost(postId);
-    if (post == null) return false;
-    final cIdx = post.comments.indexWhere((comment) => comment.id == commentId);
-    if (cIdx == -1) return false;
+    final targets = _findAllPosts(postId, activePost);
+    if (targets.isEmpty) return false;
+    final hasComment = targets.any(
+      (p) => p.comments.any((comment) => comment.id == commentId),
+    );
+    if (!hasComment) return false;
     final isServerPost = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(postId);
     final isServerComment = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(commentId);
     if (_isBackendSynced && (!isServerPost || !isServerComment)) {
@@ -2060,22 +2349,35 @@ class SakhiPrototypeState extends ChangeNotifier {
         await _client.patch(
           'module2/posts/$postId/comments/$commentId',
           authenticated: true,
-          body: {'body': trimmed},
+          body: {'body': trimmed, 'content': trimmed},
         );
       } catch (_) {
         return false;
       }
     }
-    post.comments[cIdx].body = trimmed;
+    for (final p in targets) {
+      for (final c in p.comments) {
+        if (c.id == commentId) {
+          c.body = trimmed;
+          c.isEdited = true;
+        }
+      }
+    }
     notifyListeners();
     return true;
   }
 
-  Future<bool> removeComment(String postId, String commentId) async {
-    final post = _findPost(postId);
-    if (post == null) return false;
-    final cIdx = post.comments.indexWhere((comment) => comment.id == commentId);
-    if (cIdx == -1) return false;
+  Future<bool> removeComment(
+    String postId,
+    String commentId, [
+    FeedPostModel? activePost,
+  ]) async {
+    final targets = _findAllPosts(postId, activePost);
+    if (targets.isEmpty) return false;
+    final hasComment = targets.any(
+      (p) => p.comments.any((comment) => comment.id == commentId),
+    );
+    if (!hasComment) return false;
     final isServerPost = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(postId);
     final isServerComment = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(commentId);
     if (_isBackendSynced && (!isServerPost || !isServerComment)) return false;
@@ -2090,10 +2392,188 @@ class SakhiPrototypeState extends ChangeNotifier {
         return false;
       }
     }
-    post.comments.removeAt(cIdx);
-    post.commentsCount = (post.commentsCount - 1).clamp(0, 999999);
+    for (final p in targets) {
+      p.comments.removeWhere(
+        (c) => c.id == commentId || c.parentCommentId == commentId,
+      );
+      p.commentsCount = p.comments.length;
+    }
     notifyListeners();
     return true;
+  }
+
+  Future<bool> toggleCommentLike(
+    String postId,
+    String commentId, [
+    FeedPostModel? activePost,
+  ]) async {
+    final targets = _findAllPosts(postId, activePost);
+    if (targets.isEmpty) return false;
+    bool? nextLiked;
+    for (final p in targets) {
+      for (final c in p.comments) {
+        if (c.id == commentId) {
+          nextLiked ??= !c.isLiked;
+          c.isLiked = nextLiked;
+          c.likesCount = (c.likesCount + (nextLiked ? 1 : -1)).clamp(0, 999999);
+        }
+      }
+    }
+    if (nextLiked == null) return false;
+    notifyListeners();
+
+    final isServerPost = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(postId);
+    final isServerComment = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(commentId);
+    if (isServerPost && isServerComment) {
+      try {
+        final res = await _client.post(
+          'module2/posts/$postId/comments/$commentId/like',
+          authenticated: true,
+        );
+        if (res['isLiked'] is bool) {
+          for (final p in targets) {
+            for (final c in p.comments) {
+              if (c.id == commentId) {
+                c.isLiked = res['isLiked'] as bool;
+                c.likesCount =
+                    (res['likesCount'] as num?)?.toInt() ?? c.likesCount;
+              }
+            }
+          }
+          notifyListeners();
+        }
+      } catch (_) {}
+    }
+    return true;
+  }
+
+  Future<bool> voteOnPoll(FeedPostModel post, int optionIndex) async {
+    if (post.pollOptions.isEmpty ||
+        optionIndex < 0 ||
+        optionIndex >= post.pollOptions.length) {
+      return false;
+    }
+    final targets = _findAllPosts(post.id, post);
+    for (final t in targets) {
+      if (t.pollVoteCounts.length != t.pollOptions.length) {
+        t.pollVoteCounts = List<int>.filled(t.pollOptions.length, 0);
+      }
+      final prev = t.viewerPollChoice;
+      if (prev != null && prev >= 0 && prev < t.pollVoteCounts.length) {
+        t.pollVoteCounts[prev] = math.max(0, t.pollVoteCounts[prev] - 1);
+      }
+      t.viewerPollChoice = optionIndex;
+      t.pollVoteCounts[optionIndex] = t.pollVoteCounts[optionIndex] + 1;
+    }
+    notifyListeners();
+    final isServerPost = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(post.id);
+    if (isServerPost) {
+      try {
+        final res = await _client.post(
+          'module2/posts/${post.id}/poll-vote',
+          authenticated: true,
+          body: {'optionIndex': optionIndex},
+        );
+        if (res['optionVoteCounts'] is List) {
+          final counts = (res['optionVoteCounts'] as List)
+              .map((e) => (e is num) ? e.toInt() : 0)
+              .toList();
+          for (final t in targets) {
+            if (counts.length == t.pollOptions.length) {
+              t.pollVoteCounts = counts;
+            }
+          }
+          notifyListeners();
+        }
+      } catch (_) {}
+    }
+    return true;
+  }
+
+  final Map<String, List<Map<String, dynamic>>> cachedDirectMessagesByPeer =
+      <String, List<Map<String, dynamic>>>{};
+
+  Future<List<Map<String, dynamic>>> fetchDirectMessages(String peerId) async {
+    final key = peerId.trim();
+    if (key.isEmpty) return const <Map<String, dynamic>>[];
+    try {
+      final token = await _client.readAccessToken();
+      if (token != null && token.isNotEmpty) {
+        final res = await _client.get(
+          'module2/messages?peerId=${Uri.encodeQueryComponent(key)}',
+          authenticated: true,
+        );
+        final raw = res['messages'] ?? res['items'];
+        if (raw is List) {
+          final list = raw
+              .whereType<Map<String, dynamic>>()
+              .map((m) => Map<String, dynamic>.from(m))
+              .toList();
+          cachedDirectMessagesByPeer[key] = list;
+          notifyListeners();
+          return list;
+        }
+      }
+    } catch (_) {}
+    return cachedDirectMessagesByPeer[key] ?? <Map<String, dynamic>>[];
+  }
+
+  Future<Map<String, dynamic>?> sendDirectMessage({
+    required String recipientId,
+    required String recipientHandle,
+    required String recipientName,
+    required String message,
+  }) async {
+    final trimmed = message.trim();
+    if (trimmed.isEmpty) return null;
+    final key = recipientId.trim().isNotEmpty
+        ? recipientId.trim()
+        : recipientHandle.trim();
+    final localMsg = <String, dynamic>{
+      'id': 'dm_${DateTime.now().millisecondsSinceEpoch}',
+      'senderAccountId': currentUser.accountId,
+      'senderName': currentUser.displayName,
+      'senderUsername': currentUser.username,
+      'senderAvatar': currentUser.avatarAsset,
+      'recipientId': recipientId,
+      'recipientHandle': recipientHandle,
+      'recipientName': recipientName,
+      'body': trimmed,
+      'timestamp': 'Just now',
+      'isOwnMessage': true,
+    };
+    final list = cachedDirectMessagesByPeer.putIfAbsent(
+      key,
+      () => <Map<String, dynamic>>[],
+    );
+    list.add(localMsg);
+    notifyListeners();
+
+    try {
+      final token = await _client.readAccessToken();
+      if (token != null && token.isNotEmpty) {
+        final res = await _client.post(
+          'module2/messages',
+          authenticated: true,
+          body: {
+            'recipientId': recipientId,
+            'recipientHandle': recipientHandle,
+            'recipientName': recipientName,
+            'message': trimmed,
+          },
+        );
+        if (res['message'] is Map<String, dynamic>) {
+          final serverMsg = Map<String, dynamic>.from(
+            res['message'] as Map<String, dynamic>,
+          );
+          final idx = list.indexWhere((m) => m['id'] == localMsg['id']);
+          if (idx != -1) list[idx] = serverMsg;
+          notifyListeners();
+          return serverMsg;
+        }
+      }
+    } catch (_) {}
+    return localMsg;
   }
 
   Future<bool> updatePrivacySetting(String id, String newValue) async {

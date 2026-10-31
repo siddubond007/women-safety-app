@@ -201,23 +201,22 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
                     size: 19,
                   ),
                 ),
-                title: const Text(
-                  'Manage Message Permission',
+                title: Text(
+                  'Message ${member.name}',
                   style: AppTypography.bodyMedium,
                 ),
-                trailing: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('Allowed', style: AppTypography.subtitle),
-                    SizedBox(width: 4),
-                    Icon(
-                      Icons.chevron_right_rounded,
-                      color: AppColors.textMuted,
-                    ),
-                  ],
+                subtitle: const Text(
+                  'Send an encrypted Sakhi direct message',
+                  style: AppTypography.subtitle,
                 ),
-                onTap: () =>
-                    _showUnavailableAction(sheetContext, 'Message permissions'),
+                trailing: const Icon(
+                  Icons.chevron_right_rounded,
+                  color: AppColors.textMuted,
+                ),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  showSakhiDirectMessageSheet(context, member);
+                },
               ),
               ListTile(
                 contentPadding: EdgeInsets.zero,
@@ -235,17 +234,32 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
                   ),
                 ),
                 title: const Text(
-                  'Remove from Followers',
+                  'Remove Connection',
                   style: AppTypography.bodyMedium,
                 ),
                 subtitle: Text(
-                  'Remove ${member.username} from your followers list',
+                  'Remove ${member.username} from your active connections',
                   style: AppTypography.subtitle,
                 ),
-                onTap: () => _showUnavailableAction(
-                  sheetContext,
-                  'Remove from followers',
-                ),
+                onTap: () async {
+                  Navigator.of(sheetContext).pop();
+                  if (member.isFollowing) {
+                    await state.toggleFollowSearchMember(member);
+                  }
+                  if (!mounted || !context.mounted) return;
+                  setState(() {
+                    _members = _members
+                        .where((m) => m.id != member.id && m.username != member.username)
+                        .toList();
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Removed ${member.username} from your connections.',
+                      ),
+                    ),
+                  );
+                },
               ),
               ListTile(
                 contentPadding: EdgeInsets.zero,
@@ -270,7 +284,27 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
                   'Hide posts from feed without unfollowing',
                   style: AppTypography.subtitle,
                 ),
-                onTap: () => _showUnavailableAction(sheetContext, 'Mute posts'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  state.communityPosts.removeWhere(
+                    (p) =>
+                        p.authorUsername.toLowerCase() ==
+                        member.username.toLowerCase(),
+                  );
+                  state.exploreRecommendedPosts.removeWhere(
+                    (p) =>
+                        p.authorUsername.toLowerCase() ==
+                        member.username.toLowerCase(),
+                  );
+                  setState(() {});
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Muted posts from ${member.username}.',
+                      ),
+                    ),
+                  );
+                },
               ),
               const SizedBox(height: 8),
               // Red Block Action Card matching Reference 08
@@ -813,6 +847,272 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+void showSakhiDirectMessageSheet(
+  BuildContext context,
+  FollowerUserModel member,
+) {
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) => _SakhiDirectMessageSheet(member: member),
+  );
+}
+
+class _SakhiDirectMessageSheet extends StatefulWidget {
+  final FollowerUserModel member;
+
+  const _SakhiDirectMessageSheet({required this.member});
+
+  @override
+  State<_SakhiDirectMessageSheet> createState() =>
+      _SakhiDirectMessageSheetState();
+}
+
+class _SakhiDirectMessageSheetState extends State<_SakhiDirectMessageSheet> {
+  final TextEditingController _msgCtrl = TextEditingController();
+  List<Map<String, dynamic>> _messages = <Map<String, dynamic>>[];
+  bool _loading = true;
+  bool _sending = false;
+
+  String get _peerKey => widget.member.id.trim().isNotEmpty
+      ? widget.member.id.trim()
+      : widget.member.username.trim();
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _msgCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final items = await SakhiPrototypeState.instance.fetchDirectMessages(
+      _peerKey,
+    );
+    if (!mounted) return;
+    setState(() {
+      _messages = List<Map<String, dynamic>>.from(items);
+      _loading = false;
+    });
+  }
+
+  Future<void> _send() async {
+    final text = _msgCtrl.text.trim();
+    if (text.isEmpty || _sending) return;
+    setState(() => _sending = true);
+    _msgCtrl.clear();
+    final sent = await SakhiPrototypeState.instance.sendDirectMessage(
+      recipientId: widget.member.id,
+      recipientHandle: widget.member.username,
+      recipientName: widget.member.name,
+      message: text,
+    );
+    if (!mounted) return;
+    setState(() {
+      _sending = false;
+      if (sent != null && !_messages.any((m) => m['id'] == sent['id'])) {
+        _messages.add(sent);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    final availH = (mq.size.height - mq.viewInsets.bottom - mq.padding.top - 24)
+        .clamp(240.0, 680.0);
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: mq.viewInsets.bottom),
+      child: Container(
+        height: availH,
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.97),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          border: Border.all(color: Colors.white, width: 1.5),
+        ),
+        child: Column(
+          children: [
+            const SizedBox(height: 10),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.borderSubtle,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
+              child: Row(
+                children: [
+                  SakhiAvatar(
+                    imageAsset: widget.member.avatarAsset,
+                    fallbackLabel: widget.member.name,
+                    size: 38,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                widget.member.name,
+                                style: AppTypography.cardTitle,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (widget.member.isVerified) ...[
+                              const SizedBox(width: 4),
+                              const Icon(
+                                Icons.verified_rounded,
+                                size: 15,
+                                color: AppColors.primaryPurple,
+                              ),
+                            ],
+                          ],
+                        ),
+                        Text(
+                          '${widget.member.username} • Encrypted Sakhi Chat',
+                          style: AppTypography.caption,
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _messages.isEmpty
+                  ? Center(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.lock_outline_rounded,
+                              size: 34,
+                              color: AppColors.primaryPurple.withValues(
+                                alpha: 0.5,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Say hello to ${widget.member.name}',
+                              style: AppTypography.cardTitle,
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Messages are restricted to verified Sakhi women.',
+                              style: AppTypography.subtitle,
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: _messages.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 8),
+                      itemBuilder: (context, idx) {
+                        final m = _messages[idx];
+                        final isOwn = m['isOwnMessage'] == true;
+                        return Align(
+                          alignment: isOwn
+                              ? Alignment.centerRight
+                              : Alignment.centerLeft,
+                          child: Container(
+                            constraints: BoxConstraints(
+                              maxWidth: mq.size.width * 0.76,
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isOwn
+                                  ? AppColors.primaryPurple
+                                  : AppColors.pastelLavender,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Text(
+                              (m['body'] ?? '').toString(),
+                              style: TextStyle(
+                                color: isOwn
+                                    ? Colors.white
+                                    : AppColors.textPrimary,
+                                fontSize: 13.5,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+            const Divider(height: 1),
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _msgCtrl,
+                        textInputAction: TextInputAction.send,
+                        onSubmitted: (_) => _send(),
+                        decoration: InputDecoration(
+                          hintText: 'Message ${widget.member.name}...',
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
+                          filled: true,
+                          fillColor: const Color(0xFFFAF5FC),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(999),
+                            borderSide: const BorderSide(
+                              color: AppColors.borderSubtle,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    SakhiPillButton(
+                      label: _sending ? '...' : 'Send',
+                      onPressed: _sending ? null : _send,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

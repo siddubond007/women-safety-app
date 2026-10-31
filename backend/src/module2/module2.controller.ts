@@ -21,12 +21,16 @@ import {
   CreateCommunityPostDto,
   CreateEmergencyContactDto,
   CreatePostCommentDto,
+  CreateSafetyEvidenceDto,
   EditCommunityPostDto,
   EditPostCommentDto,
+  PatchMemberBusinessDto,
   ReactToPostDto,
   RecordSafetyEventDto,
+  SendDirectMessageDto,
   StartLocationShareDto,
   UpdateEmergencyContactDto,
+  UpdateVolunteerOptInDto,
   ReportUserOrPostDto,
   RequestAccountDeletionDto,
   RequestMediaUploadDto,
@@ -43,6 +47,7 @@ import {
   UpdateSecurityPinDto,
   UploadBinaryMediaDto,
   UploadMediaObjectDto,
+  VotePollPostDto,
 } from "./module2.dto.js";
 import { Module2Service } from "./module2.service.js";
 
@@ -307,6 +312,16 @@ export class Module2Controller {
     return this.service.reactToPost(authorization, postId, dto.reactionType);
   }
 
+  @Post("posts/:postId/poll-vote")
+  @HttpCode(200)
+  votePollPost(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("postId") postId: string,
+    @Body() dto: VotePollPostDto,
+  ) {
+    return this.service.votePollPost(authorization, postId, dto.optionIndex);
+  }
+
   @Post("posts/:postId/like")
   @HttpCode(200)
   togglePostLike(
@@ -367,6 +382,16 @@ export class Module2Controller {
     return this.service.deletePostComment(authorization, postId, commentId);
   }
 
+  @Post("posts/:postId/comments/:commentId/like")
+  @HttpCode(200)
+  toggleCommentLike(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("postId") postId: string,
+    @Param("commentId") commentId: string,
+  ) {
+    return this.service.toggleCommentLike(authorization, postId, commentId);
+  }
+
   @Post("followers/:profileId/toggle")
   @HttpCode(200)
   toggleFollow(
@@ -383,6 +408,23 @@ export class Module2Controller {
     @Param("profileId") profileId: string,
   ) {
     return this.service.toggleFollow(authorization, profileId);
+  }
+
+  @Get("messages")
+  listDirectMessages(
+    @Headers("authorization") authorization: string | undefined,
+    @Query("peerId") peerId?: string,
+  ) {
+    return this.service.listDirectMessages(authorization, peerId);
+  }
+
+  @Post("messages")
+  @HttpCode(201)
+  sendDirectMessage(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: SendDirectMessageDto,
+  ) {
+    return this.service.sendDirectMessage(authorization, dto);
   }
 
   @Put("privacy")
@@ -440,6 +482,30 @@ export class Module2Controller {
     @Body() dto: RecordSafetyEventDto,
   ) {
     return this.service.recordSafetyEvent(authorization, dto);
+  }
+
+  @Get("safety/evidence")
+  listSafetyEvidence(
+    @Headers("authorization") authorization: string | undefined,
+  ) {
+    return this.service.listSafetyEvidence(authorization);
+  }
+
+  @Post("safety/evidence")
+  @HttpCode(201)
+  addSafetyEvidence(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: CreateSafetyEvidenceDto,
+  ) {
+    return this.service.addSafetyEvidence(authorization, dto);
+  }
+
+  @Put("safety/volunteer")
+  updateVolunteerOptIn(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: UpdateVolunteerOptInDto,
+  ) {
+    return this.service.updateVolunteerOptIn(authorization, dto);
   }
 
   @Post("safety/sos/activate")
@@ -682,8 +748,9 @@ export class Module2Controller {
   @Get("businesses/enquiries/list")
   listBusinessEnquiries(
     @Headers("authorization") authorization: string | undefined,
+    @Query("businessId") businessId?: string,
   ) {
-    return this.service.listBusinessEnquiries(authorization);
+    return this.service.listBusinessEnquiries(authorization, businessId);
   }
 
   @Post("businesses/enquiries/:enquiryId/messages")
@@ -750,7 +817,7 @@ export class Module2Controller {
   updateBusinessPatch(
     @Headers("authorization") authorization: string | undefined,
     @Param("businessId") businessId: string,
-    @Body() dto: Partial<UpsertMemberBusinessDto>,
+    @Body() dto: PatchMemberBusinessDto,
   ) {
     return this.service.updateMemberBusiness(authorization, businessId, dto);
   }

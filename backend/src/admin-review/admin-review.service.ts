@@ -3330,4 +3330,19 @@ export class AdminReviewService {
     );
     return { updated: true, business };
   }
+
+  async deleteBusiness(businessId: string, token?: string) {
+    await SakhiAdminRbacRegistry.ensureHydrated(this.prisma);
+    const principal = this.resolveAdminPrincipal(token);
+    SakhiAdminRbacRegistry.assertRouteAccess(
+      principal,
+      ["SUPER_ADMIN", "BUSINESS_ADMIN"],
+      "Business Directory Deletion",
+    );
+    return SakhiAdminRbacRegistry.deleteBusinessListing(
+      this.prisma,
+      businessId,
+      principal.reviewerLabel,
+    );
+  }
 }

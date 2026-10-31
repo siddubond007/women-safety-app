@@ -82,8 +82,29 @@ class _FeedPostCardState extends State<FeedPostCard> {
   final ValueNotifier<int> _dragReleaseSignal = ValueNotifier<int>(0);
   bool _wheelDialogOpen = false;
   bool _togglingFollow = false;
+  int _activeMediaIndex = 0;
 
   FeedPostModel get post => widget.post;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncCommentsIfNeeded();
+  }
+
+  @override
+  void didUpdateWidget(covariant FeedPostCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.post.id != widget.post.id) {
+      _syncCommentsIfNeeded();
+    }
+  }
+
+  void _syncCommentsIfNeeded() {
+    if (post.comments.isEmpty && post.commentsCount > 0) {
+      unawaited(SakhiPrototypeState.instance.loadComments(post.id, post));
+    }
+  }
 
   @override
   void dispose() {
@@ -374,8 +395,159 @@ class _FeedPostCardState extends State<FeedPostCard> {
                     ),
                   ],
 
-                  if (post.imageAsset != null &&
-                      post.imageAsset!.trim().isNotEmpty) ...[
+                  if (post.pollOptions.length >= 2) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.78),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: AppColors.primaryPurple.withValues(alpha: 0.2),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.poll_outlined,
+                                size: 16,
+                                color: AppColors.primaryPurple,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Community Poll • Tap an option to vote',
+                                style: AppTypography.caption.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.primaryPurple,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          for (int i = 0; i < post.pollOptions.length; i++) ...[
+                            Builder(
+                              builder: (context) {
+                                final counts =
+                                    post.pollVoteCounts.length ==
+                                        post.pollOptions.length
+                                    ? post.pollVoteCounts
+                                    : List<int>.generate(
+                                        post.pollOptions.length,
+                                        (idx) => idx == 0 ? 4 : 2,
+                                      );
+                                final totalVotes = counts.fold<int>(
+                                  0,
+                                  (a, b) => a + b,
+                                );
+                                final count = counts[i];
+                                final pct = totalVotes > 0
+                                    ? (count / totalVotes)
+                                    : 0.0;
+                                final isSelected = post.viewerPollChoice == i;
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 7),
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(12),
+                                    onTap: () async {
+                                      HapticFeedback.selectionClick();
+                                      await state.voteOnPoll(post, i);
+                                      if (mounted) setState(() {});
+                                    },
+                                    child: Stack(
+                                      children: [
+                                        Container(
+                                          height: 38,
+                                          decoration: BoxDecoration(
+                                            color: AppColors.pastelLavender
+                                                .withValues(alpha: 0.38),
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
+                                            border: Border.all(
+                                              color: isSelected
+                                                  ? AppColors.primaryPurple
+                                                  : AppColors.borderSubtle,
+                                              width: isSelected ? 1.5 : 1.0,
+                                            ),
+                                          ),
+                                        ),
+                                        FractionallySizedBox(
+                                          widthFactor: pct.clamp(0.04, 1.0),
+                                          child: Container(
+                                            height: 38,
+                                            decoration: BoxDecoration(
+                                              color: AppColors.primaryPurple
+                                                  .withValues(
+                                                    alpha: isSelected
+                                                        ? 0.25
+                                                        : 0.14,
+                                                  ),
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                            ),
+                                          ),
+                                        ),
+                                        Container(
+                                          height: 38,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                          ),
+                                          alignment: Alignment.centerLeft,
+                                          child: Row(
+                                            children: [
+                                              if (isSelected) ...[
+                                                const Icon(
+                                                  Icons.check_circle_rounded,
+                                                  size: 15,
+                                                  color:
+                                                      AppColors.primaryPurple,
+                                                ),
+                                                const SizedBox(width: 6),
+                                              ],
+                                              Expanded(
+                                                child: Text(
+                                                  post.pollOptions[i],
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: TextStyle(
+                                                    fontSize: 12.5,
+                                                    fontWeight: isSelected
+                                                        ? FontWeight.w800
+                                                        : FontWeight.w600,
+                                                    color:
+                                                        AppColors.textPrimary,
+                                                  ),
+                                                ),
+                                              ),
+                                              Text(
+                                                '${(pct * 100).round()}% ($count)',
+                                                style: const TextStyle(
+                                                  fontSize: 11.5,
+                                                  fontWeight: FontWeight.w800,
+                                                  color:
+                                                      AppColors.primaryPurple,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+
+                  if (post.mediaItems.isNotEmpty) ...[
                     const SizedBox(height: 12),
                     GestureDetector(
                       onTap: () => _showMediaViewer(context),
@@ -385,29 +557,56 @@ class _FeedPostCardState extends State<FeedPostCard> {
                           AppSpacing.radiusMd,
                         ),
                         child: AspectRatio(
-                          aspectRatio: post.mediaContentType == 'video/mp4'
+                          aspectRatio:
+                              (post.mediaContentType == 'video/mp4' ||
+                                  post.mediaItems.first
+                                      .toLowerCase()
+                                      .endsWith('.mp4'))
                               ? 16 / 9
                               : _aspectRatioForPreset(post.cropPreset),
-                          child: post.mediaContentType == 'video/mp4'
-                              ? SakhiRemoteMediaVideo(
-                                  source: post.imageAsset!,
-                                  fit: BoxFit.cover,
-                                )
-                              : _isRemoteUrl(post.imageAsset!)
-                              ? SakhiRemoteMediaImage(
-                                  source: post.imageAsset!,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, _, _) =>
-                                      _buildImageFallback(),
-                                )
-                              : Image.asset(
-                                  post.imageAsset!,
-                                  fit: BoxFit.cover,
-                                  filterQuality: FilterQuality.high,
-                                  isAntiAlias: true,
-                                  errorBuilder: (_, _, _) =>
-                                      _buildImageFallback(),
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              if (post.mediaItems.length == 1)
+                                _buildSingleMediaWidget(post.mediaItems.first)
+                              else
+                                PageView.builder(
+                                  itemCount: post.mediaItems.length,
+                                  onPageChanged: (idx) => setState(
+                                    () => _activeMediaIndex = idx,
+                                  ),
+                                  itemBuilder: (context, idx) =>
+                                      _buildSingleMediaWidget(
+                                        post.mediaItems[idx],
+                                      ),
                                 ),
+                              if (post.mediaItems.length > 1)
+                                Positioned(
+                                  top: 10,
+                                  right: 10,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.65,
+                                      ),
+                                      borderRadius: BorderRadius.circular(999),
+                                    ),
+                                    child: Text(
+                                      '${(_activeMediaIndex + 1).clamp(1, post.mediaItems.length)}/${post.mediaItems.length}',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -540,7 +739,7 @@ class _FeedPostCardState extends State<FeedPostCard> {
                               ),
                               const SizedBox(width: 5),
                               Text(
-                                '${post.commentsCount}',
+                                '${post.comments.isNotEmpty ? post.comments.length : post.commentsCount}',
                                 style: AppTypography.subtitle.copyWith(
                                   color: AppColors.textPrimary,
                                   fontWeight: FontWeight.w700,
@@ -633,23 +832,27 @@ class _FeedPostCardState extends State<FeedPostCard> {
                                       if (c.replyToHandle != null &&
                                           c.replyToHandle!.isNotEmpty)
                                         TextSpan(
-                                          text: '${c.replyToHandle} ',
+                                          text: '${c.replyToHandle!.startsWith('@') ? c.replyToHandle! : '@${c.replyToHandle!}'} ',
                                           style: const TextStyle(
                                             fontWeight: FontWeight.w700,
                                             color: Color(0xFF8B2E9D),
                                           ),
                                         ),
-                                      TextSpan(text: c.body),
+                                      TextSpan(
+                                        text: _stripDuplicateReplyPrefix(
+                                          c.body,
+                                          c.replyToHandle,
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 ),
                               ),
-                            if (post.commentsCount > 5 ||
-                                post.comments.length > 5)
+                            if (post.comments.length > 5)
                               Padding(
                                 padding: const EdgeInsets.only(top: 3),
                                 child: Text(
-                                  'View all ${math.max(post.commentsCount, post.comments.length)} comments',
+                                  'View all ${post.comments.length} comments',
                                   style: AppTypography.subtitle.copyWith(
                                     fontSize: 12,
                                     fontWeight: FontWeight.w800,
@@ -667,7 +870,8 @@ class _FeedPostCardState extends State<FeedPostCard> {
                     const SizedBox(height: 9),
                     InkWell(
                       borderRadius: BorderRadius.circular(999),
-                      onTap: () => _showCommentsSheet(context),
+                      onTap: () =>
+                          _showCommentsSheet(context, autoFocusInput: true),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 12,
@@ -993,14 +1197,53 @@ class _FeedPostCardState extends State<FeedPostCard> {
     });
   }
 
-  void _showCommentsSheet(BuildContext context) {
+  String _stripDuplicateReplyPrefix(String body, String? replyHandle) {
+    final trimmed = body.trim();
+    if (replyHandle == null || replyHandle.trim().isEmpty) return trimmed;
+    final norm = replyHandle.trim().startsWith('@')
+        ? replyHandle.trim()
+        : '@${replyHandle.trim()}';
+    if (trimmed.toLowerCase().startsWith('${norm.toLowerCase()} ')) {
+      final rest = trimmed.substring(norm.length).trim();
+      if (rest.isNotEmpty) return rest;
+    }
+    return trimmed;
+  }
+
+  Widget _buildSingleMediaWidget(String mediaSource) {
+    final isVideo =
+        post.mediaContentType == 'video/mp4' ||
+        mediaSource.toLowerCase().endsWith('.mp4');
+    if (isVideo) {
+      return SakhiRemoteMediaVideo(source: mediaSource, fit: BoxFit.cover);
+    }
+    if (_isRemoteUrl(mediaSource)) {
+      return SakhiRemoteMediaImage(
+        source: mediaSource,
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => _buildImageFallback(),
+      );
+    }
+    return Image.asset(
+      mediaSource,
+      fit: BoxFit.cover,
+      filterQuality: FilterQuality.high,
+      isAntiAlias: true,
+      errorBuilder: (_, _, _) => _buildImageFallback(),
+    );
+  }
+
+  void _showCommentsSheet(BuildContext context, {bool autoFocusInput = false}) {
     final state = SakhiPrototypeState.instance;
-    unawaited(state.loadComments(post.id));
+    unawaited(state.loadComments(post.id, post));
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => _SakhiInstagramCommentsSheet(post: post),
+      builder: (ctx) => _SakhiInstagramCommentsSheet(
+        post: post,
+        autoFocusInput: autoFocusInput,
+      ),
     );
   }
 
@@ -1469,8 +1712,12 @@ class _SakhiBouncingReactionBadgesState
 /// Instagram / Facebook-Style Draggable Comments Bottom Sheet with @username Threaded Replies.
 class _SakhiInstagramCommentsSheet extends StatefulWidget {
   final FeedPostModel post;
+  final bool autoFocusInput;
 
-  const _SakhiInstagramCommentsSheet({required this.post});
+  const _SakhiInstagramCommentsSheet({
+    required this.post,
+    this.autoFocusInput = false,
+  });
 
   @override
   State<_SakhiInstagramCommentsSheet> createState() =>
@@ -1484,6 +1731,9 @@ class _SakhiInstagramCommentsSheetState
   PostCommentItem? _replyingTo;
   bool _isSubmitting = false;
 
+  FeedPostModel get _livePost =>
+      SakhiPrototypeState.instance.resolveLivePost(widget.post);
+
   static const List<String> _quickEmojis = [
     '❤️',
     '🙌',
@@ -1496,29 +1746,112 @@ class _SakhiInstagramCommentsSheetState
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _refreshComments();
+    if (widget.autoFocusInput && widget.post.allowComments) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _inputFocusNode.requestFocus();
+        }
+      });
+    }
+  }
+
+  Future<void> _refreshComments() async {
+    if (!mounted) return;
+    await SakhiPrototypeState.instance.loadComments(
+      widget.post.id,
+      widget.post,
+    );
+    if (!mounted) return;
+  }
+
+  void _openCommenterProfile(PostCommentItem comment) {
+    final state = SakhiPrototypeState.instance;
+    final handle = _resolveHandle(comment);
+    final normHandle = handle.replaceFirst(RegExp(r'^@'), '').toLowerCase();
+    FollowerUserModel? member;
+    for (final f in state.followers) {
+      if (comment.authorAccountId.isNotEmpty &&
+          f.id == comment.authorAccountId) {
+        member = f;
+        break;
+      }
+      if (normHandle.isNotEmpty &&
+          f.username.replaceFirst(RegExp(r'^@'), '').toLowerCase() ==
+              normHandle) {
+        member = f;
+        break;
+      }
+    }
+    member ??= FollowerUserModel(
+      id: comment.authorAccountId.isNotEmpty
+          ? comment.authorAccountId
+          : handle,
+      name: comment.authorName,
+      username: handle,
+      avatarAsset: comment.authorAvatar,
+      isFollowing: false,
+      isVerified: true,
+      bio: 'Verified Sakhi community member.',
+      interests: const <String>['Community', 'Safety'],
+    );
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SearchResultMemberProfileScreen(member: member!),
+      ),
+    );
+  }
+
+  @override
   void dispose() {
     _controller.dispose();
     _inputFocusNode.dispose();
     super.dispose();
   }
 
+  String _resolveHandle(PostCommentItem comment) {
+    if (comment.authorUsername.trim().isNotEmpty &&
+        comment.authorUsername != '@member') {
+      return comment.authorUsername.startsWith('@')
+          ? comment.authorUsername.trim()
+          : '@${comment.authorUsername.trim()}';
+    }
+    return '@${comment.authorName.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_')}';
+  }
+
   void _startReply(PostCommentItem comment) {
-    final handle = comment.authorUsername.trim().isNotEmpty &&
-            comment.authorUsername != '@member'
-        ? (comment.authorUsername.startsWith('@')
-              ? comment.authorUsername
-              : '@${comment.authorUsername}')
-        : '@${comment.authorName.toLowerCase().replaceAll(' ', '_')}';
-    setState(() {
-      _replyingTo = comment;
-    });
-    if (!_controller.text.startsWith('$handle ')) {
-      _controller.text = '$handle ';
+    final prevHandle = _replyingTo != null ? _resolveHandle(_replyingTo!) : null;
+    var currentText = _controller.text;
+    if (prevHandle != null &&
+        currentText.toLowerCase().startsWith('${prevHandle.toLowerCase()} ')) {
+      currentText = currentText.substring(prevHandle.length).trimLeft();
+      _controller.text = currentText;
       _controller.selection = TextSelection.fromPosition(
         TextPosition(offset: _controller.text.length),
       );
     }
+    setState(() {
+      _replyingTo = comment;
+    });
     _inputFocusNode.requestFocus();
+  }
+
+  void _cancelReply() {
+    final prevHandle = _replyingTo != null ? _resolveHandle(_replyingTo!) : null;
+    var currentText = _controller.text;
+    if (prevHandle != null &&
+        currentText.toLowerCase().startsWith('${prevHandle.toLowerCase()} ')) {
+      currentText = currentText.substring(prevHandle.length).trimLeft();
+      _controller.text = currentText;
+      _controller.selection = TextSelection.fromPosition(
+        TextPosition(offset: _controller.text.length),
+      );
+    }
+    setState(() {
+      _replyingTo = null;
+    });
   }
 
   void _insertEmoji(String emoji) {
@@ -1532,22 +1865,32 @@ class _SakhiInstagramCommentsSheetState
   }
 
   Future<void> _submitComment() async {
-    final rawText = _controller.text.trim();
+    var rawText = _controller.text.trim();
     if (rawText.isEmpty || _isSubmitting) return;
     setState(() => _isSubmitting = true);
 
     final replyTarget = _replyingTo;
-    final replyHandle = replyTarget != null
-        ? (replyTarget.authorUsername.isNotEmpty &&
-                  replyTarget.authorUsername != '@member'
-              ? replyTarget.authorUsername
-              : '@${replyTarget.authorName.toLowerCase().replaceAll(' ', '_')}')
+    final replyHandle = replyTarget != null ? _resolveHandle(replyTarget) : null;
+    if (replyHandle != null &&
+        rawText.toLowerCase().startsWith('${replyHandle.toLowerCase()} ')) {
+      final stripped = rawText.substring(replyHandle.length).trim();
+      if (stripped.isNotEmpty) {
+        rawText = stripped;
+      }
+    }
+
+    // If replying to a child reply, attach to the root parent comment so threads stay cleanly grouped
+    final effectiveParentId = replyTarget != null
+        ? ((replyTarget.parentCommentId != null &&
+                  replyTarget.parentCommentId!.isNotEmpty)
+              ? replyTarget.parentCommentId
+              : replyTarget.id)
         : null;
 
     final submitted = await SakhiPrototypeState.instance.addPostComment(
       widget.post,
       rawText,
-      parentCommentId: replyTarget?.id,
+      parentCommentId: effectiveParentId,
       replyToHandle: replyHandle,
     );
 
@@ -1580,6 +1923,7 @@ class _SakhiInstagramCommentsSheetState
         content: TextField(
           controller: editCtrl,
           maxLines: 3,
+          maxLength: 500,
           decoration: const InputDecoration(
             hintText: 'Update your comment...',
           ),
@@ -1598,6 +1942,7 @@ class _SakhiInstagramCommentsSheetState
                 widget.post.id,
                 comment.id,
                 nextText,
+                widget.post,
               );
               if (!dialogCtx.mounted) return;
               Navigator.of(dialogCtx).pop();
@@ -1617,17 +1962,107 @@ class _SakhiInstagramCommentsSheetState
     );
   }
 
+  Future<void> _confirmAndDeleteComment(PostCommentItem comment) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.cardSurface,
+        title: const Text('Delete Comment?', style: AppTypography.sectionTitle),
+        content: const Text(
+          'Are you sure you want to remove this comment from the conversation?',
+          style: AppTypography.bodyRegular,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.sosRed),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final ok = await SakhiPrototypeState.instance.removeComment(
+      widget.post.id,
+      comment.id,
+      widget.post,
+    );
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? 'Comment deleted.'
+              : 'Could not delete comment. Please try again.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _reportComment(PostCommentItem comment) async {
+    final ok = await SakhiPrototypeState.instance.reportMember(
+      targetHandle: _resolveHandle(comment),
+      postId: widget.post.id,
+      commentId: comment.id,
+      reason: 'Inappropriate or unsupportive comment',
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? 'Comment reported confidentially to Sakhi Trust & Safety.'
+              : 'Report submitted for moderator review.',
+        ),
+      ),
+    );
+  }
+
+  bool _isCommentOwnedByViewer(
+    PostCommentItem comment,
+    SakhiPrototypeState state,
+  ) {
+    if (comment.isOwnComment) return true;
+    final myAccountId = state.currentUser.accountId.trim();
+    if (comment.authorAccountId.trim().isNotEmpty && myAccountId.isNotEmpty) {
+      return comment.authorAccountId.trim() == myAccountId;
+    }
+    final myUsername = state.currentUser.username
+        .trim()
+        .replaceFirst(RegExp(r'^@'), '')
+        .toLowerCase();
+    final cUsername = comment.authorUsername
+        .trim()
+        .replaceFirst(RegExp(r'^@'), '')
+        .toLowerCase();
+    if (myUsername.isNotEmpty &&
+        cUsername.isNotEmpty &&
+        cUsername != 'member') {
+      return myUsername == cUsername;
+    }
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = SakhiPrototypeState.instance;
     final mq = MediaQuery.of(context);
-    final maxAllowedHeight = (mq.size.height - mq.viewInsets.bottom - mq.padding.top - 24).clamp(240.0, 740.0);
-    final sheetHeight = (mq.size.height * 0.78).clamp(240.0, maxAllowedHeight);
+    final availableHeight = math.max(
+      260.0,
+      mq.size.height - mq.viewInsets.bottom - mq.padding.top - 16,
+    );
+    final sheetHeight = math.min(mq.size.height * 0.78, availableHeight);
 
     return AnimatedBuilder(
       animation: state,
       builder: (context, _) {
-        final comments = widget.post.comments;
+        final livePost = _livePost;
+        final comments = state.groupThreadedComments(livePost.comments);
         return Padding(
           padding: EdgeInsets.only(bottom: mq.viewInsets.bottom),
           child: ClipRRect(
@@ -1655,7 +2090,7 @@ class _SakhiInstagramCommentsSheetState
                 ),
                 child: Column(
                   children: [
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
                     Container(
                       width: 42,
                       height: 4.5,
@@ -1665,7 +2100,7 @@ class _SakhiInstagramCommentsSheetState
                       ),
                     ),
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 12, 12, 10),
+                      padding: const EdgeInsets.fromLTRB(20, 8, 12, 8),
                       child: Row(
                         children: [
                           Expanded(
@@ -1688,20 +2123,24 @@ class _SakhiInstagramCommentsSheetState
                     const Divider(height: 1),
                     Expanded(
                       child: comments.isEmpty
-                          ? Center(
-                              child: Padding(
-                                padding: const EdgeInsets.all(28),
+                          ? SingleChildScrollView(
+                              physics: const BouncingScrollPhysics(),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 24,
+                                vertical: 18,
+                              ),
+                              child: Center(
                                 child: Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Icon(
                                       Icons.chat_bubble_outline_rounded,
-                                      size: 40,
+                                      size: 36,
                                       color: AppColors.primaryPurple.withValues(
                                         alpha: 0.45,
                                       ),
                                     ),
-                                    const SizedBox(height: 10),
+                                    const SizedBox(height: 8),
                                     const Text(
                                       'No comments yet',
                                       style: AppTypography.cardTitle,
@@ -1717,6 +2156,7 @@ class _SakhiInstagramCommentsSheetState
                               ),
                             )
                           : ListView.separated(
+                              physics: const BouncingScrollPhysics(),
                               padding: const EdgeInsets.fromLTRB(
                                 16,
                                 14,
@@ -1732,8 +2172,20 @@ class _SakhiInstagramCommentsSheetState
                                     (comment.parentCommentId != null &&
                                         comment.parentCommentId!.isNotEmpty) ||
                                     (comment.replyToHandle != null &&
-                                        comment.replyToHandle!.isNotEmpty) ||
-                                    comment.body.trim().startsWith('@');
+                                        comment.replyToHandle!.isNotEmpty);
+                                final isOwn = _isCommentOwnedByViewer(
+                                  comment,
+                                  state,
+                                );
+                                final canDelete =
+                                    isOwn ||
+                                    comment.canDelete ||
+                                    widget.post.isOwnPost;
+                                final handle = _resolveHandle(comment);
+                                final timeLabel =
+                                    formatSakhiRelativeTimestamp(
+                                      comment.createdAt,
+                                    );
                                 return Padding(
                                   padding: EdgeInsets.only(
                                     left: isReply ? 28.0 : 0.0,
@@ -1746,6 +2198,8 @@ class _SakhiInstagramCommentsSheetState
                                         imageAsset: comment.authorAvatar,
                                         fallbackLabel: comment.authorName,
                                         size: isReply ? 28 : 34,
+                                        onAvatarTap: () =>
+                                            _openCommenterProfile(comment),
                                       ),
                                       const SizedBox(width: 10),
                                       Expanded(
@@ -1753,9 +2207,18 @@ class _SakhiInstagramCommentsSheetState
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
                                           children: [
-                                            Row(
+                                            Wrap(
+                                              crossAxisAlignment:
+                                                  WrapCrossAlignment.center,
+                                              spacing: 5,
                                               children: [
-                                                Flexible(
+                                                InkWell(
+                                                  borderRadius:
+                                                      BorderRadius.circular(4),
+                                                  onTap: () =>
+                                                      _openCommenterProfile(
+                                                        comment,
+                                                      ),
                                                   child: Text(
                                                     comment.authorName,
                                                     style: AppTypography
@@ -1767,23 +2230,59 @@ class _SakhiInstagramCommentsSheetState
                                                         ),
                                                   ),
                                                 ),
-                                                const SizedBox(width: 6),
+                                                InkWell(
+                                                  borderRadius:
+                                                      BorderRadius.circular(4),
+                                                  onTap: () =>
+                                                      _openCommenterProfile(
+                                                        comment,
+                                                      ),
+                                                  child: Text(
+                                                    handle,
+                                                    style: AppTypography.caption
+                                                        .copyWith(
+                                                          fontSize: 11,
+                                                          color: AppColors
+                                                              .primaryPurple,
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                        ),
+                                                  ),
+                                                ),
                                                 Text(
-                                                  comment.createdAt,
+                                                  '• $timeLabel${comment.isEdited ? " (edited)" : ""}',
                                                   style: AppTypography.caption
                                                       .copyWith(fontSize: 11),
                                                 ),
                                               ],
                                             ),
                                             const SizedBox(height: 3),
-                                            Text(
-                                              comment.body,
-                                              style: AppTypography.bodyRegular
-                                                  .copyWith(
-                                                    fontSize: 13.5,
-                                                    color:
-                                                        AppColors.textPrimary,
-                                                  ),
+                                            RichText(
+                                              text: TextSpan(
+                                                style: AppTypography.bodyRegular
+                                                    .copyWith(
+                                                      fontSize: 13.5,
+                                                      color:
+                                                          AppColors.textPrimary,
+                                                    ),
+                                                children: [
+                                                  if (comment.replyToHandle !=
+                                                          null &&
+                                                      comment.replyToHandle!
+                                                          .isNotEmpty)
+                                                    TextSpan(
+                                                      text:
+                                                          '${comment.replyToHandle!.startsWith('@') ? comment.replyToHandle! : '@${comment.replyToHandle!}'} ',
+                                                      style: const TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.w800,
+                                                        color:
+                                                            AppColors.primaryPurple,
+                                                      ),
+                                                    ),
+                                                  TextSpan(text: comment.body),
+                                                ],
+                                              ),
                                             ),
                                             const SizedBox(height: 5),
                                             Row(
@@ -1812,13 +2311,7 @@ class _SakhiInstagramCommentsSheetState
                                                     ),
                                                   ),
                                                 ),
-                                                if (comment.canEdit ||
-                                                    comment.isOwnComment ||
-                                                    (comment.authorAccountId.isNotEmpty &&
-                                                        comment.authorAccountId ==
-                                                            state.currentUser.accountId) ||
-                                                    comment.authorName.trim().toLowerCase() ==
-                                                        state.currentUser.displayName.trim().toLowerCase()) ...[
+                                                if (isOwn) ...[
                                                   const SizedBox(width: 12),
                                                   InkWell(
                                                     borderRadius:
@@ -1848,29 +2341,17 @@ class _SakhiInstagramCommentsSheetState
                                                     ),
                                                   ),
                                                 ],
-                                                if (comment.canDelete ||
-                                                    comment.isOwnComment ||
-                                                    (comment.authorAccountId.isNotEmpty &&
-                                                        comment.authorAccountId ==
-                                                            state.currentUser.accountId) ||
-                                                    comment.authorName.trim().toLowerCase() ==
-                                                        state.currentUser.displayName.trim().toLowerCase() ||
-                                                    widget.post.isOwnPost) ...[
+                                                if (canDelete) ...[
                                                   const SizedBox(width: 12),
                                                   InkWell(
                                                     borderRadius:
                                                         BorderRadius.circular(
                                                           6,
                                                         ),
-                                                    onTap: () async {
-                                                      await state.removeComment(
-                                                        widget.post.id,
-                                                        comment.id,
-                                                      );
-                                                      if (mounted) {
-                                                        setState(() {});
-                                                      }
-                                                    },
+                                                    onTap: () =>
+                                                        _confirmAndDeleteComment(
+                                                          comment,
+                                                        ),
                                                     child: Padding(
                                                       padding:
                                                           const EdgeInsets.symmetric(
@@ -1892,9 +2373,83 @@ class _SakhiInstagramCommentsSheetState
                                                     ),
                                                   ),
                                                 ],
+                                                if (!isOwn) ...[
+                                                  const SizedBox(width: 12),
+                                                  InkWell(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          6,
+                                                        ),
+                                                    onTap: () =>
+                                                        _reportComment(comment),
+                                                    child: Padding(
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                            vertical: 2,
+                                                            horizontal: 4,
+                                                          ),
+                                                      child: Text(
+                                                        'Report',
+                                                        style: AppTypography
+                                                            .caption
+                                                            .copyWith(
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w600,
+                                                              color: AppColors
+                                                                  .textMuted,
+                                                            ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
                                               ],
                                             ),
                                           ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      InkWell(
+                                        borderRadius: BorderRadius.circular(12),
+                                        onTap: () async {
+                                          HapticFeedback.lightImpact();
+                                          await state.toggleCommentLike(
+                                            widget.post.id,
+                                            comment.id,
+                                            widget.post,
+                                          );
+                                          if (mounted) setState(() {});
+                                        },
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 4,
+                                            vertical: 4,
+                                          ),
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                comment.isLiked
+                                                    ? Icons.favorite_rounded
+                                                    : Icons
+                                                          .favorite_border_rounded,
+                                                size: 16,
+                                                color: comment.isLiked
+                                                    ? AppColors.heartPink
+                                                    : AppColors.textMuted,
+                                              ),
+                                              if (comment.likesCount > 0)
+                                                Text(
+                                                  '${comment.likesCount}',
+                                                  style: AppTypography.caption
+                                                      .copyWith(
+                                                        fontSize: 10,
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                      ),
+                                                ),
+                                            ],
+                                          ),
                                         ),
                                       ),
                                     ],
@@ -1915,7 +2470,7 @@ class _SakhiInstagramCommentsSheetState
                           children: [
                             Expanded(
                               child: Text(
-                                'Replying to ${_replyingTo!.authorName}',
+                                'Replying to ${_replyingTo!.authorName} (${_resolveHandle(_replyingTo!)})',
                                 style: AppTypography.caption.copyWith(
                                   color: AppColors.primaryPurple,
                                   fontWeight: FontWeight.w700,
@@ -1923,7 +2478,7 @@ class _SakhiInstagramCommentsSheetState
                               ),
                             ),
                             GestureDetector(
-                              onTap: () => setState(() => _replyingTo = null),
+                              onTap: _cancelReply,
                               child: const Icon(
                                 Icons.close_rounded,
                                 size: 16,
@@ -1935,11 +2490,10 @@ class _SakhiInstagramCommentsSheetState
                       ),
                     if (widget.post.allowComments) ...[
                       const Divider(height: 1),
-                      // Instagram Quick Supportive Emoji Strip
                       Padding(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 12,
-                          vertical: 6,
+                          vertical: 5,
                         ),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -1954,7 +2508,7 @@ class _SakhiInstagramCommentsSheetState
                                     ),
                                     child: Text(
                                       emoji,
-                                      style: const TextStyle(fontSize: 20),
+                                      style: const TextStyle(fontSize: 19),
                                     ),
                                   ),
                                 ),
@@ -1965,7 +2519,7 @@ class _SakhiInstagramCommentsSheetState
                       SafeArea(
                         top: false,
                         child: Padding(
-                          padding: const EdgeInsets.fromLTRB(14, 4, 14, 12),
+                          padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
                           child: Row(
                             children: [
                               SakhiAvatar(

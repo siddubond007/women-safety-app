@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -1603,7 +1604,16 @@ class _WomenBusinessHubScreenState extends State<WomenBusinessHubScreen> {
                       ),
                     )
                     .then((_) => _load(spinner: false)),
-                onOpenEnquiries: _inbox,
+                onOpenEnquiries: () => Navigator.of(context)
+                    .push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => BusinessEnquiryInboxScreen(
+                          initialBusinessId: page.id,
+                          initialBusinessName: page.businessName,
+                        ),
+                      ),
+                    )
+                    .then((_) => _load(spinner: false)),
               ),
             ),
           ),
@@ -2723,18 +2733,50 @@ class _BusinessProfileDetailScreenState
                                 style: TextStyle(fontWeight: FontWeight.w800),
                               ),
                             ),
+                          if (item.isOwnBusiness)
+                            FilledButton.icon(
+                              onPressed: () => Navigator.of(context)
+                                  .push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => BusinessEnquiryInboxScreen(
+                                        initialBusinessId: item.id,
+                                        initialBusinessName: item.businessName,
+                                      ),
+                                    ),
+                                  )
+                                  .then((_) => _load()),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppColors.businessPlum,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                              ),
+                              icon: const Icon(Icons.inbox_outlined, size: 17),
+                              label: Text(
+                                'Customer Leads (${item.enquiriesCount})',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
                           FilledButton.icon(
                             onPressed: _busy ? null : () => _enquire(),
                             style: FilledButton.styleFrom(
-                              backgroundColor: AppColors.businessPlum,
+                              backgroundColor: item.isOwnBusiness
+                                  ? const Color(0xFF7B4B94)
+                                  : AppColors.businessPlum,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(999),
                               ),
                             ),
                             icon: const Icon(Icons.mail_outline, size: 17),
-                            label: const Text(
-                              'Enquire in App',
-                              style: TextStyle(fontWeight: FontWeight.w800),
+                            label: Text(
+                              item.isOwnBusiness
+                                  ? 'Test Enquiry Form'
+                                  : 'Enquire in App',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                           ),
                           if (hasSocial)
@@ -3149,7 +3191,8 @@ class _BusinessRegistrationWizardScreenState
 
       setState(() => _uploadingMedia = true);
       final res = await _state.uploadMediaFile(
-        purpose: 'community_post',
+        purpose: 'business_media',
+        categorySlug: 'business',
         fileName: picked.name.isEmpty ? 'business_photo.jpg' : picked.name,
         fileBytes: bytes,
         contentType: 'image/jpeg',
@@ -3844,7 +3887,14 @@ class _BusinessRegistrationWizardScreenState
 }
 
 class BusinessEnquiryInboxScreen extends StatefulWidget {
-  const BusinessEnquiryInboxScreen({super.key});
+  const BusinessEnquiryInboxScreen({
+    super.key,
+    this.initialBusinessId,
+    this.initialBusinessName,
+  });
+
+  final String? initialBusinessId;
+  final String? initialBusinessName;
 
   @override
   State<BusinessEnquiryInboxScreen> createState() =>
@@ -3858,6 +3908,13 @@ class _BusinessEnquiryInboxScreenState
   int _tabIndex = 0; // 0: All, 1: Received (Customer Leads), 2: Sent by Me
   bool _loading = true;
   bool _signedIn = false;
+  String? _filterBusinessId;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _filterBusinessId ??= widget.initialBusinessId;
+  }
 
   @override
   void initState() {
@@ -3894,6 +3951,11 @@ class _BusinessEnquiryInboxScreenState
   Widget build(BuildContext context) {
     final myAccountId = _state.currentUser.accountId;
     final filteredRows = _rows.where((r) {
+      if (_filterBusinessId != null &&
+          _filterBusinessId!.isNotEmpty &&
+          r['businessId']?.toString() != _filterBusinessId) {
+        return false;
+      }
       final isOwnerInbox = r['isOwnerInbox'] == true ||
           (myAccountId.isNotEmpty && r['ownerAccountId'] == myAccountId);
       if (_tabIndex == 1) return isOwnerInbox;
@@ -4236,13 +4298,14 @@ class _BusinessEnquiryThreadState extends State<_BusinessEnquiryThread> {
     final senderName = (_row['senderDisplayName'] ?? 'Sakhi Member').toString();
     final senderUsername = (_row['senderUsername'] ?? '').toString();
 
+    final screenH = MediaQuery.sizeOf(context).height;
+    final availableH = math.max(220.0, screenH - inset - 68);
+    final sheetH = math.min(screenH * 0.78, availableH);
+
     return Padding(
       padding: EdgeInsets.fromLTRB(16, 8, 16, inset + 16),
       child: SizedBox(
-        height: (MediaQuery.sizeOf(context).height - inset - 80).clamp(
-          280.0,
-          MediaQuery.sizeOf(context).height * .78,
-        ),
+        height: sheetH,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
