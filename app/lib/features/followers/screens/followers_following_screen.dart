@@ -249,7 +249,11 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
                   if (!mounted || !context.mounted) return;
                   setState(() {
                     _members = _members
-                        .where((m) => m.id != member.id && m.username != member.username)
+                        .where(
+                          (m) =>
+                              m.id != member.id &&
+                              m.username != member.username,
+                        )
                         .toList();
                   });
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -299,9 +303,7 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
                   setState(() {});
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text(
-                        'Muted posts from ${member.username}.',
-                      ),
+                      content: Text('Muted posts from ${member.username}.'),
                     ),
                   );
                 },
@@ -426,17 +428,6 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-
-  void _showUnavailableAction(BuildContext sheetContext, String action) {
-    Navigator.of(sheetContext).pop();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          '$action needs a backend API that is not currently implemented. No change was made.',
         ),
       ),
     );
