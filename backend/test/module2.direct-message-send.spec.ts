@@ -171,6 +171,11 @@ describe("Module 2 direct-message recipient authorization", () => {
     expect(result.message.recipientName).toBe("Actual Recipient");
     expect(result.message.body).toBe("Hello from Sakhi");
     expect(harness.auditCreate).toHaveBeenCalledOnce();
+    expect(harness.auditCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ outcome: "persisted" }),
+      }),
+    );
   });
 
   it("rejects an unknown recipient instead of accepting the client-supplied name", async () => {

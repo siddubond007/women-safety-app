@@ -6168,7 +6168,7 @@ export class Module2Service {
           action: "module3.direct_message.sent",
           targetType: "direct_message",
           targetId: msgRecord.id,
-          outcome: "delivered",
+          outcome: "persisted",
           requestId: randomUUID(),
           redactedMetadata: msgRecord,
         },
