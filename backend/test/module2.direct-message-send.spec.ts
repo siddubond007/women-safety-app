@@ -22,11 +22,11 @@ type HarnessOptions = {
 
 function createHarness(options: HarnessOptions = {}) {
   const recipientDirectory = {
-    id: "directory-recipient",
+    id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
     username: "@recipient",
   };
   const senderDirectory = {
-    id: "directory-sender",
+    id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
     username: "@sender",
   };
   const senderProfile = {
@@ -83,7 +83,7 @@ function createHarness(options: HarnessOptions = {}) {
   const prisma = {
     communityDirectoryProfile: {
       findUnique: vi.fn().mockImplementation(({ where }) =>
-        where.id === "directory-recipient" &&
+        where.id === "cccccccc-cccc-4ccc-8ccc-cccccccccccc" &&
         options.recipientDirectoryFound !== false
           ? Promise.resolve(recipientDirectory)
           : Promise.resolve(null),
@@ -132,7 +132,7 @@ function createHarness(options: HarnessOptions = {}) {
 }
 
 const request = {
-  recipientId: "directory-recipient",
+  recipientId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
   recipientHandle: "@recipient",
   recipientName: "Client-supplied fake name",
   message: "  Hello from Sakhi  ",
@@ -148,10 +148,10 @@ describe("Module 2 direct-message recipient authorization", () => {
     );
 
     expect(result.sent).toBe(true);
-    expect(result.message.recipientId).toBe("directory-recipient");
+    expect(result.message.recipientId).toBe("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
     expect(result.message.recipientAccountId).toBe("recipient-account");
     expect(result.message.recipientDirectoryProfileId).toBe(
-      "directory-recipient",
+      "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
     );
     expect(result.message.recipientName).toBe("Actual Recipient");
     expect(result.message.body).toBe("Hello from Sakhi");
