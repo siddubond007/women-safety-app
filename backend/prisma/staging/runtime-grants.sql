@@ -15,6 +15,9 @@ TO sakhi_staging_app;
 GRANT SELECT ON TABLE public.policy_document_versions TO sakhi_staging_app;
 GRANT INSERT, SELECT ON TABLE public.audit_events TO sakhi_staging_app;
 
+-- Module 2 dedicated DM persistence. No general UPDATE or DELETE access.
+GRANT SELECT, INSERT ON TABLE public.direct_messages TO sakhi_staging_app;
+
 -- Explicit eligibility/manual-review request records; no raw evidence tables exist.
 GRANT SELECT, INSERT, UPDATE ON TABLE
   public.eligibility_consents,
