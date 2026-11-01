@@ -5826,6 +5826,7 @@ export class Module2Service {
       if (!m) continue;
       const isViewerSender = m.senderAccountId === session.accountId;
       const isViewerRecipient =
+        m.recipientAccountId === session.accountId ||
         m.recipientId === session.accountId ||
         (viewerHandle.length > 0 &&
           normalizeHandle(m.recipientId) === viewerHandle);
@@ -5836,7 +5837,10 @@ export class Module2Service {
       if (
         peerId &&
         m.senderAccountId !== peerId &&
+        m.senderDirectoryProfileId !== peerId &&
         m.senderUsername !== peerId &&
+        m.recipientAccountId !== peerId &&
+        m.recipientDirectoryProfileId !== peerId &&
         m.recipientId !== peerId &&
         m.recipientHandle !== peerId
       ) {
@@ -5860,13 +5864,273 @@ export class Module2Service {
     },
   ) {
     const session = await this.auth.authenticateAuthorization(authorization);
-    const senderProfile = await this.prisma.memberProfile
-      .findUnique({ where: { accountId: session.accountId } })
+    const body = dto.message?.trim() ?? "";
+    if (!body) throw new BadRequestException("Enter a message before sending.");
+
+    if (
+      session.account.status !== "ACTIVE" ||
+      session.account.verificationStatus !== "VERIFIED"
+    ) {
+      throw new ForbiddenException(
+        "Only active, verified members can send direct messages.",
+      );
+    }
+
+    const requestedRecipientId = dto.recipientId?.trim() ?? "";
+    const requestedRecipientHandle = dto.recipientHandle?.trim() ?? "";
+    if (!requestedRecipientId && !requestedRecipientHandle) {
+      throw new BadRequestException("Choose a valid member to message.");
+    }
+
+    const isUuid = (value: string) =>
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        value,
+      );
+    const normalizeHandle = (value: unknown) =>
+      typeof value === "string"
+        ? value.trim().replace(/^@+/, "").toLowerCase()
+        : "";
+    const handleVariants = (value: string) => {
+      const raw = value.trim();
+      const clean = raw.replace(/^@+/, "");
+      return [
+        ...new Set(
+          [raw, clean, `@${clean}`, raw.toLowerCase(), clean.toLowerCase(), `@${clean.toLowerCase()}`].filter(
+            Boolean,
+          ),
+        ),
+      ];
+    };
+
+    const recipientInclude = {
+      account: {
+        select: {
+          id: true,
+          status: true,
+          verificationStatus: true,
+          privacyPreference: { select: { messageMe: true } },
+        },
+      },
+    };
+    let recipientDirectoryProfile: {
+      id: string;
+      username: string;
+    } | null = null;
+    let recipientProfile: any = null;
+
+    if (requestedRecipientId && isUuid(requestedRecipientId)) {
+      recipientDirectoryProfile = await this.prisma.communityDirectoryProfile
+        .findUnique({
+          where: { id: requestedRecipientId },
+          select: { id: true, username: true },
+        })
+        .catch(() => null);
+
+      if (recipientDirectoryProfile) {
+        recipientProfile = await this.prisma.memberProfile
+          .findFirst({
+            where: {
+              username: {
+                equals: recipientDirectoryProfile.username,
+                mode: "insensitive",
+              },
+            },
+            include: recipientInclude,
+          })
+          .catch(() => null);
+      } else {
+        recipientProfile = await this.prisma.memberProfile
+          .findUnique({
+            where: { accountId: requestedRecipientId },
+            include: recipientInclude,
+          })
+          .catch(() => null);
+      }
+    } else {
+      const lookupHandle =
+        requestedRecipientHandle || requestedRecipientId;
+      const cleanHandle = lookupHandle.replace(/^@+/, "");
+      if (
+        requestedRecipientHandle &&
+        requestedRecipientId &&
+        normalizeHandle(requestedRecipientId) !==
+          normalizeHandle(requestedRecipientHandle)
+      ) {
+        throw new BadRequestException(
+          "The recipient ID and username do not identify the same member.",
+        );
+      }
+      recipientProfile = await this.prisma.memberProfile
+        .findFirst({
+          where: {
+            OR: [
+              {
+                username: {
+                  equals: lookupHandle,
+                  mode: "insensitive",
+                },
+              },
+              {
+                username: {
+                  equals: `@${cleanHandle}`,
+                  mode: "insensitive",
+                },
+              },
+            ],
+          },
+          include: recipientInclude,
+        })
+        .catch(() => null);
+    }
+
+    if (!recipientProfile?.account) {
+      throw new NotFoundException(
+        "This member is not available for direct messaging.",
+      );
+    }
+
+    const recipientHandle =
+      typeof recipientProfile.username === "string"
+        ? recipientProfile.username.trim()
+        : "";
+    const senderProfile = await this.prisma.memberProfile.findUnique({
+      where: { accountId: session.accountId },
+      select: {
+        displayName: true,
+        username: true,
+        avatarAsset: true,
+        avatarMediaAssetId: true,
+      },
+    });
+    const senderHandle =
+      typeof senderProfile?.username === "string"
+        ? senderProfile.username.trim()
+        : "";
+
+    if (!recipientHandle || !senderHandle) {
+      throw new ForbiddenException(
+        "Both members must have a Sakhi username before messaging.",
+      );
+    }
+
+    if (
+      requestedRecipientHandle &&
+      normalizeHandle(requestedRecipientHandle) !==
+        normalizeHandle(recipientHandle)
+    ) {
+      throw new BadRequestException(
+        "The recipient ID and username do not identify the same member.",
+      );
+    }
+    if (recipientProfile.accountId === session.accountId) {
+      throw new BadRequestException("You cannot message yourself.");
+    }
+
+    const recipientAccount = recipientProfile.account;
+    if (
+      recipientAccount.status !== "ACTIVE" ||
+      recipientAccount.verificationStatus !== "VERIFIED"
+    ) {
+      throw new ForbiddenException(
+        "This member is not eligible to receive direct messages.",
+      );
+    }
+
+    const messagePreference = String(
+      recipientAccount.privacyPreference?.messageMe ??
+        "Verified members only",
+    )
+      .trim()
+      .toLowerCase();
+    if (
+      messagePreference === "no one" ||
+      messagePreference === "none" ||
+      messagePreference === "no"
+    ) {
+      throw new ForbiddenException(
+        "This member is not accepting direct messages.",
+      );
+    }
+    if (
+      !messagePreference.includes("verified") &&
+      !messagePreference.includes("follower")
+    ) {
+      throw new ForbiddenException(
+        "This member's messaging preference does not allow this request.",
+      );
+    }
+
+    if (!recipientDirectoryProfile) {
+      recipientDirectoryProfile = await this.prisma.communityDirectoryProfile
+        .findFirst({
+          where: {
+            username: { equals: recipientHandle, mode: "insensitive" },
+          },
+          select: { id: true, username: true },
+        })
+        .catch(() => null);
+    }
+    const senderDirectoryProfile = await this.prisma.communityDirectoryProfile
+      .findFirst({
+        where: {
+          username: { equals: senderHandle, mode: "insensitive" },
+        },
+        select: { id: true, username: true },
+      })
       .catch(() => null);
+
+    if (messagePreference.includes("follower")) {
+      if (!recipientDirectoryProfile) {
+        throw new ForbiddenException(
+          "You must follow this member before sending a message.",
+        );
+      }
+      const follow = await this.prisma.memberFollow.findUnique({
+        where: {
+          accountId_directoryProfileId: {
+            accountId: session.accountId,
+            directoryProfileId: recipientDirectoryProfile.id,
+          },
+        },
+        select: { isFollowing: true },
+      });
+      if (!follow?.isFollowing) {
+        throw new ForbiddenException(
+          "You must follow this member before sending a message.",
+        );
+      }
+    }
+
+    const recipientHandleVariants = handleVariants(recipientHandle);
+    const senderHandleVariants = handleVariants(senderHandle);
+    const [senderBlockedRecipient, recipientBlockedSender] =
+      await Promise.all([
+        this.prisma.memberModerationBlock.findFirst({
+          where: {
+            accountId: session.accountId,
+            blockedUsername: { in: recipientHandleVariants },
+          },
+          select: { id: true },
+        }),
+        this.prisma.memberModerationBlock.findFirst({
+          where: {
+            accountId: recipientProfile.accountId,
+            blockedUsername: { in: senderHandleVariants },
+          },
+          select: { id: true },
+        }),
+      ]);
+    if (senderBlockedRecipient || recipientBlockedSender) {
+      throw new ForbiddenException(
+        "Direct messaging is unavailable between these members.",
+      );
+    }
+
     const nowIso = new Date().toISOString();
     const msgRecord = {
       id: randomUUID(),
       senderAccountId: session.accountId,
+      senderDirectoryProfileId: senderDirectoryProfile?.id ?? null,
       senderName: senderProfile?.displayName ?? "Sakhi Member",
       senderUsername: this.deriveUsername(
         senderProfile?.displayName ?? "Sakhi Member",
@@ -5878,10 +6142,14 @@ export class Module2Service {
             senderProfile.avatarMediaAssetId,
           )
         : "",
-      recipientId: dto.recipientId?.trim() || dto.recipientHandle?.trim() || "",
-      recipientHandle: dto.recipientHandle?.trim() || "",
-      recipientName: dto.recipientName?.trim() || "Sakhi Member",
-      body: dto.message.trim(),
+      // Keep the client's peer key for conversation lookup, but also store
+      // the resolved account ID as the authoritative recipient identity.
+      recipientId: requestedRecipientId || recipientProfile.accountId,
+      recipientAccountId: recipientProfile.accountId,
+      recipientDirectoryProfileId: recipientDirectoryProfile?.id ?? null,
+      recipientHandle,
+      recipientName: recipientProfile.displayName,
+      body,
       createdAt: nowIso,
       timestamp: "Just now",
     };
