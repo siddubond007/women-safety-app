@@ -5828,8 +5828,7 @@ export class Module2Service {
       const isViewerRecipient =
         m.recipientId === session.accountId ||
         (viewerHandle.length > 0 &&
-          (normalizeHandle(m.recipientId) === viewerHandle ||
-            normalizeHandle(m.recipientHandle) === viewerHandle));
+          normalizeHandle(m.recipientId) === viewerHandle);
 
       // A peer match is only a conversation filter. It must never grant access
       // unless the authenticated account is itself one of the participants.
