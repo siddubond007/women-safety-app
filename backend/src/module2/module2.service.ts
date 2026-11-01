@@ -5800,6 +5800,17 @@ export class Module2Service {
     peerId?: string,
   ) {
     const session = await this.auth.authenticateAuthorization(authorization);
+    const viewerProfile = await this.prisma.memberProfile
+      .findUnique({
+        where: { accountId: session.accountId },
+        select: { username: true },
+      })
+      .catch(() => null);
+    const normalizeHandle = (value: unknown) =>
+      typeof value === "string"
+        ? value.trim().replace(/^@+/, "").toLocaleLowerCase()
+        : "";
+    const viewerHandle = normalizeHandle(viewerProfile?.username);
     const events = this.prisma.auditEvent?.findMany
       ? await this.prisma.auditEvent
           .findMany({
@@ -5813,26 +5824,28 @@ export class Module2Service {
     for (const ev of events) {
       const m = ev.redactedMetadata as Record<string, any> | null;
       if (!m) continue;
-      const isParticipant =
-        m.senderAccountId === session.accountId ||
+      const isViewerSender = m.senderAccountId === session.accountId;
+      const isViewerRecipient =
         m.recipientId === session.accountId ||
-        (peerId &&
-          (m.recipientId === peerId ||
-            m.recipientHandle === peerId ||
-            m.senderAccountId === peerId));
-      if (!isParticipant) continue;
+        (viewerHandle.length > 0 &&
+          (normalizeHandle(m.recipientId) === viewerHandle ||
+            normalizeHandle(m.recipientHandle) === viewerHandle));
+
+      // A peer match is only a conversation filter. It must never grant access
+      // unless the authenticated account is itself one of the participants.
+      if (!isViewerSender && !isViewerRecipient) continue;
       if (
         peerId &&
         m.senderAccountId !== peerId &&
+        m.senderUsername !== peerId &&
         m.recipientId !== peerId &&
-        m.recipientHandle !== peerId &&
-        m.senderUsername !== peerId
+        m.recipientHandle !== peerId
       ) {
         continue;
       }
       messages.push({
         ...m,
-        isOwnMessage: m.senderAccountId === session.accountId,
+        isOwnMessage: isViewerSender,
       });
     }
     return { items: messages, messages };
