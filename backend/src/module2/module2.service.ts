@@ -6155,21 +6155,28 @@ export class Module2Service {
       createdAt: nowIso,
       timestamp: "Just now",
     };
-    if (this.prisma.auditEvent?.create) {
-      await this.prisma.auditEvent
-        .create({
-          data: {
-            actorType: "MEMBER",
-            actorId: session.accountId,
-            action: "module3.direct_message.sent",
-            targetType: "direct_message",
-            targetId: msgRecord.id,
-            outcome: "delivered",
-            requestId: randomUUID(),
-            redactedMetadata: msgRecord,
-          },
-        })
-        .catch(() => undefined);
+    if (!this.prisma.auditEvent?.create) {
+      throw new InternalServerErrorException(
+        "Messaging is temporarily unavailable. Your message was not sent.",
+      );
+    }
+    try {
+      await this.prisma.auditEvent.create({
+        data: {
+          actorType: "MEMBER",
+          actorId: session.accountId,
+          action: "module3.direct_message.sent",
+          targetType: "direct_message",
+          targetId: msgRecord.id,
+          outcome: "delivered",
+          requestId: randomUUID(),
+          redactedMetadata: msgRecord,
+        },
+      });
+    } catch {
+      throw new InternalServerErrorException(
+        "Your message could not be saved. It has not been sent. Please try again.",
+      );
     }
     return {
       sent: true,

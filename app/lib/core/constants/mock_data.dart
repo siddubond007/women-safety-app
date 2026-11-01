@@ -2594,54 +2594,49 @@ class SakhiPrototypeState extends ChangeNotifier {
   }) async {
     final trimmed = message.trim();
     if (trimmed.isEmpty) return null;
+
     final key = recipientId.trim().isNotEmpty
         ? recipientId.trim()
         : recipientHandle.trim();
-    final localMsg = <String, dynamic>{
-      'id': 'dm_${DateTime.now().millisecondsSinceEpoch}',
-      'senderAccountId': currentUser.accountId,
-      'senderName': currentUser.displayName,
-      'senderUsername': currentUser.username,
-      'senderAvatar': currentUser.avatarAsset,
-      'recipientId': recipientId,
-      'recipientHandle': recipientHandle,
-      'recipientName': recipientName,
-      'body': trimmed,
-      'timestamp': 'Just now',
-      'isOwnMessage': true,
-    };
-    final list = cachedDirectMessagesByPeer.putIfAbsent(
-      key,
-      () => <Map<String, dynamic>>[],
-    );
-    list.add(localMsg);
-    notifyListeners();
 
     try {
       final token = await _client.readAccessToken();
-      if (token != null && token.isNotEmpty) {
-        final res = await _client.post(
-          'module2/messages',
-          authenticated: true,
-          body: {
-            'recipientId': recipientId,
-            'recipientHandle': recipientHandle,
-            'recipientName': recipientName,
-            'message': trimmed,
-          },
-        );
-        if (res['message'] is Map<String, dynamic>) {
-          final serverMsg = Map<String, dynamic>.from(
-            res['message'] as Map<String, dynamic>,
-          );
-          final idx = list.indexWhere((m) => m['id'] == localMsg['id']);
-          if (idx != -1) list[idx] = serverMsg;
-          notifyListeners();
-          return serverMsg;
-        }
+      if (token == null || token.isEmpty) return null;
+
+      final res = await _client.post(
+        'module2/messages',
+        authenticated: true,
+        body: {
+          'recipientId': recipientId,
+          'recipientHandle': recipientHandle,
+          'recipientName': recipientName,
+          'message': trimmed,
+        },
+      );
+      if (res['sent'] != true || res['message'] is! Map<String, dynamic>) {
+        return null;
       }
-    } catch (_) {}
-    return localMsg;
+
+      final serverMsg = Map<String, dynamic>.from(
+        res['message'] as Map<String, dynamic>,
+      );
+      final list = cachedDirectMessagesByPeer.putIfAbsent(
+        key,
+        () => <Map<String, dynamic>>[],
+      );
+      final existingIndex = list.indexWhere(
+        (item) => item['id'] == serverMsg['id'],
+      );
+      if (existingIndex == -1) {
+        list.add(serverMsg);
+      } else {
+        list[existingIndex] = serverMsg;
+      }
+      notifyListeners();
+      return serverMsg;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<bool> updatePrivacySetting(String id, String newValue) async {

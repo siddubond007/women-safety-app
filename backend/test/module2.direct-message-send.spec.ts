@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ForbiddenException,
+  InternalServerErrorException,
   NotFoundException,
 } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
@@ -18,6 +19,8 @@ type HarnessOptions = {
   recipientBlocksSender?: boolean;
   recipientDirectoryFound?: boolean;
   recipientProfileFound?: boolean;
+  auditCreateFails?: boolean;
+  auditDelegateAvailable?: boolean;
 };
 
 function createHarness(options: HarnessOptions = {}) {
@@ -61,6 +64,9 @@ function createHarness(options: HarnessOptions = {}) {
     }),
   };
   const auditCreate = vi.fn().mockResolvedValue({ id: "audit-1" });
+  if (options.auditCreateFails) {
+    auditCreate.mockRejectedValue(new Error("database write failed"));
+  }
   const followFindUnique = vi
     .fn()
     .mockResolvedValue(
@@ -120,9 +126,10 @@ function createHarness(options: HarnessOptions = {}) {
     memberModerationBlock: {
       findFirst: blockFindFirst,
     },
-    auditEvent: {
-      create: auditCreate,
-    },
+    auditEvent:
+      options.auditDelegateAvailable === false
+        ? undefined
+        : { create: auditCreate },
   };
   const service = new Module2Service(
     auth as unknown as AuthenticationService,
@@ -294,6 +301,23 @@ describe("Module 2 direct-message recipient authorization", () => {
     expect(harness.auditCreate).toHaveBeenCalledOnce();
   });
 
+  it("does not report sent when the database write fails", async () => {
+    const harness = createHarness({ auditCreateFails: true });
+
+    await expect(
+      harness.service.sendDirectMessage("Bearer test-token", request),
+    ).rejects.toBeInstanceOf(InternalServerErrorException);
+    expect(harness.auditCreate).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed when the persistence delegate is unavailable", async () => {
+    const harness = createHarness({ auditDelegateAvailable: false });
+
+    await expect(
+      harness.service.sendDirectMessage("Bearer test-token", request),
+    ).rejects.toBeInstanceOf(InternalServerErrorException);
+    expect(harness.auditCreate).not.toHaveBeenCalled();
+  });
   it("rejects an empty message body after trimming", async () => {
     const harness = createHarness();
 

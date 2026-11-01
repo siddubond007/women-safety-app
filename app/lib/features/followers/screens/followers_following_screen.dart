@@ -907,7 +907,6 @@ class _SakhiDirectMessageSheetState extends State<_SakhiDirectMessageSheet> {
     final text = _msgCtrl.text.trim();
     if (text.isEmpty || _sending) return;
     setState(() => _sending = true);
-    _msgCtrl.clear();
     final sent = await SakhiPrototypeState.instance.sendDirectMessage(
       recipientId: widget.member.id,
       recipientHandle: widget.member.username,
@@ -917,10 +916,22 @@ class _SakhiDirectMessageSheetState extends State<_SakhiDirectMessageSheet> {
     if (!mounted) return;
     setState(() {
       _sending = false;
-      if (sent != null && !_messages.any((m) => m['id'] == sent['id'])) {
-        _messages.add(sent);
+      if (sent != null) {
+        if (_msgCtrl.text.trim() == text) _msgCtrl.clear();
+        if (!_messages.any((m) => m['id'] == sent['id'])) {
+          _messages.add(sent);
+        }
       }
     });
+    if (sent == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Message was not sent. Check your connection and retry.',
+          ),
+        ),
+      );
+    }
   }
 
   @override
