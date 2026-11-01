@@ -255,6 +255,37 @@ describe("Module 2 direct-message recipient authorization", () => {
     }
   });
 
+  it("resolves a recipient account UUID when the caller has no directory key", async () => {
+    const harness = createHarness();
+
+    const result = await harness.service.sendDirectMessage(
+      "Bearer test-token",
+      {
+        ...request,
+        recipientId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      },
+    );
+
+    expect(result.message.recipientAccountId).toBe("recipient-account");
+    expect(harness.auditCreate).toHaveBeenCalledOnce();
+  });
+
+  it("supports username-only recipient lookup", async () => {
+    const harness = createHarness();
+
+    const result = await harness.service.sendDirectMessage(
+      "Bearer test-token",
+      {
+        ...request,
+        recipientId: "",
+      },
+    );
+
+    expect(result.message.recipientAccountId).toBe("recipient-account");
+    expect(result.message.recipientHandle).toBe("@recipient");
+    expect(harness.auditCreate).toHaveBeenCalledOnce();
+  });
+
   it("rejects an empty message body after trimming", async () => {
     const harness = createHarness();
 
