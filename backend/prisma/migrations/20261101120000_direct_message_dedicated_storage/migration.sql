@@ -68,7 +68,9 @@ WITH legacy_events AS (
     sender_directory."id" AS sender_directory_profile_id,
     recipient_profile."display_name" AS recipient_profile_name,
     recipient_profile."username" AS recipient_profile_username,
-    recipient_profile."directory_profile_id" AS recipient_directory_profile_id
+    recipient_profile."directory_profile_id" AS recipient_directory_profile_id,
+    recipient_id_account."id" AS recipient_id_account_id,
+    recipient_directory_by_id."id" AS recipient_directory_profile_id_by_id
   FROM normalized n
   LEFT JOIN LATERAL (
     SELECT ma."id"
@@ -211,5 +213,28 @@ WHERE r.message_id IS NOT NULL
   AND r.sender_account_id IS NOT NULL
   AND r.recipient_account_id IS NOT NULL
   AND r.sender_account_id <> r.recipient_account_id
+  AND (
+    NULLIF(r.metadata ->> 'recipientHandle', '') IS NULL
+    OR (
+      r.recipient_profile_username IS NOT NULL
+      AND lower(regexp_replace(trim(r.recipient_profile_username), '^@+', ''))
+          = lower(regexp_replace(trim(r.metadata ->> 'recipientHandle'), '^@+', ''))
+    )
+  )
+  AND (
+    NULLIF(r.metadata ->> 'recipientAccountId', '') IS NULL
+    OR lower(r.metadata ->> 'recipientAccountId') = lower(r.recipient_account_id::text)
+  )
+  AND (
+    NULLIF(r.metadata ->> 'recipientId', '') IS NULL
+    OR r.metadata ->> 'recipientId' = r.recipient_account_id::text
+    OR r.recipient_id_account_id = r.recipient_account_id
+    OR r.recipient_directory_profile_id_by_id = r.recipient_directory_profile_id
+    OR (
+      r.recipient_profile_username IS NOT NULL
+      AND lower(regexp_replace(trim(r.metadata ->> 'recipientId'), '^@+', ''))
+          = lower(regexp_replace(trim(r.recipient_profile_username), '^@+', ''))
+    )
+  )
   AND COALESCE(NULLIF(r.metadata ->> 'body', ''), NULLIF(r.metadata ->> 'message', '')) IS NOT NULL
 ON CONFLICT DO NOTHING;
