@@ -5795,65 +5795,113 @@ export class Module2Service {
     };
   }
 
-  async listDirectMessages(
-    authorization: string | undefined,
-    peerId?: string,
-  ) {
+  async listDirectMessages(authorization: string | undefined, peerId?: string) {
     const session = await this.auth.authenticateAuthorization(authorization);
-    const viewerProfile = await this.prisma.memberProfile
-      .findUnique({
-        where: { accountId: session.accountId },
-        select: { username: true },
-      })
-      .catch(() => null);
-    const normalizeHandle = (value: unknown) =>
-      typeof value === "string"
-        ? value.trim().replace(/^@+/, "").toLocaleLowerCase()
-        : "";
-    const viewerHandle = normalizeHandle(viewerProfile?.username);
-    const events = this.prisma.auditEvent?.findMany
-      ? await this.prisma.auditEvent
-          .findMany({
-            where: { action: "module3.direct_message.sent" },
-            orderBy: { createdAt: "asc" },
-            take: 250,
-          })
-          .catch(() => [])
-      : [];
-    const messages: Array<Record<string, any>> = [];
-    for (const ev of events) {
-      const m = ev.redactedMetadata as Record<string, any> | null;
-      if (!m) continue;
-      const isViewerSender = m.senderAccountId === session.accountId;
-      const isViewerRecipient =
-        m.recipientAccountId === session.accountId ||
-        m.recipientId === session.accountId ||
-        (viewerHandle.length > 0 &&
-          normalizeHandle(m.recipientId) === viewerHandle);
+    const cleanedPeerId = peerId?.trim() ?? "";
+    let peerAccountId: string | null = null;
 
-      // A peer match is only a conversation filter. It must never grant access
-      // unless the authenticated account is itself one of the participants.
-      if (!isViewerSender && !isViewerRecipient) continue;
-      if (
-        peerId &&
-        m.senderAccountId !== peerId &&
-        m.senderDirectoryProfileId !== peerId &&
-        m.senderUsername !== peerId &&
-        m.recipientAccountId !== peerId &&
-        m.recipientDirectoryProfileId !== peerId &&
-        m.recipientId !== peerId &&
-        m.recipientHandle !== peerId
-      ) {
-        continue;
+    if (cleanedPeerId) {
+      const isUuid =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          cleanedPeerId,
+        );
+      let peerProfile: { accountId: string } | null = null;
+
+      if (isUuid) {
+        const directoryProfile =
+          await this.prisma.communityDirectoryProfile.findUnique({
+            where: { id: cleanedPeerId },
+            select: { username: true },
+          });
+        if (directoryProfile) {
+          peerProfile = await this.prisma.memberProfile.findFirst({
+            where: {
+              username: {
+                equals: directoryProfile.username,
+                mode: "insensitive",
+              },
+            },
+            select: { accountId: true },
+          });
+        } else {
+          peerProfile = await this.prisma.memberProfile.findUnique({
+            where: { accountId: cleanedPeerId },
+            select: { accountId: true },
+          });
+        }
+      } else {
+        const cleanHandle = cleanedPeerId.replace(/^@+/, "");
+        peerProfile = await this.prisma.memberProfile.findFirst({
+          where: {
+            OR: [
+              {
+                username: {
+                  equals: cleanedPeerId,
+                  mode: "insensitive",
+                },
+              },
+              {
+                username: {
+                  equals: `@${cleanHandle}`,
+                  mode: "insensitive",
+                },
+              },
+            ],
+          },
+          select: { accountId: true },
+        });
       }
-      messages.push({
-        ...m,
-        isOwnMessage: isViewerSender,
-      });
+
+      if (!peerProfile || peerProfile.accountId === session.accountId) {
+        return { items: [], messages: [] };
+      }
+      peerAccountId = peerProfile.accountId;
     }
+
+    const where = peerAccountId
+      ? {
+          OR: [
+            {
+              senderAccountId: session.accountId,
+              recipientAccountId: peerAccountId,
+            },
+            {
+              senderAccountId: peerAccountId,
+              recipientAccountId: session.accountId,
+            },
+          ],
+        }
+      : {
+          OR: [
+            { senderAccountId: session.accountId },
+            { recipientAccountId: session.accountId },
+          ],
+        };
+    const rows = await this.prisma.directMessage.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: 250,
+    });
+    const messages = rows.reverse().map((message) => ({
+      id: message.id,
+      senderAccountId: message.senderAccountId,
+      senderDirectoryProfileId: message.senderDirectoryProfileId,
+      senderName: message.senderName,
+      senderUsername: message.senderUsername,
+      senderAvatar: message.senderAvatar ?? "",
+      recipientId:
+        message.recipientDirectoryProfileId ?? message.recipientAccountId,
+      recipientAccountId: message.recipientAccountId,
+      recipientDirectoryProfileId: message.recipientDirectoryProfileId,
+      recipientHandle: message.recipientHandle,
+      recipientName: message.recipientName,
+      body: message.body,
+      createdAt: message.createdAt.toISOString(),
+      timestamp: this.formatRelativeTime(message.createdAt),
+      isOwnMessage: message.senderAccountId === session.accountId,
+    }));
     return { items: messages, messages };
   }
-
   async sendDirectMessage(
     authorization: string | undefined,
     dto: {
@@ -6155,28 +6203,49 @@ export class Module2Service {
       createdAt: nowIso,
       timestamp: "Just now",
     };
-    if (!this.prisma.auditEvent?.create) {
-      throw new InternalServerErrorException(
-        "Messaging is temporarily unavailable. Your message was not sent.",
-      );
-    }
     try {
-      await this.prisma.auditEvent.create({
+      await this.prisma.directMessage.create({
         data: {
-          actorType: "MEMBER",
-          actorId: session.accountId,
-          action: "module3.direct_message.sent",
-          targetType: "direct_message",
-          targetId: msgRecord.id,
-          outcome: "persisted",
-          requestId: randomUUID(),
-          redactedMetadata: msgRecord,
+          id: msgRecord.id,
+          senderAccountId: session.accountId,
+          recipientAccountId: recipientProfile.accountId,
+          senderDirectoryProfileId: senderDirectoryProfile?.id ?? null,
+          recipientDirectoryProfileId: recipientDirectoryProfile?.id ?? null,
+          senderName: msgRecord.senderName,
+          senderUsername: msgRecord.senderUsername,
+          senderAvatar: msgRecord.senderAvatar || null,
+          recipientName: msgRecord.recipientName,
+          recipientHandle: msgRecord.recipientHandle,
+          body: msgRecord.body,
+          createdAt: new Date(nowIso),
         },
       });
     } catch {
       throw new InternalServerErrorException(
         "Your message could not be saved. It has not been sent. Please try again.",
       );
+    }
+
+    // Keep an audit trail without duplicating the private message body.
+    try {
+      await this.prisma.auditEvent.create({
+        data: {
+          actorType: "MEMBER",
+          actorId: session.accountId,
+          action: "module3.direct_message.persisted",
+          targetType: "direct_message",
+          targetId: msgRecord.id,
+          outcome: "persisted",
+          requestId: randomUUID(),
+          redactedMetadata: {
+            messageId: msgRecord.id,
+            recipientAccountId: recipientProfile.accountId,
+          },
+        },
+      });
+    } catch {
+      // The message is already durable; an audit-only failure must not
+      // turn a successful send into a client-visible failure.
     }
     return {
       sent: true,

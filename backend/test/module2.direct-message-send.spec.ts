@@ -1,4 +1,4 @@
-import {
+﻿import {
   BadRequestException,
   ForbiddenException,
   InternalServerErrorException,
@@ -19,8 +19,9 @@ type HarnessOptions = {
   recipientBlocksSender?: boolean;
   recipientDirectoryFound?: boolean;
   recipientProfileFound?: boolean;
+  directMessageCreateFails?: boolean;
+  directMessageDelegateAvailable?: boolean;
   auditCreateFails?: boolean;
-  auditDelegateAvailable?: boolean;
 };
 
 function createHarness(options: HarnessOptions = {}) {
@@ -65,8 +66,14 @@ function createHarness(options: HarnessOptions = {}) {
   };
   const auditCreate = vi.fn().mockResolvedValue({ id: "audit-1" });
   if (options.auditCreateFails) {
-    auditCreate.mockRejectedValue(new Error("database write failed"));
+    auditCreate.mockRejectedValue(new Error("audit write failed"));
   }
+  const directMessageCreate = vi.fn().mockImplementation(({ data }) => {
+    if (options.directMessageCreateFails) {
+      return Promise.reject(new Error("message write failed"));
+    }
+    return Promise.resolve(data);
+  });
   const followFindUnique = vi
     .fn()
     .mockResolvedValue(
@@ -89,7 +96,7 @@ function createHarness(options: HarnessOptions = {}) {
       findUnique: vi
         .fn()
         .mockImplementation(({ where }) =>
-          where.id === "cccccccc-cccc-4ccc-8ccc-cccccccccccc" &&
+          where.id === recipientDirectory.id &&
           options.recipientDirectoryFound !== false
             ? Promise.resolve(recipientDirectory)
             : Promise.resolve(null),
@@ -126,10 +133,13 @@ function createHarness(options: HarnessOptions = {}) {
     memberModerationBlock: {
       findFirst: blockFindFirst,
     },
-    auditEvent:
-      options.auditDelegateAvailable === false
+    directMessage:
+      options.directMessageDelegateAvailable === false
         ? undefined
-        : { create: auditCreate },
+        : { create: directMessageCreate },
+    auditEvent: {
+      create: auditCreate,
+    },
   };
   const service = new Module2Service(
     auth as unknown as AuthenticationService,
@@ -139,8 +149,8 @@ function createHarness(options: HarnessOptions = {}) {
     service,
     prisma,
     auditCreate,
+    directMessageCreate,
     followFindUnique,
-    blockFindFirst,
   };
 }
 
@@ -151,8 +161,8 @@ const request = {
   message: "  Hello from Sakhi  ",
 };
 
-describe("Module 2 direct-message recipient authorization", () => {
-  it("resolves the directory ID to the real recipient account and stores canonical identity", async () => {
+describe("Module 2 direct-message recipient authorization and persistence", () => {
+  it("resolves the directory ID to the real recipient and stores a dedicated message row", async () => {
     const harness = createHarness();
 
     const result = await harness.service.sendDirectMessage(
@@ -170,12 +180,33 @@ describe("Module 2 direct-message recipient authorization", () => {
     );
     expect(result.message.recipientName).toBe("Actual Recipient");
     expect(result.message.body).toBe("Hello from Sakhi");
-    expect(harness.auditCreate).toHaveBeenCalledOnce();
-    expect(harness.auditCreate).toHaveBeenCalledWith(
+    expect(harness.directMessageCreate).toHaveBeenCalledOnce();
+    expect(harness.directMessageCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ outcome: "persisted" }),
+        data: expect.objectContaining({
+          senderAccountId: "sender-account",
+          recipientAccountId: "recipient-account",
+          body: "Hello from Sakhi",
+        }),
       }),
     );
+  });
+
+  it("writes only content-free metadata to the audit trail", async () => {
+    const harness = createHarness();
+    const result = await harness.service.sendDirectMessage(
+      "Bearer test-token",
+      request,
+    );
+
+    expect(harness.auditCreate).toHaveBeenCalledOnce();
+    const auditCall = harness.auditCreate.mock.calls[0]?.[0];
+    expect(auditCall.data.action).toBe("module3.direct_message.persisted");
+    expect(auditCall.data.redactedMetadata).toEqual({
+      messageId: result.message.id,
+      recipientAccountId: "recipient-account",
+    });
+    expect(auditCall.data.redactedMetadata).not.toHaveProperty("body");
   });
 
   it("rejects an unknown recipient instead of accepting the client-supplied name", async () => {
@@ -187,7 +218,7 @@ describe("Module 2 direct-message recipient authorization", () => {
     await expect(
       harness.service.sendDirectMessage("Bearer test-token", request),
     ).rejects.toBeInstanceOf(NotFoundException);
-    expect(harness.auditCreate).not.toHaveBeenCalled();
+    expect(harness.directMessageCreate).not.toHaveBeenCalled();
   });
 
   it("rejects a recipient ID and username that resolve to different members", async () => {
@@ -199,7 +230,7 @@ describe("Module 2 direct-message recipient authorization", () => {
         recipientHandle: "@someone-else",
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
-    expect(harness.auditCreate).not.toHaveBeenCalled();
+    expect(harness.directMessageCreate).not.toHaveBeenCalled();
   });
 
   it("rejects recipients who are not active and verified", async () => {
@@ -215,8 +246,8 @@ describe("Module 2 direct-message recipient authorization", () => {
       unverified.service.sendDirectMessage("Bearer test-token", request),
     ).rejects.toBeInstanceOf(ForbiddenException);
 
-    expect(inactive.auditCreate).not.toHaveBeenCalled();
-    expect(unverified.auditCreate).not.toHaveBeenCalled();
+    expect(inactive.directMessageCreate).not.toHaveBeenCalled();
+    expect(unverified.directMessageCreate).not.toHaveBeenCalled();
   });
 
   it("rejects senders who are not verified members", async () => {
@@ -225,7 +256,7 @@ describe("Module 2 direct-message recipient authorization", () => {
     await expect(
       harness.service.sendDirectMessage("Bearer test-token", request),
     ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(harness.auditCreate).not.toHaveBeenCalled();
+    expect(harness.directMessageCreate).not.toHaveBeenCalled();
   });
 
   it("honors the recipient's No One messaging preference", async () => {
@@ -234,7 +265,7 @@ describe("Module 2 direct-message recipient authorization", () => {
     await expect(
       harness.service.sendDirectMessage("Bearer test-token", request),
     ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(harness.auditCreate).not.toHaveBeenCalled();
+    expect(harness.directMessageCreate).not.toHaveBeenCalled();
   });
 
   it("requires an active follow when the recipient selects Followers Only", async () => {
@@ -247,7 +278,7 @@ describe("Module 2 direct-message recipient authorization", () => {
       notFollowing.service.sendDirectMessage("Bearer test-token", request),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(notFollowing.followFindUnique).toHaveBeenCalledOnce();
-    expect(notFollowing.auditCreate).not.toHaveBeenCalled();
+    expect(notFollowing.directMessageCreate).not.toHaveBeenCalled();
 
     const following = createHarness({
       messageMe: "Followers Only",
@@ -258,7 +289,7 @@ describe("Module 2 direct-message recipient authorization", () => {
       request,
     );
     expect(result.sent).toBe(true);
-    expect(following.auditCreate).toHaveBeenCalledOnce();
+    expect(following.directMessageCreate).toHaveBeenCalledOnce();
   });
 
   it("blocks direct messages when either member has blocked the other", async () => {
@@ -271,7 +302,7 @@ describe("Module 2 direct-message recipient authorization", () => {
       await expect(
         harness.service.sendDirectMessage("Bearer test-token", request),
       ).rejects.toBeInstanceOf(ForbiddenException);
-      expect(harness.auditCreate).not.toHaveBeenCalled();
+      expect(harness.directMessageCreate).not.toHaveBeenCalled();
     }
   });
 
@@ -287,7 +318,7 @@ describe("Module 2 direct-message recipient authorization", () => {
     );
 
     expect(result.message.recipientAccountId).toBe("recipient-account");
-    expect(harness.auditCreate).toHaveBeenCalledOnce();
+    expect(harness.directMessageCreate).toHaveBeenCalledOnce();
   });
 
   it("supports username-only recipient lookup", async () => {
@@ -303,26 +334,41 @@ describe("Module 2 direct-message recipient authorization", () => {
 
     expect(result.message.recipientAccountId).toBe("recipient-account");
     expect(result.message.recipientHandle).toBe("@recipient");
-    expect(harness.auditCreate).toHaveBeenCalledOnce();
+    expect(harness.directMessageCreate).toHaveBeenCalledOnce();
   });
 
-  it("does not report sent when the database write fails", async () => {
-    const harness = createHarness({ auditCreateFails: true });
+  it("does not report sent when the dedicated message write fails", async () => {
+    const harness = createHarness({ directMessageCreateFails: true });
 
     await expect(
       harness.service.sendDirectMessage("Bearer test-token", request),
     ).rejects.toBeInstanceOf(InternalServerErrorException);
-    expect(harness.auditCreate).toHaveBeenCalledOnce();
+    expect(harness.directMessageCreate).toHaveBeenCalledOnce();
+    expect(harness.auditCreate).not.toHaveBeenCalled();
   });
 
-  it("fails closed when the persistence delegate is unavailable", async () => {
-    const harness = createHarness({ auditDelegateAvailable: false });
+  it("fails closed when the dedicated message delegate is unavailable", async () => {
+    const harness = createHarness({ directMessageDelegateAvailable: false });
 
     await expect(
       harness.service.sendDirectMessage("Bearer test-token", request),
     ).rejects.toBeInstanceOf(InternalServerErrorException);
     expect(harness.auditCreate).not.toHaveBeenCalled();
   });
+
+  it("keeps a stored message successful when optional audit logging fails", async () => {
+    const harness = createHarness({ auditCreateFails: true });
+
+    const result = await harness.service.sendDirectMessage(
+      "Bearer test-token",
+      request,
+    );
+
+    expect(result.sent).toBe(true);
+    expect(harness.directMessageCreate).toHaveBeenCalledOnce();
+    expect(harness.auditCreate).toHaveBeenCalledOnce();
+  });
+
   it("rejects an empty message body after trimming", async () => {
     const harness = createHarness();
 
@@ -332,6 +378,6 @@ describe("Module 2 direct-message recipient authorization", () => {
         message: "   ",
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
-    expect(harness.auditCreate).not.toHaveBeenCalled();
+    expect(harness.directMessageCreate).not.toHaveBeenCalled();
   });
 });
