@@ -103,4 +103,26 @@ describe("Module 2 direct-message participant access", () => {
     expect(result.items.map((message) => message.id)).toEqual(["dm-to-handle"]);
     expect(result.items[0]?.isOwnMessage).toBe(false);
   });
+
+  it("does not treat a secondary recipient handle as proof of recipient identity", async () => {
+    const service = createService("viewer-account", [
+      {
+        redactedMetadata: {
+          id: "dm-mismatched-recipient",
+          senderAccountId: "sender-account",
+          recipientId: "different-account",
+          recipientHandle: "@viewer",
+          body: "Must not be exposed by a display handle",
+        },
+      },
+    ]);
+
+    const result = await service.listDirectMessages(
+      "Bearer viewer-token",
+      "sender-account",
+    );
+
+    expect(result.items).toEqual([]);
+    expect(result.messages).toEqual([]);
+  });
 });
