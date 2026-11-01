@@ -5895,9 +5895,14 @@ export class Module2Service {
       const clean = raw.replace(/^@+/, "");
       return [
         ...new Set(
-          [raw, clean, `@${clean}`, raw.toLowerCase(), clean.toLowerCase(), `@${clean.toLowerCase()}`].filter(
-            Boolean,
-          ),
+          [
+            raw,
+            clean,
+            `@${clean}`,
+            raw.toLowerCase(),
+            clean.toLowerCase(),
+            `@${clean.toLowerCase()}`,
+          ].filter(Boolean),
         ),
       ];
     };
@@ -5947,8 +5952,7 @@ export class Module2Service {
           .catch(() => null);
       }
     } else {
-      const lookupHandle =
-        requestedRecipientHandle || requestedRecipientId;
+      const lookupHandle = requestedRecipientHandle || requestedRecipientId;
       const cleanHandle = lookupHandle.replace(/^@+/, "");
       if (
         requestedRecipientHandle &&
@@ -6037,8 +6041,7 @@ export class Module2Service {
     }
 
     const messagePreference = String(
-      recipientAccount.privacyPreference?.messageMe ??
-        "Verified members only",
+      recipientAccount.privacyPreference?.messageMe ?? "Verified members only",
     )
       .trim()
       .toLowerCase();
@@ -6103,23 +6106,22 @@ export class Module2Service {
 
     const recipientHandleVariants = handleVariants(recipientHandle);
     const senderHandleVariants = handleVariants(senderHandle);
-    const [senderBlockedRecipient, recipientBlockedSender] =
-      await Promise.all([
-        this.prisma.memberModerationBlock.findFirst({
-          where: {
-            accountId: session.accountId,
-            blockedUsername: { in: recipientHandleVariants },
-          },
-          select: { id: true },
-        }),
-        this.prisma.memberModerationBlock.findFirst({
-          where: {
-            accountId: recipientProfile.accountId,
-            blockedUsername: { in: senderHandleVariants },
-          },
-          select: { id: true },
-        }),
-      ]);
+    const [senderBlockedRecipient, recipientBlockedSender] = await Promise.all([
+      this.prisma.memberModerationBlock.findFirst({
+        where: {
+          accountId: session.accountId,
+          blockedUsername: { in: recipientHandleVariants },
+        },
+        select: { id: true },
+      }),
+      this.prisma.memberModerationBlock.findFirst({
+        where: {
+          accountId: recipientProfile.accountId,
+          blockedUsername: { in: senderHandleVariants },
+        },
+        select: { id: true },
+      }),
+    ]);
     if (senderBlockedRecipient || recipientBlockedSender) {
       throw new ForbiddenException(
         "Direct messaging is unavailable between these members.",

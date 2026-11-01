@@ -45,8 +45,7 @@ function createHarness(options: HarnessOptions = {}) {
     account: {
       id: "recipient-account",
       status: options.recipientStatus ?? "ACTIVE",
-      verificationStatus:
-        options.recipientVerificationStatus ?? "VERIFIED",
+      verificationStatus: options.recipientVerificationStatus ?? "VERIFIED",
       privacyPreference: {
         messageMe: options.messageMe ?? "All Verified Members",
       },
@@ -62,14 +61,13 @@ function createHarness(options: HarnessOptions = {}) {
     }),
   };
   const auditCreate = vi.fn().mockResolvedValue({ id: "audit-1" });
-  const followFindUnique = vi.fn().mockResolvedValue(
-    options.followsRecipient === false ? null : { isFollowing: true },
-  );
+  const followFindUnique = vi
+    .fn()
+    .mockResolvedValue(
+      options.followsRecipient === false ? null : { isFollowing: true },
+    );
   const blockFindFirst = vi.fn().mockImplementation(({ where }) => {
-    if (
-      where.accountId === "sender-account" &&
-      options.senderBlocksRecipient
-    ) {
+    if (where.accountId === "sender-account" && options.senderBlocksRecipient) {
       return Promise.resolve({ id: "sender-block-1" });
     }
     if (
@@ -82,31 +80,39 @@ function createHarness(options: HarnessOptions = {}) {
   });
   const prisma = {
     communityDirectoryProfile: {
-      findUnique: vi.fn().mockImplementation(({ where }) =>
-        where.id === "cccccccc-cccc-4ccc-8ccc-cccccccccccc" &&
-        options.recipientDirectoryFound !== false
-          ? Promise.resolve(recipientDirectory)
-          : Promise.resolve(null),
-      ),
-      findFirst: vi.fn().mockImplementation(({ where }) =>
-        where.username.equals.toLowerCase() === "@recipient"
-          ? Promise.resolve(recipientDirectory)
-          : Promise.resolve(senderDirectory),
-      ),
+      findUnique: vi
+        .fn()
+        .mockImplementation(({ where }) =>
+          where.id === "cccccccc-cccc-4ccc-8ccc-cccccccccccc" &&
+          options.recipientDirectoryFound !== false
+            ? Promise.resolve(recipientDirectory)
+            : Promise.resolve(null),
+        ),
+      findFirst: vi
+        .fn()
+        .mockImplementation(({ where }) =>
+          where.username.equals.toLowerCase() === "@recipient"
+            ? Promise.resolve(recipientDirectory)
+            : Promise.resolve(senderDirectory),
+        ),
     },
     memberProfile: {
-      findUnique: vi.fn().mockImplementation(({ where }) =>
-        where.accountId === "sender-account"
-          ? Promise.resolve(senderProfile)
-          : Promise.resolve(
-              options.recipientProfileFound === false
-                ? null
-                : recipientProfile,
-            ),
-      ),
-      findFirst: vi.fn().mockResolvedValue(
-        options.recipientProfileFound === false ? null : recipientProfile,
-      ),
+      findUnique: vi
+        .fn()
+        .mockImplementation(({ where }) =>
+          where.accountId === "sender-account"
+            ? Promise.resolve(senderProfile)
+            : Promise.resolve(
+                options.recipientProfileFound === false
+                  ? null
+                  : recipientProfile,
+              ),
+        ),
+      findFirst: vi
+        .fn()
+        .mockResolvedValue(
+          options.recipientProfileFound === false ? null : recipientProfile,
+        ),
     },
     memberFollow: {
       findUnique: followFindUnique,
@@ -148,7 +154,9 @@ describe("Module 2 direct-message recipient authorization", () => {
     );
 
     expect(result.sent).toBe(true);
-    expect(result.message.recipientId).toBe("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
+    expect(result.message.recipientId).toBe(
+      "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    );
     expect(result.message.recipientAccountId).toBe("recipient-account");
     expect(result.message.recipientDirectoryProfileId).toBe(
       "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
