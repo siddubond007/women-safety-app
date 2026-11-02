@@ -8,6 +8,7 @@ on:
       - gemini-module-2
       - module-proper-continuation
       - feat/admin-eligibility-review-backend
+      - release/complete-enterprise-fix
     paths:
       - "backend/**"
       - "super-admin/**"
@@ -20,6 +21,7 @@ on:
       - gemini-module-2
       - module-proper-continuation
       - feat/admin-eligibility-review-backend
+      - release/complete-enterprise-fix
     paths:
       - "backend/**"
       - "super-admin/**"
@@ -82,9 +84,8 @@ jobs:
       - name: Build
         run: npm run build
 
-
   flutter:
-    name: Flutter eligibility and Module 2 analysis and tests
+    name: Flutter analysis and tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
