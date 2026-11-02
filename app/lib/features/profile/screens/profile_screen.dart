@@ -882,7 +882,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
           .where(
             (post) =>
                 post.id.isNotEmpty &&
-                post.authorAccountId == state.currentUser.accountId,
+                !post.id.startsWith('11111111-1111-4111-8111-') &&
+                post.authorAccountId == state.currentUser.accountId &&
+                (state.currentUser.username.isEmpty ||
+                    post.authorUsername.isEmpty ||
+                    post.authorUsername.replaceFirst('@', '').toLowerCase() ==
+                        state.currentUser.username.replaceFirst('@', '').toLowerCase() ||
+                    post.isOwnPost == true),
           )
           .toList(growable: false);
       if (ownPosts.isEmpty) {

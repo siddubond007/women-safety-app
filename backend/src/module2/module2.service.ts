@@ -58,119 +58,41 @@ const DEFAULT_INTERESTS = [
   "Fitness",
 ];
 
-export const SEEDED_COMMUNITY_MEMBERS = [
-  {
-    phoneE164: "+919999992222",
-    displayName: "Siddhu",
-    username: "@siddhu",
-    avatarAsset: "assets/images/profile/avatar_siddhu.webp",
-    bio: "A passionate learner, exploring wellness, technology and meaningful connections. 💜",
-    location: "Bangalore, India",
-    email: "siddhu@sakhi.dev",
-    status: "ACTIVE" as const,
-    verificationStatus: "VERIFIED" as const,
-    defaultFollowing: false,
-    interests: [
-      "Mental Wellness",
-      "Travel",
-      "Reading",
-      "WomenInTech",
-      "Art",
-      "Fitness",
-    ],
-  },
-  {
-    phoneE164: "+919845010101",
-    displayName: "Ananya Rao",
-    username: "@ananya",
-    avatarAsset: "assets/images/profile/avatar_ananya.webp",
-    bio: "Mental wellness advocate, peer counselor & Hyderabad community builder 🌸",
-    location: "Hyderabad, India",
-    email: "ananya.rao@sakhi.dev",
-    status: "ACTIVE" as const,
-    verificationStatus: "VERIFIED" as const,
-    defaultFollowing: true,
-    interests: ["Mental Wellness", "Mindfulness", "Peer Support", "Reading"],
-  },
-  {
-    phoneE164: "+919845010102",
-    displayName: "Dr. Meera Iyer",
-    username: "@meera",
-    avatarAsset: "assets/images/profile/avatar_meera.webp",
-    bio: "Mindfulness coach & clinical breathwork guide helping women reset daily ✨",
-    location: "Chennai, India",
-    email: "meera.iyer@sakhi.dev",
-    status: "ACTIVE" as const,
-    verificationStatus: "VERIFIED" as const,
-    defaultFollowing: true,
-    interests: ["Mental Wellness", "Meditation", "Fitness", "Yoga"],
-  },
-  {
-    phoneE164: "+919845010103",
-    displayName: "Kavya Nair",
-    username: "@kavya",
-    avatarAsset: "assets/images/profile/avatar_kavya.webp",
-    bio: "Evening walks, botanical art & slow mindful living by the coast 🌿",
-    location: "Kochi, India",
-    email: "kavya.nair@sakhi.dev",
-    status: "ACTIVE" as const,
-    verificationStatus: "VERIFIED" as const,
-    defaultFollowing: false,
-    interests: ["Art", "Travel", "Photography", "Mental Wellness"],
-  },
-  {
-    phoneE164: "+919845010104",
-    displayName: "Ishita Reddy",
-    username: "@ishita",
-    avatarAsset: "assets/images/profile/avatar_ishita.webp",
-    bio: "Staff cloud architect, WomenInTech mentor & community safety lead 💻🛡️",
-    location: "Bangalore, India",
-    email: "ishita.reddy@sakhi.dev",
-    status: "ACTIVE" as const,
-    verificationStatus: "VERIFIED" as const,
-    defaultFollowing: true,
-    interests: ["WomenInTech", "Career", "Safety", "Mentorship"],
-  },
-  {
-    phoneE164: "+919845010105",
-    displayName: "Priya Sharma",
-    username: "@priya",
-    avatarAsset: "assets/images/profile/avatar_priya.webp",
-    bio: "Strength coach & cycle-synced hormonal nutrition researcher 🥗💪",
-    location: "Mumbai, India",
-    email: "priya.sharma@sakhi.dev",
-    status: "ACTIVE" as const,
-    verificationStatus: "VERIFIED" as const,
-    defaultFollowing: true,
-    interests: ["Fitness", "Nutrition", "Menstrual Health", "Wellness"],
-  },
-  {
-    phoneE164: "+919845010106",
-    displayName: "Sneha Verma",
-    username: "@sneha",
-    avatarAsset: "assets/images/profile/avatar_sneha.webp",
-    bio: "Sunday book club host, poet & creative journaling enthusiast 📚🌸",
-    location: "Pune, India",
-    email: "sneha.verma@sakhi.dev",
-    status: "PENDING_VERIFICATION" as const,
-    verificationStatus: "UNVERIFIED" as const,
-    defaultFollowing: false,
-    interests: ["Reading", "Art", "Creative Writing", "Mental Wellness"],
-  },
-  {
-    phoneE164: "+919845010107",
-    displayName: "Riya Deshmukh",
-    username: "@riya",
-    avatarAsset: "assets/images/profile/avatar_ananya.webp",
-    bio: "Solo traveler, campus safety coordinator & self-defense workshop host 🛡️",
-    location: "New Delhi, India",
-    email: "riya.deshmukh@sakhi.dev",
-    status: "PENDING_VERIFICATION" as const,
-    verificationStatus: "UNVERIFIED" as const,
-    defaultFollowing: false,
-    interests: ["Travel", "Safety", "Community", "Fitness"],
-  },
+export const LEGACY_SEEDED_DEMO_PHONES = [
+  "+919999992222",
+  "+919845010101",
+  "+919845010102",
+  "+919845010103",
+  "+919845010104",
+  "+919845010105",
+  "+919845010106",
+  "+919845010107",
 ];
+
+export const LEGACY_SEEDED_DEMO_HANDLES = [
+  "@siddhu",
+  "@ananya",
+  "@meera",
+  "@kavya",
+  "@ishita",
+  "@priya",
+  "@sneha",
+  "@riya",
+];
+
+export const SEEDED_COMMUNITY_MEMBERS: Array<{
+  phoneE164: string;
+  displayName: string;
+  username: string;
+  avatarAsset: string;
+  bio: string;
+  location: string;
+  email: string;
+  status: "ACTIVE" | "PENDING_VERIFICATION";
+  verificationStatus: "VERIFIED" | "UNVERIFIED";
+  defaultFollowing: boolean;
+  interests: string[];
+}> = [];
 
 @Injectable()
 export class Module2Service {
@@ -285,92 +207,99 @@ export class Module2Service {
     return `@${slug || "member"}`;
   }
 
-  async ensureDefaultCatalogSeeded(preferredAccountId?: string): Promise<void> {
-    // 1. Ensure all 8 realistic community members exist as real MemberAccount + MemberProfile + CommunityDirectoryProfile rows
-    const accountIdByUsername = new Map<string, string>();
-    for (const member of SEEDED_COMMUNITY_MEMBERS) {
-      try {
-        const acc = await this.prisma.memberAccount.upsert({
-          where: { phoneE164: member.phoneE164 },
-          update: {},
-          create: {
-            phoneE164: member.phoneE164,
-            phoneVerifiedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
-            status: member.status,
-            verificationStatus: member.verificationStatus,
-          },
-          select: { id: true, status: true, verificationStatus: true },
-        });
-        accountIdByUsername.set(member.username, acc.id);
+  private static demoDataPurged = false;
 
-        await this.prisma.memberProfile.upsert({
-          where: { accountId: acc.id },
-          update: {
-            username: member.username,
-            avatarAsset: member.avatarAsset,
-          },
-          create: {
-            accountId: acc.id,
-            displayName: member.displayName,
-            username: member.username,
-            bio: member.bio,
-            location: member.location,
-            avatarAsset: member.avatarAsset,
-            interests: member.interests,
-            email: member.email,
-            dateOfBirth: new Date("1999-06-15T00:00:00.000Z"),
-          },
-        });
+  async purgeLegacySeededDemoData(): Promise<void> {
+    if (Module2Service.demoDataPurged) return;
+    try {
+      const demoPostIds = [
+        "11111111-1111-4111-8111-111111111101",
+        "11111111-1111-4111-8111-111111111102",
+        "11111111-1111-4111-8111-111111111103",
+        "11111111-1111-4111-8111-111111111104",
+        "11111111-1111-4111-8111-111111111105",
+        "11111111-1111-4111-8111-111111111106",
+        "11111111-1111-4111-8111-111111111107",
+        "11111111-1111-4111-8111-111111111108",
+        "11111111-1111-4111-8111-111111111109",
+        "11111111-1111-4111-8111-111111111110",
+        "11111111-1111-4111-8111-111111111111",
+      ];
+      const demoHandles = LEGACY_SEEDED_DEMO_HANDLES;
+      const demoPhones = LEGACY_SEEDED_DEMO_PHONES;
 
-        if (member.username !== "@siddhu") {
-          await this.prisma.communityDirectoryProfile.upsert({
-            where: { username: member.username },
-            update: {
-              name: member.displayName,
-              avatarAsset: member.avatarAsset,
-              bio: member.bio,
-              defaultFollowing: member.defaultFollowing,
-            },
-            create: {
-              name: member.displayName,
-              username: member.username,
-              avatarAsset: member.avatarAsset,
-              bio: member.bio,
-              defaultFollowing: member.defaultFollowing,
-            },
-          });
-        }
+      // 1. Delete all demo posts
+      await this.prisma.communityPost.deleteMany({
+        where: {
+          OR: [
+            { id: { in: demoPostIds } },
+            { id: { startsWith: "11111111-1111-4111-8111-" } },
+            { authorUsername: { in: demoHandles } },
+          ],
+        },
+      }).catch(() => undefined);
 
-        // Ensure pending members have an active EligibilitySubmission in the Super Admin queue
-        if (acc.verificationStatus === "UNVERIFIED") {
-          const existingSub = await this.prisma.eligibilitySubmission.findFirst(
-            {
-              where: { accountId: acc.id, status: "PENDING_MANUAL_REVIEW" },
-              select: { id: true },
-            },
-          );
-          if (!existingSub) {
-            await this.prisma.eligibilitySubmission.create({
-              data: {
-                accountId: acc.id,
-                status: "PENDING_MANUAL_REVIEW",
-                consentVersion: "dev-manual-review-v1",
-                consentAcceptedAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
-              },
-            });
-          }
-        }
-      } catch {
-        // Ignore individual duplicate conflicts during concurrent requests
+      // 2. Find and delete demo accounts and all their related rows
+      const demoAccounts = await this.prisma.memberAccount.findMany({
+        where: { phoneE164: { in: demoPhones } },
+        select: { id: true },
+      }).catch(() => []);
+      const demoAccountIds = demoAccounts.map((a) => a.id);
+
+      if (demoAccountIds.length > 0) {
+        await this.prisma.communityPostComment.deleteMany({
+          where: { accountId: { in: demoAccountIds } },
+        }).catch(() => undefined);
+        await this.prisma.communityPostLike.deleteMany({
+          where: { accountId: { in: demoAccountIds } },
+        }).catch(() => undefined);
+        await this.prisma.communityPostSave.deleteMany({
+          where: { accountId: { in: demoAccountIds } },
+        }).catch(() => undefined);
+        await this.prisma.memberFollow.deleteMany({
+          where: { accountId: { in: demoAccountIds } },
+        }).catch(() => undefined);
+        await this.prisma.communityPost.deleteMany({
+          where: { authorAccountId: { in: demoAccountIds } },
+        }).catch(() => undefined);
+        await this.prisma.eligibilitySubmission.deleteMany({
+          where: { accountId: { in: demoAccountIds } },
+        }).catch(() => undefined);
+        await this.prisma.memberProfile.deleteMany({
+          where: { accountId: { in: demoAccountIds } },
+        }).catch(() => undefined);
+        await this.prisma.memberPrivacyPreference.deleteMany({
+          where: { accountId: { in: demoAccountIds } },
+        }).catch(() => undefined);
+        await this.prisma.memberNotificationPreference.deleteMany({
+          where: { accountId: { in: demoAccountIds } },
+        }).catch(() => undefined);
+        await this.prisma.authSession.deleteMany({
+          where: { accountId: { in: demoAccountIds } },
+        }).catch(() => undefined);
+        await this.prisma.memberAccount.deleteMany({
+          where: { id: { in: demoAccountIds } },
+        }).catch(() => undefined);
       }
-    }
 
-    // 2. Ensure 4 active Community Groups exist with real database member counts (no fake 1.4k numbers)
+      // 3. Delete demo directory profiles
+      await this.prisma.communityDirectoryProfile.deleteMany({
+        where: { username: { in: demoHandles } },
+      }).catch(() => undefined);
+
+      Module2Service.demoDataPurged = true;
+    } catch {
+      // Best-effort database purge
+    }
+  }
+
+  async ensureDefaultCatalogSeeded(_preferredAccountId?: string): Promise<void> {
+    // 1. Ensure 4 active Community Groups exist with real database member counts (no fake 1.4k numbers)
     const activeVerifiedCount = Math.max(
       1,
       await this.prisma.memberAccount
         .count({ where: { status: "ACTIVE" } })
-        .catch(() => 6),
+        .catch(() => 1),
     );
     const defaultGroups = [
       {
@@ -379,42 +308,42 @@ export class Module2Service {
           "Bengaluru • System design, cloud careers & peer mentorship",
         category: "Education & Career",
         membersCount: activeVerifiedCount,
-        newPostsToday: 2,
+        newPostsToday: 0,
       },
       {
         name: "Mindful Mornings Circle",
         description:
           "Hyderabad & Pan-India • Daily breathwork & emotional grounding",
         category: "Health & Wellness",
-        membersCount: Math.max(1, activeVerifiedCount - 1),
-        newPostsToday: 2,
+        membersCount: activeVerifiedCount,
+        newPostsToday: 0,
       },
       {
         name: "Safe Solo Travelers India",
         description:
           "New Delhi & Pan-India • Verified city guides & SOS check-in buddies",
         category: "Safety & Travel",
-        membersCount: Math.max(1, activeVerifiedCount - 2),
-        newPostsToday: 1,
+        membersCount: activeVerifiedCount,
+        newPostsToday: 0,
       },
       {
         name: "PCOS & Hormonal Wellness Hub",
         description:
           "Mumbai & Chennai • Doctor Q&As, cycle nutrition & strength",
         category: "Health & Wellness",
-        membersCount: Math.max(1, activeVerifiedCount - 1),
-        newPostsToday: 2,
+        membersCount: activeVerifiedCount,
+        newPostsToday: 0,
       },
     ];
     for (const group of defaultGroups) {
       await this.prisma.communityGroup.upsert({
         where: { name: group.name },
-        update: group,
+        update: {},
         create: group,
       });
     }
 
-    // 3. Ensure Wellness Resources exist
+    // 2. Ensure Wellness Resources exist
     const defaultWellness = [
       {
         slug: "menstrual-health",
@@ -461,219 +390,8 @@ export class Module2Service {
     for (const item of defaultWellness) {
       await this.prisma.wellnessResource.upsert({
         where: { slug: item.slug },
-        update: item,
+        update: {},
         create: item,
-      });
-    }
-
-    // 4. Upsert 11 rich, unmistakably live PostgreSQL Community, Explore, and Profile posts
-    const siddhuId =
-      preferredAccountId ?? accountIdByUsername.get("@siddhu") ?? null;
-
-    const livePosts = [
-      {
-        id: "11111111-1111-4111-8111-111111111105",
-        authorAccountId: accountIdByUsername.get("@ananya") ?? null,
-        authorName: "Ananya Rao",
-        authorUsername: "@ananya",
-        authorAvatar: "assets/images/profile/avatar_ananya.webp",
-        authorVerified: true,
-        content:
-          "Morning check-in from Hyderabad! 🌸 Our peer support circle just crossed 600 verified women on Sakhi. Remember to drink water, unclench your shoulders, and take 3 slow breaths today. 💜",
-        imageAsset: "assets/images/community/evening_walk_sunset.webp",
-        categoryBadge: "Live DB • Wellness",
-        feedSection: "community",
-        hasBreathingExerciseCard: false,
-        likesCount: 184,
-        commentsCount: 0,
-        createdAt: new Date(Date.now() - 25 * 60 * 1000),
-      },
-      {
-        id: "11111111-1111-4111-8111-111111111106",
-        authorAccountId: accountIdByUsername.get("@ishita") ?? null,
-        authorName: "Ishita Reddy",
-        authorUsername: "@ishita",
-        authorAvatar: "assets/images/profile/avatar_ishita.webp",
-        authorVerified: true,
-        content:
-          "Hosting our Saturday Women in Tech Bangalore mentorship session at 11 AM! 💻✨ We are reviewing backend architecture, cloud storage pipelines, and portfolio projects. Drop a comment to join!",
-        imageAsset: null,
-        categoryBadge: "WomenInTech",
-        feedSection: "community",
-        hasBreathingExerciseCard: false,
-        likesCount: 165,
-        commentsCount: 0,
-        createdAt: new Date(Date.now() - 75 * 60 * 1000),
-      },
-      {
-        id: "11111111-1111-4111-8111-111111111101",
-        authorAccountId: accountIdByUsername.get("@kavya") ?? null,
-        authorName: "Kavya Nair",
-        authorUsername: "@kavya",
-        authorAvatar: "assets/images/profile/avatar_kavya.webp",
-        authorVerified: true,
-        content:
-          "A peaceful evening walk by the Kochi backwaters 🌸\nTaking 20 minutes away from screens every evening helps me reset. Stay kind, stay strong! 💜",
-        imageAsset: "assets/images/community/evening_walk_sunset.webp",
-        categoryBadge: "Self-Care",
-        feedSection: "community",
-        hasBreathingExerciseCard: false,
-        likesCount: 124,
-        commentsCount: 0,
-        createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
-      },
-      {
-        id: "11111111-1111-4111-8111-111111111102",
-        authorAccountId: accountIdByUsername.get("@meera") ?? null,
-        authorName: "Dr. Meera Iyer",
-        authorUsername: "@meera",
-        authorAvatar: "assets/images/profile/avatar_meera.webp",
-        authorVerified: true,
-        content:
-          "Here are 5 simple 4-7-8 clinical breathing exercises that calm cortisol spikes during stressful days.",
-        imageAsset: null,
-        categoryBadge: "Wellness",
-        feedSection: "community",
-        hasBreathingExerciseCard: true,
-        likesCount: 142,
-        commentsCount: 0,
-        createdAt: new Date(Date.now() - 4 * 60 * 60 * 1000),
-      },
-      {
-        id: "11111111-1111-4111-8111-111111111107",
-        authorAccountId: accountIdByUsername.get("@priya") ?? null,
-        authorName: "Priya Sharma",
-        authorUsername: "@priya",
-        authorAvatar: "assets/images/profile/avatar_priya.webp",
-        authorVerified: true,
-        content:
-          "Cycle-synced nutrition tip: pairing iron-rich greens with citrus during your luteal phase boosts energy naturally without afternoon caffeine crashes! 🥗💪",
-        imageAsset: "assets/images/wellness/wellness_hero_illustration.webp",
-        categoryBadge: "Fitness & Nutrition",
-        feedSection: "community",
-        hasBreathingExerciseCard: false,
-        likesCount: 112,
-        commentsCount: 0,
-        createdAt: new Date(Date.now() - 6 * 60 * 60 * 1000),
-      },
-      {
-        id: "11111111-1111-4111-8111-111111111108",
-        authorAccountId: accountIdByUsername.get("@sneha") ?? null,
-        authorName: "Sneha Verma",
-        authorUsername: "@sneha",
-        authorAvatar: "assets/images/profile/avatar_sneha.webp",
-        authorVerified: false,
-        content:
-          "Our Sakhi Sunday Reading Circle is picking our next mindfulness + fiction read in Pune 📚🌸 Which book helped you most during a life transition?",
-        imageAsset: null,
-        categoryBadge: "Book Club",
-        feedSection: "community",
-        hasBreathingExerciseCard: false,
-        likesCount: 78,
-        commentsCount: 0,
-        createdAt: new Date(Date.now() - 9 * 60 * 60 * 1000),
-      },
-      {
-        id: "11111111-1111-4111-8111-111111111103",
-        authorAccountId: accountIdByUsername.get("@ananya") ?? null,
-        authorName: "Ananya Rao",
-        authorUsername: "@ananya",
-        authorAvatar: "assets/images/profile/avatar_ananya.webp",
-        authorVerified: true,
-        content:
-          "Small steps every day make a big difference in your mental wellness and emotional boundaries. 💜",
-        imageAsset: "assets/images/explore/beach_sunset.webp",
-        categoryBadge: "Trending",
-        feedSection: "explore",
-        hasBreathingExerciseCard: false,
-        likesCount: 196,
-        commentsCount: 0,
-        createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
-      },
-      {
-        id: "11111111-1111-4111-8111-111111111109",
-        authorAccountId: accountIdByUsername.get("@riya") ?? null,
-        authorName: "Riya Deshmukh",
-        authorUsername: "@riya",
-        authorAvatar: "assets/images/profile/avatar_ananya.webp",
-        authorVerified: false,
-        content:
-          "Solo evening commute checklist: share your live Sakhi SOS route with 2 trusted contacts and keep 112 / 181 active on your quick-action tile. 🛡️",
-        imageAsset: "assets/images/safety/safety_map_preview.webp",
-        categoryBadge: "Safety Tips",
-        feedSection: "explore",
-        hasBreathingExerciseCard: false,
-        likesCount: 154,
-        commentsCount: 0,
-        createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000),
-      },
-      {
-        id: "11111111-1111-4111-8111-111111111110",
-        authorAccountId: accountIdByUsername.get("@meera") ?? null,
-        authorName: "Dr. Meera Iyer",
-        authorUsername: "@meera",
-        authorAvatar: "assets/images/profile/avatar_meera.webp",
-        authorVerified: true,
-        content:
-          "10-minute evening body scan meditation for deep, restorative sleep — now available in the Wellness Hub. 🌙✨",
-        imageAsset: "assets/images/wellness/guided_meditation_thumb.webp",
-        categoryBadge: "Guided Audio",
-        feedSection: "explore",
-        hasBreathingExerciseCard: false,
-        likesCount: 131,
-        commentsCount: 0,
-        createdAt: new Date(Date.now() - 8 * 60 * 60 * 1000),
-      },
-      {
-        id: "11111111-1111-4111-8111-111111111104",
-        authorAccountId: siddhuId,
-        authorName: "Siddhu",
-        authorUsername: "@siddhu",
-        authorAvatar: "assets/images/profile/avatar_siddhu.webp",
-        authorVerified: true,
-        content:
-          "Grateful for the little moments that bring peace and the inspiring women building this Sakhi community together. 🌸💜",
-        imageAsset: "assets/images/community/evening_walk_sunset.webp",
-        categoryBadge: "Community",
-        feedSection: "profile",
-        hasBreathingExerciseCard: false,
-        likesCount: 94,
-        commentsCount: 0,
-        createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
-      },
-      {
-        id: "11111111-1111-4111-8111-111111111111",
-        authorAccountId: siddhuId,
-        authorName: "Siddhu",
-        authorUsername: "@siddhu",
-        authorAvatar: "assets/images/profile/avatar_siddhu.webp",
-        authorVerified: true,
-        content:
-          "Connected our Sakhi mobile app to live PostgreSQL database feeds, Super Admin member verification, and Cloud Media uploads! 🚀✨",
-        imageAsset: null,
-        categoryBadge: "WomenInTech",
-        feedSection: "profile",
-        hasBreathingExerciseCard: false,
-        likesCount: 82,
-        commentsCount: 0,
-        createdAt: new Date(Date.now() - 12 * 60 * 60 * 1000),
-      },
-    ];
-
-    for (const post of livePosts) {
-      await this.prisma.communityPost.upsert({
-        where: { id: post.id },
-        update: {
-          authorName: post.authorName,
-          authorUsername: post.authorUsername,
-          authorVerified: post.authorVerified,
-          content: post.content,
-          imageAsset: post.imageAsset,
-          categoryBadge: post.categoryBadge,
-          feedSection: post.feedSection,
-          hasBreathingExerciseCard: post.hasBreathingExerciseCard,
-        },
-        create: post,
       });
     }
   }
@@ -696,7 +414,8 @@ export class Module2Service {
 
   async bootstrap(authorization?: string) {
     const session = await this.auth.authenticateAuthorization(authorization);
-    await this.ensureDefaultCatalogSeeded(session.accountId).catch(() => undefined);
+    await this.purgeLegacySeededDemoData().catch(() => undefined);
+    await this.ensureDefaultCatalogSeeded().catch(() => undefined);
 
     const [
       profile,
@@ -730,6 +449,10 @@ export class Module2Service {
         where: {
           deletedAt: null,
           status: { in: ["PUBLISHED", "EDITED"] },
+          NOT: [
+            { id: { startsWith: "11111111-1111-4111-8111-" } },
+            { authorUsername: { in: LEGACY_SEEDED_DEMO_HANDLES } },
+          ],
         },
         include: {
           mediaAssets: {
@@ -746,6 +469,9 @@ export class Module2Service {
           authorAccountId: session.accountId,
           deletedAt: null,
           status: { in: ["PUBLISHED", "EDITED"] },
+          NOT: [
+            { id: { startsWith: "11111111-1111-4111-8111-" } },
+          ],
         },
         include: {
           mediaAssets: {
@@ -762,12 +488,19 @@ export class Module2Service {
           authorAccountId: session.accountId,
           deletedAt: null,
           status: { in: ["PUBLISHED", "EDITED"] },
+          NOT: [
+            { id: { startsWith: "11111111-1111-4111-8111-" } },
+          ],
         },
       }),
       this.prisma.communityPost.count({
         where: {
           deletedAt: null,
           status: { in: ["PUBLISHED", "EDITED"] },
+          NOT: [
+            { id: { startsWith: "11111111-1111-4111-8111-" } },
+            { authorUsername: { in: LEGACY_SEEDED_DEMO_HANDLES } },
+          ],
         },
       }),
       this.prisma.communityPostLike.findMany({
@@ -779,6 +512,9 @@ export class Module2Service {
         select: { postId: true },
       }),
       this.prisma.communityDirectoryProfile.findMany({
+        where: {
+          username: { notIn: LEGACY_SEEDED_DEMO_HANDLES },
+        },
         orderBy: { createdAt: "asc" },
       }),
       this.prisma.memberFollow.findMany({
@@ -805,7 +541,11 @@ export class Module2Service {
           expiresAt: { gt: new Date() },
         },
       }),
-      this.prisma.memberAccount.count(),
+      this.prisma.memberAccount.count({
+        where: {
+          phoneE164: { notIn: LEGACY_SEEDED_DEMO_PHONES },
+        },
+      }),
     ]);
 
     const likedSet = new Set(userLikes.map((item) => item.postId));
@@ -1107,7 +847,18 @@ export class Module2Service {
     const exploreRecommendedPosts = mappedPosts.filter(
       (post) => post.feedSection === "explore",
     );
-    const profilePosts = ownedProfilePosts.map(mapPost);
+    const profilePosts = ownedProfilePosts
+      .filter((post) => {
+        if (post.id.startsWith("11111111-1111-4111-8111-")) return false;
+        if (
+          post.authorUsername === "@siddhu" &&
+          normalizeHandle(currentUsername) !== "siddhu"
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .map(mapPost);
 
     const displayName = profile?.displayName ?? "Sakhi Member";
     const username = currentUsername;
@@ -1131,7 +882,7 @@ export class Module2Service {
         phoneVerified: Boolean(session.account.phoneVerifiedAt),
         verificationStatus: session.account.verificationStatus,
         accountStatus: session.account.status,
-        postsCount: ownedProfilePostCount,
+        postsCount: profilePosts.length,
         followersCount: activeFollowersCount,
         followingCount: activeFollowingCount,
         interests: this.parseInterests(profile?.interests),

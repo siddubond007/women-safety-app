@@ -1602,12 +1602,36 @@ class SakhiPrototypeState extends ChangeNotifier {
         return parsed;
       }
 
+      const legacyDemoHandles = <String>{
+        '@siddhu',
+        '@ananya',
+        '@meera',
+        '@kavya',
+        '@ishita',
+        '@priya',
+        '@sneha',
+        '@riya',
+      };
+
+      bool isDemoPost(FeedPostModel p) {
+        if (p.id.startsWith('11111111-1111-4111-8111-')) return true;
+        final handle = p.authorUsername.toLowerCase();
+        if (legacyDemoHandles.contains(handle) &&
+            currentUser.username.toLowerCase() != handle) {
+          return true;
+        }
+        return false;
+      }
+
       final rawCommunity = data['communityPosts'] ?? data['posts'];
       if (rawCommunity is List) {
         communityPosts
           ..clear()
           ..addAll(
-            rawCommunity.whereType<Map<String, dynamic>>().map(mergeSyncedPost),
+            rawCommunity
+                .whereType<Map<String, dynamic>>()
+                .map(mergeSyncedPost)
+                .where((p) => !isDemoPost(p)),
           );
       }
       final rawExplorePosts = data['exploreRecommendedPosts'];
@@ -1615,9 +1639,10 @@ class SakhiPrototypeState extends ChangeNotifier {
         exploreRecommendedPosts
           ..clear()
           ..addAll(
-            rawExplorePosts.whereType<Map<String, dynamic>>().map(
-              mergeSyncedPost,
-            ),
+            rawExplorePosts
+                .whereType<Map<String, dynamic>>()
+                .map(mergeSyncedPost)
+                .where((p) => !isDemoPost(p)),
           );
       }
       totalDatabasePosts =
@@ -1635,9 +1660,17 @@ class SakhiPrototypeState extends ChangeNotifier {
                 .where(
                   (post) =>
                       post.id.isNotEmpty &&
-                      post.authorAccountId == currentUser.accountId,
+                      !post.id.startsWith('11111111-1111-4111-8111-') &&
+                      post.authorAccountId.isNotEmpty &&
+                      post.authorAccountId == currentUser.accountId &&
+                      (currentUser.username.isEmpty ||
+                          post.authorUsername.isEmpty ||
+                          post.authorUsername.replaceFirst('@', '').toLowerCase() ==
+                              currentUser.username.replaceFirst('@', '').toLowerCase() ||
+                          post.isOwnPost == true),
                 ),
           );
+        currentUser.postsCount = profilePosts.length;
       }
 
       final rawGroups = data['groups'];
@@ -1656,9 +1689,14 @@ class SakhiPrototypeState extends ChangeNotifier {
         followers
           ..clear()
           ..addAll(
-            rawFollowers.whereType<Map<String, dynamic>>().map(
-              FollowerUserModel.fromJson,
-            ),
+            rawFollowers
+                .whereType<Map<String, dynamic>>()
+                .map(FollowerUserModel.fromJson)
+                .where(
+                  (m) =>
+                      !legacyDemoHandles.contains(m.username.toLowerCase()) ||
+                      currentUser.username.toLowerCase() == m.username.toLowerCase(),
+                ),
           );
       }
       totalDatabaseMembers =

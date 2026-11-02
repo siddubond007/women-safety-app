@@ -1,3 +1,4 @@
+import 'package:women_safety_app/features/auth/auth_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:women_safety_app/core/branding/app_brand.dart';
@@ -15,7 +16,7 @@ void main() {
   testWidgets('welcome screen uses supplied logo and full-screen artwork', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const SakhiApp());
+    await tester.pumpWidget(const SakhiApp(authService: DemoAuthService()));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('sakhi-logo-lockup')), findsOneWidget);
@@ -38,7 +39,7 @@ void main() {
   testWidgets('Next and horizontal swiping move through all three pages', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const SakhiApp());
+    await tester.pumpWidget(const SakhiApp(authService: DemoAuthService()));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('next-onboarding-button')));
@@ -99,7 +100,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(const SakhiApp());
+    await tester.pumpWidget(const SakhiApp(authService: DemoAuthService()));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('next-onboarding-button')));
     await tester.pumpAndSettle();
@@ -152,7 +153,7 @@ void main() {
   testWidgets('Skip goes to the final page and Get started continues', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const SakhiApp());
+    await tester.pumpWidget(const SakhiApp(authService: DemoAuthService()));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('skip-onboarding-button')));
