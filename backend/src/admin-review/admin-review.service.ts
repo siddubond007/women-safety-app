@@ -1,4 +1,3 @@
-import { SEEDED_COMMUNITY_MEMBERS } from "../module2/module2.service.js";
 import {
   BadRequestException,
   ConflictException,
@@ -1052,7 +1051,7 @@ export class AdminReviewService {
       totalAccounts,
       totalPosts,
       totalGroups,
-      message: ,
+      message: "Verified live catalog state in PostgreSQL.",
     };
   }
 
