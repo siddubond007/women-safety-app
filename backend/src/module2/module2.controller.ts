@@ -427,6 +427,21 @@ export class Module2Controller {
     return this.service.sendDirectMessage(authorization, dto);
   }
 
+  @Get("sessions")
+  listLoginSessions(
+    @Headers("authorization") authorization: string | undefined,
+  ) {
+    return this.service.listLoginSessions(authorization);
+  }
+
+  @Delete("sessions/:sessionId")
+  revokeLoginSession(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("sessionId") sessionId: string,
+  ) {
+    return this.service.revokeLoginSession(authorization, sessionId);
+  }
+
   @Put("privacy")
   updatePrivacy(
     @Headers("authorization") authorization: string | undefined,

@@ -62,8 +62,11 @@ export class AuthController {
   @Post("otp/verify")
   @HttpCode(200)
   @ApiOkResponse({ description: "Validated a one-time development code." })
-  verifyOtp(@Body() dto: VerifyOtpDto) {
-    return this.auth.verifyOtp(dto);
+  verifyOtp(
+    @Body() dto: VerifyOtpDto,
+    @Headers("x-sakhi-device-name") deviceName?: string,
+  ) {
+    return this.auth.verifyOtp(dto, deviceName);
   }
 
   @Post("profile")

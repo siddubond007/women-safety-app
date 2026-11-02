@@ -30,8 +30,8 @@ services:
       # Dedicated least-privilege migrator URL; never use the application role for DDL.
       - key: SAKHI_MIGRATOR_DATABASE_URL
         sync: false
-      # Enabled only for the explicitly scoped Module 6 staging migration build.
-      - key: SAKHI_RUN_MODULE6_MIGRATION
+      # Explicit one-time staging release migration gate; off for ordinary deploys.
+      - key: SAKHI_RUN_STAGING_RELEASE_MIGRATIONS
         value: "false"
       - key: SAKHI_STAGING_TEST_PHONE_ALLOWLIST
         sync: false

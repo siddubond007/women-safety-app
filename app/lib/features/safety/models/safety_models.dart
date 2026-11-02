@@ -363,6 +363,23 @@ class SakhiSafetyController extends ChangeNotifier {
 
   SakhiSafetyController._internal() {
     _registerNativeHardwareHandler();
+    SakhiPrototypeState.instance.registerAccountClearCallback(
+      clearAccountScopedSafetyState,
+    );
+  }
+
+  Future<void> clearAccountScopedSafetyState() async {
+    _loadedForAccountId = '';
+    _localPersistenceLoaded = false;
+    trustedContacts.clear();
+    sosHistory.clear();
+    liveLocationSharingActive = false;
+    activeShareToken = '';
+    activeTrackingUrl = '';
+    loggedVehicleNumber = '';
+    loggedRideDestination = '';
+    loggedRideTimestamp = null;
+    notifyListeners();
   }
 
   static const MethodChannel _nativeChannel = MethodChannel(

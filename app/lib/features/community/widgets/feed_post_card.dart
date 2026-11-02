@@ -587,9 +587,9 @@ class _FeedPostCardState extends State<FeedPostCard> {
                                     post.pollVoteCounts.length ==
                                         post.pollOptions.length
                                     ? post.pollVoteCounts
-                                    : List<int>.generate(
+                                    : List<int>.filled(
                                         post.pollOptions.length,
-                                        (idx) => idx == 0 ? 4 : 2,
+                                        0,
                                       );
                                 final totalVotes = counts.fold<int>(
                                   0,

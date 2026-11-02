@@ -23,7 +23,8 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:migrate:status": "prisma migrate status",
     "db:seed": "prisma db seed",
-    "test:db-admin-review": "prisma generate && vitest run test/admin-review.database.integration.spec.ts"
+    "test:db-admin-review": "prisma generate && vitest run test/admin-review.database.integration.spec.ts",
+    "test:db-dm-http": "prisma generate && vitest run test/module2.direct-messages.http.integration.spec.ts"
   },
   "dependencies": {
     "@nestjs/common": "12.1.3",

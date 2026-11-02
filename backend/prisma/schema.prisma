@@ -84,6 +84,8 @@ model MemberAccount {
   sosEvents               SafetySosEvent[]
   moderationBlocks        MemberModerationBlock[]
   userReports             MemberUserReport[]
+  directMessagesSent      DirectMessage[]                @relation("DirectMessageSender")
+  directMessagesReceived  DirectMessage[]                @relation("DirectMessageRecipient")
 
   @@map("member_accounts")
 }
@@ -175,6 +177,7 @@ model AuthSession {
   revokedAt   DateTime?     @map("revoked_at") @db.Timestamptz(6)
   createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   lastSeenAt  DateTime?     @map("last_seen_at") @db.Timestamptz(6)
+  deviceName  String?       @map("device_name") @db.VarChar(80)
   account     MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@index([accountId, expiresAt], map: "auth_sessions_account_expiry_idx")
@@ -507,21 +510,47 @@ model MemberUserReport {
 }
 
 model AuditEvent {
-  id               String   @id @default(uuid()) @db.Uuid
-  actorType        String   @map("actor_type") @db.VarChar(32)
-  actorId          String?  @map("actor_id") @db.Uuid
-  action           String   @map("action") @db.VarChar(128)
-  targetType       String?  @map("target_type") @db.VarChar(64)
-  targetId         String?  @map("target_id") @db.VarChar(128)
-  outcome          String   @db.VarChar(32)
-  requestId        String   @map("request_id") @db.VarChar(128)
-  redactedMetadata Json?    @map("redacted_metadata") @db.JsonB
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                    String         @id @default(uuid()) @db.Uuid
+  actorType             String         @map("actor_type") @db.VarChar(32)
+  actorId               String?        @map("actor_id") @db.Uuid
+  action                String         @map("action") @db.VarChar(128)
+  targetType            String?        @map("target_type") @db.VarChar(64)
+  targetId              String?        @map("target_id") @db.VarChar(128)
+  outcome               String         @db.VarChar(32)
+  requestId             String         @map("request_id") @db.VarChar(128)
+  redactedMetadata      Json?          @map("redacted_metadata") @db.JsonB
+  createdAt             DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  migratedDirectMessage DirectMessage? @relation("DirectMessageSourceAuditEvent")
 
   @@index([createdAt], map: "audit_events_created_at_idx")
   @@index([actorType, actorId, createdAt], map: "audit_events_actor_created_idx")
   @@index([action, createdAt], map: "audit_events_action_created_idx")
   @@map("audit_events")
+}
+
+model DirectMessage {
+  id                          String        @id @default(uuid()) @db.Uuid
+  senderAccountId             String        @map("sender_account_id") @db.Uuid
+  recipientAccountId          String        @map("recipient_account_id") @db.Uuid
+  senderDirectoryProfileId    String?       @map("sender_directory_profile_id") @db.Uuid
+  recipientDirectoryProfileId String?       @map("recipient_directory_profile_id") @db.Uuid
+  senderName                  String        @map("sender_name") @db.VarChar(100)
+  senderUsername              String        @map("sender_username") @db.VarChar(50)
+  senderAvatar                String?       @map("sender_avatar") @db.Text
+  recipientName               String        @map("recipient_name") @db.VarChar(100)
+  recipientHandle             String        @map("recipient_handle") @db.VarChar(50)
+  body                        String        @db.Text
+  sourceAuditEventId          String?       @unique(map: "direct_messages_source_audit_event_key") @map("source_audit_event_id") @db.Uuid
+  createdAt                   DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  senderAccount               MemberAccount @relation("DirectMessageSender", fields: [senderAccountId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "direct_messages_sender_account_fkey")
+  recipientAccount            MemberAccount @relation("DirectMessageRecipient", fields: [recipientAccountId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "direct_messages_recipient_account_fkey")
+  sourceAuditEvent            AuditEvent?   @relation("DirectMessageSourceAuditEvent", fields: [sourceAuditEventId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "direct_messages_source_audit_event_fkey")
+
+  @@index([senderAccountId, recipientAccountId, createdAt], map: "direct_messages_sender_recipient_created_idx")
+  @@index([recipientAccountId, senderAccountId, createdAt], map: "direct_messages_recipient_sender_created_idx")
+  @@index([senderAccountId, createdAt], map: "direct_messages_sender_created_idx")
+  @@index([recipientAccountId, createdAt], map: "direct_messages_recipient_created_idx")
+  @@map("direct_messages")
 }
 
 model FeedCategoryConfig {
@@ -615,7 +644,6 @@ model PlatformRegistrationPolicy {
 
   @@map("platform_registration_policies")
 }
-
 
 // ============================================================================
 // Module 5: Discreet and Anonymous Complaint System (SRS Sections 7.1–7.6)

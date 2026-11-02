@@ -1,7 +1,84 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:women_safety_app/core/constants/mock_data.dart';
+import 'package:women_safety_app/features/auth/backend_api_client.dart';
 import 'package:women_safety_app/features/business/screens/business_hub_screen.dart';
 
+class _DeferredModule6ApiClient extends BackendApiClient {
+  _DeferredModule6ApiClient() : super(baseUrl: 'http://127.0.0.1:3001/api/v1');
+
+  final Completer<Map<String, dynamic>> ownerBusinesses =
+      Completer<Map<String, dynamic>>();
+  final Completer<Map<String, dynamic>> enquiries =
+      Completer<Map<String, dynamic>>();
+  final Completer<void> requestsStarted = Completer<void>();
+  int _requestCount = 0;
+
+  @override
+  Future<String?> readAccessToken() async => 'account-a-token';
+
+  @override
+  Future<Map<String, dynamic>> get(
+    String path, {
+    bool authenticated = false,
+    Map<String, String>? headers,
+  }) {
+    if (!authenticated) {
+      throw StateError('Module 6 owner requests must be authenticated.');
+    }
+    _requestCount++;
+    if (_requestCount == 2 && !requestsStarted.isCompleted) {
+      requestsStarted.complete();
+    }
+    if (path == 'module2/businesses?ownerOnly=true') {
+      return ownerBusinesses.future;
+    }
+    if (path == 'module2/businesses/enquiries/list') {
+      return enquiries.future;
+    }
+    throw StateError('Unexpected Module 6 GET request: $path');
+  }
+}
+
 void main() {
+  test('late Module 6 business and enquiry responses cannot restore previous-account data', () async {
+    final state = SakhiPrototypeState.instance;
+    final api = _DeferredModule6ApiClient();
+    state.configureApiClient(api);
+
+    final ownerPagesRequest = state.fetchBusinesses(ownerOnly: true);
+    final enquiriesRequest = state.fetchBusinessEnquiries();
+    await api.requestsStarted.future;
+
+    await state.clearAccountScopedData();
+
+    api.ownerBusinesses.complete({
+      'businesses': [
+        <String, dynamic>{
+          'id': 'account-a-business',
+          'businessName': 'Account A private business',
+          'isOwnBusiness': true,
+        },
+      ],
+    });
+    api.enquiries.complete({
+      'enquiries': [
+        <String, dynamic>{
+          'id': 'account-a-enquiry',
+          'message': 'Account A private enquiry',
+        },
+      ],
+    });
+
+    expect(await ownerPagesRequest, isEmpty);
+    expect(await enquiriesRequest, isEmpty);
+    expect(state.cachedBusinesses, isEmpty);
+    expect(state.myBusinessPages, isEmpty);
+    expect(state.myBusinessPage, isNull);
+    expect(state.cachedBusinessEnquiries, isEmpty);
+  });
+
   group('BusinessPageModel', () {
     test('maps a complete hosted API business listing', () {
       final model = BusinessPageModel.fromJson({

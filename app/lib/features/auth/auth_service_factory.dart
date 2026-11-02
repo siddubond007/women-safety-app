@@ -1,3 +1,4 @@
+import '../../core/constants/mock_data.dart';
 import 'auth_service.dart';
 import 'backend_auth_service.dart';
 
@@ -11,5 +12,7 @@ AuthService authServiceForCurrentBuild() {
   if (!backendEnabled) {
     return const DemoAuthService();
   }
-  return BackendAuthService();
+  return BackendAuthService(
+    onSessionCleared: SakhiPrototypeState.instance.clearAccountScopedData,
+  );
 }

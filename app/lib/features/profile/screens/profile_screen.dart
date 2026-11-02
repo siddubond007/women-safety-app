@@ -611,7 +611,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          user.username.isEmpty ? '@ananya_rao' : user.username,
+                          user.username.isEmpty ? '@member' : user.username,
                           style: AppTypography.subtitle,
                         ),
                         const SizedBox(height: 10),

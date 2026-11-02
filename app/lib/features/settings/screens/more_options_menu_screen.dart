@@ -8,6 +8,7 @@ import '../../../core/widgets/sakhi_dialogs.dart';
 import '../../../core/widgets/sakhi_settings_row.dart';
 import '../../auth/auth_service_factory.dart';
 import '../../auth/sakhi_login_screen.dart';
+import 'privacy_settings_screen.dart';
 
 /// Screen 12 — More Options / Menu
 class MoreOptionsMenuScreen extends StatelessWidget {
@@ -46,7 +47,7 @@ class MoreOptionsMenuScreen extends StatelessWidget {
         builder: (context, _) {
           final savedCount =
               state.communityPosts.where((p) => p.isSaved).length +
-                  state.exploreRecommendedPosts.where((p) => p.isSaved).length;
+              state.exploreRecommendedPosts.where((p) => p.isSaved).length;
           return SingleChildScrollView(
             padding: const EdgeInsets.symmetric(
               horizontal: AppSpacing.screenPaddingH,
@@ -55,7 +56,6 @@ class MoreOptionsMenuScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Main 9 Reference Rows in a clean unified card container
                 SakhiCard(
                   padding: const EdgeInsets.symmetric(vertical: 4),
                   child: Column(
@@ -64,20 +64,20 @@ class MoreOptionsMenuScreen extends StatelessWidget {
                         useCardContainer: false,
                         icon: Icons.groups_outlined,
                         title: 'My Groups',
-                        onTap: () => SakhiDialogs.showPrototypeSnackbar(
-                          context,
-                          'Joined groups: ${state.groups.map((g) => g.name).join(", ")}',
-                        ),
+                        subtitle: state.groups.isEmpty
+                            ? 'Explore and join community circles'
+                            : '${state.groups.length} community circle(s) available',
+                        onTap: () =>
+                            Navigator.of(context).pushNamed(AppRoutes.groups),
                       ),
                       const Divider(indent: 68, endIndent: 14),
                       SakhiSettingsRow(
                         useCardContainer: false,
                         icon: Icons.bookmark_border_rounded,
                         title: 'My Saved Posts',
-                        onTap: () => SakhiDialogs.showPrototypeSnackbar(
-                          context,
-                          'You have $savedCount saved post(s) in your collection.',
-                        ),
+                        subtitle: '$savedCount saved post(s)',
+                        onTap: () =>
+                            Navigator.of(context).pushNamed(AppRoutes.profile),
                       ),
                       const Divider(indent: 68, endIndent: 14),
                       SakhiSettingsRow(
@@ -85,27 +85,10 @@ class MoreOptionsMenuScreen extends StatelessWidget {
                         icon: Icons.storefront_outlined,
                         title: 'Business Profile',
                         subtitle: state.currentUser.businessProfileUrl ??
-                            'Add or manage your business link',
-                        onTap: () => SakhiDialogs.showConfirmationDialog(
-                          context: context,
-                          title: 'Business Profile',
-                          description:
-                              'Link your verified women-led business page to receive collaboration enquiries.',
-                          confirmLabel: 'Save Business Link',
-                          onConfirmed: () {
-                            state.updateProfile(
-                              displayName: state.currentUser.displayName,
-                              bio: state.currentUser.bio,
-                              location: state.currentUser.location,
-                              interests: state.currentUser.interests,
-                              businessProfileUrl: 'sakhi.app/biz/siddhu',
-                            );
-                            SakhiDialogs.showPrototypeSnackbar(
-                              context,
-                              'Business profile link saved!',
-                            );
-                          },
-                        ),
+                            'Manage your Women-Owned Business Pages',
+                        onTap: () => Navigator.of(
+                          context,
+                        ).pushNamed(AppRoutes.businessHub),
                       ),
                       const Divider(indent: 68, endIndent: 14),
                       SakhiSettingsRow(
@@ -125,44 +108,35 @@ class MoreOptionsMenuScreen extends StatelessWidget {
                         useCardContainer: false,
                         icon: Icons.shield_moon_rounded,
                         title: 'Discreet & Anonymous Complaint Hub',
-                        subtitle: 'File an anonymous or confidential report & check report status',
-                        onTap: () => Navigator.of(context)
-                            .pushNamed(AppRoutes.discreetComplaintHub),
+                        subtitle:
+                            'File an anonymous or confidential report & check report status',
+                        onTap: () => Navigator.of(
+                          context,
+                        ).pushNamed(AppRoutes.discreetComplaintHub),
                       ),
                       const Divider(indent: 68, endIndent: 14),
                       SakhiSettingsRow(
                         useCardContainer: false,
                         icon: Icons.warning_amber_rounded,
                         title: 'Report a User',
-                        onTap: () => SakhiDialogs.showConfirmationDialog(
-                          context: context,
-                          title: 'Report a User',
-                          description:
-                              'Submit a confidential safety or community guideline report to Sakhi moderators.',
-                          confirmLabel: 'Submit Report',
-                          onConfirmed: () {
-                            state.reportUserOrPost(
-                              targetHandle: '@community_review',
-                              reason:
-                                  'Community safety check submitted from More Options.',
-                            );
-                            SakhiDialogs.showPrototypeSnackbar(
-                              context,
-                              'Confidential report submitted to Sakhi moderators.',
-                            );
-                          },
-                        ),
+                        subtitle:
+                            'Submit a confidential safety or community guideline report',
+                        onTap: () => Navigator.of(
+                          context,
+                        ).pushNamed(AppRoutes.discreetComplaintHub),
                       ),
                       const Divider(indent: 68, endIndent: 14),
                       SakhiSettingsRow(
                         useCardContainer: false,
                         icon: Icons.block_rounded,
                         title: 'Blocked Users',
-                        onTap: () => SakhiDialogs.showPrototypeSnackbar(
-                          context,
-                          state.blockedUsers.isEmpty
-                              ? 'You have no blocked users.'
-                              : 'Blocked accounts: ${state.blockedUsers.length}',
+                        subtitle: state.blockedUsers.isEmpty
+                            ? 'No blocked members'
+                            : '${state.blockedUsers.length} blocked member(s)',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const BlockedMembersScreen(),
+                          ),
                         ),
                       ),
                       const Divider(indent: 68, endIndent: 14),
@@ -183,15 +157,16 @@ class MoreOptionsMenuScreen extends StatelessWidget {
                         useCardContainer: false,
                         icon: Icons.lock_outline_rounded,
                         title: 'Privacy Policy',
-                        onTap: () => Navigator.of(context)
-                            .pushNamed(AppRoutes.privacySettings),
+                        onTap: () => Navigator.of(
+                          context,
+                        ).pushNamed(AppRoutes.privacySettings),
                       ),
                       const Divider(indent: 68, endIndent: 14),
                       SakhiSettingsRow(
                         useCardContainer: false,
                         icon: Icons.info_outline_rounded,
                         title: 'About Sakhi',
-                        subtitle: 'Version 1.2.0',
+                        subtitle: 'Version 1.0.0',
                         onTap: () => SakhiDialogs.showConfirmationDialog(
                           context: context,
                           title: 'About Sakhi (v1.0.0)',
@@ -213,8 +188,6 @@ class MoreOptionsMenuScreen extends StatelessWidget {
                     ],
                   ),
                 ),
-
-
               ],
             ),
           );

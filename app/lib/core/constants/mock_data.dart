@@ -1,5 +1,7 @@
 import 'dart:convert';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
 import 'dart:math' as math;
 import 'dart:async';
 
@@ -99,7 +101,8 @@ class FeedCategoryModel {
 String formatSakhiRelativeTimestamp(String? raw) {
   if (raw == null || raw.trim().isEmpty) return 'Just now';
   final trimmed = raw.trim();
-  if (!trimmed.contains('T') && !RegExp(r'^\d{4}-\d{2}-\d{2}').hasMatch(trimmed)) {
+  if (!trimmed.contains('T') &&
+      !RegExp(r'^\d{4}-\d{2}-\d{2}').hasMatch(trimmed)) {
     return trimmed;
   }
   final parsed = DateTime.tryParse(trimmed);
@@ -191,10 +194,13 @@ class PostCommentItem {
     }
 
     final replyHandle = json['replyToHandle']?.toString().trim();
-    var cleanBody =
-        (json['body'] ?? json['content'] ?? json['text'] ?? '').toString().trim();
+    var cleanBody = (json['body'] ?? json['content'] ?? json['text'] ?? '')
+        .toString()
+        .trim();
     if (replyHandle != null && replyHandle.isNotEmpty) {
-      final normRh = replyHandle.startsWith('@') ? replyHandle : '@$replyHandle';
+      final normRh = replyHandle.startsWith('@')
+          ? replyHandle
+          : '@$replyHandle';
       if (cleanBody.toLowerCase().startsWith('${normRh.toLowerCase()} ')) {
         final stripped = cleanBody.substring(normRh.length).trim();
         if (stripped.isNotEmpty) {
@@ -203,7 +209,8 @@ class PostCommentItem {
       }
     }
 
-    final rawTime = (json['timestamp'] ?? json['createdAt'] ?? 'Just now').toString();
+    final rawTime = (json['timestamp'] ?? json['createdAt'] ?? 'Just now')
+        .toString();
 
     return PostCommentItem(
       id: (json['id'] ?? json['commentId'] ?? '').toString(),
@@ -214,7 +221,9 @@ class PostCommentItem {
       body: cleanBody,
       createdAt: formatSakhiRelativeTimestamp(rawTime),
       parentCommentId: json['parentCommentId']?.toString(),
-      replyToHandle: (replyHandle != null && replyHandle.isNotEmpty) ? replyHandle : null,
+      replyToHandle: (replyHandle != null && replyHandle.isNotEmpty)
+          ? replyHandle
+          : null,
       isOwnComment: isOwn,
       canEdit: json['canEdit'] == true || isOwn,
       canDelete: json['canDelete'] == true || isOwn,
@@ -344,7 +353,8 @@ class FeedPostModel {
     this.viewerPollChoice,
   }) : reactionBreakdown = reactionBreakdown ?? <String, int>{},
        comments = comments ?? <PostCommentItem>[],
-       mediaAssets = mediaAssets ??
+       mediaAssets =
+           mediaAssets ??
            (imageAsset != null && imageAsset.isNotEmpty
                ? <String>[imageAsset]
                : <String>[]),
@@ -669,25 +679,50 @@ class SakhiPrototypeState extends ChangeNotifier {
   static const FlutterSecureStorage _localCacheStorage = FlutterSecureStorage();
   static const String _localCacheKey = 'sakhi_prototype_state_cache_v1';
 
+  int _accountStateEpoch = 0;
+  int _loginSessionsRequestId = 0;
+  final List<FutureOr<void> Function()> _accountClearCallbacks =
+      <FutureOr<void> Function()>[];
+
+  void registerAccountClearCallback(FutureOr<void> Function() callback) {
+    if (!_accountClearCallbacks.contains(callback)) {
+      _accountClearCallbacks.add(callback);
+    }
+  }
+  Future<void> _localCacheOperationQueue = Future<void>.value();
+  VoidCallback? _localCacheDeleteOverrideForTesting;
+
   Future<void> _restoreLocalCache() async {
+    final restoreEpoch = _accountStateEpoch;
     try {
       final raw = await _localCacheStorage.read(key: _localCacheKey);
+      if (restoreEpoch != _accountStateEpoch) return;
       if (raw == null || raw.trim().isEmpty) return;
       final decoded = jsonDecode(raw);
       if (decoded is! Map<String, dynamic>) return;
       if (!_isBackendSynced) {
         final u = decoded['currentUser'];
         if (u is Map<String, dynamic>) {
-          currentUser.accountId = u['accountId']?.toString() ?? currentUser.accountId;
-          currentUser.displayName = u['displayName']?.toString() ?? currentUser.displayName;
-          currentUser.username = u['username']?.toString() ?? currentUser.username;
+          currentUser.accountId =
+              u['accountId']?.toString() ?? currentUser.accountId;
+          currentUser.displayName =
+              u['displayName']?.toString() ?? currentUser.displayName;
+          currentUser.username =
+              u['username']?.toString() ?? currentUser.username;
           currentUser.bio = u['bio']?.toString() ?? currentUser.bio;
-          currentUser.location = u['location']?.toString() ?? currentUser.location;
-          currentUser.avatarAsset = u['avatarAsset']?.toString() ?? currentUser.avatarAsset;
+          currentUser.location =
+              u['location']?.toString() ?? currentUser.location;
+          currentUser.avatarAsset =
+              u['avatarAsset']?.toString() ?? currentUser.avatarAsset;
           currentUser.email = u['email']?.toString() ?? currentUser.email;
-          currentUser.postsCount = (u['postsCount'] as num?)?.toInt() ?? currentUser.postsCount;
-          currentUser.followersCount = (u['followersCount'] as num?)?.toInt() ?? currentUser.followersCount;
-          currentUser.followingCount = (u['followingCount'] as num?)?.toInt() ?? currentUser.followingCount;
+          currentUser.postsCount =
+              (u['postsCount'] as num?)?.toInt() ?? currentUser.postsCount;
+          currentUser.followersCount =
+              (u['followersCount'] as num?)?.toInt() ??
+              currentUser.followersCount;
+          currentUser.followingCount =
+              (u['followingCount'] as num?)?.toInt() ??
+              currentUser.followingCount;
           currentUser.businessProfileUrl = u['businessProfileUrl']?.toString();
         }
         final jc = decoded['joinedCircleNames'];
@@ -703,7 +738,37 @@ class SakhiPrototypeState extends ChangeNotifier {
     } catch (_) {}
   }
 
+  Future<void> _enqueueLocalCacheOperation(Future<void> Function() operation) {
+    final pending = _localCacheOperationQueue.then((_) => operation());
+    _localCacheOperationQueue = pending.catchError((Object _) {});
+    return pending;
+  }
+
+  Future<void> _writeLocalCacheIfCurrent(int epoch, String value) {
+    return _enqueueLocalCacheOperation(() async {
+      if (epoch != _accountStateEpoch) return;
+      await _localCacheStorage.write(key: _localCacheKey, value: value);
+    });
+  }
+
+  @visibleForTesting
+  void setLocalCacheDeleteOverrideForTesting(VoidCallback? deleteOperation) {
+    _localCacheDeleteOverrideForTesting = deleteOperation;
+  }
+
+  Future<void> _deleteLocalCache() {
+    final override = _localCacheDeleteOverrideForTesting;
+    if (override != null) {
+      override();
+      return Future<void>.value();
+    }
+    return _enqueueLocalCacheOperation(() async {
+      await _localCacheStorage.delete(key: _localCacheKey);
+    });
+  }
+
   Future<void> _persistLocalCache() async {
+    final persistEpoch = _accountStateEpoch;
     try {
       final snapshot = <String, dynamic>{
         'currentUser': <String, dynamic>{
@@ -722,10 +787,8 @@ class SakhiPrototypeState extends ChangeNotifier {
         'joinedCircleNames': joinedCircleNames.toList(),
         'seenPostIds': _seenPostIds.take(250).toList(),
       };
-      await _localCacheStorage.write(
-        key: _localCacheKey,
-        value: jsonEncode(snapshot),
-      );
+      if (persistEpoch != _accountStateEpoch) return;
+      await _writeLocalCacheIfCurrent(persistEpoch, jsonEncode(snapshot));
     } catch (_) {}
   }
 
@@ -733,6 +796,10 @@ class SakhiPrototypeState extends ChangeNotifier {
   dynamic _boundBackend;
   bool _isBackendSynced = false;
   bool _isBackendSyncing = false;
+
+  List<Map<String, dynamic>> loginSessions = <Map<String, dynamic>>[];
+  bool isLoadingLoginSessions = false;
+  String? loginSessionsError;
 
   /// Persistent shell navigation state so minimizing/resuming the app never resets to Home.
   int activeShellTabIndex = 0;
@@ -751,6 +818,85 @@ class SakhiPrototypeState extends ChangeNotifier {
       final token = await _client.readAccessToken();
       return token != null && token.trim().isNotEmpty;
     } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> loadLoginSessions() async {
+    final requestEpoch = _accountStateEpoch;
+    final requestId = ++_loginSessionsRequestId;
+    isLoadingLoginSessions = true;
+    loginSessionsError = null;
+    loginSessions = <Map<String, dynamic>>[];
+    notifyListeners();
+
+    try {
+      final response = await _client.get(
+        'module2/sessions',
+        authenticated: true,
+      );
+      if (requestEpoch != _accountStateEpoch ||
+          requestId != _loginSessionsRequestId) {
+        return false;
+      }
+      final raw = response['sessions'];
+      if (raw is! List) {
+        loginSessionsError =
+            'The server returned an invalid login-session response.';
+        return false;
+      }
+      loginSessions = raw
+          .whereType<Map<String, dynamic>>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+      return true;
+    } on BackendApiException catch (error) {
+      if (requestEpoch != _accountStateEpoch ||
+          requestId != _loginSessionsRequestId) {
+        return false;
+      }
+      loginSessionsError = error.message;
+      return false;
+    } catch (_) {
+      if (requestEpoch != _accountStateEpoch ||
+          requestId != _loginSessionsRequestId) {
+        return false;
+      }
+      loginSessionsError = 'Login sessions could not be loaded. Check your connection and retry.';
+      return false;
+    } finally {
+      if (requestEpoch == _accountStateEpoch &&
+          requestId == _loginSessionsRequestId) {
+        isLoadingLoginSessions = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<bool> revokeLoginSession(String sessionId) async {
+    final requestEpoch = _accountStateEpoch;
+    final cleanedId = sessionId.trim();
+    if (cleanedId.isEmpty) {
+      loginSessionsError = 'The selected login session is unavailable.';
+      notifyListeners();
+      return false;
+    }
+    try {
+      await _client.delete(
+        'module2/sessions/${Uri.encodeComponent(cleanedId)}',
+        authenticated: true,
+      );
+      if (requestEpoch != _accountStateEpoch) return false;
+      return await loadLoginSessions();
+    } on BackendApiException catch (error) {
+      if (requestEpoch != _accountStateEpoch) return false;
+      loginSessionsError = error.message;
+      notifyListeners();
+      return false;
+    } catch (_) {
+      if (requestEpoch != _accountStateEpoch) return false;
+      loginSessionsError = 'The login session could not be revoked. Check your connection and retry.';
+      notifyListeners();
       return false;
     }
   }
@@ -786,6 +932,7 @@ class SakhiPrototypeState extends ChangeNotifier {
   dynamic get backend => _boundBackend;
   bool get isBackendSynced => _isBackendSynced;
   bool get isBackendSyncing => _isBackendSyncing;
+  int get accountStateEpoch => _accountStateEpoch;
 
   void bind(dynamic backendState) {
     _boundBackend = backendState;
@@ -796,6 +943,108 @@ class SakhiPrototypeState extends ChangeNotifier {
 
   void configureApiClient(BackendApiClient client) {
     _apiClient = client;
+  }
+
+  /// Removes account-scoped in-memory and persisted data when authentication
+  /// ends or a new login flow begins on this device.
+  Future<void> clearAccountScopedData() async {
+    _accountStateEpoch++;
+    _isBackendSyncing = false;
+    _resetAccountScopedDataInMemory();
+    for (final cb in List<FutureOr<void> Function()>.from(_accountClearCallbacks)) {
+      try {
+        await cb();
+      } catch (_) {}
+    }
+    notifyListeners();
+    try {
+      await _deleteLocalCache();
+    } catch (_) {
+      // The in-memory account state is still cleared if secure storage fails.
+    }
+  }
+
+  void _resetAccountScopedDataInMemory() {
+    _boundBackend = null;
+    _isBackendSynced = false;
+    currentUser
+      ..accountId = ''
+      ..displayName = 'Sakhi Member'
+      ..username = ''
+      ..bio = ''
+      ..location = ''
+      ..avatarAsset = ''
+      ..email = ''
+      ..phoneMasked = ''
+      ..phoneVerified = false
+      ..verificationStatus = 'UNVERIFIED'
+      ..postsCount = 0
+      ..followersCount = 0
+      ..followingCount = 0
+      ..interests = <String>[]
+      ..businessProfileUrl = null
+      ..twoFactorEnabled = false
+      ..activeSessionsCount = 0;
+
+    communityPosts.clear();
+    exploreRecommendedPosts.clear();
+    profilePosts.clear();
+    groups.clear();
+    followers.clear();
+    emergencyContacts.clear();
+    blockedUsers.clear();
+
+    // Module 6 owner data and saved-business state must never survive an
+    // account boundary. Re-fetch these collections after the next sign-in.
+    cachedBusinesses.clear();
+    myBusinessPages.clear();
+    myBusinessPage = null;
+    cachedBusinessEnquiries.clear();
+
+    _loginSessionsRequestId++;
+    loginSessions = <Map<String, dynamic>>[];
+    isLoadingLoginSessions = false;
+    loginSessionsError = null;
+    _seenPostIds.clear();
+    joinedCircleNames.clear();
+
+    const privacyDefaults = <String, String>{
+      'view_profile': 'All Verified Members',
+      'message_me': 'Followers Only',
+      'see_posts': 'All Verified Members',
+      'show_location': 'Verified Members',
+      'search_results': 'Yes',
+      'business_enquiries': 'Yes',
+    };
+    for (final setting in privacySettings) {
+      setting.selectedValue =
+          privacyDefaults[setting.id] ?? setting.selectedValue;
+    }
+
+    const notificationDefaults = <String, bool>{
+      'community_updates': true,
+      'group_activity': true,
+      'wellness_reminders': true,
+      'safety_alerts': true,
+      'messages': true,
+      'business_enquiries': true,
+      'marketing_updates': false,
+    };
+    for (final preference in notificationPreferences) {
+      preference.isEnabled =
+          notificationDefaults[preference.id] ?? preference.isEnabled;
+    }
+
+    feedCategories = List<FeedCategoryModel>.from(
+      FeedCategoryModel.defaultCategories,
+    );
+    totalDatabaseMembers = 0;
+    totalDatabasePosts = 0;
+    lastSyncError = 'Sign in to load your live Social Wall and profile.';
+    lastSyncSource = 'Authentication required';
+    showSavedPostsFirst = false;
+    searchQuery = '';
+    selectedCategorySlug = 'community';
   }
 
   List<FeedCategoryModel> feedCategories = List<FeedCategoryModel>.from(
@@ -1135,7 +1384,10 @@ class SakhiPrototypeState extends ChangeNotifier {
     return ordered;
   }
 
-  List<FeedPostModel> _findAllPosts(String postId, [FeedPostModel? activePost]) {
+  List<FeedPostModel> _findAllPosts(
+    String postId, [
+    FeedPostModel? activePost,
+  ]) {
     final results = <FeedPostModel>[];
     for (final collection in [
       communityPosts,
@@ -1206,6 +1458,7 @@ class SakhiPrototypeState extends ChangeNotifier {
   Future<void> syncFromBackend() async {
     if (_isBackendSyncing) return;
     _isBackendSyncing = true;
+    var syncEpoch = _accountStateEpoch;
     lastSyncError = null;
     notifyListeners();
     try {
@@ -1213,18 +1466,18 @@ class SakhiPrototypeState extends ChangeNotifier {
       try {
         token = await _client.readAccessToken();
       } catch (_) {
-        _isBackendSynced = false;
-        lastSyncError = 'Sign in to load your live Social Wall and profile.';
-        lastSyncSource = 'Authentication required';
+        if (syncEpoch == _accountStateEpoch) {
+          await clearAccountScopedData();
+        }
         return;
       }
+      if (syncEpoch != _accountStateEpoch) return;
       if (token == null || token.isEmpty) {
-        _isBackendSynced = false;
-        lastSyncError = 'Sign in to load your live Social Wall and profile.';
-        lastSyncSource = 'Authentication required';
+        await clearAccountScopedData();
         return;
       }
       final data = await _client.get('module2/bootstrap', authenticated: true);
+      if (syncEpoch != _accountStateEpoch) return;
 
       final userMap = data['currentUser'] ?? data['user'];
       if (userMap is Map<String, dynamic>) {
@@ -1233,9 +1486,10 @@ class SakhiPrototypeState extends ChangeNotifier {
         if (nextAccountId.isNotEmpty &&
             currentUser.accountId.isNotEmpty &&
             nextAccountId != currentUser.accountId) {
-          _seenPostIds.clear();
-          emergencyContacts.clear();
-          joinedCircleNames.clear();
+          _accountStateEpoch++;
+          syncEpoch = _accountStateEpoch;
+          _resetAccountScopedDataInMemory();
+          unawaited(_deleteLocalCache().catchError((Object _) {}));
         }
         currentUser.accountId = nextAccountId;
         currentUser.displayName =
@@ -1274,7 +1528,7 @@ class SakhiPrototypeState extends ChangeNotifier {
             currentUser.followingCount;
         currentUser.twoFactorEnabled = userMap['twoFactorEnabled'] == true;
         currentUser.activeSessionsCount =
-            (userMap['activeSessionsCount'] as num?)?.toInt() ?? 1;
+            (userMap['activeSessionsCount'] as num?)?.toInt() ?? 0;
         currentUser.businessProfileUrl = userMap['businessProfileUrl']
             ?.toString();
       }
@@ -1361,9 +1615,9 @@ class SakhiPrototypeState extends ChangeNotifier {
         exploreRecommendedPosts
           ..clear()
           ..addAll(
-            rawExplorePosts
-                .whereType<Map<String, dynamic>>()
-                .map(mergeSyncedPost),
+            rawExplorePosts.whereType<Map<String, dynamic>>().map(
+              mergeSyncedPost,
+            ),
           );
       }
       totalDatabasePosts =
@@ -1494,12 +1748,16 @@ class SakhiPrototypeState extends ChangeNotifier {
       lastSyncSource = 'PostgreSQL Live DB';
       unawaited(_persistLocalCache());
     } catch (_) {
-      _isBackendSynced = false;
-      lastSyncError = 'Live Sakhi data could not be loaded. Check the connection and retry.';
-      lastSyncSource = 'Backend unavailable';
+      if (syncEpoch == _accountStateEpoch) {
+        _isBackendSynced = false;
+        lastSyncError = 'Live Sakhi data could not be loaded. Check the connection and retry.';
+        lastSyncSource = 'Backend unavailable';
+      }
     } finally {
-      _isBackendSyncing = false;
-      notifyListeners();
+      if (syncEpoch == _accountStateEpoch) {
+        _isBackendSyncing = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -2364,9 +2622,7 @@ class SakhiPrototypeState extends ChangeNotifier {
         serverJson['canDelete'] = true;
         final serverComment = PostCommentItem.fromJson(serverJson);
         for (final t in _findAllPosts(post.id, post)) {
-          final idx = t.comments.indexWhere(
-            (comment) => comment.id == item.id,
-          );
+          final idx = t.comments.indexWhere((comment) => comment.id == item.id);
           if (idx != -1 && serverComment.id.isNotEmpty) {
             t.comments[idx] = serverComment;
             t.comments = groupThreadedComments(t.comments);
@@ -2558,32 +2814,34 @@ class SakhiPrototypeState extends ChangeNotifier {
     return true;
   }
 
-  final Map<String, List<Map<String, dynamic>>> cachedDirectMessagesByPeer =
-      <String, List<Map<String, dynamic>>>{};
-
-  Future<List<Map<String, dynamic>>> fetchDirectMessages(String peerId) async {
+  /// Returns null when history cannot be loaded; an empty list means the
+  /// server successfully confirmed that this conversation has no messages.
+  /// No local conversation cache is used, preventing stale cross-account data.
+  Future<List<Map<String, dynamic>>?> fetchDirectMessages(String peerId) async {
+    final requestEpoch = _accountStateEpoch;
     final key = peerId.trim();
     if (key.isEmpty) return const <Map<String, dynamic>>[];
     try {
       final token = await _client.readAccessToken();
-      if (token != null && token.isNotEmpty) {
-        final res = await _client.get(
-          'module2/messages?peerId=${Uri.encodeQueryComponent(key)}',
-          authenticated: true,
-        );
-        final raw = res['messages'] ?? res['items'];
-        if (raw is List) {
-          final list = raw
-              .whereType<Map<String, dynamic>>()
-              .map((m) => Map<String, dynamic>.from(m))
-              .toList();
-          cachedDirectMessagesByPeer[key] = list;
-          notifyListeners();
-          return list;
-        }
+      if (requestEpoch != _accountStateEpoch ||
+          token == null ||
+          token.isEmpty) {
+        return null;
       }
-    } catch (_) {}
-    return cachedDirectMessagesByPeer[key] ?? <Map<String, dynamic>>[];
+      final res = await _client.get(
+        'module2/messages?peerId=${Uri.encodeQueryComponent(key)}',
+        authenticated: true,
+      );
+      if (requestEpoch != _accountStateEpoch) return null;
+      final raw = res['messages'] ?? res['items'];
+      if (raw is! List) return null;
+      return raw
+          .whereType<Map<String, dynamic>>()
+          .map((message) => Map<String, dynamic>.from(message))
+          .toList(growable: false);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<Map<String, dynamic>?> sendDirectMessage({
@@ -2592,56 +2850,37 @@ class SakhiPrototypeState extends ChangeNotifier {
     required String recipientName,
     required String message,
   }) async {
+    final requestEpoch = _accountStateEpoch;
     final trimmed = message.trim();
     if (trimmed.isEmpty) return null;
-    final key = recipientId.trim().isNotEmpty
-        ? recipientId.trim()
-        : recipientHandle.trim();
-    final localMsg = <String, dynamic>{
-      'id': 'dm_${DateTime.now().millisecondsSinceEpoch}',
-      'senderAccountId': currentUser.accountId,
-      'senderName': currentUser.displayName,
-      'senderUsername': currentUser.username,
-      'senderAvatar': currentUser.avatarAsset,
-      'recipientId': recipientId,
-      'recipientHandle': recipientHandle,
-      'recipientName': recipientName,
-      'body': trimmed,
-      'timestamp': 'Just now',
-      'isOwnMessage': true,
-    };
-    final list = cachedDirectMessagesByPeer.putIfAbsent(
-      key,
-      () => <Map<String, dynamic>>[],
-    );
-    list.add(localMsg);
-    notifyListeners();
 
     try {
       final token = await _client.readAccessToken();
-      if (token != null && token.isNotEmpty) {
-        final res = await _client.post(
-          'module2/messages',
-          authenticated: true,
-          body: {
-            'recipientId': recipientId,
-            'recipientHandle': recipientHandle,
-            'recipientName': recipientName,
-            'message': trimmed,
-          },
-        );
-        if (res['message'] is Map<String, dynamic>) {
-          final serverMsg = Map<String, dynamic>.from(
-            res['message'] as Map<String, dynamic>,
-          );
-          final idx = list.indexWhere((m) => m['id'] == localMsg['id']);
-          if (idx != -1) list[idx] = serverMsg;
-          notifyListeners();
-          return serverMsg;
-        }
+      if (requestEpoch != _accountStateEpoch ||
+          token == null ||
+          token.isEmpty) {
+        return null;
       }
-    } catch (_) {}
-    return localMsg;
+
+      final res = await _client.post(
+        'module2/messages',
+        authenticated: true,
+        body: {
+          'recipientId': recipientId,
+          'recipientHandle': recipientHandle,
+          'recipientName': recipientName,
+          'message': trimmed,
+        },
+      );
+      if (requestEpoch != _accountStateEpoch) return null;
+      if (res['sent'] != true || res['message'] is! Map<String, dynamic>) {
+        return null;
+      }
+
+      return Map<String, dynamic>.from(res['message'] as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<bool> updatePrivacySetting(String id, String newValue) async {
@@ -2780,44 +3019,15 @@ class SakhiPrototypeState extends ChangeNotifier {
     );
   }
 
-  void toggleTwoFactor() {
-    currentUser.twoFactorEnabled = !currentUser.twoFactorEnabled;
-    notifyListeners();
-
-    unawaited(
-      _sendAuthenticatedRequest((client) async {
-        await client.put(
-          'module2/security/two-factor',
-          authenticated: true,
-          body: {
-            'enabled': currentUser.twoFactorEnabled,
-            'twoFactorEnabled': currentUser.twoFactorEnabled,
-          },
-        );
-      }),
-    );
-  }
-
-  void updateSecurityPin(String newPin, {String? currentPin}) {
-    unawaited(
-      _sendAuthenticatedRequest((client) async {
-        await client.put(
-          'module2/security/pin',
-          authenticated: true,
-          body: {
-            'currentPin': currentPin ?? '0000',
-            'newPin': newPin,
-            'pin': newPin,
-          },
-        );
-      }),
-    );
-  }
-
   Future<bool> requestAccountDeletion({String? reason}) async {
+    final requestEpoch = _accountStateEpoch;
     try {
       final token = await _client.readAccessToken();
-      if (token == null || token.isEmpty) return true;
+      if (requestEpoch != _accountStateEpoch ||
+          token == null ||
+          token.trim().isEmpty) {
+        return false;
+      }
       await _client.post(
         'module2/account/delete',
         authenticated: true,
@@ -2827,6 +3037,8 @@ class SakhiPrototypeState extends ChangeNotifier {
             'reason': reason.trim(),
         },
       );
+      if (requestEpoch != _accountStateEpoch) return false;
+      await clearAccountScopedData();
       return true;
     } catch (_) {
       return false;
@@ -3203,12 +3415,15 @@ class SakhiPrototypeState extends ChangeNotifier {
 
   Future<Map<String, dynamic>?> fetchBusinessDetail(String businessId) async {
     if (businessId.trim().isEmpty) return null;
+    final requestEpoch = _accountStateEpoch;
     try {
       final token = await _client.readAccessToken();
+      if (requestEpoch != _accountStateEpoch) return null;
       final response = await _client.get(
         'module2/businesses/${Uri.encodeComponent(businessId.trim())}',
         authenticated: token != null && token.isNotEmpty,
       );
+      if (requestEpoch != _accountStateEpoch) return null;
       final raw = response['business'];
       if (raw is Map<String, dynamic>) {
         final business = Map<String, dynamic>.from(raw);
@@ -3222,7 +3437,10 @@ class SakhiPrototypeState extends ChangeNotifier {
         notifyListeners();
         return business;
       }
-    } catch (_) {}
+    } catch (_) {
+      if (requestEpoch != _accountStateEpoch) return null;
+    }
+    if (requestEpoch != _accountStateEpoch) return null;
     for (final item in cachedBusinesses) {
       if (item['id']?.toString() == businessId ||
           item['businessCode']?.toString() == businessId) {
@@ -3258,8 +3476,12 @@ class SakhiPrototypeState extends ChangeNotifier {
     bool savedOnly = false,
     bool ownerOnly = false,
   }) async {
+    final requestEpoch = _accountStateEpoch;
     try {
       final token = await _client.readAccessToken();
+      if (requestEpoch != _accountStateEpoch) {
+        return const <Map<String, dynamic>>[];
+      }
       final params = <String, String>{
         if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
         if (category != null && category.trim().isNotEmpty && category != 'All')
@@ -3278,6 +3500,9 @@ class SakhiPrototypeState extends ChangeNotifier {
         path,
         authenticated: token != null && token.isNotEmpty,
       );
+      if (requestEpoch != _accountStateEpoch) {
+        return const <Map<String, dynamic>>[];
+      }
       final rawCats = res['categories'];
       if (rawCats is List && rawCats.isNotEmpty) {
         cachedBusinessCategories = rawCats.map((e) => e.toString()).toList();
@@ -3310,14 +3535,24 @@ class SakhiPrototypeState extends ChangeNotifier {
         notifyListeners();
         return parsed;
       }
-    } catch (_) {}
-    return ownerOnly ? myBusinessPages : cachedBusinesses;
+    } catch (_) {
+      if (requestEpoch != _accountStateEpoch) {
+        return const <Map<String, dynamic>>[];
+      }
+    }
+    if (requestEpoch != _accountStateEpoch) {
+      return const <Map<String, dynamic>>[];
+    }
+    return List<Map<String, dynamic>>.from(
+      ownerOnly ? myBusinessPages : cachedBusinesses,
+    );
   }
 
   Future<Map<String, dynamic>?> createOrUpdateBusiness(
     Map<String, dynamic> payload, {
     String? businessId,
   }) async {
+    final requestEpoch = _accountStateEpoch;
     try {
       final res = businessId != null && businessId.trim().isNotEmpty
           ? await _client.put(
@@ -3330,6 +3565,7 @@ class SakhiPrototypeState extends ChangeNotifier {
               authenticated: true,
               body: payload,
             );
+      if (requestEpoch != _accountStateEpoch) return null;
       final biz = res['business'] is Map<String, dynamic>
           ? Map<String, dynamic>.from(res['business'] as Map<String, dynamic>)
           : Map<String, dynamic>.from(res);
@@ -3355,6 +3591,7 @@ class SakhiPrototypeState extends ChangeNotifier {
   }
 
   Future<bool> toggleSaveBusiness(String businessId) async {
+    final requestEpoch = _accountStateEpoch;
     final idx = cachedBusinesses.indexWhere(
       (b) => b['id']?.toString() == businessId,
     );
@@ -3376,17 +3613,25 @@ class SakhiPrototypeState extends ChangeNotifier {
         'module2/businesses/${Uri.encodeComponent(businessId)}/save',
         authenticated: true,
       );
-      if (idx != -1 && res['isSaved'] is bool) {
-        cachedBusinesses[idx]['isSaved'] = res['isSaved'];
-        cachedBusinesses[idx]['savesCount'] =
-            res['savesCount'] ?? cachedBusinesses[idx]['savesCount'];
+      if (requestEpoch != _accountStateEpoch) return false;
+      final currentIndex = cachedBusinesses.indexWhere(
+        (business) => business['id']?.toString() == businessId,
+      );
+      if (currentIndex != -1 && res['isSaved'] is bool) {
+        cachedBusinesses[currentIndex]['isSaved'] = res['isSaved'];
+        cachedBusinesses[currentIndex]['savesCount'] =
+            res['savesCount'] ?? cachedBusinesses[currentIndex]['savesCount'];
         notifyListeners();
       }
       return true;
     } catch (_) {
-      if (idx != -1) {
-        cachedBusinesses[idx]['isSaved'] = previousIsSaved;
-        cachedBusinesses[idx]['savesCount'] = previousSavesCount;
+      if (requestEpoch != _accountStateEpoch) return false;
+      final currentIndex = cachedBusinesses.indexWhere(
+        (business) => business['id']?.toString() == businessId,
+      );
+      if (currentIndex != -1) {
+        cachedBusinesses[currentIndex]['isSaved'] = previousIsSaved;
+        cachedBusinesses[currentIndex]['savesCount'] = previousSavesCount;
         notifyListeners();
       }
       return false;
@@ -3421,6 +3666,7 @@ class SakhiPrototypeState extends ChangeNotifier {
     String? preferredContactMethod,
     String? customerPhoneOrWhatsapp,
   }) async {
+    final requestEpoch = _accountStateEpoch;
     try {
       final res = await _client.post(
         'module2/businesses/${Uri.encodeComponent(businessId)}/enquiries',
@@ -3437,6 +3683,7 @@ class SakhiPrototypeState extends ChangeNotifier {
             'customerPhoneOrWhatsapp': customerPhoneOrWhatsapp.trim(),
         },
       );
+      if (requestEpoch != _accountStateEpoch) return null;
       final enq = res['enquiry'] is Map<String, dynamic>
           ? Map<String, dynamic>.from(res['enquiry'] as Map<String, dynamic>)
           : null;
@@ -3451,11 +3698,15 @@ class SakhiPrototypeState extends ChangeNotifier {
   }
 
   Future<List<Map<String, dynamic>>> fetchBusinessEnquiries() async {
+    final requestEpoch = _accountStateEpoch;
     try {
       final res = await _client.get(
         'module2/businesses/enquiries/list',
         authenticated: true,
       );
+      if (requestEpoch != _accountStateEpoch) {
+        return const <Map<String, dynamic>>[];
+      }
       final raw = res['enquiries'] ?? res['items'];
       if (raw is List) {
         cachedBusinessEnquiries = raw
@@ -3464,8 +3715,15 @@ class SakhiPrototypeState extends ChangeNotifier {
             .toList();
         notifyListeners();
       }
-    } catch (_) {}
-    return cachedBusinessEnquiries;
+    } catch (_) {
+      if (requestEpoch != _accountStateEpoch) {
+        return const <Map<String, dynamic>>[];
+      }
+    }
+    if (requestEpoch != _accountStateEpoch) {
+      return const <Map<String, dynamic>>[];
+    }
+    return List<Map<String, dynamic>>.from(cachedBusinessEnquiries);
   }
 
   Future<Map<String, dynamic>?> replyToBusinessEnquiry({
@@ -3473,6 +3731,7 @@ class SakhiPrototypeState extends ChangeNotifier {
     required String message,
     String? status,
   }) async {
+    final requestEpoch = _accountStateEpoch;
     try {
       final body = <String, Object?>{'message': message.trim()};
       if (status != null) {
@@ -3483,6 +3742,7 @@ class SakhiPrototypeState extends ChangeNotifier {
         authenticated: true,
         body: body,
       );
+      if (requestEpoch != _accountStateEpoch) return null;
       final enq = res['enquiry'] is Map<String, dynamic>
           ? Map<String, dynamic>.from(res['enquiry'] as Map<String, dynamic>)
           : null;
