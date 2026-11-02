@@ -28,10 +28,11 @@ function runNodeScript(scriptPath, args, env) {
   }
 }
 
-// Optional, one-time staging migration gate. Render's normal build never mutates a
-// database; operators must explicitly set SAKHI_RUN_MODULE6_MIGRATION=true.
-// Prisma's config enforces the exact staging Supabase host, database, role, TLS,
-// and schema. This gate also refuses to apply any migration except Module 6.
+// Render builds are read-only by default. An operator must explicitly enable
+// this one-time gate for the dedicated staging service. Prisma's config checks
+// the exact Supabase project, pooler, migrator role, database, TLS, and schema.
+// This gate accepts only the reviewed Module 2 DM/session migrations that are
+// pending after the already-applied Module 6 schema.
 function readPrismaMigrationStatus(env) {
   const result = spawnSync(
     process.execPath,
@@ -75,17 +76,17 @@ function readPrismaMigrationStatus(env) {
   );
 }
 
-function runOptionalModule6StagingMigration() {
-  const flag = process.env.SAKHI_RUN_MODULE6_MIGRATION ?? "false";
+function runOptionalStagingReleaseMigrations() {
+  const flag = process.env.SAKHI_RUN_STAGING_RELEASE_MIGRATIONS ?? "false";
   if (flag !== "true" && flag !== "false") {
-    throw new Error("SAKHI_RUN_MODULE6_MIGRATION must be exactly 'true' or 'false'.");
+    throw new Error("SAKHI_RUN_STAGING_RELEASE_MIGRATIONS must be exactly 'true' or 'false'.");
   }
   if (flag !== "true") {
     return;
   }
 
   if (process.env.SAKHI_ENV !== "staging") {
-    throw new Error("The one-time Module 6 migration gate only runs with SAKHI_ENV=staging.");
+    throw new Error("The staging release migration gate only runs with SAKHI_ENV=staging.");
   }
   if (!process.env.SAKHI_MIGRATOR_DATABASE_URL) {
     throw new Error(
@@ -94,39 +95,57 @@ function runOptionalModule6StagingMigration() {
   }
 
   const migrationEnv = { ...process.env, SAKHI_ENV: "staging" };
-  const allowedMigration = "20261029190000_module6_business_pages";
+  const allowedMigrations = [
+    "20261101120000_direct_message_dedicated_storage",
+    "20261101130000_direct_message_runtime_grants",
+    "20261101140000_auth_session_device_metadata",
+  ];
   const pending = readPrismaMigrationStatus(migrationEnv);
+  const unexpected = pending.filter((name) => !allowedMigrations.includes(name));
+  const pendingOrder = pending.map((name) => allowedMigrations.indexOf(name));
 
-  if (pending.length === 0) {
-    console.log("Staging database is already current; no migration is needed.");
-    return;
-  }
-  if (pending.length !== 1 || pending[0] !== allowedMigration) {
+  if (
+    unexpected.length > 0 ||
+    pendingOrder.some((index, position) => index < 0 || (position > 0 && index <= pendingOrder[position - 1]))
+  ) {
     throw new Error(
-      "Refusing migration. The only allowed pending migration is " +
-        allowedMigration +
-        "; found: " +
+      "Refusing staging migration. Only the reviewed Direct Message and session metadata migrations are allowed; found: " +
         (pending.join(", ") || "none") +
         ".",
     );
   }
 
-  console.log("Applying the verified additive Module 6 staging migration.");
-  runNodeScript(
-    "node_modules/prisma/build/index.js",
-    ["migrate", "deploy"],
-    migrationEnv,
-  );
+  if (pending.length > 0) {
+    console.log("Applying the exact reviewed staging Direct Message/session migrations.");
+    runNodeScript(
+      "node_modules/prisma/build/index.js",
+      ["migrate", "deploy"],
+      migrationEnv,
+    );
+  } else {
+    console.log("Staging Prisma migration ledger is already current.");
+  }
 
   const remaining = readPrismaMigrationStatus(migrationEnv);
   if (remaining.length !== 0) {
-    throw new Error("Module 6 staging migration did not leave the database fully migrated.");
+    throw new Error("Staging release migrations did not leave the database fully migrated.");
   }
-  console.log("Module 6 staging migration verified successfully.");
+
+  // The migration-specific grant intentionally skips hosted PostgreSQL. Apply
+  // the checked-in least-privilege grant file after the new DM table exists.
+  // This is idempotent and keeps DDL privileges out of the runtime app role.
+  console.log("Applying reviewed least-privilege staging runtime grants.");
+  runNodeScript(
+    "node_modules/prisma/build/index.js",
+    ["db", "execute", "--file", "prisma/staging/runtime-grants.sql"],
+    migrationEnv,
+  );
+
+  console.log("Staging release migrations and runtime grants verified successfully.");
 }
 
 try {
-  runOptionalModule6StagingMigration();
+  runOptionalStagingReleaseMigrations();
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
@@ -137,7 +156,7 @@ try {
 // the placeholder datasource and never needs the staging migrator URL.
 // The parent build process and eventual Render runtime keep their original
 // environment. Database mutation remains disabled by default; only the explicit
-// staging flag above can run the single reviewed Module 6 migration.
+// staging flag above can run the three reviewed migrations.
 console.log(
   "Generating Prisma Client in isolated offline build context (SAKHI_ENV=dev).",
 );
