@@ -80,6 +80,20 @@ export const LEGACY_SEEDED_DEMO_HANDLES = [
   "@riya",
 ];
 
+export const LEGACY_SEEDED_DEMO_POST_IDS = [
+  "11111111-1111-4111-8111-111111111101",
+  "11111111-1111-4111-8111-111111111102",
+  "11111111-1111-4111-8111-111111111103",
+  "11111111-1111-4111-8111-111111111104",
+  "11111111-1111-4111-8111-111111111105",
+  "11111111-1111-4111-8111-111111111106",
+  "11111111-1111-4111-8111-111111111107",
+  "11111111-1111-4111-8111-111111111108",
+  "11111111-1111-4111-8111-111111111109",
+  "11111111-1111-4111-8111-111111111110",
+  "11111111-1111-4111-8111-111111111111",
+];
+
 export const SEEDED_COMMUNITY_MEMBERS: Array<{
   phoneE164: string;
   displayName: string;
@@ -233,7 +247,6 @@ export class Module2Service {
         where: {
           OR: [
             { id: { in: demoPostIds } },
-            { id: { startsWith: "11111111-1111-4111-8111-" } },
             { authorUsername: { in: demoHandles } },
           ],
         },
@@ -450,7 +463,7 @@ export class Module2Service {
           deletedAt: null,
           status: { in: ["PUBLISHED", "EDITED"] },
           NOT: [
-            { id: { startsWith: "11111111-1111-4111-8111-" } },
+            { id: { in: LEGACY_SEEDED_DEMO_POST_IDS } },
             { authorUsername: { in: LEGACY_SEEDED_DEMO_HANDLES } },
           ],
         },
@@ -470,7 +483,7 @@ export class Module2Service {
           deletedAt: null,
           status: { in: ["PUBLISHED", "EDITED"] },
           NOT: [
-            { id: { startsWith: "11111111-1111-4111-8111-" } },
+            { id: { in: LEGACY_SEEDED_DEMO_POST_IDS } },
           ],
         },
         include: {
@@ -489,7 +502,7 @@ export class Module2Service {
           deletedAt: null,
           status: { in: ["PUBLISHED", "EDITED"] },
           NOT: [
-            { id: { startsWith: "11111111-1111-4111-8111-" } },
+            { id: { in: LEGACY_SEEDED_DEMO_POST_IDS } },
           ],
         },
       }),
@@ -498,7 +511,7 @@ export class Module2Service {
           deletedAt: null,
           status: { in: ["PUBLISHED", "EDITED"] },
           NOT: [
-            { id: { startsWith: "11111111-1111-4111-8111-" } },
+            { id: { in: LEGACY_SEEDED_DEMO_POST_IDS } },
             { authorUsername: { in: LEGACY_SEEDED_DEMO_HANDLES } },
           ],
         },
