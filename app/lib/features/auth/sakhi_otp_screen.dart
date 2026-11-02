@@ -744,6 +744,18 @@ class _SakhiOtpScreenState extends State<SakhiOtpScreen> {
                                     ],
                                   ),
                                 ),
+                              ] else if (_session.usesSharedTestCode) ...[
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'Friend-test mode: no SMS is sent. Enter the shared six-digit test code provided by the Sakhi coordinator. This does not verify phone ownership.',
+                                  key: Key('auth-shared-test-otp-help'),
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: SakhiColors.mutedPlum,
+                                    fontSize: 11.5,
+                                    height: 1.35,
+                                  ),
+                                ),
                               ] else if (_session.isDemo &&
                                   !_session.usesSharedTestCode) ...[
                                 const SizedBox(height: 4),
