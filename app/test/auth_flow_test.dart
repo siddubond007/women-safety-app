@@ -881,7 +881,7 @@ void main() {
   testWidgets('onboarding Get started enters mobile-first registration', (
     tester,
   ) async {
-    await tester.pumpWidget(const SakhiApp());
+    await tester.pumpWidget(const SakhiApp(authService: DemoAuthService()));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('skip-onboarding-button')));

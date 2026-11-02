@@ -51,7 +51,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final user = SakhiPrototypeState.instance.currentUser;
     _nameController = TextEditingController(text: user.displayName);
     _originalUsername = user.username.replaceFirst(RegExp(r'^@'), '');
-    if (_originalUsername.isEmpty) _originalUsername = 'ananya_rao';
+    if (_originalUsername.isEmpty) _originalUsername = '';
     _usernameController = TextEditingController(text: _originalUsername);
     _emailController = TextEditingController(text: user.email);
     _bioController = TextEditingController(

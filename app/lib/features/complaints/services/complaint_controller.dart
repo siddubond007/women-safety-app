@@ -1,3 +1,4 @@
+import '../../../core/constants/mock_data.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -37,7 +38,19 @@ const int kMaxComplaintEvidenceFiles = 5;
 class SakhiComplaintController extends ChangeNotifier {
   SakhiComplaintController({BackendApiClient? apiClient})
     : _apiClient = apiClient ?? BackendApiClient() {
+    SakhiPrototypeState.instance.registerAccountClearCallback(clearSessionData);
     unawaited(_restorePersistedPasskeys());
+  }
+
+  Future<void> clearSessionData() async {
+    _complaints.clear();
+    _sessionIssuedPasskeys.clear();
+    _lastSubmittedComplaint = null;
+    _lastError = null;
+    notifyListeners();
+    try {
+      await _secureStorage.delete(key: _passkeysCacheKey);
+    } catch (_) {}
   }
 
   static const FlutterSecureStorage _secureStorage = FlutterSecureStorage();

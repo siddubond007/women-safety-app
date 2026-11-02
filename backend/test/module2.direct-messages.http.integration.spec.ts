@@ -121,7 +121,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
       );
       Reflect.defineMetadata(
         "design:paramtypes",
-        [VerifyOtpDto],
+        [VerifyOtpDto, String],
         AuthController.prototype,
         "verifyOtp",
       );
@@ -174,6 +174,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
           database_name: string;
           database_user: string;
           can_read_sessions: boolean;
+          can_revoke_sessions: boolean;
           can_read_messages: boolean;
           can_insert_messages: boolean;
         }>
@@ -182,6 +183,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
           current_database() AS database_name,
           current_user AS database_user,
           has_table_privilege(current_user, 'public.auth_sessions', 'SELECT') AS can_read_sessions,
+          has_table_privilege(current_user, 'public.auth_sessions', 'UPDATE') AS can_revoke_sessions,
           has_table_privilege(current_user, 'public.direct_messages', 'SELECT') AS can_read_messages,
           has_table_privilege(current_user, 'public.direct_messages', 'INSERT') AS can_insert_messages
       `;
@@ -189,6 +191,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
         database_name: "sakhi_dev",
         database_user: "sakhi_dev_app",
         can_read_sessions: true,
+        can_revoke_sessions: true,
         can_read_messages: true,
         can_insert_messages: true,
       });
@@ -207,6 +210,12 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
                 { targetId: { in: fixtureMessageIds } },
               ],
               action: "module3.direct_message.persisted",
+            },
+          });
+          await cleanupDb.auditEvent.deleteMany({
+            where: {
+              actorId: { in: fixtureAccountIds },
+              action: "auth.session.revoked",
             },
           });
           await cleanupDb.directMessage.deleteMany({
@@ -281,16 +290,19 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
       fixtureDirectoryIds.push(directoryProfile.id);
 
       const token = randomBytes(32).toString("base64url");
-      await cleanupDb.authSession.create({
+      const authSession = await cleanupDb.authSession.create({
         data: {
           accountId: account.id,
           tokenDigest: createHash("sha256").update(token).digest("hex"),
           expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+          deviceName: "Android app",
         },
+        select: { id: true },
       });
 
       return {
         accountId: account.id,
+        sessionId: authSession.id,
         directoryProfileId: directoryProfile.id,
         username,
         authorization: `Bearer ${token}`,
@@ -397,6 +409,91 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
         .set("Authorization", observer.authorization)
         .expect(200);
       expect(observerInbox.body.items).toEqual([]);
+    }, 30000);
+
+    it("lists and revokes only the owner's login sessions over authenticated HTTP", async () => {
+      if (!app || !cleanupDb) {
+        throw new Error(
+          "Session HTTP integration dependencies are not initialized.",
+        );
+      }
+
+      const owner = await createSyntheticMember("Session Owner");
+      const observer = await createSyntheticMember("Session Observer");
+      const otherSession = await cleanupDb.authSession.create({
+        data: {
+          accountId: owner.accountId,
+          tokenDigest: createHash("sha256")
+            .update(randomBytes(32))
+            .digest("hex"),
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+          deviceName: "Windows app",
+        },
+        select: { id: true },
+      });
+
+      const response = await request(app.getHttpServer())
+        .get("/api/v1/module2/sessions")
+        .set("Authorization", owner.authorization)
+        .expect(200);
+
+      expect(response.body.sessions).toHaveLength(2);
+      expect(response.body.sessions).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: owner.sessionId,
+            deviceName: "Android app",
+            isCurrent: true,
+            isActive: true,
+          }),
+          expect.objectContaining({
+            id: otherSession.id,
+            deviceName: "Windows app",
+            isCurrent: false,
+            isActive: true,
+          }),
+        ]),
+      );
+      expect(JSON.stringify(response.body)).not.toContain("tokenDigest");
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/module2/sessions/${otherSession.id}`)
+        .set("Authorization", observer.authorization)
+        .expect(404);
+
+      const unchanged = await cleanupDb.authSession.findUnique({
+        where: { id: otherSession.id },
+        select: { revokedAt: true },
+      });
+      expect(unchanged?.revokedAt).toBeNull();
+
+      const revoked = await request(app.getHttpServer())
+        .delete(`/api/v1/module2/sessions/${otherSession.id}`)
+        .set("Authorization", owner.authorization)
+        .expect(200);
+      expect(revoked.body).toEqual({
+        revoked: true,
+        currentSession: false,
+      });
+
+      const stored = await cleanupDb.authSession.findUnique({
+        where: { id: otherSession.id },
+        select: { revokedAt: true },
+      });
+      expect(stored?.revokedAt).toBeInstanceOf(Date);
+
+      const refreshed = await request(app.getHttpServer())
+        .get("/api/v1/module2/sessions")
+        .set("Authorization", owner.authorization)
+        .expect(200);
+      const refreshedSession = refreshed.body.sessions.find(
+        (session: { id: string }) => session.id === otherSession.id,
+      );
+      expect(refreshedSession).toMatchObject({
+        isActive: false,
+        isCurrent: false,
+        deviceName: "Windows app",
+      });
     }, 30000);
   },
 );

@@ -85,6 +85,15 @@ class BackendApiClient {
   String? _accessToken;
   Future<void>? _tokenLoad;
 
+  String get _reportedDeviceName {
+    if (Platform.isAndroid) return 'Android app';
+    if (Platform.isIOS) return 'iOS app';
+    if (Platform.isWindows) return 'Windows app';
+    if (Platform.isMacOS) return 'macOS app';
+    if (Platform.isLinux) return 'Linux app';
+    return 'Sakhi app';
+  }
+
   Future<void> _loadStoredToken() async {
     _accessToken = await _secureStorage
         .read(key: _tokenStorageKey)
@@ -337,6 +346,9 @@ class BackendApiClient {
           .timeout(const Duration(seconds: 12));
       requestStage = 'preparing request';
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      if (path == 'auth/otp/verify') {
+        request.headers.set('X-Sakhi-Device-Name', _reportedDeviceName);
+      }
       if (headers != null) {
         headers.forEach((key, value) {
           request.headers.set(key, value);

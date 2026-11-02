@@ -71,7 +71,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
       Reflect.defineMetadata("design:paramtypes", [AuthenticationService], AuthController);
       Reflect.defineMetadata("design:paramtypes", [RequestOtpDto], AuthController.prototype, "requestOtp");
       Reflect.defineMetadata("design:paramtypes", [ResendOtpDto], AuthController.prototype, "resendOtp");
-      Reflect.defineMetadata("design:paramtypes", [VerifyOtpDto], AuthController.prototype, "verifyOtp");
+      Reflect.defineMetadata("design:paramtypes", [VerifyOtpDto, String], AuthController.prototype, "verifyOtp");
       Reflect.defineMetadata("design:paramtypes", [String, CreateProfileDto], AuthController.prototype, "createProfile");
       Reflect.defineMetadata("design:paramtypes", [String], AuthController.prototype, "me");
       Reflect.defineMetadata("design:paramtypes", [String], AuthController.prototype, "logout");

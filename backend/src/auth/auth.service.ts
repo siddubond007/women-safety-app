@@ -757,8 +757,15 @@ export class AuthenticationService {
     return "pendingVerification";
   }
 
-  async verifyOtp(dto: VerifyOtpDto) {
+  async verifyOtp(dto: VerifyOtpDto, reportedDeviceName?: string) {
     const mode = this.assertOtpModeEnabled();
+    const cleanedDeviceName = (reportedDeviceName ?? "")
+      .replace(/[\x00-\x1f\x7f]/g, "")
+      .trim()
+      .slice(0, 80);
+    const deviceName = /^[a-zA-Z0-9 ._-]{1,80}$/.test(cleanedDeviceName)
+      ? cleanedDeviceName
+      : null;
     const now = new Date();
 
     return this.prisma.$transaction(async (tx) => {
@@ -928,6 +935,7 @@ export class AuthenticationService {
           accountId: account.id,
           tokenDigest: this.digestToken(token),
           expiresAt,
+          deviceName,
         },
       });
 

@@ -169,16 +169,38 @@ class AccountSecurityScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    'Revoke access on a device you no longer use.',
+                    'Platform labels are reported by the Sakhi app. Precise location and exact hardware details are not collected.',
                     style: AppTypography.subtitle,
                   ),
                   const SizedBox(height: 10),
                   Expanded(
-                    child: backend.sessions.isEmpty
+                    child:
+                        backend.sessions.isEmpty && backend.errorMessage != null
+                        ? Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  backend.errorMessage!,
+                                  textAlign: TextAlign.center,
+                                  style: AppTypography.subtitle,
+                                ),
+                                const SizedBox(height: 10),
+                                TextButton.icon(
+                                  onPressed: () async {
+                                    await backend.loadSessions();
+                                  },
+                                  icon: const Icon(Icons.refresh_rounded),
+                                  label: const Text('Retry'),
+                                ),
+                              ],
+                            ),
+                          )
+                        : backend.sessions.isEmpty
                         ? const Module2EmptyPanel(
                             icon: Icons.devices_outlined,
-                            title: 'No active sessions found',
-                            message: 'The backend returned no login sessions for this account.',
+                            title: 'No login sessions found',
+                            message: 'The backend confirmed that this account has no login sessions.',
                           )
                         : ListView.separated(
                             itemCount: backend.sessions.length,
@@ -188,6 +210,9 @@ class AccountSecurityScreen extends StatelessWidget {
                               final session = backend.sessions[index];
                               final active = session['isActive'] == true;
                               final current = session['isCurrent'] == true;
+                              final deviceName =
+                                  session['deviceName']?.toString().trim() ??
+                                  '';
                               final created = session['createdAt'] is String
                                   ? DateTime.tryParse(
                                       session['createdAt'] as String,
@@ -215,8 +240,10 @@ class AccountSecurityScreen extends StatelessWidget {
                                       children: [
                                         Text(
                                           current
-                                              ? 'This device'
-                                              : 'Login session',
+                                              ? 'This device • Current session'
+                                              : deviceName.isNotEmpty
+                                              ? '$deviceName • Other session'
+                                              : 'Other signed-in session',
                                           style: AppTypography.cardTitle
                                               .copyWith(fontSize: 13),
                                         ),
@@ -245,7 +272,7 @@ class AccountSecurityScreen extends StatelessWidget {
                                       ],
                                     ),
                                   ),
-                                  if (active)
+                                  if (active && !current)
                                     TextButton(
                                       onPressed: () => _revokeSession(
                                         context,

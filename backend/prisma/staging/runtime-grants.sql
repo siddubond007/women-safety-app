@@ -42,6 +42,9 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   public.member_notification_preferences,
   public.safety_emergency_contacts,
   public.safety_sos_events,
+  public.safety_location_shares,
+  public.safety_helpline_configs,
+  public.verified_police_stations,
   public.wellness_resources,
   public.member_moderation_blocks,
   public.member_user_reports
@@ -75,6 +78,8 @@ TO sakhi_staging_app;
 
 GRANT SELECT, INSERT, UPDATE ON TABLE
   public.business_directory_listings,
+  public.business_enquiries,
+  public.business_reports,
   public.platform_config_settings
 TO sakhi_staging_app;
 

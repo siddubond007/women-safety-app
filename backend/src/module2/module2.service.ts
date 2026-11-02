@@ -1,11 +1,13 @@
 import { SakhiAdminRbacRegistry } from "../admin-review/admin-rbac.helper.js";
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
   Optional,
+  ServiceUnavailableException,
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { AuthenticationService } from "../auth/auth.service.js";
@@ -1134,8 +1136,9 @@ export class Module2Service {
         followingCount: activeFollowingCount,
         interests: this.parseInterests(profile?.interests),
         businessProfileUrl: profile?.businessProfileUrl ?? null,
-        twoFactorEnabled: profile?.twoFactorEnabled ?? false,
-        activeSessionsCount: Math.max(1, activeSessionsCount),
+        // No second-factor provider is configured; never surface a legacy flag as active protection.
+        twoFactorEnabled: false,
+        activeSessionsCount,
       },
       communityPosts,
       exploreRecommendedPosts,
@@ -4407,15 +4410,119 @@ export class Module2Service {
 </html>`;
   }
 
+  async listLoginSessions(authorization: string | undefined) {
+    const currentSession =
+      await this.auth.authenticateAuthorization(authorization);
+    const now = new Date();
+    const sessions = await this.prisma.authSession.findMany({
+      where: { accountId: currentSession.accountId },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        createdAt: true,
+        expiresAt: true,
+        revokedAt: true,
+        lastSeenAt: true,
+        deviceName: true,
+      },
+    });
+
+    return {
+      sessions: sessions.map((session) => ({
+        id: session.id,
+        createdAt: session.createdAt,
+        expiresAt: session.expiresAt,
+        lastSeenAt: session.lastSeenAt,
+        deviceName: session.deviceName,
+        isActive: session.revokedAt === null && session.expiresAt > now,
+        isCurrent: session.id === currentSession.id,
+      })),
+    };
+  }
+
+  async revokeLoginSession(
+    authorization: string | undefined,
+    sessionId: string,
+  ) {
+    const currentSession =
+      await this.auth.authenticateAuthorization(authorization);
+    const cleanedId = sessionId.trim();
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        cleanedId,
+      )
+    ) {
+      throw new BadRequestException("Choose a valid login session.");
+    }
+
+    const target = await this.prisma.authSession.findFirst({
+      where: {
+        id: cleanedId,
+        accountId: currentSession.accountId,
+      },
+      select: { id: true, revokedAt: true, expiresAt: true },
+    });
+    if (!target) {
+      throw new NotFoundException("Login session was not found.");
+    }
+    if (target.id === currentSession.id) {
+      throw new ForbiddenException(
+        "The current device session cannot be revoked here. Sign out on this device instead.",
+      );
+    }
+
+    const now = new Date();
+    if (target.revokedAt || target.expiresAt <= now) {
+      throw new ConflictException("This login session is already inactive.");
+    }
+
+    const updated = await this.prisma.authSession.updateMany({
+      where: {
+        id: target.id,
+        accountId: currentSession.accountId,
+        revokedAt: null,
+        expiresAt: { gt: now },
+      },
+      data: { revokedAt: now },
+    });
+    if (updated.count !== 1) {
+      throw new ConflictException(
+        "This login session changed before it could be revoked. Refresh and try again.",
+      );
+    }
+
+    const isCurrentSession = target.id === currentSession.id;
+    await this.prisma.auditEvent.create({
+      data: {
+        actorType: "MEMBER",
+        actorId: currentSession.accountId,
+        action: "auth.session.revoked",
+        targetType: "auth_session",
+        targetId: target.id,
+        outcome: "revoked_by_member",
+        requestId: randomUUID(),
+        redactedMetadata: { currentSession: isCurrentSession },
+      },
+    });
+
+    return { revoked: true, currentSession: isCurrentSession };
+  }
+
   async toggleTwoFactor(
     authorization: string | undefined,
     dto: ToggleTwoFactorDto,
   ) {
     const session = await this.auth.authenticateAuthorization(authorization);
     const enabled = dto.enabled ?? dto.twoFactorEnabled ?? false;
+    if (enabled) {
+      throw new ServiceUnavailableException(
+        "Two-factor authentication is not available yet. No second-factor provider is configured, so the setting has not been enabled.",
+      );
+    }
+
     const updated = await this.prisma.memberProfile.update({
       where: { accountId: session.accountId },
-      data: { twoFactorEnabled: enabled },
+      data: { twoFactorEnabled: false },
     });
 
     await this.prisma.auditEvent.create({
@@ -4425,47 +4532,26 @@ export class Module2Service {
         action: "module2.security.two_factor_updated",
         targetType: "member_account",
         targetId: session.accountId,
-        outcome: enabled ? "enabled" : "disabled",
+        outcome: "disabled",
         requestId: randomUUID(),
       },
     });
 
     return {
       twoFactorEnabled: updated.twoFactorEnabled,
+      available: false,
+      status: "not_configured" as const,
     };
   }
 
   async updateSecurityPin(
     authorization: string | undefined,
-    dto: UpdateSecurityPinDto,
+    _dto: UpdateSecurityPinDto,
   ) {
-    const session = await this.auth.authenticateAuthorization(authorization);
-    const resolvedPin = (dto.newPin ?? dto.pin ?? "").trim();
-    if (!/^\d{4,6}$/.test(resolvedPin)) {
-      throw new BadRequestException("PIN must be 4 to 6 digits.");
-    }
-    const now = new Date();
-    await this.prisma.memberProfile.update({
-      where: { accountId: session.accountId },
-      data: { securityPinUpdatedAt: now },
-    });
-
-    await this.prisma.auditEvent.create({
-      data: {
-        actorType: "MEMBER",
-        actorId: session.accountId,
-        action: "module2.security.pin_updated",
-        targetType: "member_account",
-        targetId: session.accountId,
-        outcome: "success",
-        requestId: randomUUID(),
-      },
-    });
-
-    return {
-      updatedAt: now.toISOString(),
-      status: "updated" as const,
-    };
+    await this.auth.authenticateAuthorization(authorization);
+    throw new ServiceUnavailableException(
+      "PIN/password changes are not available yet. Sakhi does not currently store a verifiable PIN or password credential, so no change was made.",
+    );
   }
 
   async reportUserOrPost(
@@ -7520,17 +7606,89 @@ export class Module2Service {
         });
       }
       if (tx.memberProfile?.update) {
-        await tx.memberProfile.update({
-          where: { accountId: session.accountId },
-          data: {
-            displayName: "Deleted member",
-            email: null,
-            profilePhotoRef: null,
-            bio: null,
-            locationCity: null,
-            interests: [],
-          },
-        });
+        await tx.memberProfile
+          .update({
+            where: { accountId: session.accountId },
+            data: {
+              displayName: "Deleted member",
+              email: null,
+              profilePhotoRef: null,
+              bio: null,
+              locationCity: null,
+              interests: [],
+            },
+          })
+          .catch(async () => {
+            await tx.memberProfile.update({
+              where: { accountId: session.accountId },
+              data: {
+                displayName: "Deleted member",
+                username: null,
+                email: null,
+                profilePhotoRef: null,
+                bio: "",
+                location: "",
+                interests: [],
+                businessProfileUrl: null,
+                businessProfileName: null,
+                businessCategory: null,
+              },
+            });
+          });
+      }
+      if (tx.communityPost?.updateMany) {
+        await tx.communityPost
+          .updateMany({
+            where: { authorAccountId: session.accountId },
+            data: {
+              content: "[removed]",
+              imageAsset: null,
+              moderationStatus: "REMOVED",
+            },
+          })
+          .catch(() => undefined);
+      }
+      if (tx.communityPostComment?.deleteMany) {
+        await tx.communityPostComment
+          .deleteMany({
+            where: { accountId: session.accountId },
+          })
+          .catch(() => undefined);
+      }
+      if (tx.communityPostLike?.deleteMany) {
+        await tx.communityPostLike
+          .deleteMany({
+            where: { accountId: session.accountId },
+          })
+          .catch(() => undefined);
+      }
+      if (tx.communityPostSave?.deleteMany) {
+        await tx.communityPostSave
+          .deleteMany({
+            where: { accountId: session.accountId },
+          })
+          .catch(() => undefined);
+      }
+      if (tx.memberFollow?.deleteMany) {
+        await tx.memberFollow
+          .deleteMany({
+            where: { accountId: session.accountId },
+          })
+          .catch(() => undefined);
+      }
+      if (tx.memberPrivacyPreference?.deleteMany) {
+        await tx.memberPrivacyPreference
+          .deleteMany({
+            where: { accountId: session.accountId },
+          })
+          .catch(() => undefined);
+      }
+      if (tx.memberNotificationPreference?.deleteMany) {
+        await tx.memberNotificationPreference
+          .deleteMany({
+            where: { accountId: session.accountId },
+          })
+          .catch(() => undefined);
       }
       if (tx.memberPost?.updateMany) {
         await tx.memberPost.updateMany({

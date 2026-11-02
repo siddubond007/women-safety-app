@@ -206,7 +206,7 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
                   style: AppTypography.bodyMedium,
                 ),
                 subtitle: const Text(
-                  'Send an encrypted Sakhi direct message',
+                  'Send a direct message through your Sakhi account',
                   style: AppTypography.subtitle,
                 ),
                 trailing: const Icon(
@@ -534,19 +534,23 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
                 : user.displayName;
             final handle = isTargetMember
                 ? (widget.targetMemberUsername ?? '@member')
-                : (user.username.isEmpty ? '@ananya_rao' : user.username);
+                : (user.username.isEmpty ? '@member' : user.username);
             final followersTotal = isTargetMember
                 ? (!_showingFollowingOnly && !_loadingConnections
                       ? _members.length
                       : (widget.initialFollowersCount ?? 0))
-                : (!_showingFollowingOnly && !_loadingConnections && !_connectionsUnavailable
+                : (!_showingFollowingOnly &&
+                          !_loadingConnections &&
+                          !_connectionsUnavailable
                       ? _members.length
                       : user.followersCount);
             final followingTotal = isTargetMember
                 ? (_showingFollowingOnly && !_loadingConnections
                       ? _members.length
                       : (widget.initialFollowingCount ?? 0))
-                : (_showingFollowingOnly && !_loadingConnections && !_connectionsUnavailable
+                : (_showingFollowingOnly &&
+                          !_loadingConnections &&
+                          !_connectionsUnavailable
                       ? _members.length
                       : user.followingCount);
             final query = _searchController.text.trim().toLowerCase();
@@ -672,7 +676,9 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
 
                   const SizedBox(height: 12),
                   SakhiSearchField(
-                    hintText: _showingFollowingOnly ? 'Search following...' : 'Search followers...',
+                    hintText: _showingFollowingOnly
+                        ? 'Search following...'
+                        : 'Search followers...',
                     controller: _searchController,
                     onChanged: (_) => setState(() {}),
                     onClear: () {
@@ -872,8 +878,12 @@ class _SakhiDirectMessageSheet extends StatefulWidget {
 
 class _SakhiDirectMessageSheetState extends State<_SakhiDirectMessageSheet> {
   final TextEditingController _msgCtrl = TextEditingController();
+  final SakhiPrototypeState _state = SakhiPrototypeState.instance;
   List<Map<String, dynamic>> _messages = <Map<String, dynamic>>[];
+  late int _accountStateEpoch;
   bool _loading = true;
+  bool _loadFailed = false;
+  bool _sessionInvalidated = false;
   bool _sending = false;
 
   String get _peerKey => widget.member.id.trim().isNotEmpty
@@ -883,37 +893,58 @@ class _SakhiDirectMessageSheetState extends State<_SakhiDirectMessageSheet> {
   @override
   void initState() {
     super.initState();
+    _accountStateEpoch = _state.accountStateEpoch;
+    _state.addListener(_handleAccountStateChanged);
     _load();
   }
 
   @override
   void dispose() {
+    _state.removeListener(_handleAccountStateChanged);
     _msgCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _load() async {
-    final items = await SakhiPrototypeState.instance.fetchDirectMessages(
-      _peerKey,
-    );
-    if (!mounted) return;
+  void _handleAccountStateChanged() {
+    final nextEpoch = _state.accountStateEpoch;
+    if (!mounted || nextEpoch == _accountStateEpoch) return;
+    _accountStateEpoch = nextEpoch;
     setState(() {
-      _messages = List<Map<String, dynamic>>.from(items);
+      _sessionInvalidated = true;
+      _messages = <Map<String, dynamic>>[];
+      _msgCtrl.clear();
+      _loading = false;
+      _loadFailed = false;
+      _sending = false;
+    });
+  }
+
+  Future<void> _load() async {
+    if (_sessionInvalidated) return;
+    setState(() {
+      _loading = true;
+      _loadFailed = false;
+    });
+    final items = await _state.fetchDirectMessages(_peerKey);
+    if (!mounted || _sessionInvalidated) return;
+    setState(() {
+      _messages = items ?? <Map<String, dynamic>>[];
+      _loadFailed = items == null;
       _loading = false;
     });
   }
 
   Future<void> _send() async {
     final text = _msgCtrl.text.trim();
-    if (text.isEmpty || _sending) return;
+    if (text.isEmpty || _sending || _sessionInvalidated) return;
     setState(() => _sending = true);
-    final sent = await SakhiPrototypeState.instance.sendDirectMessage(
+    final sent = await _state.sendDirectMessage(
       recipientId: widget.member.id,
       recipientHandle: widget.member.username,
       recipientName: widget.member.name,
       message: text,
     );
-    if (!mounted) return;
+    if (!mounted || _sessionInvalidated) return;
     setState(() {
       _sending = false;
       if (sent != null) {
@@ -994,7 +1025,7 @@ class _SakhiDirectMessageSheetState extends State<_SakhiDirectMessageSheet> {
                           ],
                         ),
                         Text(
-                          '${widget.member.username} • Encrypted Sakhi Chat',
+                          '${widget.member.username} • Sakhi direct message',
                           style: AppTypography.caption,
                         ),
                       ],
@@ -1008,9 +1039,76 @@ class _SakhiDirectMessageSheetState extends State<_SakhiDirectMessageSheet> {
               ),
             ),
             const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 9, 16, 9),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.info_outline_rounded,
+                    size: 16,
+                    color: AppColors.textMuted,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "These messages are not end-to-end encrypted. Message text is stored on Sakhi's server. Do not send passwords, OTPs, or other highly sensitive information.",
+                      style: AppTypography.caption.copyWith(
+                        color: AppColors.textMuted,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             Expanded(
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
+                  : _sessionInvalidated
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text(
+                          'This conversation was cleared because your Sakhi session changed. Close this screen and sign in again to continue.',
+                          style: AppTypography.subtitle,
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    )
+                  : _loadFailed
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.cloud_off_outlined,
+                              size: 34,
+                              color: AppColors.textMuted,
+                            ),
+                            const SizedBox(height: 10),
+                            const Text(
+                              "Couldn't load this conversation",
+                              style: AppTypography.cardTitle,
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 6),
+                            const Text(
+                              'Your message history is unavailable. Check your connection or sign in again, then retry.',
+                              style: AppTypography.subtitle,
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 12),
+                            TextButton.icon(
+                              onPressed: _loading ? null : _load,
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: const Text('Retry'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
                   : _messages.isEmpty
                   ? Center(
                       child: SingleChildScrollView(
@@ -1019,7 +1117,7 @@ class _SakhiDirectMessageSheetState extends State<_SakhiDirectMessageSheet> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(
-                              Icons.lock_outline_rounded,
+                              Icons.chat_bubble_outline_rounded,
                               size: 34,
                               color: AppColors.primaryPurple.withValues(
                                 alpha: 0.5,
@@ -1080,44 +1178,54 @@ class _SakhiDirectMessageSheetState extends State<_SakhiDirectMessageSheet> {
                     ),
             ),
             const Divider(height: 1),
-            SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _msgCtrl,
-                        textInputAction: TextInputAction.send,
-                        onSubmitted: (_) => _send(),
-                        decoration: InputDecoration(
-                          hintText: 'Message ${widget.member.name}...',
-                          isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 10,
-                          ),
-                          filled: true,
-                          fillColor: const Color(0xFFFAF5FC),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(999),
-                            borderSide: const BorderSide(
-                              color: AppColors.borderSubtle,
+            if (_sessionInvalidated)
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 12, 16, 20),
+                child: Text(
+                  'Messaging is disabled until you sign in again.',
+                  style: AppTypography.subtitle,
+                  textAlign: TextAlign.center,
+                ),
+              )
+            else
+              SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _msgCtrl,
+                          textInputAction: TextInputAction.send,
+                          onSubmitted: (_) => _send(),
+                          decoration: InputDecoration(
+                            hintText: 'Message ${widget.member.name}...',
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 10,
+                            ),
+                            filled: true,
+                            fillColor: const Color(0xFFFAF5FC),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(999),
+                              borderSide: const BorderSide(
+                                color: AppColors.borderSubtle,
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    SakhiPillButton(
-                      label: _sending ? '...' : 'Send',
-                      onPressed: _sending ? null : _send,
-                    ),
-                  ],
+                      const SizedBox(width: 8),
+                      SakhiPillButton(
+                        label: _sending ? '...' : 'Send',
+                        onPressed: _sending ? null : _send,
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
           ],
         ),
       ),
