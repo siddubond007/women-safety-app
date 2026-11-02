@@ -316,35 +316,31 @@ export class Module2Service {
     );
     const defaultGroups = [
       {
-        name: "Women in Tech Bangalore",
-        description:
-          "Bengaluru • System design, cloud careers & peer mentorship",
+        name: "Women in Tech",
+        description: "System design, cloud careers & peer mentorship",
         category: "Education & Career",
-        membersCount: activeVerifiedCount,
+        membersCount: 0,
         newPostsToday: 0,
       },
       {
         name: "Mindful Mornings Circle",
-        description:
-          "Hyderabad & Pan-India • Daily breathwork & emotional grounding",
+        description: "Daily breathwork & emotional grounding",
         category: "Health & Wellness",
-        membersCount: activeVerifiedCount,
+        membersCount: 0,
         newPostsToday: 0,
       },
       {
-        name: "Safe Solo Travelers India",
-        description:
-          "New Delhi & Pan-India • Verified city guides & SOS check-in buddies",
+        name: "Safe Solo Travelers",
+        description: "Verified city guides & SOS check-in buddies",
         category: "Safety & Travel",
-        membersCount: activeVerifiedCount,
+        membersCount: 0,
         newPostsToday: 0,
       },
       {
-        name: "PCOS & Hormonal Wellness Hub",
-        description:
-          "Mumbai & Chennai • Doctor Q&As, cycle nutrition & strength",
+        name: "Hormonal & Cycle Wellness Hub",
+        description: "Doctor Q&As, cycle nutrition & wellness routines",
         category: "Health & Wellness",
-        membersCount: activeVerifiedCount,
+        membersCount: 0,
         newPostsToday: 0,
       },
     ];
@@ -6751,17 +6747,6 @@ export class Module2Service {
       nearbyMembers.length > 0 ? nearbyMembers : mappedMembers.slice(0, 8);
 
     const activeCircles = groups.map((g, idx) => {
-      const matchingMembers = mappedMembers.filter((m) =>
-        m.interests.some(
-          (interest) =>
-            g.category.toLowerCase().includes(interest.toLowerCase()) ||
-            g.name.toLowerCase().includes(interest.toLowerCase()),
-        ),
-      );
-      const realMemberCount = Math.max(
-        1,
-        matchingMembers.length || verifiedProfiles.length,
-      );
       const circleDistanceKm = Number(
         Math.min(effectiveRadiusKm - 0.5, 1.2 + idx * 1.6).toFixed(1),
       );
@@ -6773,7 +6758,7 @@ export class Module2Service {
           "",
         ),
         category: g.category,
-        membersCount: realMemberCount,
+        membersCount: g.membersCount,
         newPostsToday: g.newPostsToday,
         distanceKm: circleDistanceKm,
         locationArea: viewerCity,
