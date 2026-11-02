@@ -179,28 +179,32 @@ void main() {
       },
     );
 
-    testWidgets('explains the shared friend-test OTP and does not imply SMS delivery', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: SakhiOtpScreen(
-            authService: const DemoAuthService(),
-            session: _session(usesSharedTestCode: true),
+    testWidgets(
+      'explains the shared friend-test OTP and does not imply SMS delivery',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: SakhiOtpScreen(
+              authService: const DemoAuthService(),
+              session: _session(usesSharedTestCode: true),
+            ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      expect(
-        find.byKey(const Key('auth-shared-test-otp-help')),
-        findsOneWidget,
-      );
-      expect(find.textContaining('no SMS is sent'), findsOneWidget);
-      expect(find.textContaining('shared six-digit test code'), findsOneWidget);
-      expect(find.textContaining('enter any six digits'), findsNothing);
-      expect(tester.takeException(), isNull);
-    });
+        expect(
+          find.byKey(const Key('auth-shared-test-otp-help')),
+          findsOneWidget,
+        );
+        expect(find.textContaining('no SMS is sent'), findsOneWidget);
+        expect(
+          find.textContaining('shared six-digit test code'),
+          findsOneWidget,
+        );
+        expect(find.textContaining('enter any six digits'), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
 
     testWidgets('custom OTP keypad enters digits and supports backspace', (
       tester,
