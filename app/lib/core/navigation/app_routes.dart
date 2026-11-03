@@ -15,6 +15,7 @@ import '../../features/profile/screens/profile_screen.dart';
 import '../../features/safety/screens/safety_screen.dart';
 import '../../features/settings/screens/more_options_menu_screen.dart';
 import '../../features/settings/screens/privacy_settings_screen.dart';
+import '../../features/wellness/screens/menstrual_cycle_tracker_screen.dart';
 import '../../features/wellness/screens/wellness_screen.dart';
 import 'app_navigation_shell.dart';
 
@@ -52,6 +53,9 @@ class AppRoutes {
   static const String businessCreate = '/businesses/create';
   static const String businessEnquiries = '/businesses/enquiries';
 
+  // Module 7: Women's Menstrual Cycle Tracker Route (SRS Section 9)
+  static const String menstrualCycleTracker = '/wellness/cycle-tracker';
+
   static Map<String, WidgetBuilder> get routes => {
     root: (_) => const AppNavigationShell(),
     home: (_) => const Scaffold(body: HomeScreen()),
@@ -78,5 +82,6 @@ class AppRoutes {
     businessHub: (_) => const WomenBusinessHubScreen(showBackButton: true),
     businessCreate: (_) => const BusinessRegistrationWizardScreen(),
     businessEnquiries: (_) => const BusinessEnquiryInboxScreen(),
+    menstrualCycleTracker: (_) => const MenstrualCycleTrackerScreen(),
   };
 }

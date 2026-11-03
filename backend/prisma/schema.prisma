@@ -86,6 +86,9 @@ model MemberAccount {
   userReports             MemberUserReport[]
   directMessagesSent      DirectMessage[]                @relation("DirectMessageSender")
   directMessagesReceived  DirectMessage[]                @relation("DirectMessageRecipient")
+  menstrualCycleLogs      MenstrualCycleLog[]
+  menstrualDailyLogs      MenstrualDailyLog[]
+  menstrualPreference     MenstrualTrackerPreference?
 
   @@map("member_accounts")
 }
@@ -855,4 +858,71 @@ model PlatformConfigSetting {
   updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("platform_config_settings")
+}
+
+// ============================================================================
+// Module 7: Women's Menstrual Cycle Tracker (SRS Sections 9.1–9.5)
+// Strictly owner-isolated health records; never exposed on public profiles,
+// social feeds, or administrator review endpoints.
+// ============================================================================
+
+model MenstrualCycleLog {
+  id                 String        @id @default(uuid()) @db.Uuid
+  accountId          String        @map("account_id") @db.Uuid
+  startDate          DateTime      @map("start_date") @db.Date
+  endDate            DateTime?     @map("end_date") @db.Date
+  cycleLengthDays    Int?          @map("cycle_length_days")
+  periodDurationDays Int?          @map("period_duration_days")
+  flowIntensity      String        @default("MEDIUM") @map("flow_intensity") @db.VarChar(24)
+  symptoms           Json          @default("[]") @db.JsonB
+  mood               String?       @db.VarChar(40)
+  energyLevel        Int?          @map("energy_level")
+  crampsSeverity     String?       @map("cramps_severity") @db.VarChar(24)
+  notesEncrypted     String?       @map("notes_encrypted") @db.Text
+  isIrregular        Boolean       @default(false) @map("is_irregular")
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  account            MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "menstrual_cycle_logs_account_id_fkey")
+
+  @@index([accountId, startDate], map: "menstrual_cycle_logs_account_start_idx")
+  @@map("menstrual_cycle_logs")
+}
+
+model MenstrualDailyLog {
+  id               String        @id @default(uuid()) @db.Uuid
+  accountId        String        @map("account_id") @db.Uuid
+  logDate          DateTime      @map("log_date") @db.Date
+  flowIntensity    String?       @map("flow_intensity") @db.VarChar(24)
+  crampsSeverity   String        @default("NONE") @map("cramps_severity") @db.VarChar(24)
+  mood             String?       @db.VarChar(40)
+  energyLevel      Int           @default(3) @map("energy_level")
+  symptoms         Json          @default("[]") @db.JsonB
+  hydrationGlasses Int           @default(0) @map("hydration_glasses")
+  sleepHours       Float?        @map("sleep_hours")
+  notesEncrypted   String?       @map("notes_encrypted") @db.Text
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  account          MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "menstrual_daily_logs_account_id_fkey")
+
+  @@unique([accountId, logDate], map: "menstrual_daily_logs_account_date_key")
+  @@index([accountId, logDate], map: "menstrual_daily_logs_account_date_idx")
+  @@map("menstrual_daily_logs")
+}
+
+model MenstrualTrackerPreference {
+  accountId                   String        @id @map("account_id") @db.Uuid
+  defaultCycleLength          Int           @default(28) @map("default_cycle_length")
+  defaultPeriodDuration       Int           @default(5) @map("default_period_duration")
+  discreetNotifications       Boolean       @default(true) @map("discreet_notifications")
+  periodReminderEnabled       Boolean       @default(true) @map("period_reminder_enabled")
+  periodReminderDaysBefore    Int           @default(2) @map("period_reminder_days_before")
+  ovulationReminderEnabled    Boolean       @default(false) @map("ovulation_reminder_enabled")
+  hydrationReminderEnabled    Boolean       @default(true) @map("hydration_reminder_enabled")
+  selfCareReminderEnabled     Boolean       @default(true) @map("self_care_reminder_enabled")
+  showFertilityEstimates      Boolean       @default(true) @map("show_fertility_estimates")
+  medicalDisclaimerAcceptedAt DateTime?     @map("medical_disclaimer_accepted_at") @db.Timestamptz(6)
+  updatedAt                   DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  account                     MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "menstrual_tracker_preferences_account_id_fkey")
+
+  @@map("menstrual_tracker_preferences")
 }

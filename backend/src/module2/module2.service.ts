@@ -4443,6 +4443,10 @@ export class Module2Service {
       "image/webp",
       "video/mp4",
     ] as const;
+    const detectedMime = this.detectBinaryMimeType(file.buffer);
+    if (detectedMime) {
+      file.mimetype = detectedMime;
+    }
     if (
       !allowedTypes.includes(file.mimetype as (typeof allowedTypes)[number])
     ) {
@@ -4491,8 +4495,12 @@ export class Module2Service {
       size: number;
       inlineBase64?: string;
     };
+    const fallbackInlineBase64 =
+      !isVideo && file.buffer.length <= 8 * 1024 * 1024
+        ? file.buffer.toString("base64")
+        : undefined;
     try {
-      stored = await this.googleDrive.uploadImage({
+      const driveUploaded = await this.googleDrive.uploadImage({
         uploadId,
         accountId: session.accountId,
         purpose: normalizedPurpose,
@@ -4502,15 +4510,19 @@ export class Module2Service {
         contentType: file.mimetype as (typeof allowedTypes)[number],
         buffer: file.buffer,
       });
+      stored = {
+        ...driveUploaded,
+        ...(fallbackInlineBase64 ? { inlineBase64: fallbackInlineBase64 } : {}),
+      };
     } catch (driveErr) {
-      if (!isVideo && file.buffer.length <= 6 * 1024 * 1024) {
+      if (fallbackInlineBase64) {
         stored = {
           driveFileId: `inline-db-${uploadId}`,
           driveFolderId: "inline-db-folder",
           driveFolderPath: `Sakhi Media/inline/${session.accountId}`,
           storedName: file.originalname || `${uploadId}.jpg`,
           size: file.buffer.length,
-          inlineBase64: file.buffer.toString("base64"),
+          inlineBase64: fallbackInlineBase64,
         };
       } else {
         throw driveErr;
@@ -4611,6 +4623,36 @@ export class Module2Service {
       status: "stored" as const,
       createdAt: uploadedAt,
     };
+  }
+
+  private detectBinaryMimeType(buffer: Buffer): string | null {
+    if (
+      buffer.length >= 3 &&
+      buffer[0] === 0xff &&
+      buffer[1] === 0xd8 &&
+      buffer[2] === 0xff
+    ) {
+      return "image/jpeg";
+    }
+    if (
+      buffer.length >= 8 &&
+      buffer
+        .subarray(0, 8)
+        .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+    ) {
+      return "image/png";
+    }
+    if (
+      buffer.length >= 12 &&
+      buffer.toString("ascii", 0, 4) === "RIFF" &&
+      buffer.toString("ascii", 8, 12) === "WEBP"
+    ) {
+      return "image/webp";
+    }
+    if (buffer.length >= 12 && buffer.toString("ascii", 4, 8) === "ftyp") {
+      return "video/mp4";
+    }
+    return null;
   }
 
   private hasExpectedImageSignature(
@@ -4867,18 +4909,39 @@ export class Module2Service {
       };
     }
 
-    const media = await this.googleDrive.downloadFile(driveFileId);
-    const storedContentType =
-      typeof recordedContentType === "string" &&
-      ["image/jpeg", "image/png", "image/webp", "video/mp4"].includes(
-        recordedContentType,
-      )
-        ? recordedContentType
-        : media.contentType;
-    return {
-      contentType: storedContentType,
-      buffer: media.buffer,
-    };
+    try {
+      const media = await this.googleDrive.downloadFile(driveFileId);
+      const storedContentType =
+        typeof recordedContentType === "string" &&
+        ["image/jpeg", "image/png", "image/webp", "video/mp4"].includes(
+          recordedContentType,
+        )
+          ? recordedContentType
+          : media.contentType;
+      return {
+        contentType: storedContentType,
+        buffer: media.buffer,
+      };
+    } catch (driveDownloadErr) {
+      if (
+        typeof meta.inlineBase64 === "string" &&
+        meta.inlineBase64.length > 0
+      ) {
+        const inlineBuffer = Buffer.from(meta.inlineBase64, "base64");
+        const inlineType =
+          typeof recordedContentType === "string" &&
+          ["image/jpeg", "image/png", "image/webp", "video/mp4"].includes(
+            recordedContentType,
+          )
+            ? recordedContentType
+            : "image/jpeg";
+        return {
+          contentType: inlineType,
+          buffer: inlineBuffer,
+        };
+      }
+      throw driveDownloadErr;
+    }
   }
 
   async toggleBlockedUser(
@@ -5003,6 +5066,8 @@ export class Module2Service {
       search?: string;
       savedOnly?: boolean;
       limit?: number;
+      page?: number;
+      cursor?: string;
     } = {},
   ) {
     const boot = await this.bootstrap(authorization);
@@ -5098,14 +5163,29 @@ export class Module2Service {
           p.authorUsername.toLowerCase().includes(q),
       );
     }
-    const limited = items.slice(
-      0,
-      Math.min(Math.max(query.limit ?? 30, 1), 100),
-    );
+    const totalCount = items.length;
+    const safeLimit = Math.min(Math.max(query.limit ?? 30, 1), 100);
+    const safePage = Math.max(query.page ?? 1, 1);
+    let startIndex = (safePage - 1) * safeLimit;
+    if (query.cursor && query.cursor.trim().length > 0) {
+      const cursorIdx = items.findIndex((p) => p.id === query.cursor?.trim());
+      if (cursorIdx >= 0) {
+        startIndex = cursorIdx + 1;
+      }
+    }
+    const limited = items.slice(startIndex, startIndex + safeLimit);
+    const hasMore = startIndex + safeLimit < totalCount;
+    const nextCursor =
+      hasMore && limited.length > 0 ? limited[limited.length - 1]?.id ?? null : null;
     return {
       items: limited,
       posts: limited,
       total: limited.length,
+      totalCount,
+      page: safePage,
+      limit: safeLimit,
+      hasMore,
+      nextCursor,
     };
   }
 
@@ -8820,6 +8900,981 @@ export class Module2Service {
             ? updated.updatedAt.toISOString()
             : String(updated.updatedAt),
       },
+    };
+  }
+
+  // ===========================================================================
+  // MODULE 7: WOMEN'S MENSTRUAL CYCLE TRACKER (SRS Sections 9.1–9.5)
+  // Strictly owner-isolated reproductive health service.
+  // ===========================================================================
+
+  private static readonly MEDICAL_DISCLAIMER_TEXT =
+    "Cycle, ovulation, and fertility predictions are estimates based on your logged history and do not replace professional medical advice or serve as reliable contraception. If you experience severe pain, unusually heavy bleeding, or persistent cycle irregularities, please consult a qualified healthcare professional.";
+
+  private static readonly MENSTRUAL_HEALTH_ARTICLES = [
+    {
+      id: "cycle-phases-guide",
+      category: "Cycle Science",
+      title: "Understanding Your 4 Menstrual Cycle Phases",
+      readTime: "4 min read",
+      summary:
+        "How hormone shifts across the Menstrual, Follicular, Ovulation, and Luteal phases influence energy, mood, sleep, and nutrition needs.",
+      highlights: [
+        "Menstrual Phase (Days 1–5): Focus on iron-rich warm meals, gentle stretching, and restorative rest.",
+        "Follicular Phase (Days 6–13): Rising estrogen supports creative focus, strength training, and new routines.",
+        "Ovulation Window (Around Day 14): Peak energy and social connection; stay hydrated with electrolytes.",
+        "Luteal Phase (Days 15–28): Progesterone rises; complex carbohydrates and magnesium help ease PMS symptoms.",
+      ],
+    },
+    {
+      id: "irregular-cycles-when-to-see-doctor",
+      category: "Clinical Guidance",
+      title: "When to Consult a Gynecologist About Cycle Irregularities",
+      readTime: "5 min read",
+      summary:
+        "Learn the difference between normal stress-related cycle shifts and signs of PCOS, thyroid imbalance, or endometriosis.",
+      highlights: [
+        "Cycles consistently shorter than 21 days or longer than 35 days.",
+        "Cycle length varying by more than 7–9 days from month to month.",
+        "Soaking through a pad or tampon every 1–2 hours, or bleeding lasting longer than 7 days.",
+        "Severe pelvic pain that does not improve with standard care.",
+      ],
+    },
+    {
+      id: "cramps-and-pms-relief",
+      category: "Self-Care & Nutrition",
+      title: "Evidence-Based Relief for Menstrual Cramps & PMS",
+      readTime: "3 min read",
+      summary:
+        "Practical, doctor-recommended ways to calm prostaglandin-driven cramps, bloating, and luteal fatigue.",
+      highlights: [
+        "Heat therapy (40°C warm compress) relaxes uterine smooth muscle as effectively as mild analgesics.",
+        "Magnesium glycinate, omega-3s, and ginger tea help reduce inflammatory prostaglandins.",
+        "Reducing excess sodium and refined sugar 5 days before your period minimizes water retention.",
+      ],
+    },
+  ];
+
+  private static readonly MENSTRUAL_HEALTH_FAQS = [
+    {
+      question: "Are cycle and fertility predictions safe to use as contraception?",
+      answer:
+        "No. Calendar-based ovulation and fertility-window calculations are estimates only. Ovulation can shift early or late due to stress, travel, illness, or hormonal fluctuations, so these estimates must never be used as contraception.",
+    },
+    {
+      question: "Can anyone else on Sakhi or in the Admin Panel see my period logs?",
+      answer:
+        "Never. Your menstrual cycles, symptoms, flow intensity, and personal notes are strictly isolated to your authenticated account. They are never shown on your profile, never posted to the social wall, and blocked from administrator view.",
+    },
+    {
+      question: "How does discreet notification wording protect my privacy?",
+      answer:
+        "When Discreet Notifications are enabled (the default), lock-screen reminders use neutral phrasing such as 'Wellness Check-In: You have a personal calendar update waiting in your wellness tracker' so nobody glancing at your phone screen sees health details.",
+    },
+    {
+      question: "What counts as an irregular menstrual cycle?",
+      answer:
+        "For most adult women, a typical cycle ranges from 21 to 35 days. If your cycle lengths vary by more than 7 days between cycles or fall outside the 21–35 day window, Sakhi flags it so you can review your history with a healthcare professional.",
+    },
+  ];
+
+  private parseDateOnlyUtc(raw: unknown): Date {
+    const str = String(raw ?? "").trim();
+    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(str);
+    if (match) {
+      const y = Number(match[1]);
+      const m = Number(match[2]) - 1;
+      const d = Number(match[3]);
+      return new Date(Date.UTC(y, m, d));
+    }
+    const parsed = new Date(str);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new BadRequestException("Provide a valid date in YYYY-MM-DD format.");
+    }
+    return new Date(
+      Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate()),
+    );
+  }
+
+  private formatDateOnlyUtc(date: Date): string {
+    return date.toISOString().slice(0, 10);
+  }
+
+  private diffDaysUtc(later: Date, earlier: Date): number {
+    const msPerDay = 24 * 60 * 60 * 1000;
+    const utcLater = Date.UTC(
+      later.getUTCFullYear(),
+      later.getUTCMonth(),
+      later.getUTCDate(),
+    );
+    const utcEarlier = Date.UTC(
+      earlier.getUTCFullYear(),
+      earlier.getUTCMonth(),
+      earlier.getUTCDate(),
+    );
+    return Math.round((utcLater - utcEarlier) / msPerDay);
+  }
+
+  private addDaysUtc(base: Date, days: number): Date {
+    const copy = new Date(
+      Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate()),
+    );
+    copy.setUTCDate(copy.getUTCDate() + days);
+    return copy;
+  }
+
+  calculateMenstrualCyclePredictions(params: {
+    lastPeriodStart: Date | null;
+    historicalCycleLengths: number[];
+    historicalPeriodDurations: number[];
+    defaultCycleLength: number;
+    defaultPeriodDuration: number;
+    showFertilityEstimates: boolean;
+    discreetNotifications: boolean;
+    periodReminderDaysBefore: number;
+  }) {
+    const validCycles = params.historicalCycleLengths.filter(
+      (n) => Number.isFinite(n) && n >= 15 && n <= 60,
+    );
+    const validDurations = params.historicalPeriodDurations.filter(
+      (n) => Number.isFinite(n) && n >= 1 && n <= 15,
+    );
+
+    const avgCycleLength =
+      validCycles.length > 0
+        ? Math.round(
+            validCycles.reduce((acc, v) => acc + v, 0) / validCycles.length,
+          )
+        : Math.min(Math.max(params.defaultCycleLength || 28, 21), 40);
+
+    const avgPeriodDuration =
+      validDurations.length > 0
+        ? Math.round(
+            validDurations.reduce((acc, v) => acc + v, 0) / validDurations.length,
+          )
+        : Math.min(Math.max(params.defaultPeriodDuration || 5, 2), 10);
+
+    let isIrregular = false;
+    let irregularityReason =
+      "Your logged cycle lengths are within the typical 21–35 day clinical range.";
+    if (validCycles.length >= 2) {
+      const minC = Math.min(...validCycles);
+      const maxC = Math.max(...validCycles);
+      if (maxC - minC > 7) {
+        isIrregular = true;
+        irregularityReason = `Your logged cycle lengths have varied by ${maxC - minC} days (${minC}–${maxC} days). Variations above 7 days are flagged as irregular—consider sharing your exported log with a healthcare professional if this persists.`;
+      } else if (avgCycleLength < 21 || avgCycleLength > 35) {
+        isIrregular = true;
+        irregularityReason = `Your average cycle length (${avgCycleLength} days) falls outside the typical 21–35 day range. Consult a gynecologist if you experience unusual symptoms.`;
+      }
+    } else if (
+      validCycles.length === 1 &&
+      (validCycles[0]! < 21 || validCycles[0]! > 35)
+    ) {
+      isIrregular = true;
+      irregularityReason = `Your most recent cycle length (${validCycles[0]} days) is outside the typical 21–35 day window.`;
+    }
+
+    const today = this.parseDateOnlyUtc(new Date().toISOString().slice(0, 10));
+    const anchorStart = params.lastPeriodStart;
+
+    if (!anchorStart) {
+      return {
+        hasLoggedCycles: false,
+        averageCycleLength: avgCycleLength,
+        averagePeriodDuration: avgPeriodDuration,
+        lastPeriodStart: null,
+        nextPeriodStart: null,
+        nextPeriodEnd: null,
+        daysUntilNextPeriod: null,
+        currentCycleDay: null,
+        currentPhase: "Log your last period start date to view estimates",
+        phaseDescription:
+          "Record your most recent period start date below to unlock cycle phase insights, next period estimates, and symptom tracking.",
+        ovulationDate: null,
+        fertileWindowStart: null,
+        fertileWindowEnd: null,
+        pmsStart: null,
+        isIrregular: false,
+        irregularityReason:
+          "Log at least two cycle start dates to track cycle regularity automatically.",
+        wellnessSuggestions: [
+          "Log your most recent period start date to see personalized cycle phase nutrition and self-care tips.",
+          "Use Daily Check-In to record cramps, mood, energy level, and water intake.",
+        ],
+        reminderPreview: {
+          daysBefore: params.periodReminderDaysBefore,
+          discreetWording: params.discreetNotifications,
+          title: params.discreetNotifications
+            ? "Wellness Check-In"
+            : "Upcoming Period Reminder",
+          body: params.discreetNotifications
+            ? "You have a personal calendar update waiting in your wellness tracker."
+            : `Your next cycle is estimated to begin in ${params.periodReminderDaysBefore} days.`,
+        },
+        medicalDisclaimer: Module2Service.MEDICAL_DISCLAIMER_TEXT,
+      };
+    }
+
+    // Advance projected cycle start forward if anchorStart is more than 1 cycle in the past
+    let projectedStart = this.addDaysUtc(anchorStart, avgCycleLength);
+    let currentCycleStart = anchorStart;
+    while (this.diffDaysUtc(today, projectedStart) >= avgCycleLength) {
+      currentCycleStart = projectedStart;
+      projectedStart = this.addDaysUtc(projectedStart, avgCycleLength);
+    }
+
+    const nextPeriodStart = projectedStart;
+    const nextPeriodEnd = this.addDaysUtc(
+      nextPeriodStart,
+      Math.max(1, avgPeriodDuration) - 1,
+    );
+    const ovulationDate = this.addDaysUtc(nextPeriodStart, -14);
+    const fertileWindowStart = this.addDaysUtc(ovulationDate, -5);
+    const fertileWindowEnd = this.addDaysUtc(ovulationDate, 1);
+    const pmsStart = this.addDaysUtc(nextPeriodStart, -5);
+
+    const rawCycleDay = this.diffDaysUtc(today, currentCycleStart) + 1;
+    const currentCycleDay = rawCycleDay >= 1 ? rawCycleDay : 1;
+    const daysUntilNextPeriod = this.diffDaysUtc(nextPeriodStart, today);
+
+    let currentPhase = "Follicular Phase";
+    let phaseDescription =
+      "Rising energy and focus. Great days for balanced movement, protein-rich meals, and planning ahead.";
+    let wellnessSuggestions = [
+      "Include iron- and protein-rich foods like lentils, leafy greens, and nuts.",
+      "Light cardio or strength routines pair well with follicular-phase energy.",
+      "Aim for 8 glasses of water and 7–8 hours of sleep.",
+    ];
+
+    if (currentCycleDay <= avgPeriodDuration) {
+      currentPhase = "Menstrual Phase";
+      phaseDescription =
+        "Restorative shedding phase. Prioritize warmth, gentle stretching, iron replenishment, and extra rest.";
+      wellnessSuggestions = [
+        "Pair iron-rich greens or dates with vitamin C (lemon/amla) to support iron absorption.",
+        "Use a warm compress or gentle pelvic stretches to ease uterine cramping naturally.",
+        "Honor lower energy levels with earlier rest and calming herbal tea.",
+      ];
+    } else if (
+      this.diffDaysUtc(today, fertileWindowStart) >= 0 &&
+      this.diffDaysUtc(fertileWindowEnd, today) >= 0
+    ) {
+      currentPhase = "Ovulation Window (Estimate)";
+      phaseDescription =
+        "Peak estrogen window. Energy and communication are typically high—stay hydrated and balanced.";
+      wellnessSuggestions = [
+        "Increase hydration with coconut water or electrolytes during higher body-temperature days.",
+        "Antioxidant-rich fruits and fiber support healthy hormone metabolism.",
+        "Remember: calendar fertility windows are estimates only and never reliable contraception.",
+      ];
+    } else if (this.diffDaysUtc(today, pmsStart) >= 0) {
+      currentPhase = "Luteal & PMS Care Phase";
+      phaseDescription =
+        "Winding down toward your next cycle. Focus on magnesium, complex carbs, and emotional boundaries.";
+      wellnessSuggestions = [
+        "Complex carbohydrates (oats, sweet potato, brown rice) help stabilize serotonin and mood.",
+        "Reduce excess salt and caffeine to ease pre-period bloating and breast tenderness.",
+        "Practice 5 minutes of 4-7-8 breathing before bed for deeper luteal sleep.",
+      ];
+    }
+
+    return {
+      hasLoggedCycles: true,
+      averageCycleLength: avgCycleLength,
+      averagePeriodDuration: avgPeriodDuration,
+      lastPeriodStart: this.formatDateOnlyUtc(anchorStart),
+      nextPeriodStart: this.formatDateOnlyUtc(nextPeriodStart),
+      nextPeriodEnd: this.formatDateOnlyUtc(nextPeriodEnd),
+      daysUntilNextPeriod,
+      currentCycleDay,
+      currentPhase,
+      phaseDescription,
+      ovulationDate: params.showFertilityEstimates
+        ? this.formatDateOnlyUtc(ovulationDate)
+        : null,
+      fertileWindowStart: params.showFertilityEstimates
+        ? this.formatDateOnlyUtc(fertileWindowStart)
+        : null,
+      fertileWindowEnd: params.showFertilityEstimates
+        ? this.formatDateOnlyUtc(fertileWindowEnd)
+        : null,
+      pmsStart: this.formatDateOnlyUtc(pmsStart),
+      isIrregular,
+      irregularityReason,
+      wellnessSuggestions,
+      reminderPreview: {
+        daysBefore: params.periodReminderDaysBefore,
+        discreetWording: params.discreetNotifications,
+        scheduledForDate: this.formatDateOnlyUtc(
+          this.addDaysUtc(nextPeriodStart, -params.periodReminderDaysBefore),
+        ),
+        title: params.discreetNotifications
+          ? "Wellness Check-In"
+          : "Upcoming Period Reminder",
+        body: params.discreetNotifications
+          ? "You have a personal calendar update waiting in your wellness tracker."
+          : `Your next period is estimated to begin around ${this.formatDateOnlyUtc(nextPeriodStart)}.`,
+      },
+      medicalDisclaimer: Module2Service.MEDICAL_DISCLAIMER_TEXT,
+    };
+  }
+
+  async calculateMenstrualCycleStateless(query: {
+    lastPeriod?: string;
+    cycleLength?: number;
+    periodLength?: number;
+  }) {
+    const lastPeriodDate = query.lastPeriod
+      ? this.parseDateOnlyUtc(query.lastPeriod)
+      : this.parseDateOnlyUtc(new Date().toISOString().slice(0, 10));
+    const cycleLen = Math.min(Math.max(Number(query.cycleLength) || 28, 21), 40);
+    const periodLen = Math.min(Math.max(Number(query.periodLength) || 5, 2), 10);
+
+    const summary = this.calculateMenstrualCyclePredictions({
+      lastPeriodStart: lastPeriodDate,
+      historicalCycleLengths: [cycleLen],
+      historicalPeriodDurations: [periodLen],
+      defaultCycleLength: cycleLen,
+      defaultPeriodDuration: periodLen,
+      showFertilityEstimates: true,
+      discreetNotifications: true,
+      periodReminderDaysBefore: 2,
+    });
+
+    return {
+      status: "ok" as const,
+      provider: "sakhi_on_device_and_stateless_engine",
+      data: summary,
+      medicalDisclaimer: Module2Service.MEDICAL_DISCLAIMER_TEXT,
+    };
+  }
+
+  private async recalculateUserCycleHistory(accountId: string): Promise<void> {
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (typeof anyPrisma.menstrualCycleLog?.findMany !== "function") return;
+    try {
+      const logs = (await anyPrisma.menstrualCycleLog.findMany({
+        where: { accountId },
+        orderBy: { startDate: "asc" },
+      })) as Array<Record<string, any>>;
+
+      for (let i = 0; i < logs.length; i++) {
+        const current = logs[i]!;
+        const start =
+          current.startDate instanceof Date
+            ? current.startDate
+            : this.parseDateOnlyUtc(current.startDate);
+        const end = current.endDate
+          ? current.endDate instanceof Date
+            ? current.endDate
+            : this.parseDateOnlyUtc(current.endDate)
+          : null;
+        const durationDays = end
+          ? Math.max(1, Math.min(15, this.diffDaysUtc(end, start) + 1))
+          : (current.periodDurationDays ?? 5);
+
+        let cycleLengthDays: number | null = null;
+        let isIrregular = false;
+        if (i + 1 < logs.length) {
+          const next = logs[i + 1]!;
+          const nextStart =
+            next.startDate instanceof Date
+              ? next.startDate
+              : this.parseDateOnlyUtc(next.startDate);
+          const diff = this.diffDaysUtc(nextStart, start);
+          if (diff >= 12 && diff <= 90) {
+            cycleLengthDays = diff;
+            isIrregular = diff < 21 || diff > 35;
+          }
+        }
+        await anyPrisma.menstrualCycleLog
+          .update({
+            where: { id: current.id },
+            data: {
+              periodDurationDays: durationDays,
+              cycleLengthDays,
+              isIrregular,
+            },
+          })
+          .catch(() => undefined);
+      }
+    } catch {
+      // Best-effort history recalculation
+    }
+  }
+
+  async getMenstrualCycleTracker(authorization: string | undefined) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+
+    let rawCycles: Array<Record<string, any>> = [];
+    let rawDailyLogs: Array<Record<string, any>> = [];
+    let rawPref: Record<string, any> | null = null;
+
+    if (typeof anyPrisma.menstrualCycleLog?.findMany === "function") {
+      const [cRows, dRows, pRow] = await Promise.all([
+        anyPrisma.menstrualCycleLog
+          .findMany({
+            where: { accountId: session.accountId },
+            orderBy: { startDate: "desc" },
+            take: 36,
+          })
+          .catch(() => []),
+        anyPrisma.menstrualDailyLog
+          ?.findMany({
+            where: { accountId: session.accountId },
+            orderBy: { logDate: "desc" },
+            take: 90,
+          })
+          .catch(() => []) ?? Promise.resolve([]),
+        anyPrisma.menstrualTrackerPreference
+          ?.findUnique({
+            where: { accountId: session.accountId },
+          })
+          .catch(() => null) ?? Promise.resolve(null),
+      ]);
+      rawCycles = cRows as Array<Record<string, any>>;
+      rawDailyLogs = dRows as Array<Record<string, any>>;
+      rawPref = pRow as Record<string, any> | null;
+    }
+
+    const preferences = {
+      defaultCycleLength: Number(rawPref?.defaultCycleLength ?? 28),
+      defaultPeriodDuration: Number(rawPref?.defaultPeriodDuration ?? 5),
+      discreetNotifications: rawPref?.discreetNotifications ?? true,
+      periodReminderEnabled: rawPref?.periodReminderEnabled ?? true,
+      periodReminderDaysBefore: Number(rawPref?.periodReminderDaysBefore ?? 2),
+      ovulationReminderEnabled: rawPref?.ovulationReminderEnabled ?? false,
+      hydrationReminderEnabled: rawPref?.hydrationReminderEnabled ?? true,
+      selfCareReminderEnabled: rawPref?.selfCareReminderEnabled ?? true,
+      showFertilityEstimates: rawPref?.showFertilityEstimates ?? true,
+      medicalDisclaimerAcceptedAt:
+        rawPref?.medicalDisclaimerAcceptedAt instanceof Date
+          ? rawPref.medicalDisclaimerAcceptedAt.toISOString()
+          : (rawPref?.medicalDisclaimerAcceptedAt ?? null),
+    };
+
+    const cycleLogs = rawCycles.map((c) => {
+      const start =
+        c.startDate instanceof Date
+          ? this.formatDateOnlyUtc(c.startDate)
+          : String(c.startDate).slice(0, 10);
+      const end = c.endDate
+        ? c.endDate instanceof Date
+          ? this.formatDateOnlyUtc(c.endDate)
+          : String(c.endDate).slice(0, 10)
+        : null;
+      return {
+        id: String(c.id),
+        startDate: start,
+        endDate: end,
+        cycleLengthDays:
+          typeof c.cycleLengthDays === "number" ? c.cycleLengthDays : null,
+        periodDurationDays:
+          typeof c.periodDurationDays === "number"
+            ? c.periodDurationDays
+            : preferences.defaultPeriodDuration,
+        flowIntensity: String(c.flowIntensity ?? "MEDIUM"),
+        symptoms: Array.isArray(c.symptoms)
+          ? c.symptoms.map((s: unknown) => String(s))
+          : [],
+        mood: c.mood ? String(c.mood) : null,
+        energyLevel: typeof c.energyLevel === "number" ? c.energyLevel : null,
+        crampsSeverity: c.crampsSeverity ? String(c.crampsSeverity) : "NONE",
+        notes: c.notesEncrypted ? String(c.notesEncrypted) : "",
+        isIrregular: Boolean(c.isIrregular),
+        createdAt:
+          c.createdAt instanceof Date
+            ? c.createdAt.toISOString()
+            : String(c.createdAt ?? new Date().toISOString()),
+      };
+    });
+
+    const dailyLogs = rawDailyLogs.map((d) => {
+      const logDate =
+        d.logDate instanceof Date
+          ? this.formatDateOnlyUtc(d.logDate)
+          : String(d.logDate).slice(0, 10);
+      return {
+        id: String(d.id),
+        logDate,
+        flowIntensity: d.flowIntensity ? String(d.flowIntensity) : null,
+        crampsSeverity: String(d.crampsSeverity ?? "NONE"),
+        mood: d.mood ? String(d.mood) : null,
+        energyLevel: typeof d.energyLevel === "number" ? d.energyLevel : 3,
+        symptoms: Array.isArray(d.symptoms)
+          ? d.symptoms.map((s: unknown) => String(s))
+          : [],
+        hydrationGlasses:
+          typeof d.hydrationGlasses === "number" ? d.hydrationGlasses : 0,
+        sleepHours: typeof d.sleepHours === "number" ? d.sleepHours : null,
+        notes: d.notesEncrypted ? String(d.notesEncrypted) : "",
+      };
+    });
+
+    // Compute historical cycle lengths from chronological start dates
+    const sortedAsc = [...cycleLogs].sort((a, b) =>
+      a.startDate.localeCompare(b.startDate),
+    );
+    const historicalCycleLengths: number[] = [];
+    const historicalPeriodDurations: number[] = [];
+    for (let i = 0; i < sortedAsc.length; i++) {
+      const item = sortedAsc[i]!;
+      if (
+        typeof item.periodDurationDays === "number" &&
+        item.periodDurationDays >= 1 &&
+        item.periodDurationDays <= 15
+      ) {
+        historicalPeriodDurations.push(item.periodDurationDays);
+      }
+      if (i + 1 < sortedAsc.length) {
+        const curDate = this.parseDateOnlyUtc(item.startDate);
+        const nxtDate = this.parseDateOnlyUtc(sortedAsc[i + 1]!.startDate);
+        const diff = this.diffDaysUtc(nxtDate, curDate);
+        if (diff >= 15 && diff <= 60) {
+          historicalCycleLengths.push(diff);
+        }
+      } else if (
+        typeof item.cycleLengthDays === "number" &&
+        item.cycleLengthDays >= 15 &&
+        item.cycleLengthDays <= 60
+      ) {
+        historicalCycleLengths.push(item.cycleLengthDays);
+      }
+    }
+
+    const latestCycleStart =
+      cycleLogs.length > 0
+        ? this.parseDateOnlyUtc(cycleLogs[0]!.startDate)
+        : null;
+
+    const predictionSummary = this.calculateMenstrualCyclePredictions({
+      lastPeriodStart: latestCycleStart,
+      historicalCycleLengths,
+      historicalPeriodDurations,
+      defaultCycleLength: preferences.defaultCycleLength,
+      defaultPeriodDuration: preferences.defaultPeriodDuration,
+      showFertilityEstimates: preferences.showFertilityEstimates,
+      discreetNotifications: preferences.discreetNotifications,
+      periodReminderDaysBefore: preferences.periodReminderDaysBefore,
+    });
+
+    return {
+      source: "postgresql_live" as const,
+      privacyIsolation: {
+        ownerAccountId: session.accountId,
+        hiddenFromPublicProfile: true,
+        hiddenFromSocialWall: true,
+        adminAccessBlocked: true,
+        adAnalyticsBlocked: true,
+        encryptedInTransitAndAtRest: true,
+      },
+      preferences,
+      predictionSummary,
+      cycleLogs,
+      dailyLogs,
+      articles: Module2Service.MENSTRUAL_HEALTH_ARTICLES,
+      faqs: Module2Service.MENSTRUAL_HEALTH_FAQS,
+      medicalDisclaimer: Module2Service.MEDICAL_DISCLAIMER_TEXT,
+    };
+  }
+
+  async upsertMenstrualCycleLog(
+    authorization: string | undefined,
+    dto: Record<string, unknown>,
+    cycleId?: string,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const startDate = this.parseDateOnlyUtc(dto.startDate);
+    const endDate =
+      typeof dto.endDate === "string" && dto.endDate.trim().length > 0
+        ? this.parseDateOnlyUtc(dto.endDate)
+        : null;
+
+    if (endDate && this.diffDaysUtc(endDate, startDate) < 0) {
+      throw new BadRequestException(
+        "Period end date cannot be earlier than the period start date.",
+      );
+    }
+
+    const periodDurationDays = endDate
+      ? Math.max(1, Math.min(15, this.diffDaysUtc(endDate, startDate) + 1))
+      : Math.max(1, Math.min(15, Number(dto.periodDurationDays) || 5));
+
+    const flowRaw = String(dto.flowIntensity ?? "MEDIUM")
+      .trim()
+      .toUpperCase();
+    const flowIntensity = ["SPOTTING", "LIGHT", "MEDIUM", "HEAVY"].includes(
+      flowRaw,
+    )
+      ? flowRaw
+      : "MEDIUM";
+
+    const crampsRaw = String(dto.crampsSeverity ?? "NONE")
+      .trim()
+      .toUpperCase();
+    const crampsSeverity = ["NONE", "MILD", "MODERATE", "SEVERE"].includes(
+      crampsRaw,
+    )
+      ? crampsRaw
+      : "NONE";
+
+    const symptoms = Array.isArray(dto.symptoms)
+      ? dto.symptoms
+          .map((s) => String(s).trim())
+          .filter((s) => s.length > 0 && s.length <= 60)
+      : [];
+
+    const mood =
+      typeof dto.mood === "string" && dto.mood.trim().length > 0
+        ? dto.mood.trim().slice(0, 40)
+        : null;
+    const energyLevel =
+      typeof dto.energyLevel === "number"
+        ? Math.min(Math.max(Math.round(dto.energyLevel), 1), 5)
+        : null;
+    const notesEncrypted =
+      typeof dto.notes === "string" && dto.notes.trim().length > 0
+        ? dto.notes.trim().slice(0, 1000)
+        : null;
+
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (typeof anyPrisma.menstrualCycleLog?.create !== "function") {
+      throw new ServiceUnavailableException(
+        "Menstrual cycle database table is not initialized yet. Run the Module 7 migration.",
+      );
+    }
+
+    if (cycleId && cycleId.trim().length > 0) {
+      const existing = await anyPrisma.menstrualCycleLog.findFirst({
+        where: { id: cycleId.trim(), accountId: session.accountId },
+      });
+      if (!existing) {
+        throw new NotFoundException("Cycle record was not found in your account.");
+      }
+      await anyPrisma.menstrualCycleLog.update({
+        where: { id: existing.id },
+        data: {
+          startDate,
+          endDate,
+          periodDurationDays,
+          flowIntensity,
+          crampsSeverity,
+          symptoms,
+          mood,
+          energyLevel,
+          notesEncrypted,
+        },
+      });
+    } else {
+      await anyPrisma.menstrualCycleLog.create({
+        data: {
+          id: randomUUID(),
+          accountId: session.accountId,
+          startDate,
+          endDate,
+          periodDurationDays,
+          flowIntensity,
+          crampsSeverity,
+          symptoms,
+          mood,
+          energyLevel,
+          notesEncrypted,
+        },
+      });
+    }
+
+    await this.recalculateUserCycleHistory(session.accountId);
+    return this.getMenstrualCycleTracker(authorization);
+  }
+
+  async deleteMenstrualCycleLog(
+    authorization: string | undefined,
+    cycleId: string,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (typeof anyPrisma.menstrualCycleLog?.deleteMany === "function") {
+      await anyPrisma.menstrualCycleLog.deleteMany({
+        where: { id: cycleId.trim(), accountId: session.accountId },
+      });
+      await this.recalculateUserCycleHistory(session.accountId);
+    }
+    return this.getMenstrualCycleTracker(authorization);
+  }
+
+  async upsertMenstrualDailyLog(
+    authorization: string | undefined,
+    dto: Record<string, unknown>,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const logDate = this.parseDateOnlyUtc(
+      dto.logDate ?? new Date().toISOString().slice(0, 10),
+    );
+    const flowRaw =
+      typeof dto.flowIntensity === "string" && dto.flowIntensity.trim().length > 0
+        ? dto.flowIntensity.trim().toUpperCase()
+        : null;
+    const flowIntensity =
+      flowRaw && ["NONE", "SPOTTING", "LIGHT", "MEDIUM", "HEAVY"].includes(flowRaw)
+        ? flowRaw
+        : null;
+
+    const crampsRaw = String(dto.crampsSeverity ?? "NONE")
+      .trim()
+      .toUpperCase();
+    const crampsSeverity = ["NONE", "MILD", "MODERATE", "SEVERE"].includes(
+      crampsRaw,
+    )
+      ? crampsRaw
+      : "NONE";
+
+    const mood =
+      typeof dto.mood === "string" && dto.mood.trim().length > 0
+        ? dto.mood.trim().slice(0, 40)
+        : null;
+    const energyLevel =
+      typeof dto.energyLevel === "number"
+        ? Math.min(Math.max(Math.round(dto.energyLevel), 1), 5)
+        : 3;
+    const hydrationGlasses =
+      typeof dto.hydrationGlasses === "number"
+        ? Math.min(Math.max(Math.round(dto.hydrationGlasses), 0), 24)
+        : 0;
+    const sleepHours =
+      typeof dto.sleepHours === "number"
+        ? Math.min(Math.max(Number(dto.sleepHours), 0), 24)
+        : null;
+    const symptoms = Array.isArray(dto.symptoms)
+      ? dto.symptoms
+          .map((s) => String(s).trim())
+          .filter((s) => s.length > 0 && s.length <= 60)
+      : [];
+    const notesEncrypted =
+      typeof dto.notes === "string" && dto.notes.trim().length > 0
+        ? dto.notes.trim().slice(0, 1000)
+        : null;
+
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (typeof anyPrisma.menstrualDailyLog?.upsert === "function") {
+      await anyPrisma.menstrualDailyLog.upsert({
+        where: {
+          accountId_logDate: {
+            accountId: session.accountId,
+            logDate,
+          },
+        },
+        create: {
+          id: randomUUID(),
+          accountId: session.accountId,
+          logDate,
+          flowIntensity,
+          crampsSeverity,
+          mood,
+          energyLevel,
+          symptoms,
+          hydrationGlasses,
+          sleepHours,
+          notesEncrypted,
+        },
+        update: {
+          flowIntensity,
+          crampsSeverity,
+          mood,
+          energyLevel,
+          symptoms,
+          hydrationGlasses,
+          sleepHours,
+          notesEncrypted,
+        },
+      });
+    }
+
+    return this.getMenstrualCycleTracker(authorization);
+  }
+
+  async deleteMenstrualDailyLog(
+    authorization: string | undefined,
+    logId: string,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (typeof anyPrisma.menstrualDailyLog?.deleteMany === "function") {
+      await anyPrisma.menstrualDailyLog.deleteMany({
+        where: { id: logId.trim(), accountId: session.accountId },
+      });
+    }
+    return this.getMenstrualCycleTracker(authorization);
+  }
+
+  async updateMenstrualTrackerPreferences(
+    authorization: string | undefined,
+    dto: Record<string, unknown>,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+
+    const defaultCycleLength =
+      typeof dto.defaultCycleLength === "number"
+        ? Math.min(Math.max(Math.round(dto.defaultCycleLength), 21), 40)
+        : undefined;
+    const defaultPeriodDuration =
+      typeof dto.defaultPeriodDuration === "number"
+        ? Math.min(Math.max(Math.round(dto.defaultPeriodDuration), 2), 10)
+        : undefined;
+    const periodReminderDaysBefore =
+      typeof dto.periodReminderDaysBefore === "number"
+        ? Math.min(Math.max(Math.round(dto.periodReminderDaysBefore), 1), 7)
+        : undefined;
+
+    if (typeof anyPrisma.menstrualTrackerPreference?.upsert === "function") {
+      await anyPrisma.menstrualTrackerPreference.upsert({
+        where: { accountId: session.accountId },
+        create: {
+          accountId: session.accountId,
+          defaultCycleLength: defaultCycleLength ?? 28,
+          defaultPeriodDuration: defaultPeriodDuration ?? 5,
+          discreetNotifications:
+            typeof dto.discreetNotifications === "boolean"
+              ? dto.discreetNotifications
+              : true,
+          periodReminderEnabled:
+            typeof dto.periodReminderEnabled === "boolean"
+              ? dto.periodReminderEnabled
+              : true,
+          periodReminderDaysBefore: periodReminderDaysBefore ?? 2,
+          ovulationReminderEnabled:
+            typeof dto.ovulationReminderEnabled === "boolean"
+              ? dto.ovulationReminderEnabled
+              : false,
+          hydrationReminderEnabled:
+            typeof dto.hydrationReminderEnabled === "boolean"
+              ? dto.hydrationReminderEnabled
+              : true,
+          selfCareReminderEnabled:
+            typeof dto.selfCareReminderEnabled === "boolean"
+              ? dto.selfCareReminderEnabled
+              : true,
+          showFertilityEstimates:
+            typeof dto.showFertilityEstimates === "boolean"
+              ? dto.showFertilityEstimates
+              : true,
+          medicalDisclaimerAcceptedAt:
+            dto.acceptMedicalDisclaimer === true ? new Date() : null,
+        },
+        update: {
+          ...(defaultCycleLength !== undefined ? { defaultCycleLength } : {}),
+          ...(defaultPeriodDuration !== undefined
+            ? { defaultPeriodDuration }
+            : {}),
+          ...(typeof dto.discreetNotifications === "boolean"
+            ? { discreetNotifications: dto.discreetNotifications }
+            : {}),
+          ...(typeof dto.periodReminderEnabled === "boolean"
+            ? { periodReminderEnabled: dto.periodReminderEnabled }
+            : {}),
+          ...(periodReminderDaysBefore !== undefined
+            ? { periodReminderDaysBefore }
+            : {}),
+          ...(typeof dto.ovulationReminderEnabled === "boolean"
+            ? { ovulationReminderEnabled: dto.ovulationReminderEnabled }
+            : {}),
+          ...(typeof dto.hydrationReminderEnabled === "boolean"
+            ? { hydrationReminderEnabled: dto.hydrationReminderEnabled }
+            : {}),
+          ...(typeof dto.selfCareReminderEnabled === "boolean"
+            ? { selfCareReminderEnabled: dto.selfCareReminderEnabled }
+            : {}),
+          ...(typeof dto.showFertilityEstimates === "boolean"
+            ? { showFertilityEstimates: dto.showFertilityEstimates }
+            : {}),
+          ...(dto.acceptMedicalDisclaimer === true
+            ? { medicalDisclaimerAcceptedAt: new Date() }
+            : {}),
+        },
+      });
+    }
+
+    return this.getMenstrualCycleTracker(authorization);
+  }
+
+  async exportMenstrualTrackerData(authorization: string | undefined) {
+    const tracker = await this.getMenstrualCycleTracker(authorization);
+    const pred = tracker.predictionSummary;
+    const lines: string[] = [
+      "SAKHI WOMEN'S WELLNESS — PERSONAL MENSTRUAL CYCLE & SYMPTOM REPORT",
+      `Generated At: ${new Date().toISOString()}`,
+      "Privacy Notice: Strictly confidential personal health export for the account owner / consulting healthcare provider.",
+      "",
+      "--- CYCLE SUMMARY & ESTIMATES ---",
+      `Average Cycle Length: ${pred.averageCycleLength} days`,
+      `Average Period Duration: ${pred.averagePeriodDuration} days`,
+      `Last Period Start: ${pred.lastPeriodStart ?? "Not logged"}`,
+      `Estimated Next Period: ${pred.nextPeriodStart ?? "N/A"} to ${pred.nextPeriodEnd ?? "N/A"}`,
+      `Cycle Regularity Status: ${pred.isIrregular ? "IRREGULAR FLAGGED" : "REGULAR (21–35 day norm)"}`,
+      `Clinical Note: ${pred.irregularityReason}`,
+      "",
+      "--- LOGGED MENSTRUAL CYCLES ---",
+    ];
+
+    if (tracker.cycleLogs.length === 0) {
+      lines.push("No menstrual cycle entries recorded.");
+    } else {
+      for (const c of tracker.cycleLogs) {
+        lines.push(
+          `• Start: ${c.startDate} | End: ${c.endDate ?? "Ongoing"} | Duration: ${c.periodDurationDays}d | Cycle Length: ${c.cycleLengthDays ? `${c.cycleLengthDays}d` : "Current"} | Flow: ${c.flowIntensity} | Cramps: ${c.crampsSeverity} | Symptoms: ${c.symptoms.join(", ") || "None"}${c.notes ? ` | Notes: ${c.notes}` : ""}`,
+        );
+      }
+    }
+
+    lines.push("", "--- RECENT DAILY SYMPTOM & WELLNESS LOGS ---");
+    if (tracker.dailyLogs.length === 0) {
+      lines.push("No daily symptom check-ins recorded.");
+    } else {
+      for (const d of tracker.dailyLogs) {
+        lines.push(
+          `• Date: ${d.logDate} | Flow: ${d.flowIntensity ?? "None"} | Cramps: ${d.crampsSeverity} | Mood: ${d.mood ?? "-"} | Energy: ${d.energyLevel}/5 | Water: ${d.hydrationGlasses} glasses | Symptoms: ${d.symptoms.join(", ") || "None"}${d.notes ? ` | Notes: ${d.notes}` : ""}`,
+        );
+      }
+    }
+
+    lines.push("", `Medical Disclaimer: ${tracker.medicalDisclaimer}`);
+
+    return {
+      exportedAt: new Date().toISOString(),
+      clinicalSummaryText: lines.join("\n"),
+      data: {
+        preferences: tracker.preferences,
+        predictionSummary: tracker.predictionSummary,
+        cycleLogs: tracker.cycleLogs,
+        dailyLogs: tracker.dailyLogs,
+        medicalDisclaimer: tracker.medicalDisclaimer,
+      },
+    };
+  }
+
+  async deleteAllMenstrualTrackerData(authorization: string | undefined) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+
+    await Promise.all([
+      anyPrisma.menstrualCycleLog
+        ?.deleteMany({ where: { accountId: session.accountId } })
+        .catch(() => undefined),
+      anyPrisma.menstrualDailyLog
+        ?.deleteMany({ where: { accountId: session.accountId } })
+        .catch(() => undefined),
+      anyPrisma.menstrualTrackerPreference
+        ?.deleteMany({ where: { accountId: session.accountId } })
+        .catch(() => undefined),
+    ]);
+
+    return {
+      deleted: true,
+      message:
+        "All personal menstrual cycle logs, daily symptoms, and tracker preferences have been permanently deleted.",
+      tracker: await this.getMenstrualCycleTracker(authorization),
     };
   }
 }

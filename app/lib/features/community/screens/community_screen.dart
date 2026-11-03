@@ -367,13 +367,21 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
     try {
       if (_selectedImageCroppedBytes != null) {
+        final detectedMime = detectMediaContentType(
+          _selectedImageCroppedBytes!,
+          _selectedImageName ?? 'community_post.png',
+        );
+        final safeFileName = normalizeMediaFileName(
+          _selectedImageName ?? 'community_post.png',
+          detectedMime,
+        );
         final uploadRes = await SakhiPrototypeState.instance.uploadMediaFile(
           purpose: 'community_post',
-          fileName: _selectedImageName ?? 'community_post.png',
+          fileName: safeFileName,
           fileBytes: _selectedImageCroppedBytes!,
-          contentType: 'image/png',
+          contentType: detectedMime,
           categorySlug: _composerCategorySlug,
-          cropAspectRatio: _selectedCropPreset,
+          cropAspectRatio: _selectedCropPreset == 'Original' ? '4:5' : _selectedCropPreset,
         );
         if (!mounted) return;
         if (uploadRes == null) {
@@ -846,13 +854,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                       Icons.auto_awesome_outlined,
                                       size: 17,
                                     ),
-                                    label: const Text('Create with Template'),
-                                    onPressed: () => setState(() {
-                                      _attachedEditorialAsset =
-                                          AppAssets.communityCircleGathering;
-                                      _selectedImageOriginalBytes = null;
-                                      _selectedImageCroppedBytes = null;
-                                    }),
+                                    label: const Text('Open Full Studio & Filters'),
+                                    onPressed: _openMediaComposer,
                                   ),
                                 ],
                               ),

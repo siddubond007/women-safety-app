@@ -100,3 +100,10 @@ TO sakhi_staging_app;
 -- The bootstrap-roles.sql setup grants the runtime role USAGE only (not CREATE)
 -- on public. Leave schema ACL ownership changes to the Supabase project owner.
 REVOKE ALL ON TABLE public._prisma_migrations FROM sakhi_staging_app;
+
+-- Module 7 owner-isolated menstrual health tables.
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
+  public.menstrual_cycle_logs,
+  public.menstrual_daily_logs,
+  public.menstrual_tracker_preferences
+TO sakhi_staging_app;

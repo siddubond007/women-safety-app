@@ -865,4 +865,90 @@ export class Module2Controller {
   ) {
     return this.service.createBusinessEnquiry(authorization, businessId, dto);
   }
+
+  // ===========================================================================
+  // MODULE 7: WOMEN'S MENSTRUAL CYCLE TRACKER ROUTES (SRS Sections 9.1–9.5)
+  // ===========================================================================
+
+  @Get("cycle-tracker")
+  getMenstrualCycleTracker(@Headers("authorization") authorization?: string) {
+    return this.service.getMenstrualCycleTracker(authorization);
+  }
+
+  @Get("cycle-tracker/calculate")
+  calculateMenstrualCycleStateless(
+    @Query("lastPeriod") lastPeriod?: string,
+    @Query("cycleLength") cycleLength?: string,
+    @Query("periodLength") periodLength?: string,
+  ) {
+    return this.service.calculateMenstrualCycleStateless({
+      lastPeriod,
+      cycleLength: cycleLength !== undefined ? Number(cycleLength) : undefined,
+      periodLength:
+        periodLength !== undefined ? Number(periodLength) : undefined,
+    });
+  }
+
+  @Post("cycle-tracker/cycles")
+  @HttpCode(201)
+  createMenstrualCycleLog(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: Record<string, unknown>,
+  ) {
+    return this.service.upsertMenstrualCycleLog(authorization, dto);
+  }
+
+  @Put("cycle-tracker/cycles/:cycleId")
+  updateMenstrualCycleLog(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("cycleId") cycleId: string,
+    @Body() dto: Record<string, unknown>,
+  ) {
+    return this.service.upsertMenstrualCycleLog(authorization, dto, cycleId);
+  }
+
+  @Delete("cycle-tracker/cycles/:cycleId")
+  deleteMenstrualCycleLog(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("cycleId") cycleId: string,
+  ) {
+    return this.service.deleteMenstrualCycleLog(authorization, cycleId);
+  }
+
+  @Post("cycle-tracker/daily-logs")
+  @HttpCode(200)
+  upsertMenstrualDailyLog(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: Record<string, unknown>,
+  ) {
+    return this.service.upsertMenstrualDailyLog(authorization, dto);
+  }
+
+  @Delete("cycle-tracker/daily-logs/:logId")
+  deleteMenstrualDailyLog(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("logId") logId: string,
+  ) {
+    return this.service.deleteMenstrualDailyLog(authorization, logId);
+  }
+
+  @Put("cycle-tracker/preferences")
+  updateMenstrualTrackerPreferences(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: Record<string, unknown>,
+  ) {
+    return this.service.updateMenstrualTrackerPreferences(authorization, dto);
+  }
+
+  @Get("cycle-tracker/export")
+  exportMenstrualTrackerData(@Headers("authorization") authorization?: string) {
+    return this.service.exportMenstrualTrackerData(authorization);
+  }
+
+  @Delete("cycle-tracker/all")
+  deleteAllMenstrualTrackerData(
+    @Headers("authorization") authorization?: string,
+  ) {
+    return this.service.deleteAllMenstrualTrackerData(authorization);
+  }
 }

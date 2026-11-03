@@ -1,25 +1,21 @@
-import 'dart:async';
-import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:image_picker/image_picker.dart';
 
-import '../../../core/assets/app_assets.dart';
 import '../../../core/constants/mock_data.dart';
+import '../../../core/navigation/app_routes.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/sakhi_avatar.dart';
-import '../../../core/widgets/sakhi_buttons.dart';
-import '../../../core/widgets/sakhi_card.dart';
 import '../../../core/widgets/sakhi_chip.dart';
 import '../../../core/widgets/sakhi_create_hub_sheet.dart';
-import '../../business/screens/business_hub_screen.dart';
-import '../../complaints/screens/discreet_complaint_hub_screen.dart';
+import '../../../core/widgets/sakhi_dialogs.dart';
+import '../../../core/widgets/sakhi_liquid_glass.dart';
 
-const Map<String, String> sakhiPostCategories = {
+const Map<String, String> sakhiPostCategoryLabels = {
   'community': 'Community',
   'trending': 'Trending',
   'business_updates': 'Business Updates',
@@ -32,6 +28,167 @@ const Map<String, String> sakhiPostAudiences = {
   'FOLLOWERS_ONLY': 'Followers Only',
   'PRIVATE_SELF': 'Only Me',
 };
+
+/// Inspects raw magic bytes first so camera/content URIs without file extensions
+/// or uncropped JPEG bytes never get mislabeled as image/png.
+String detectMediaContentType(Uint8List bytes, String fallbackFileName) {
+  if (bytes.length >= 3 &&
+      bytes[0] == 0xFF &&
+      bytes[1] == 0xD8 &&
+      bytes[2] == 0xFF) {
+    return 'image/jpeg';
+  }
+  if (bytes.length >= 8 &&
+      bytes[0] == 0x89 &&
+      bytes[1] == 0x50 &&
+      bytes[2] == 0x4E &&
+      bytes[3] == 0x47 &&
+      bytes[4] == 0x0D &&
+      bytes[5] == 0x0A &&
+      bytes[6] == 0x1A &&
+      bytes[7] == 0x0A) {
+    return 'image/png';
+  }
+  if (bytes.length >= 12 &&
+      bytes[0] == 0x52 &&
+      bytes[1] == 0x49 &&
+      bytes[2] == 0x46 &&
+      bytes[3] == 0x46 &&
+      bytes[8] == 0x57 &&
+      bytes[9] == 0x45 &&
+      bytes[10] == 0x42 &&
+      bytes[11] == 0x50) {
+    return 'image/webp';
+  }
+  if (bytes.length >= 6 &&
+      bytes[0] == 0x47 &&
+      bytes[1] == 0x49 &&
+      bytes[2] == 0x46 &&
+      bytes[3] == 0x38) {
+    return 'image/gif';
+  }
+  if (bytes.length >= 12 &&
+      bytes[4] == 0x66 &&
+      bytes[5] == 0x74 &&
+      bytes[6] == 0x79 &&
+      bytes[7] == 0x70) {
+    return 'video/mp4';
+  }
+  final lower = fallbackFileName.toLowerCase();
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.gif')) return 'image/gif';
+  if (lower.endsWith('.mp4')) return 'video/mp4';
+  if (lower.endsWith('.webm')) return 'video/webm';
+  return 'image/png';
+}
+
+String normalizeMediaFileName(String rawName, String contentType) {
+  final expectedExt = switch (contentType) {
+    'image/jpeg' => '.jpg',
+    'image/webp' => '.webp',
+    'image/gif' => '.gif',
+    'video/mp4' => '.mp4',
+    'video/webm' => '.webm',
+    _ => '.png',
+  };
+  final cleaned = rawName.trim().isEmpty ? 'sakhi_media' : rawName.trim();
+  final dotIdx = cleaned.lastIndexOf('.');
+  final base = dotIdx > 0 ? cleaned.substring(0, dotIdx) : cleaned;
+  return '$base$expectedExt';
+}
+
+/// Aesthetic "Lovely Girls" studio filter preset with 4x5 color matrix.
+class SakhiStudioFilterPreset {
+  final String id;
+  final String label;
+  final String emoji;
+  final List<double> matrix;
+  final List<Color> previewGradient;
+
+  const SakhiStudioFilterPreset({
+    required this.id,
+    required this.label,
+    required this.emoji,
+    required this.matrix,
+    required this.previewGradient,
+  });
+}
+
+const List<SakhiStudioFilterPreset> sakhiStudioFilters = [
+  SakhiStudioFilterPreset(
+    id: 'original',
+    label: 'Original',
+    emoji: '✨',
+    matrix: <double>[
+      1, 0, 0, 0, 0,
+      0, 1, 0, 0, 0,
+      0, 0, 1, 0, 0,
+      0, 0, 0, 1, 0,
+    ],
+    previewGradient: [Color(0xFF7B228E), Color(0xFFD63E85)],
+  ),
+  SakhiStudioFilterPreset(
+    id: 'rose_glow',
+    label: 'Rose Glow',
+    emoji: '🌸',
+    matrix: <double>[
+      1.12, 0.04, 0.04, 0, 10,
+      0.02, 0.98, 0.02, 0, 2,
+      0.04, 0.02, 1.04, 0, 8,
+      0, 0, 0, 1, 0,
+    ],
+    previewGradient: [Color(0xFFE84A8A), Color(0xFFFFB3D1)],
+  ),
+  SakhiStudioFilterPreset(
+    id: 'golden_hour',
+    label: 'Golden Hour',
+    emoji: '☀️',
+    matrix: <double>[
+      1.14, 0.06, 0.0, 0, 12,
+      0.04, 1.05, 0.0, 0, 6,
+      0.0, 0.0, 0.90, 0, -6,
+      0, 0, 0, 1, 0,
+    ],
+    previewGradient: [Color(0xFFD97706), Color(0xFFF59E0B)],
+  ),
+  SakhiStudioFilterPreset(
+    id: 'velvet_plum',
+    label: 'Velvet Plum',
+    emoji: '💜',
+    matrix: <double>[
+      1.05, 0.02, 0.08, 0, 6,
+      0.0, 0.95, 0.04, 0, 0,
+      0.06, 0.04, 1.15, 0, 12,
+      0, 0, 0, 1, 0,
+    ],
+    previewGradient: [Color(0xFF5A1868), Color(0xFF9D4EDD)],
+  ),
+  SakhiStudioFilterPreset(
+    id: 'soft_pearl',
+    label: 'Soft Pearl',
+    emoji: '🤍',
+    matrix: <double>[
+      1.04, 0.04, 0.04, 0, 14,
+      0.04, 1.04, 0.04, 0, 14,
+      0.04, 0.04, 1.06, 0, 16,
+      0, 0, 0, 1, 0,
+    ],
+    previewGradient: [Color(0xFFA855F7), Color(0xFFF3E8FF)],
+  ),
+  SakhiStudioFilterPreset(
+    id: 'warm_peach',
+    label: 'Warm Peach',
+    emoji: '🍑',
+    matrix: <double>[
+      1.15, 0.05, 0.02, 0, 12,
+      0.03, 1.02, 0.02, 0, 6,
+      0.0, 0.02, 0.94, 0, 2,
+      0, 0, 0, 1, 0,
+    ],
+    previewGradient: [Color(0xFFFB7185), Color(0xFFFDBA74)],
+  ),
+];
 
 /// The central Create Hub launches one dedicated composer route while leaving
 /// the originating tab underneath it on the navigation stack.
@@ -55,41 +212,63 @@ Future<void> openSakhiCreateAction(
       ),
     ),
     SakhiCreateAction.communityQuestion => MaterialPageRoute<void>(
-      builder: (_) => SakhiTextPostComposerScreen(
-        initialMode: SakhiTextPostMode.question,
+      builder: (_) => SakhiQuestionComposerScreen(
         onPublished: onPublished,
         initialCategory: initialCategory,
       ),
     ),
     SakhiCreateAction.usefulResource => MaterialPageRoute<void>(
-      builder: (_) => SakhiTextPostComposerScreen(
-        initialMode: SakhiTextPostMode.resource,
-        onPublished: onPublished,
-        initialCategory: initialCategory ?? 'safety_awareness',
-      ),
+      builder: (_) =>
+          SakhiResourceComposerScreen(onPublished: onPublished),
     ),
-    SakhiCreateAction.womenBusinessPage => MaterialPageRoute<void>(
-      builder: (_) => const WomenBusinessHubScreen(showBackButton: true),
-    ),
-    SakhiCreateAction.discreetComplaint => MaterialPageRoute<void>(
-      builder: (_) => const DiscreetComplaintHubScreen(),
-    ),
+    SakhiCreateAction.womenBusinessPage => null,
+    SakhiCreateAction.discreetComplaint => null,
   };
-  await Navigator.of(context).push(route);
+
+  if (action == SakhiCreateAction.womenBusinessPage) {
+    await Navigator.of(context).pushNamed(AppRoutes.businessHub);
+    return;
+  }
+  if (action == SakhiCreateAction.discreetComplaint) {
+    await Navigator.of(context).pushNamed(AppRoutes.discreetComplaintHub);
+    return;
+  }
+  if (route != null) {
+    await Navigator.of(context).push(route);
+  }
 }
 
-class _SakhiRecentPhoto {
-  const _SakhiRecentPhoto({
-    required this.file,
+class _SelectedDevicePhoto {
+  const _SelectedDevicePhoto({
+    required this.name,
     required this.bytes,
-    required this.ratio,
+    required this.contentType,
   });
 
-  final XFile file;
+  final String name;
   final Uint8List bytes;
-  final double ratio;
+  final String contentType;
 }
 
+class _SelectedVideoDraft {
+  const _SelectedVideoDraft({
+    required this.name,
+    required this.bytes,
+    required this.contentType,
+  });
+
+  final String name;
+  final Uint8List bytes;
+  final String contentType;
+}
+
+/// Session-scoped cache of real user-selected device photos so switching tabs
+/// or reopening the composer preserves the user's real camera/gallery picks
+/// without ever showing fake stock illustrations.
+final List<_SelectedDevicePhoto> _sessionRecentDevicePhotos =
+    <_SelectedDevicePhoto>[];
+
+/// Flow 1 — Instagram-Style "Lovely Girls" Photo & Video Studio Composer
 class SakhiMediaPostFlowScreen extends StatefulWidget {
   const SakhiMediaPostFlowScreen({
     super.key,
@@ -106,1210 +285,1784 @@ class SakhiMediaPostFlowScreen extends StatefulWidget {
 }
 
 class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
-  final _picker = ImagePicker();
-  final _captionController = TextEditingController();
-  final _locationController = TextEditingController();
-  final _storage = const FlutterSecureStorage();
-  final List<_SakhiRecentPhoto> _recentPhotos = <_SakhiRecentPhoto>[];
+  final ImagePicker _picker = ImagePicker();
+  final TextEditingController _captionController = TextEditingController();
+  final TextEditingController _locationController = TextEditingController();
+  final TextEditingController _quoteCardController = TextEditingController();
 
-  int _step = 0;
-  XFile? _pickedFile;
-  Uint8List? _sourceBytes;
-  Uint8List? _previewBytes;
-  String? _fileName;
-  String _contentType = '';
-  double _originalRatio = 4 / 5;
+  int _step = 0; // 0 = Studio Select/Frame/Filter, 1 = Share Details
   String _cropPreset = '4:5';
-  String _category = 'wellness_lifestyle';
-  String _audience = 'VERIFIED_MEMBERS';
-  bool _isVideo = false;
-  bool _isTemplate = false;
-  bool _tagLocation = false;
-  bool _allowComments = true;
-  bool _shareBusiness = false;
-  bool _businessExpanded = false;
-  bool _uploading = false;
-  int _progress = 0;
-  String? _error;
+  String _selectedFilterId = 'original';
+  double _zoom = 1.0;
+  double _offsetX = 0.0;
+  double _offsetY = 0.0;
+  bool _showGridOverlay = true;
+  bool _isRendering = false;
+  bool _isPublishing = false;
+  bool _isPickingMedia = false;
 
-  SakhiPrototypeState get _state => SakhiPrototypeState.instance;
+  _SelectedDevicePhoto? _selectedPhoto;
+  Uint8List? _renderedPhotoBytes;
+  _SelectedVideoDraft? _selectedVideo;
+  int _selectedQuoteGradientIndex = 0;
+
+  late String _categorySlug;
+  String _visibility = 'VERIFIED_MEMBERS';
+  final Set<String> _selectedHashtags = <String>{};
+  bool _allowComments = true;
+
+  static const List<List<Color>> _quoteCardGradients = [
+    [Color(0xFF7B228E), Color(0xFFD63E85), Color(0xFFFF8DA1)],
+    [Color(0xFF4A1259), Color(0xFF832B96), Color(0xFFC85A93)],
+    [Color(0xFFB83280), Color(0xFFE53E3E), Color(0xFFF6AD55)],
+    [Color(0xFF1E6F5C), Color(0xFF289672), Color(0xFF8FD9A8)],
+  ];
+
+  static const List<String> _quickLocations = [
+    'Jubilee Hills, Hyderabad',
+    'Banjara Hills, Hyderabad',
+    'HITEC City, Hyderabad',
+    'Gachibowli, Hyderabad',
+    'Visakhapatnam, AP',
+    'Vijayawada, AP',
+    'Indiranagar, Bengaluru',
+  ];
 
   @override
   void initState() {
     super.initState();
     final initial = widget.initialCategory;
-    if (initial != null && sakhiPostCategories.containsKey(initial)) {
-      _category = initial;
+    _categorySlug =
+        (initial != null && sakhiPostCategoryLabels.containsKey(initial))
+        ? initial
+        : 'community';
+    if (_sessionRecentDevicePhotos.isNotEmpty) {
+      _selectedPhoto = _sessionRecentDevicePhotos.first;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _renderCroppedPreview();
+      });
     }
-    unawaited(_restoreDraft());
   }
 
   @override
   void dispose() {
     _captionController.dispose();
     _locationController.dispose();
+    _quoteCardController.dispose();
     super.dispose();
   }
 
-  double _aspect(String preset) => switch (preset) {
-    'Original' => _originalRatio,
-    '1:1' => 1,
-    '16:9' => 16 / 9,
-    _ => 4 / 5,
-  };
+  bool get _hasMedia =>
+      _renderedPhotoBytes != null ||
+      _selectedPhoto != null ||
+      _selectedVideo != null;
 
-  Future<void> _pickPhoto(ImageSource source) async {
-    try {
-      final file = await _picker.pickImage(
-        source: source,
-        maxWidth: 1800,
-        maxHeight: 1800,
-        imageQuality: 88,
-      );
-      if (file == null) return;
-      final bytes = await file.readAsBytes();
-      if (bytes.isEmpty || bytes.length > 10 * 1024 * 1024) {
-        _message(
-          'Images must be 10 MB or smaller. Choose a JPG, PNG, or WebP image.',
-        );
-        return;
-      }
-      final codec = await ui.instantiateImageCodec(bytes);
-      final frame = await codec.getNextFrame();
-      final ratio = frame.image.width / frame.image.height;
-      frame.image.dispose();
-      codec.dispose();
-      if (!mounted) return;
-      setState(() {
-        _pickedFile = file;
-        _sourceBytes = bytes;
-        _recentPhotos.removeWhere((item) => item.file.path == file.path);
-        _recentPhotos.insert(
-          0,
-          _SakhiRecentPhoto(file: file, bytes: bytes, ratio: ratio),
-        );
-        if (_recentPhotos.length > 6) _recentPhotos.removeLast();
-        _previewBytes = bytes;
-        _fileName = file.name;
-        _contentType = _imageType(file.name);
-        _originalRatio = ratio;
-        _isVideo = false;
-        _isTemplate = false;
-        _cropPreset = '4:5';
-        _error = null;
-      });
-      await _applyCrop();
-    } catch (_) {
-      if (mounted) {
-        _message('The selected photo could not be opened. Try another image.');
-      }
-    }
-  }
+  bool get _hasUnsavedWork =>
+      _hasMedia ||
+      _captionController.text.trim().isNotEmpty ||
+      _locationController.text.trim().isNotEmpty ||
+      _selectedHashtags.isNotEmpty;
 
-  Future<void> _selectRecentPhoto(_SakhiRecentPhoto photo) async {
-    setState(() {
-      _pickedFile = photo.file;
-      _sourceBytes = photo.bytes;
-      _previewBytes = photo.bytes;
-      _fileName = photo.file.name;
-      _contentType = _imageType(photo.file.name);
-      _originalRatio = photo.ratio;
-      _cropPreset = '4:5';
-      _isVideo = false;
-      _isTemplate = false;
-      _error = null;
-    });
-    await _applyCrop();
-  }
+  SakhiStudioFilterPreset get _activeFilter => sakhiStudioFilters.firstWhere(
+    (f) => f.id == _selectedFilterId,
+    orElse: () => sakhiStudioFilters.first,
+  );
 
-  Future<void> _pickVideo(ImageSource source) async {
-    try {
-      final file = await _picker.pickVideo(
-        source: source,
-        maxDuration: const Duration(seconds: 60),
-      );
-      if (file == null) return;
-      final bytes = await file.readAsBytes();
-      if (bytes.isEmpty || bytes.length > 50 * 1024 * 1024) {
-        _message('Video must be under 60 seconds and 50 MB.');
-        return;
-      }
-      if (!file.name.toLowerCase().endsWith('.mp4') ||
-          bytes.length < 12 ||
-          String.fromCharCodes(bytes.sublist(4, 8)) != 'ftyp') {
-        _message(
-          'Select a valid MP4 video. Other video formats are not supported.',
-        );
-        return;
-      }
-      if (!mounted) return;
-      setState(() {
-        _pickedFile = file;
-        _sourceBytes = bytes;
-        _previewBytes = null;
-        _fileName = file.name;
-        _contentType = 'video/mp4';
-        _isVideo = true;
-        _isTemplate = false;
-        _originalRatio = 16 / 9;
-        _cropPreset = '16:9';
-        _error = null;
-      });
-    } catch (_) {
-      if (mounted) {
-        _message('Unable to read that video. Select an MP4 under 50 MB.');
-      }
-    }
-  }
-
-  String _imageType(String name) {
-    return switch (name.toLowerCase().split('.').last) {
-      'jpg' || 'jpeg' => 'image/jpeg',
-      'webp' => 'image/webp',
-      _ => 'image/png',
+  double _aspectRatioValue(String preset) {
+    return switch (preset) {
+      '1:1' => 1.0,
+      '16:9' => 16 / 9,
+      '4:5' => 4 / 5,
+      _ => 1.0,
     };
   }
 
-  Future<void> _applyCrop() async {
-    final source = _sourceBytes;
-    if (source == null || _isVideo || _isTemplate) return;
-    if (_cropPreset == 'Original') {
-      setState(() {
-        _previewBytes = source;
-        _contentType = _imageType(_fileName ?? 'photo.png');
-      });
-      return;
-    }
+  Future<void> _pickPhoto(ImageSource source) async {
+    if (_isPickingMedia) return;
+    setState(() => _isPickingMedia = true);
     try {
-      final codec = await ui.instantiateImageCodec(source);
-      final frame = await codec.getNextFrame();
-      final image = frame.image;
-      final targetRatio = _aspect(_cropPreset);
-      final sourceRatio = image.width / image.height;
-      double cropWidth = image.width.toDouble();
-      double cropHeight = image.height.toDouble();
-      if (sourceRatio > targetRatio) {
-        cropWidth = cropHeight * targetRatio;
-      } else {
-        cropHeight = cropWidth / targetRatio;
-      }
-      final left = (image.width - cropWidth) / 2;
-      final top = (image.height - cropHeight) / 2;
-      const outputWidth = 1080;
-      final outputHeight = (outputWidth / targetRatio).round();
-      final recorder = ui.PictureRecorder();
-      final canvas = Canvas(recorder);
-      canvas.drawImageRect(
-        image,
-        Rect.fromLTWH(left, top, cropWidth, cropHeight),
-        Rect.fromLTWH(0, 0, outputWidth.toDouble(), outputHeight.toDouble()),
-        Paint()..filterQuality = FilterQuality.high,
+      final file = await _picker.pickImage(
+        source: source,
+        maxWidth: 1920,
+        maxHeight: 1920,
+        imageQuality: 90,
+        requestFullMetadata: false,
       );
-      final picture = recorder.endRecording();
-      final cropped = await picture.toImage(outputWidth, outputHeight);
-      final encoded = await cropped.toByteData(format: ui.ImageByteFormat.png);
-      image.dispose();
-      cropped.dispose();
-      picture.dispose();
-      codec.dispose();
-      if (!mounted || encoded == null) return;
+      if (file == null || !mounted) return;
+      final bytes = await file.readAsBytes();
+      if (!mounted) return;
+      if (bytes.isEmpty || bytes.length > 10 * 1024 * 1024) {
+        SakhiDialogs.showPrototypeSnackbar(
+          context,
+          'Please choose a photo under 10 MB.',
+        );
+        return;
+      }
+      final detectedMime = detectMediaContentType(bytes, file.name);
+      final normalizedName = normalizeMediaFileName(
+        file.name.isEmpty ? 'sakhi_camera_photo.jpg' : file.name,
+        detectedMime,
+      );
+      final item = _SelectedDevicePhoto(
+        name: normalizedName,
+        bytes: bytes,
+        contentType: detectedMime,
+      );
       setState(() {
-        _previewBytes = encoded.buffer.asUint8List();
-        _contentType = 'image/png';
-        _error = null;
+        _selectedVideo = null;
+        _selectedPhoto = item;
+        _zoom = 1.0;
+        _offsetX = 0.0;
+        _offsetY = 0.0;
+        _sessionRecentDevicePhotos.removeWhere((p) => p.name == item.name);
+        _sessionRecentDevicePhotos.insert(0, item);
+        if (_sessionRecentDevicePhotos.length > 12) {
+          _sessionRecentDevicePhotos.removeLast();
+        }
+      });
+      await _renderCroppedPreview();
+    } catch (err) {
+      if (!mounted) return;
+      SakhiDialogs.showPrototypeSnackbar(
+        context,
+        source == ImageSource.camera
+            ? 'Camera could not be opened. Please grant Camera permission in Settings or pick from Gallery.'
+            : 'Could not read the selected photo. Please try another image.',
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isPickingMedia = false);
+      }
+    }
+  }
+
+  Future<void> _pickMultiplePhotos() async {
+    if (_isPickingMedia) return;
+    setState(() => _isPickingMedia = true);
+    try {
+      final files = await _picker.pickMultiImage(
+        maxWidth: 1920,
+        maxHeight: 1920,
+        imageQuality: 90,
+        requestFullMetadata: false,
+      );
+      if (files.isEmpty || !mounted) return;
+      _SelectedDevicePhoto? firstAdded;
+      for (final file in files.take(8)) {
+        final bytes = await file.readAsBytes();
+        if (bytes.isEmpty || bytes.length > 10 * 1024 * 1024) continue;
+        final detectedMime = detectMediaContentType(bytes, file.name);
+        final normalizedName = normalizeMediaFileName(
+          file.name.isEmpty ? 'sakhi_gallery_photo.jpg' : file.name,
+          detectedMime,
+        );
+        final item = _SelectedDevicePhoto(
+          name: normalizedName,
+          bytes: bytes,
+          contentType: detectedMime,
+        );
+        firstAdded ??= item;
+        _sessionRecentDevicePhotos.removeWhere((p) => p.name == item.name);
+        _sessionRecentDevicePhotos.insert(0, item);
+      }
+      while (_sessionRecentDevicePhotos.length > 12) {
+        _sessionRecentDevicePhotos.removeLast();
+      }
+      if (firstAdded != null && mounted) {
+        setState(() {
+          _selectedVideo = null;
+          _selectedPhoto = firstAdded;
+          _zoom = 1.0;
+          _offsetX = 0.0;
+          _offsetY = 0.0;
+        });
+        await _renderCroppedPreview();
+      }
+    } catch (_) {
+      if (!mounted) return;
+      SakhiDialogs.showPrototypeSnackbar(
+        context,
+        'Unable to load multiple gallery photos. Please try picking a single photo.',
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isPickingMedia = false);
+      }
+    }
+  }
+
+  Future<void> _pickVideo(ImageSource source) async {
+    if (_isPickingMedia) return;
+    setState(() => _isPickingMedia = true);
+    try {
+      final file = await _picker.pickVideo(
+        source: source,
+        maxDuration: const Duration(minutes: 2),
+      );
+      if (file == null || !mounted) return;
+      final bytes = await file.readAsBytes();
+      if (!mounted) return;
+      if (bytes.isEmpty || bytes.length > 20 * 1024 * 1024) {
+        SakhiDialogs.showPrototypeSnackbar(
+          context,
+          'Choose an MP4 or WebM video under 20 MB.',
+        );
+        return;
+      }
+      final lower = file.name.toLowerCase();
+      final contentType = lower.endsWith('.webm') ? 'video/webm' : 'video/mp4';
+      final normalizedName = normalizeMediaFileName(
+        file.name.isEmpty ? 'sakhi_video.mp4' : file.name,
+        contentType,
+      );
+      setState(() {
+        _selectedPhoto = null;
+        _renderedPhotoBytes = null;
+        _selectedVideo = _SelectedVideoDraft(
+          name: normalizedName,
+          bytes: bytes,
+          contentType: contentType,
+        );
       });
     } catch (_) {
+      if (!mounted) return;
+      SakhiDialogs.showPrototypeSnackbar(
+        context,
+        'Unable to read the selected video. Please choose an MP4 or WebM clip.',
+      );
+    } finally {
       if (mounted) {
-        _message('Crop preview failed. Your original photo is preserved.');
+        setState(() => _isPickingMedia = false);
       }
     }
   }
 
-  Future<void> _showMediaPicker() async {
+  Future<void> _openQuoteCardCreatorSheet() async {
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AppColors.cardSurface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 22),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('Choose media', style: AppTypography.sectionTitle),
-              ListTile(
-                leading: const Icon(Icons.photo_library_outlined),
-                title: const Text('Photo from Gallery'),
-                onTap: () {
-                  Navigator.pop(sheetContext);
-                  _pickPhoto(ImageSource.gallery);
-                },
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            final grad = _quoteCardGradients[_selectedQuoteGradientIndex];
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.viewInsetsOf(ctx).bottom,
               ),
-              ListTile(
-                leading: const Icon(Icons.video_library_outlined),
-                title: const Text('Video from Gallery (MP4)'),
-                onTap: () {
-                  Navigator.pop(sheetContext);
-                  _pickVideo(ImageSource.gallery);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.photo_camera_outlined),
-                title: const Text('Take a Photo'),
-                onTap: () {
-                  Navigator.pop(sheetContext);
-                  _pickPhoto(ImageSource.camera);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.videocam_outlined),
-                title: const Text('Record a Video'),
-                onTap: () {
-                  Navigator.pop(sheetContext);
-                  _pickVideo(ImageSource.camera);
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _showTemplatePicker() async {
-    const templates = <(String, Color)>[
-      ('Soft Pink', Color(0xFFFDF4F7)),
-      ('Lavender', Color(0xFFF5EBF9)),
-      ('Cream', Color(0xFFFFF8F0)),
-      ('Floral Plum', Color(0xFF5D196A)),
-    ];
-    final chosen = await showModalBottomSheet<(String, Color)>(
-      context: context,
-      backgroundColor: AppColors.cardSurface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: templates.map((template) {
-              final light = template.$1 != 'Floral Plum';
-              return SizedBox(
-                width: 145,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(18),
-                  onTap: () => Navigator.pop(sheetContext, template),
-                  child: Container(
-                    height: 100,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: template.$2,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: AppColors.borderSubtle),
+              child: Container(
+                padding: const EdgeInsets.all(20),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.auto_awesome_rounded,
+                          color: AppColors.primaryPurple,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Create Sakhi Quote Card',
+                          style: AppTypography.sectionTitle,
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                      ],
                     ),
-                    child: Center(
+                    const SizedBox(height: 10),
+                    Container(
+                      height: 200,
+                      padding: const EdgeInsets.all(22),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: grad,
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(22),
+                      ),
+                      alignment: Alignment.center,
                       child: Text(
-                        template.$1,
-                        style: TextStyle(
-                          color: light ? AppColors.textPrimary : Colors.white,
+                        _quoteCardController.text.trim().isEmpty
+                            ? 'Type your affirmation, announcement, or sisterhood message below…'
+                            : _quoteCardController.text.trim(),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
                           fontWeight: FontWeight.w800,
+                          height: 1.35,
                         ),
                       ),
                     ),
-                  ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(_quoteCardGradients.length, (i) {
+                        final selected = _selectedQuoteGradientIndex == i;
+                        return GestureDetector(
+                          onTap: () => setSheetState(
+                            () => _selectedQuoteGradientIndex = i,
+                          ),
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 6),
+                            width: 34,
+                            height: 34,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: _quoteCardGradients[i],
+                              ),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: selected
+                                    ? AppColors.primaryPurple
+                                    : Colors.white,
+                                width: selected ? 3 : 1.5,
+                              ),
+                            ),
+                          ),
+                        );
+                      }),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _quoteCardController,
+                      maxLines: 3,
+                      maxLength: 180,
+                      onChanged: (_) => setSheetState(() {}),
+                      decoration: const InputDecoration(
+                        hintText: 'Write your quote or message for the card…',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.primaryPurple,
+                        minimumSize: const Size.fromHeight(48),
+                      ),
+                      onPressed: () async {
+                        final text = _quoteCardController.text.trim();
+                        if (text.isEmpty) return;
+                        Navigator.pop(ctx);
+                        await _renderQuoteCardToPhoto(
+                          text,
+                          _quoteCardGradients[_selectedQuoteGradientIndex],
+                        );
+                      },
+                      icon: const Icon(Icons.check_circle_outline_rounded),
+                      label: const Text('Use This Studio Card'),
+                    ),
+                  ],
                 ),
-              );
-            }).toList(),
-          ),
-        ),
-      ),
+              ),
+            );
+          },
+        );
+      },
     );
-    if (chosen == null) return;
-    final bytes = await _renderQuoteTemplate(chosen.$2);
-    if (!mounted) return;
-    setState(() {
-      _sourceBytes = bytes;
-      _previewBytes = bytes;
-      _pickedFile = null;
-      _fileName = 'sakhi_quote_template.png';
-      _contentType = 'image/png';
-      _isVideo = false;
-      _isTemplate = true;
-      _originalRatio = 4 / 5;
-      _cropPreset = '4:5';
-      if (_captionController.text.trim().isEmpty) {
-        _captionController.text = 'A gentle reminder: you deserve kindness, rest, and support. #SakhiCommunity';
-      }
-      _error = null;
-    });
   }
 
-  Future<Uint8List> _renderQuoteTemplate(Color background) async {
-    const width = 1080;
-    const height = 1350;
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder);
-    canvas.drawColor(background, BlendMode.src);
-    final isDark = background == const Color(0xFF5D196A);
-    final foreground = isDark ? Colors.white : const Color(0xFF2A1130);
-    final petalPaint = Paint()
-      ..color = const Color(0xFFD88FB1).withValues(alpha: 0.38);
-    for (var i = 0; i < 9; i++) {
-      canvas.drawOval(
-        Rect.fromCenter(
-          center: Offset(830 + (i % 3) * 48, 160 + (i % 5) * 48),
-          width: 42,
-          height: 78,
-        ),
-        petalPaint,
-      );
-    }
-    final heading = ui.ParagraphBuilder(
-      ui.ParagraphStyle(
-        textAlign: TextAlign.center,
-        fontSize: 48,
-        fontWeight: FontWeight.w700,
-        fontFamily: 'serif',
-      ),
-    )..pushStyle(ui.TextStyle(color: foreground));
-    heading.addText('A little reminder');
-    final headingParagraph = heading.build()
-      ..layout(const ui.ParagraphConstraints(width: 820));
-    canvas.drawParagraph(headingParagraph, const Offset(130, 470));
-    final quote = ui.ParagraphBuilder(
-      ui.ParagraphStyle(textAlign: TextAlign.center, fontSize: 62, height: 1.3),
-    )..pushStyle(ui.TextStyle(color: foreground));
-    quote.addText('You deserve kindness, rest, and support.');
-    final quoteParagraph = quote.build()
-      ..layout(const ui.ParagraphConstraints(width: 820));
-    canvas.drawParagraph(quoteParagraph, const Offset(130, 570));
-    final brand = ui.ParagraphBuilder(
-      ui.ParagraphStyle(
-        textAlign: TextAlign.center,
-        fontSize: 30,
-        fontWeight: FontWeight.w700,
-      ),
-    )..pushStyle(ui.TextStyle(color: foreground.withValues(alpha: .86)));
-    brand.addText('Sakhi  •  A safe space for every woman');
-    final brandParagraph = brand.build()
-      ..layout(const ui.ParagraphConstraints(width: 920));
-    canvas.drawParagraph(brandParagraph, const Offset(80, 1180));
-    final picture = recorder.endRecording();
-    final image = await picture.toImage(width, height);
+  Future<void> _renderQuoteCardToPhoto(
+    String quoteText,
+    List<Color> colors,
+  ) async {
+    setState(() => _isRendering = true);
     try {
-      final data = await image.toByteData(format: ui.ImageByteFormat.png);
-      if (data == null) throw StateError('Template export failed.');
-      return data.buffer.asUint8List();
-    } finally {
+      const width = 1080;
+      const height = 1350;
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      final rect = Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble());
+      final paint = Paint()
+        ..shader = ui.Gradient.linear(
+          const Offset(0, 0),
+          Offset(width.toDouble(), height.toDouble()),
+          colors,
+          const [0.0, 0.55, 1.0],
+        );
+      canvas.drawRect(rect, paint);
+
+      // Subtle decorative glow circles
+      canvas.drawCircle(
+        const Offset(180, 220),
+        220,
+        Paint()..color = Colors.white.withValues(alpha: 0.08),
+      );
+      canvas.drawCircle(
+        const Offset(900, 1120),
+        260,
+        Paint()..color = Colors.white.withValues(alpha: 0.08),
+      );
+
+      final tp = TextPainter(
+        text: TextSpan(
+          text: '“$quoteText”\n\n— Sakhi Sisterhood ✨',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 54,
+            fontWeight: FontWeight.w800,
+            height: 1.38,
+          ),
+        ),
+        textAlign: TextAlign.center,
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: width - 180);
+
+      tp.paint(
+        canvas,
+        Offset((width - tp.width) / 2, (height - tp.height) / 2),
+      );
+
+      final picture = recorder.endRecording();
+      final image = await picture.toImage(width, height);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
       image.dispose();
       picture.dispose();
+      if (byteData == null || !mounted) return;
+      final pngBytes = byteData.buffer.asUint8List();
+      final item = _SelectedDevicePhoto(
+        name: 'sakhi_quote_card_${DateTime.now().millisecondsSinceEpoch}.png',
+        bytes: pngBytes,
+        contentType: 'image/png',
+      );
+      setState(() {
+        _selectedVideo = null;
+        _selectedPhoto = item;
+        _renderedPhotoBytes = pngBytes;
+        _cropPreset = '4:5';
+        _zoom = 1.0;
+        _offsetX = 0.0;
+        _offsetY = 0.0;
+        _isRendering = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _isRendering = false);
     }
   }
 
-  Future<bool> _confirmDiscard() async {
-    if (_sourceBytes == null && _captionController.text.trim().isEmpty) {
-      return true;
+  Future<void> _renderCroppedPreview() async {
+    final photo = _selectedPhoto;
+    if (photo == null) return;
+    if (_cropPreset == 'Original' &&
+        _zoom == 1.0 &&
+        _offsetX == 0.0 &&
+        _offsetY == 0.0 &&
+        _selectedFilterId == 'original') {
+      setState(() => _renderedPhotoBytes = photo.bytes);
+      return;
     }
-    final answer = await showDialog<bool>(
+    setState(() => _isRendering = true);
+    try {
+      final codec = await ui.instantiateImageCodec(photo.bytes);
+      try {
+        final frame = await codec.getNextFrame();
+        final src = frame.image;
+        try {
+          final targetRatio = _cropPreset == 'Original'
+              ? (src.width / src.height)
+              : _aspectRatioValue(_cropPreset);
+          final srcRatio = src.width / src.height;
+
+          double baseW;
+          double baseH;
+          if (srcRatio > targetRatio) {
+            baseH = src.height.toDouble();
+            baseW = baseH * targetRatio;
+          } else {
+            baseW = src.width.toDouble();
+            baseH = baseW / targetRatio;
+          }
+
+          final safeZoom = _zoom.clamp(1.0, 3.0);
+          final cropW = baseW / safeZoom;
+          final cropH = baseH / safeZoom;
+          final maxLeft = (src.width - cropW).clamp(0.0, src.width.toDouble());
+          final maxTop = (src.height - cropH).clamp(0.0, src.height.toDouble());
+          final left = (maxLeft / 2 + _offsetX.clamp(-1.0, 1.0) * maxLeft / 2)
+              .clamp(0.0, maxLeft);
+          final top = (maxTop / 2 + _offsetY.clamp(-1.0, 1.0) * maxTop / 2)
+              .clamp(0.0, maxTop);
+
+          const outW = 1080;
+          final outH = (outW / targetRatio).round().clamp(360, 1920);
+          final recorder = ui.PictureRecorder();
+          final canvas = Canvas(recorder);
+          final paint = Paint()..filterQuality = FilterQuality.high;
+          if (_selectedFilterId != 'original') {
+            paint.colorFilter = ColorFilter.matrix(_activeFilter.matrix);
+          }
+          canvas.drawImageRect(
+            src,
+            Rect.fromLTWH(left, top, cropW, cropH),
+            Rect.fromLTWH(0, 0, outW.toDouble(), outH.toDouble()),
+            paint,
+          );
+          final picture = recorder.endRecording();
+          final cropped = await picture.toImage(outW, outH);
+          try {
+            final byteData = await cropped.toByteData(
+              format: ui.ImageByteFormat.png,
+            );
+            if (!mounted) return;
+            setState(() {
+              _renderedPhotoBytes =
+                  byteData?.buffer.asUint8List() ?? photo.bytes;
+              _isRendering = false;
+            });
+          } finally {
+            cropped.dispose();
+            picture.dispose();
+          }
+        } finally {
+          src.dispose();
+        }
+      } finally {
+        codec.dispose();
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _renderedPhotoBytes = photo.bytes;
+        _isRendering = false;
+      });
+    }
+  }
+
+  Future<bool> _confirmClose() async {
+    if (!_hasUnsavedWork || _isPublishing) return true;
+    final discard = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Discard this draft?'),
-        content: const Text('Your media and caption have not been shared.'),
+        backgroundColor: AppColors.cardSurface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Text(
+          'Discard draft?',
+          style: AppTypography.sectionTitle,
+        ),
+        content: const Text(
+          'Leaving now will discard your current photo or video post draft.',
+          style: AppTypography.bodyRegular,
+        ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
             child: const Text('Keep Editing'),
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.sosRed),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
             child: const Text('Discard'),
           ),
         ],
       ),
     );
-    return answer ?? false;
+    return discard ?? false;
   }
 
-  Future<void> _back() async {
-    if (_uploading) return;
-    if (_step == 1) {
-      setState(() => _step = 0);
-      return;
-    }
-    if (await _confirmDiscard() && mounted) Navigator.pop(context);
-  }
-
-  Future<void> _publish() async {
-    if (_uploading) return;
-    final bytes = _previewBytes ?? _sourceBytes;
-    if (bytes == null || _fileName == null) {
-      _message('Select a photo, video, or Sakhi template before continuing.');
-      setState(() => _step = 0);
-      return;
-    }
-    final caption = _captionController.text.trim();
-    if (caption.length > 500) {
-      _message('Captions must be 500 characters or fewer.');
-      return;
-    }
-    if (caption.isEmpty && !_isTemplate) {
-      _message('Add a caption before sharing your media.');
-      return;
-    }
-    if (_tagLocation && _locationController.text.trim().isEmpty) {
-      _message(
-        'Enter a general city or neighbourhood, or turn off location tagging.',
+  Future<void> _publishMediaPost() async {
+    if (_isPublishing) return;
+    if (!_hasMedia) {
+      SakhiDialogs.showPrototypeSnackbar(
+        context,
+        'Select or capture a photo or video before sharing.',
       );
       return;
     }
-    setState(() {
-      _step = 2;
-      _uploading = true;
-      _progress = 8;
-      _error = null;
-    });
+
+    setState(() => _isPublishing = true);
     try {
-      final uploaded = await _state.uploadMediaFile(
+      final state = SakhiPrototypeState.instance;
+      late final Uint8List uploadBytes;
+      late final String uploadName;
+      late final String contentType;
+
+      if (_selectedVideo != null) {
+        uploadBytes = _selectedVideo!.bytes;
+        contentType = detectMediaContentType(uploadBytes, _selectedVideo!.name);
+        uploadName = normalizeMediaFileName(_selectedVideo!.name, contentType);
+      } else {
+        uploadBytes = _renderedPhotoBytes ?? _selectedPhoto!.bytes;
+        // Always inspect actual magic bytes of uploadBytes so raw JPEGs and rendered PNGs
+        // both pass backend signature verification cleanly!
+        contentType = detectMediaContentType(uploadBytes, _selectedPhoto!.name);
+        uploadName = normalizeMediaFileName(_selectedPhoto!.name, contentType);
+      }
+
+      final uploadRes = await state.uploadMediaFile(
         purpose: 'community_post',
-        fileName: _fileName!,
-        fileBytes: bytes,
-        contentType: _contentType,
-        categorySlug: _category,
+        fileName: uploadName,
+        fileBytes: uploadBytes,
+        contentType: contentType,
+        categorySlug: _categorySlug,
         cropAspectRatio: _cropPreset == 'Original' ? '4:5' : _cropPreset,
       );
       if (!mounted) return;
-      final uploadId = uploaded?['uploadId'];
-      if (uploadId == null || uploadId.isEmpty) {
-        throw StateError('The media API did not confirm the upload.');
+      if (uploadRes == null) {
+        setState(() => _isPublishing = false);
+        SakhiDialogs.showPrototypeSnackbar(
+          context,
+          'Media upload failed — your draft is preserved so you can retry.',
+        );
+        return;
       }
-      setState(() => _progress = 65);
-      final published = await _state.createCommunityPost(
-        caption,
-        categoryBadge: sakhiPostCategories[_category],
-        categorySlug: _category,
-        visibility: _audience,
+
+      final caption = _captionController.text.trim();
+      final uploadId = uploadRes['uploadId'] ?? '';
+      final ok = await state.createCommunityPost(
+        caption.isEmpty ? 'Shared a moment with the Sakhi community ✨' : caption,
+        categoryBadge: sakhiPostCategoryLabels[_categorySlug] ?? 'Community',
+        categorySlug: _categorySlug,
+        visibility: _visibility,
         cropPreset: _cropPreset == 'Original' ? '4:5' : _cropPreset,
-        hashtags: _extractHashtags(caption),
-        locationTag: _tagLocation ? _locationController.text.trim() : '',
+        hashtags: _selectedHashtags.toList(),
+        locationTag: _locationController.text.trim(),
         allowComments: _allowComments,
-        shareToBusinessProfile: _shareBusiness,
-        mediaUploadIds: [uploadId],
+        imageAsset: uploadRes['mediaUrl'],
+        mediaUploadIds: uploadId.isNotEmpty ? <String>[uploadId] : const [],
       );
       if (!mounted) return;
-      if (!published) {
-        throw StateError('The post record was not confirmed by Sakhi.');
+      setState(() => _isPublishing = false);
+      if (!ok) {
+        SakhiDialogs.showPrototypeSnackbar(
+          context,
+          'Post could not be published. Your draft is still here so you can retry.',
+        );
+        return;
       }
-      await _storage.delete(key: 'sakhi_media_post_draft');
-      if (!mounted) return;
-      setState(() {
-        _progress = 100;
-        _uploading = false;
-        _step = 3;
-      });
+
+      SakhiDialogs.showPrototypeSnackbar(
+        context,
+        'Published to the Sakhi Social Wall! 🌸',
+      );
+      widget.onPublished?.call();
+      Navigator.of(context).pop();
     } catch (_) {
       if (!mounted) return;
-      setState(() {
-        _uploading = false;
-        _step = 1;
-        _error = 'Upload interrupted. Your media and caption are still here. Check your connection and retry.';
-      });
+      setState(() => _isPublishing = false);
+      SakhiDialogs.showPrototypeSnackbar(
+        context,
+        'Publication failed. Your draft remains open.',
+      );
     }
-  }
-
-  List<String> _extractHashtags(String value) =>
-      RegExp(r'#[A-Za-z0-9_]+')
-          .allMatches(value)
-          .map((match) => match.group(0)!)
-          .toSet()
-          .toList(growable: false);
-
-  void _message(String text) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
   @override
   Widget build(BuildContext context) {
-    final linkedBusiness = (_state.currentUser.businessProfileUrl ?? '')
-        .trim()
-        .isNotEmpty;
-    return Scaffold(
-      backgroundColor: AppColors.scaffoldBackground,
-      appBar: AppBar(
-        backgroundColor: AppColors.scaffoldBackground,
-        elevation: 0,
-        leadingWidth: 100,
-        leading: TextButton(
-          onPressed: _uploading ? null : _back,
-          child: Text(_step == 1 ? '‹ Back' : '‹ Discard'),
-        ),
-        title: Text(
-          _step == 0
-              ? 'New Photo Post'
-              : _step == 1
-              ? 'Post Settings'
-              : _step == 2
-              ? 'Uploading Post'
-              : 'Post Published',
-          style: AppTypography.appBarTitle,
-        ),
-        actions: [
-          if (_step == 0)
-            TextButton(
-              onPressed: _sourceBytes == null || _uploading
-                  ? null
-                  : () async {
-                      await _saveDraft();
-                      if (mounted) {
-                        setState(() {
-                          _step = 1;
-                          _error = null;
-                        });
-                      }
-                    },
-              child: const Text('Next ›'),
+    return PopScope<void>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (_step == 1) {
+          setState(() => _step = 0);
+          return;
+        }
+        final navigator = Navigator.of(context);
+        if (await _confirmClose() && mounted) {
+          navigator.pop();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFFDF7FA),
+        appBar: AppBar(
+          backgroundColor: Colors.white.withValues(alpha: 0.94),
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          leading: IconButton(
+            tooltip: _step == 1 ? 'Back to Studio' : 'Close',
+            icon: Icon(
+              _step == 1 ? Icons.arrow_back_rounded : Icons.close_rounded,
+              color: AppColors.primaryPurple,
             ),
-          if (_step == 1)
-            TextButton(
-              onPressed: _uploading ? null : _publish,
-              child: const Text('Share Post'),
-            ),
-          const SizedBox(width: 4),
-        ],
-      ),
-      body: SafeArea(
-        bottom: false,
-        child: _step == 3
-            ? _buildSuccess()
-            : _step == 2
-            ? _buildProgress()
-            : _step == 0
-            ? _buildMediaStep()
-            : _buildDetailsStep(linkedBusiness),
+            onPressed: () async {
+              if (_step == 1) {
+                setState(() => _step = 0);
+                return;
+              }
+              final navigator = Navigator.of(context);
+              if (await _confirmClose() && mounted) {
+                navigator.pop();
+              }
+            },
+          ),
+          centerTitle: true,
+          title: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF7B228E), Color(0xFFD63E85)],
+                  ),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.auto_awesome_rounded,
+                  color: Colors.white,
+                  size: 15,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                _step == 0 ? 'Sakhi Studio' : 'New Post Details',
+                style: AppTypography.appBarTitle.copyWith(fontSize: 17.5),
+              ),
+            ],
+          ),
+          actions: [
+            if (_step == 0)
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: FilledButton.icon(
+                  onPressed: _hasMedia && !_isRendering
+                      ? () => setState(() => _step = 1)
+                      : null,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFD63E85),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                  ),
+                  icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                  label: const Text(
+                    'Next',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: FilledButton.icon(
+                  onPressed: _isPublishing ? null : _publishMediaPost,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.primaryPurple,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                  ),
+                  icon: _isPublishing
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.send_rounded, size: 15),
+                  label: Text(
+                    _isPublishing ? 'Sharing…' : 'Share',
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        body: _step == 0 ? _buildStepZeroStudio() : _buildStepOneDetails(),
       ),
     );
   }
 
-  Future<void> _saveDraft() async {
-    try {
-      await _storage.write(
-        key: 'sakhi_media_post_draft',
-        value: jsonEncode({
-          'caption': _captionController.text,
-          'category': _category,
-          'audience': _audience,
-          'cropPreset': _cropPreset,
-          'location': _locationController.text,
-          'tagLocation': _tagLocation,
-          'allowComments': _allowComments,
-          'shareBusiness': _shareBusiness,
-          'filePath': _pickedFile?.path,
-          'fileName': _fileName,
-          'contentType': _contentType,
-          'isVideo': _isVideo,
-        }),
-      );
-    } catch (_) {
-      // Draft remains available in memory for the current route.
-    }
-  }
-
-  Future<void> _restoreDraft() async {
-    try {
-      final raw = await _storage.read(key: 'sakhi_media_post_draft');
-      if (raw == null || raw.isEmpty || !mounted) return;
-      final data = jsonDecode(raw);
-      if (data is! Map<String, dynamic>) return;
-      _captionController.text = data['caption']?.toString() ?? '';
-      _category = sakhiPostCategories.containsKey(data['category'])
-          ? data['category'] as String
-          : _category;
-      _audience = sakhiPostAudiences.containsKey(data['audience'])
-          ? data['audience'] as String
-          : _audience;
-      _cropPreset = data['cropPreset']?.toString() ?? _cropPreset;
-      _locationController.text = data['location']?.toString() ?? '';
-      _tagLocation = data['tagLocation'] == true;
-      _allowComments = data['allowComments'] != false;
-      _shareBusiness = data['shareBusiness'] == true;
-      final path = data['filePath']?.toString();
-      final name = data['fileName']?.toString();
-      if (path != null && name != null && path.isNotEmpty) {
-        final file = XFile(path);
-        final bytes = await file.readAsBytes();
-        if (bytes.isNotEmpty && mounted) {
-          setState(() {
-            _pickedFile = file;
-            _sourceBytes = bytes;
-            _previewBytes = bytes;
-            _fileName = name;
-            _contentType = data['contentType']?.toString() ?? '';
-            _isVideo = data['isVideo'] == true;
-            _originalRatio = _isVideo ? 16 / 9 : _originalRatio;
-            _step = 1;
-          });
-          return;
-        }
-      }
-      if (mounted) setState(() {});
-    } catch (_) {
-      // An expired temporary gallery URI is not a reason to block composing.
-    }
-  }
-
-  Widget _buildMediaStep() => ListView(
-    padding: const EdgeInsets.fromLTRB(18, 8, 18, 96),
-    children: [
-      const Text('Choose your moment', style: AppTypography.sectionTitle),
-      const SizedBox(height: 12),
-      if (_sourceBytes == null)
-        InkWell(
-          borderRadius: BorderRadius.circular(24),
-          onTap: _showMediaPicker,
-          child: Container(
-            height: 370,
+  Widget _buildStepZeroStudio() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.screenPaddingH,
+        8,
+        AppSpacing.screenPaddingH,
+        36,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 1. Instagram-Style Interactive Stage Preview
+          Container(
             decoration: BoxDecoration(
-              color: AppColors.pastelLavender,
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: AppColors.borderSubtle),
-            ),
-            child: const Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.add_photo_alternate_outlined,
-                  size: 46,
-                  color: AppColors.primaryPurple,
+              gradient: const LinearGradient(
+                colors: [Color(0xFF280B33), Color(0xFF471254)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(26),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x294A1259),
+                  blurRadius: 24,
+                  offset: Offset(0, 10),
                 ),
-                SizedBox(height: 12),
-                Text(
-                  'Select a photo or video',
-                  style: AppTypography.sectionTitle,
-                ),
-                SizedBox(height: 6),
-                Text('Your preview appears here before you share.'),
               ],
             ),
-          ),
-        )
-      else
-        ClipRRect(
-          borderRadius: BorderRadius.circular(24),
-          child: AspectRatio(
-            aspectRatio: _aspect(_cropPreset).clamp(.56, 1.9),
-            child: _isVideo
-                ? Container(
-                    color: AppColors.textPrimary,
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              children: [
+                SizedBox(
+                  height: 360,
+                  width: double.infinity,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      if (_selectedVideo != null)
+                        Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Container(
+                                width: 76,
+                                height: 76,
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [
+                                      Color(0xFFE03E7A),
+                                      Color(0xFF7B228E),
+                                    ],
+                                  ),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: Colors.white,
+                                    width: 2,
+                                  ),
+                                ),
+                                child: const Icon(
+                                  Icons.videocam_rounded,
+                                  size: 38,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                              Text(
+                                _selectedVideo!.name,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 15,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                '${(_selectedVideo!.bytes.length / (1024 * 1024)).toStringAsFixed(2)} MB • Ready to share',
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.78),
+                                  fontSize: 12.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      else if (_renderedPhotoBytes != null ||
+                          _selectedPhoto != null)
+                        GestureDetector(
+                          onPanUpdate: (details) {
+                            if (_zoom <= 1.0) return;
+                            setState(() {
+                              _offsetX = (_offsetX - details.delta.dx / 120)
+                                  .clamp(-1.0, 1.0);
+                              _offsetY = (_offsetY - details.delta.dy / 120)
+                                  .clamp(-1.0, 1.0);
+                            });
+                          },
+                          onPanEnd: (_) => _renderCroppedPreview(),
+                          child: Center(
+                            child: AspectRatio(
+                              aspectRatio: _cropPreset == 'Original'
+                                  ? 4 / 5
+                                  : _aspectRatioValue(_cropPreset),
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  Image.memory(
+                                    _renderedPhotoBytes ??
+                                        _selectedPhoto!.bytes,
+                                    fit: _cropPreset == 'Original'
+                                        ? BoxFit.contain
+                                        : BoxFit.cover,
+                                    filterQuality: FilterQuality.high,
+                                  ),
+                                  if (_showGridOverlay)
+                                    IgnorePointer(
+                                      child: CustomPaint(
+                                        painter: _RuleOfThirdsGridPainter(),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        )
+                      else
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 28),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Container(
+                                width: 78,
+                                height: 78,
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [
+                                      Color(0xFFE03E7A),
+                                      Color(0xFF7B228E),
+                                    ],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                  borderRadius: BorderRadius.circular(24),
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.85),
+                                    width: 1.5,
+                                  ),
+                                ),
+                                child: const Icon(
+                                  Icons.camera_enhance_rounded,
+                                  size: 36,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              const Text(
+                                'Share Your Moment ✨',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 19,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Snap a live camera photo, choose from your phone gallery, or design a Sakhi quote card below.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.80),
+                                  fontSize: 12.8,
+                                  height: 1.4,
+                                ),
+                              ),
+                              const SizedBox(height: 18),
+                              Wrap(
+                                spacing: 10,
+                                runSpacing: 10,
+                                alignment: WrapAlignment.center,
+                                children: [
+                                  FilledButton.icon(
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: const Color(0xFFE03E7A),
+                                      foregroundColor: Colors.white,
+                                    ),
+                                    onPressed: () =>
+                                        _pickPhoto(ImageSource.camera),
+                                    icon: const Icon(
+                                      Icons.photo_camera_rounded,
+                                      size: 18,
+                                    ),
+                                    label: const Text('Open Camera'),
+                                  ),
+                                  FilledButton.tonalIcon(
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: Colors.white.withValues(
+                                        alpha: 0.16,
+                                      ),
+                                      foregroundColor: Colors.white,
+                                    ),
+                                    onPressed: () =>
+                                        _pickPhoto(ImageSource.gallery),
+                                    icon: const Icon(
+                                      Icons.photo_library_rounded,
+                                      size: 18,
+                                    ),
+                                    label: const Text('Pick from Gallery'),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      if (_isRendering || _isPickingMedia)
+                        Container(
+                          color: Colors.black38,
+                          child: const Center(
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      if (_selectedPhoto != null)
+                        Positioned(
+                          top: 12,
+                          right: 12,
+                          child: Row(
+                            children: [
+                              IconButton.filledTonal(
+                                tooltip: 'Toggle composition grid',
+                                style: IconButton.styleFrom(
+                                  backgroundColor: Colors.black54,
+                                  foregroundColor: Colors.white,
+                                ),
+                                onPressed: () => setState(
+                                  () => _showGridOverlay = !_showGridOverlay,
+                                ),
+                                icon: Icon(
+                                  _showGridOverlay
+                                      ? Icons.grid_on_rounded
+                                      : Icons.grid_off_rounded,
+                                  size: 18,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              IconButton.filledTonal(
+                                tooltip: 'Remove selected photo',
+                                style: IconButton.styleFrom(
+                                  backgroundColor: Colors.black54,
+                                  foregroundColor: Colors.white,
+                                ),
+                                onPressed: () => setState(() {
+                                  _selectedPhoto = null;
+                                  _renderedPhotoBytes = null;
+                                }),
+                                icon: const Icon(
+                                  Icons.delete_outline_rounded,
+                                  size: 18,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+
+                // Aspect Ratio & Zoom Strip inside Stage
+                if (_selectedPhoto != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    color: Colors.black.withValues(alpha: 0.28),
                     child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(
-                          Icons.play_circle_outline_rounded,
-                          size: 62,
-                          color: Colors.white,
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.crop_rounded,
+                                color: Colors.white70,
+                                size: 16,
+                              ),
+                              const SizedBox(width: 8),
+                              for (final preset in const [
+                                '4:5',
+                                '1:1',
+                                '16:9',
+                                'Original',
+                              ])
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: ChoiceChip(
+                                    label: Text(
+                                      preset == '4:5'
+                                          ? '4:5 Portrait'
+                                          : preset == '1:1'
+                                          ? '1:1 Square'
+                                          : preset == '16:9'
+                                          ? '16:9 Wide'
+                                          : 'Original',
+                                      style: TextStyle(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w800,
+                                        color: _cropPreset == preset
+                                            ? Colors.white
+                                            : AppColors.primaryPurple,
+                                      ),
+                                    ),
+                                    selected: _cropPreset == preset,
+                                    selectedColor: const Color(0xFFD63E85),
+                                    backgroundColor: Colors.white,
+                                    onSelected: (_) {
+                                      setState(() => _cropPreset = preset);
+                                      _renderCroppedPreview();
+                                    },
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _fileName ?? 'MP4 selected',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: Colors.white),
-                        ),
-                        const Text(
-                          'MP4 • max 60 seconds • 50 MB',
-                          style: TextStyle(color: Colors.white70),
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.zoom_in_rounded,
+                              color: Colors.white70,
+                              size: 18,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '${_zoom.toStringAsFixed(1)}×',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            Expanded(
+                              child: Slider(
+                                value: _zoom,
+                                min: 1.0,
+                                max: 3.0,
+                                divisions: 20,
+                                activeColor: const Color(0xFFFF7EB3),
+                                inactiveColor: Colors.white24,
+                                onChanged: (value) =>
+                                    setState(() => _zoom = value),
+                                onChangeEnd: (_) => _renderCroppedPreview(),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                setState(() {
+                                  _zoom = 1.0;
+                                  _offsetX = 0.0;
+                                  _offsetY = 0.0;
+                                  _selectedFilterId = 'original';
+                                });
+                                _renderCroppedPreview();
+                              },
+                              child: const Text(
+                                'Reset',
+                                style: TextStyle(
+                                  color: Color(0xFFFFB3D1),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                  )
-                : Image.memory(
-                    _previewBytes ?? _sourceBytes!,
-                    fit: BoxFit.cover,
-                    gaplessPlayback: true,
                   ),
+              ],
+            ),
           ),
-        ),
-      const SizedBox(height: 10),
-      Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: [
-          OutlinedButton.icon(
-            onPressed: _showMediaPicker,
-            icon: const Icon(Icons.photo_library_outlined),
-            label: const Text('Gallery'),
-          ),
-          OutlinedButton.icon(
-            onPressed: () => _pickPhoto(ImageSource.camera),
-            icon: const Icon(Icons.photo_camera_outlined),
-            label: const Text('Camera'),
-          ),
-          OutlinedButton.icon(
-            onPressed: _showTemplatePicker,
-            icon: const Icon(Icons.auto_awesome_outlined),
-            label: const Text('Create with Template'),
-          ),
-        ],
-      ),
-      const SizedBox(height: 16),
-      Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: const [
-          Text('Recent Photos', style: AppTypography.bodyMedium),
-          Text('All Albums ›', style: AppTypography.subtitle),
-        ],
-      ),
-      const SizedBox(height: 8),
-      if (_recentPhotos.isEmpty)
-        GridView.count(
-          padding: EdgeInsets.zero,
-                  crossAxisCount: 3,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          crossAxisSpacing: 8,
-          mainAxisSpacing: 8,
-          childAspectRatio: 1,
-          children:
-              const [
-                AppAssets.breathingExerciseIllustration,
-                AppAssets.greetingHeroIllustration,
-                AppAssets.educationCareerHubBanner,
-                AppAssets.dailyRitualBreathingThumb,
-                AppAssets.emptySafetyShieldIllustration,
-                AppAssets.profileHeaderBanner,
-              ].map((assetPath) {
-                return ClipRRect(
-                  borderRadius: BorderRadius.circular(14),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      Image.asset(assetPath, fit: BoxFit.cover),
-                      Positioned(
-                        top: 6,
-                        right: 6,
-                        child: Icon(
-                          Icons.radio_button_unchecked_rounded,
-                          color: Colors.white,
-                          size: 18,
+
+          // 2. Aesthetic "Lovely Girls" Studio Filters Strip
+          if (_selectedPhoto != null) ...[
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                const Icon(
+                  Icons.palette_outlined,
+                  size: 18,
+                  color: AppColors.primaryPurple,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'Sakhi Aesthetic Filters',
+                  style: AppTypography.bodyMedium.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  _activeFilter.label,
+                  style: AppTypography.caption.copyWith(
+                    color: const Color(0xFFD63E85),
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 88,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: sakhiStudioFilters.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 10),
+                itemBuilder: (context, index) {
+                  final filter = sakhiStudioFilters[index];
+                  final selected = filter.id == _selectedFilterId;
+                  return GestureDetector(
+                    onTap: () {
+                      setState(() => _selectedFilterId = filter.id);
+                      _renderCroppedPreview();
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      width: 82,
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        gradient: selected
+                            ? LinearGradient(colors: filter.previewGradient)
+                            : null,
+                        color: selected ? null : Colors.white,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(
+                          color: selected
+                              ? const Color(0xFFD63E85)
+                              : AppColors.borderSubtle,
+                          width: selected ? 2 : 1,
                         ),
+                        boxShadow: selected
+                            ? const [
+                                BoxShadow(
+                                  color: Color(0x26D63E85),
+                                  blurRadius: 10,
+                                  offset: Offset(0, 4),
+                                ),
+                              ]
+                            : null,
                       ),
-                    ],
-                  ),
-                );
-              }).toList(),
-        ),
-      if (_recentPhotos.isNotEmpty) ...[
-        const SizedBox(height: 16),
-        const Text('Recent selections', style: AppTypography.bodyMedium),
-        const SizedBox(height: 8),
-        GridView.count(
-          padding: EdgeInsets.zero,
-                  crossAxisCount: 3,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          crossAxisSpacing: 8,
-          mainAxisSpacing: 8,
-          childAspectRatio: 1,
-          children: _recentPhotos.map((photo) {
-            final selected = photo.file.path == _pickedFile?.path;
-            return Material(
-              color: AppColors.pastelLavender,
-              borderRadius: BorderRadius.circular(14),
-              clipBehavior: Clip.antiAlias,
-              child: InkWell(
-                onTap: () => _selectRecentPhoto(photo),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Image.memory(photo.bytes, fit: BoxFit.cover),
-                    if (selected)
-                      Container(
-                        color: AppColors.primaryPurple.withValues(alpha: .16),
-                      ),
-                    Positioned(
-                      top: 6,
-                      right: 6,
-                      child: Icon(
-                        selected
-                            ? Icons.check_circle_rounded
-                            : Icons.radio_button_unchecked_rounded,
-                        color: selected
-                            ? AppColors.primaryPurple
-                            : Colors.white,
-                        shadows: const [
-                          Shadow(color: Colors.black45, blurRadius: 4),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            filter.emoji,
+                            style: const TextStyle(fontSize: 22),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            filter.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: selected
+                                  ? Colors.white
+                                  : AppColors.textPrimary,
+                            ),
+                          ),
                         ],
                       ),
                     ),
-                  ],
-                ),
-              ),
-            );
-          }).toList(),
-        ),
-      ],
-      if (_sourceBytes != null && !_isVideo && !_isTemplate) ...[
-        const SizedBox(height: 16),
-        const Text('Crop Preview', style: AppTypography.bodyMedium),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          children: ['Original', '1:1', '4:5', '16:9'].map((preset) {
-            return SakhiChip(
-              label: preset,
-              isSelected: _cropPreset == preset,
-              onTap: () async {
-                setState(() => _cropPreset = preset);
-                await _applyCrop();
-                await _saveDraft();
-              },
-            );
-          }).toList(),
-        ),
-      ],
-      if (_fileName != null) ...[
-        const SizedBox(height: 10),
-        Text(
-          _fileName!,
-          style: AppTypography.subtitle,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ),
-      ],
-      const SizedBox(height: 18),
-      SizedBox(
-        width: double.infinity,
-        child: SakhiPillButton(
-          label: 'Next',
-          onPressed: _sourceBytes == null
-              ? null
-              : () async {
-                  await _saveDraft();
-                  if (mounted) setState(() => _step = 1);
+                  );
                 },
-        ),
-      ),
-    ],
-  );
-
-  Widget _buildDetailsStep(bool linkedBusiness) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 8, 18, 96),
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 76,
-              height: 94,
-              clipBehavior: Clip.antiAlias,
-              decoration: BoxDecoration(
-                color: AppColors.pastelLavender,
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: _isVideo
-                  ? const Icon(Icons.play_circle_outline_rounded, size: 36)
-                  : Image.memory(
-                      _previewBytes ?? _sourceBytes!,
-                      fit: BoxFit.cover,
-                    ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: TextField(
-                controller: _captionController,
-                maxLength: 500,
-                maxLines: 4,
-                decoration: const InputDecoration(
-                  hintText: 'Write a caption and #hashtags...',
-                  alignLabelWithHint: true,
-                  counterText: '',
-                ),
-                onChanged: (_) => setState(() {}),
               ),
             ),
           ],
-        ),
-        Align(
-          alignment: Alignment.centerRight,
-          child: Text(
-            '${_captionController.text.length}/500',
-            style: AppTypography.subtitle,
+
+          // 3. Studio Action Tiles (Camera, Gallery, Multi-Photo, Video, Quote Card)
+          const SizedBox(height: 16),
+          Text(
+            'Choose Media Source',
+            style: AppTypography.bodyMedium.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
           ),
-        ),
-        const SizedBox(height: 10),
-        SakhiCard(
-          padding: const EdgeInsets.all(4),
-          child: Column(
+          const SizedBox(height: 10),
+          Row(
             children: [
-              ListTile(
-                title: const Text('Category', style: AppTypography.bodyMedium),
-                subtitle: Text(sakhiPostCategories[_category] ?? 'Community'),
-                trailing: const Icon(Icons.keyboard_arrow_down_rounded),
-                onTap: () => _chooseValue(
-                  title: 'Choose a category',
-                  values: sakhiPostCategories.entries
-                      .map((e) => MapEntry(e.key, e.value))
-                      .toList(),
-                  selected: _category,
-                  onSelect: (value) => setState(() => _category = value),
+              Expanded(
+                child: _StudioActionTile(
+                  icon: Icons.photo_camera_rounded,
+                  label: 'Camera',
+                  subtitle: 'Snap live photo',
+                  gradient: const [Color(0xFFE03E7A), Color(0xFFA82368)],
+                  onTap: () => _pickPhoto(ImageSource.camera),
                 ),
               ),
-              const Divider(height: 1),
-              ListTile(
-                title: const Text(
-                  'Visibility',
-                  style: AppTypography.bodyMedium,
-                ),
-                subtitle: Text(sakhiPostAudiences[_audience]!),
-                trailing: const Icon(Icons.keyboard_arrow_down_rounded),
-                onTap: () => _chooseValue(
-                  title: 'Who can see this post?',
-                  values: const [
-                    MapEntry('VERIFIED_MEMBERS', 'All Verified Members'),
-                    MapEntry('FOLLOWERS_ONLY', 'Followers Only'),
-                    MapEntry('PRIVATE_SELF', 'Only Me'),
-                  ],
-                  selected: _audience,
-                  onSelect: (value) => setState(() => _audience = value),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _StudioActionTile(
+                  icon: Icons.photo_library_rounded,
+                  label: 'Gallery',
+                  subtitle: 'Pick from phone',
+                  gradient: const [Color(0xFF7B228E), Color(0xFF5A1868)],
+                  onTap: () => _pickPhoto(ImageSource.gallery),
                 ),
               ),
             ],
           ),
-        ),
-        Material(
-          color: AppColors.cardSurface,
-          borderRadius: BorderRadius.circular(16),
-          child: SwitchListTile(
-            value: _tagLocation,
-            activeThumbColor: AppColors.primaryPurple,
-            title: const Text('Add Location Tag (Optional)'),
-            subtitle: const Text(
-              'Off by default; city or neighbourhood only.',
-              style: AppTypography.subtitle,
-            ),
-            onChanged: (value) => setState(() => _tagLocation = value),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _StudioActionTile(
+                  icon: Icons.collections_rounded,
+                  label: 'Multi-Photo',
+                  subtitle: 'Load batch to tray',
+                  gradient: const [Color(0xFF9333EA), Color(0xFF6B21A8)],
+                  onTap: _pickMultiplePhotos,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _StudioActionTile(
+                  icon: Icons.videocam_rounded,
+                  label: 'Video Clip',
+                  subtitle: 'MP4 / WebM',
+                  gradient: const [Color(0xFFD97706), Color(0xFFB45309)],
+                  onTap: () => _pickVideo(ImageSource.gallery),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _StudioActionTile(
+                  icon: Icons.auto_awesome_rounded,
+                  label: 'Quote Card',
+                  subtitle: 'Design card',
+                  gradient: const [Color(0xFF0D9488), Color(0xFF115E59)],
+                  onTap: _openQuoteCardCreatorSheet,
+                ),
+              ),
+            ],
           ),
-        ),
-        if (_tagLocation)
+
+          // 4. Real Device Photos Selected in This Session (ZERO Fake/Static Thumbnails!)
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              const Icon(
+                Icons.history_rounded,
+                size: 18,
+                color: AppColors.primaryPurple,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Your Selected Device Photos (${_sessionRecentDevicePhotos.length})',
+                style: AppTypography.bodyMedium.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const Spacer(),
+              if (_sessionRecentDevicePhotos.isNotEmpty)
+                TextButton(
+                  onPressed: () => setState(() {
+                    _sessionRecentDevicePhotos.clear();
+                  }),
+                  child: const Text('Clear tray'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (_sessionRecentDevicePhotos.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: AppColors.borderSubtle),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: AppColors.pastelPink,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(
+                      Icons.add_a_photo_outlined,
+                      color: Color(0xFFD63E85),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'No device photos selected yet. Tap Camera or Gallery above to capture or choose real photos from your phone.',
+                      style: AppTypography.subtitle.copyWith(
+                        fontSize: 12.2,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _sessionRecentDevicePhotos.length,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 8,
+              ),
+              itemBuilder: (context, index) {
+                final item = _sessionRecentDevicePhotos[index];
+                final isCurrent = _selectedPhoto?.name == item.name;
+                return GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _selectedVideo = null;
+                      _selectedPhoto = item;
+                      _zoom = 1.0;
+                      _offsetX = 0.0;
+                      _offsetY = 0.0;
+                    });
+                    _renderCroppedPreview();
+                  },
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Image.memory(item.bytes, fit: BoxFit.cover),
+                        if (isCurrent)
+                          Container(
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: const Color(0xFFD63E85),
+                                width: 3,
+                              ),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            alignment: Alignment.topRight,
+                            padding: const EdgeInsets.all(6),
+                            child: const CircleAvatar(
+                              radius: 11,
+                              backgroundColor: Color(0xFFD63E85),
+                              child: Icon(
+                                Icons.check,
+                                size: 13,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStepOneDetails() {
+    final state = SakhiPrototypeState.instance;
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.screenPaddingH,
+        12,
+        AppSpacing.screenPaddingH,
+        36,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SakhiGlassCard(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: SizedBox(
+                    width: 84,
+                    height: 84,
+                    child: _selectedVideo != null
+                        ? Container(
+                            color: AppColors.pastelLavender,
+                            child: const Icon(
+                              Icons.videocam_rounded,
+                              color: AppColors.primaryPurple,
+                              size: 34,
+                            ),
+                          )
+                        : Image.memory(
+                            _renderedPhotoBytes ?? _selectedPhoto!.bytes,
+                            fit: BoxFit.cover,
+                          ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: _captionController,
+                    maxLines: 4,
+                    maxLength: 500,
+                    decoration: const InputDecoration(
+                      hintText:
+                          'Write a warm caption, story, or #hashtags for your Sakhis…',
+                      border: InputBorder.none,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Popular Sisterhood Hashtags',
+            style: AppTypography.bodyMedium.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: state.trendingHashtags.map((tag) {
+              final selected = _selectedHashtags.contains(tag);
+              return SakhiChip(
+                label: tag,
+                isSelected: selected,
+                onTap: () => setState(() {
+                  if (selected) {
+                    _selectedHashtags.remove(tag);
+                  } else {
+                    _selectedHashtags.add(tag);
+                  }
+                }),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 16),
+          DropdownButtonFormField<String>(
+            initialValue: _categorySlug,
+            decoration: const InputDecoration(
+              labelText: 'Feed Category',
+              prefixIcon: Icon(Icons.category_outlined),
+            ),
+            items: sakhiPostCategoryLabels.entries
+                .map(
+                  (e) => DropdownMenuItem<String>(
+                    value: e.key,
+                    child: Text(e.value),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) {
+              if (value != null) setState(() => _categorySlug = value);
+            },
+          ),
+          const SizedBox(height: 12),
           TextField(
             controller: _locationController,
-            maxLength: 120,
             decoration: const InputDecoration(
-              hintText: 'City / neighbourhood (no live GPS)',
+              labelText: 'Add Location (optional)',
+              hintText: 'e.g., Jubilee Hills, Hyderabad',
+              prefixIcon: Icon(Icons.location_on_outlined),
             ),
           ),
-        Material(
-          color: AppColors.cardSurface,
-          borderRadius: BorderRadius.circular(16),
-          child: SwitchListTile(
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: _quickLocations.map((loc) {
+                return Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: ActionChip(
+                    avatar: const Icon(
+                      Icons.place_outlined,
+                      size: 15,
+                      color: AppColors.primaryPurple,
+                    ),
+                    label: Text(loc, style: const TextStyle(fontSize: 11.5)),
+                    onPressed: () =>
+                        setState(() => _locationController.text = loc),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            initialValue: _visibility,
+            decoration: const InputDecoration(
+              labelText: 'Who can view this post?',
+              prefixIcon: Icon(Icons.lock_outline_rounded),
+            ),
+            items: sakhiPostAudiences.entries
+                .map(
+                  (e) => DropdownMenuItem<String>(
+                    value: e.key,
+                    child: Text(e.value),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) {
+              if (value != null) setState(() => _visibility = value);
+            },
+          ),
+          const SizedBox(height: 8),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
             value: _allowComments,
             activeThumbColor: AppColors.primaryPurple,
-            title: const Text('Allow member comments'),
+            title: const Text(
+              'Allow member comments',
+              style: AppTypography.bodyMedium,
+            ),
             subtitle: const Text(
-              'Turn off to disable comments on this post.',
-              style: AppTypography.subtitle,
+              'Verified Sakhi members can reply with supportive comments',
+              style: AppTypography.caption,
             ),
             onChanged: (value) => setState(() => _allowComments = value),
           ),
-        ),
-        SakhiCard(
-          padding: EdgeInsets.zero,
-          child: ExpansionTile(
-            initiallyExpanded: _businessExpanded,
-            onExpansionChanged: (value) =>
-                setState(() => _businessExpanded = value),
-            title: const Text(
-              'Additional Settings (Business Profile)',
-              style: AppTypography.bodyMedium,
-            ),
-            children: [
-              if (linkedBusiness)
-                SwitchListTile(
-                  value: _shareBusiness,
-                  activeThumbColor: AppColors.primaryPurple,
-                  title: const Text(
-                    'Feature on my Women-Owned Business profile',
-                  ),
-                  onChanged: (value) => setState(() => _shareBusiness = value),
-                )
-              else
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  child: Text(
-                    'Available after an eligible business page is linked.',
-                    style: AppTypography.subtitle,
-                  ),
-                ),
-            ],
-          ),
-        ),
-        if (_error != null) ...[
-          const SizedBox(height: 10),
-          _InlineError(message: _error!),
-          OutlinedButton(
-            onPressed: _uploading ? null : _publish,
-            child: const Text('Retry Upload'),
-          ),
-        ],
-        const SizedBox(height: 14),
-        SizedBox(
-          width: double.infinity,
-          child: SakhiPillButton(
-            label: 'Share Post',
-            onPressed: _uploading ? null : _publish,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildProgress() => Center(
-    child: Padding(
-      padding: const EdgeInsets.all(28),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(
-            Icons.cloud_upload_outlined,
-            color: AppColors.primaryPurple,
-            size: 52,
-          ),
-          const SizedBox(height: 12),
-          const Text('Uploading post...', style: AppTypography.sectionTitle),
-          const SizedBox(height: 14),
-          LinearProgressIndicator(
-            value: _progress / 100,
-            color: AppColors.primaryPurple,
-            minHeight: 5,
-            borderRadius: BorderRadius.circular(99),
-          ),
-          const SizedBox(height: 8),
-          Text('$_progress%', style: AppTypography.subtitle),
-          const SizedBox(height: 8),
-          const Text(
-            'Sakhi saves your media first, then creates the post record.',
-            textAlign: TextAlign.center,
-            style: AppTypography.subtitle,
-          ),
-        ],
-      ),
-    ),
-  );
-
-  Widget _buildSuccess() => Center(
-    child: Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 76,
-            height: 76,
-            decoration: const BoxDecoration(
-              color: Color(0xFFE6F6EE),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.check_rounded,
-              color: Color(0xFF1E7E52),
-              size: 44,
-            ),
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'Post shared successfully',
-            style: AppTypography.sectionTitle,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Post shared to ${sakhiPostCategories[_category] ?? 'Community'}!',
-            textAlign: TextAlign.center,
-            style: AppTypography.bodyRegular,
-          ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 18),
           SizedBox(
-            width: double.infinity,
-            child: SakhiPillButton(
-              label: 'View in Social Wall',
-              onPressed: () {
-                widget.onPublished?.call();
-                Navigator.of(context).pop();
-              },
+            height: 52,
+            child: FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.primaryPurple,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+              ),
+              onPressed: _isPublishing ? null : _publishMediaPost,
+              icon: _isPublishing
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.send_rounded),
+              label: Text(
+                _isPublishing
+                    ? 'Uploading & Publishing…'
+                    : 'Publish to Sakhi Social Wall',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                ),
+              ),
             ),
           ),
         ],
       ),
-    ),
-  );
-
-  Future<void> _chooseValue({
-    required String title,
-    required List<MapEntry<String, String>> values,
-    required String selected,
-    required ValueChanged<String> onSelect,
-  }) async {
-    final result = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: AppColors.cardSurface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFD3BFE0),
-                    borderRadius: BorderRadius.circular(99),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(title, style: AppTypography.sectionTitle),
-              const SizedBox(height: 8),
-              ...values.map(
-                (entry) => ListTile(
-                  title: Text(entry.value),
-                  trailing: selected == entry.key
-                      ? const Icon(
-                          Icons.check_circle_rounded,
-                          color: AppColors.primaryPurple,
-                        )
-                      : null,
-                  onTap: () => Navigator.pop(sheetContext, entry.key),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
-    if (result != null) onSelect(result);
   }
 }
 
-enum SakhiTextPostMode { text, question, resource }
+class _StudioActionTile extends StatelessWidget {
+  const _StudioActionTile({
+    required this.icon,
+    required this.label,
+    required this.subtitle,
+    required this.gradient,
+    required this.onTap,
+  });
 
+  final IconData icon;
+  final String label;
+  final String subtitle;
+  final List<Color> gradient;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppColors.borderSubtle),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: gradient,
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: Colors.white, size: 20),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12.8,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.caption.copyWith(fontSize: 10.5),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RuleOfThirdsGridPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.32)
+      ..strokeWidth = 1.0;
+    final thirdW = size.width / 3;
+    final thirdH = size.height / 3;
+    for (int i = 1; i <= 2; i++) {
+      canvas.drawLine(
+        Offset(thirdW * i, 0),
+        Offset(thirdW * i, size.height),
+        paint,
+      );
+      canvas.drawLine(
+        Offset(0, thirdH * i),
+        Offset(size.width, thirdH * i),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+/// Flow 2 — Write a Text Post
 class SakhiTextPostComposerScreen extends StatefulWidget {
   const SakhiTextPostComposerScreen({
     super.key,
-    this.initialMode = SakhiTextPostMode.text,
     this.onPublished,
     this.initialCategory,
   });
 
-  final SakhiTextPostMode initialMode;
   final VoidCallback? onPublished;
   final String? initialCategory;
 
@@ -1320,328 +2073,133 @@ class SakhiTextPostComposerScreen extends StatefulWidget {
 
 class _SakhiTextPostComposerScreenState
     extends State<SakhiTextPostComposerScreen> {
-  static const _draftKey = 'sakhi_text_post_draft';
-  final _storage = const FlutterSecureStorage();
-  final _bodyController = TextEditingController();
-  final _sourceController = TextEditingController();
-  late SakhiTextPostMode _mode;
-  String _category = 'community';
-  String _audience = 'VERIFIED_MEMBERS';
-  String _cardStyle = 'Lavender';
+  final TextEditingController _textController = TextEditingController();
+  final TextEditingController _locationController = TextEditingController();
+  late String _categorySlug;
+  String _visibility = 'VERIFIED_MEMBERS';
+  final Set<String> _hashtags = <String>{};
   bool _allowComments = true;
-  bool _submitting = false;
-  bool _draftSaved = false;
+  bool _isPublishing = false;
 
   @override
   void initState() {
     super.initState();
-    _mode = widget.initialMode;
     final initial = widget.initialCategory;
-    if (initial != null && sakhiPostCategories.containsKey(initial)) {
-      _category = initial;
-    }
-    unawaited(_restoreDraft());
+    _categorySlug =
+        (initial != null && sakhiPostCategoryLabels.containsKey(initial))
+        ? initial
+        : 'community';
   }
 
   @override
   void dispose() {
-    _bodyController.dispose();
-    _sourceController.dispose();
+    _textController.dispose();
+    _locationController.dispose();
     super.dispose();
   }
 
-  Future<void> _restoreDraft() async {
-    try {
-      final raw = await _storage.read(key: _draftKey);
-      if (raw == null || raw.isEmpty || !mounted) return;
-      final data = jsonDecode(raw);
-      if (data is! Map<String, dynamic>) return;
-      setState(() {
-        _bodyController.text = data['body']?.toString() ?? '';
-        _sourceController.text = data['source']?.toString() ?? '';
-        final mode = data['mode']?.toString();
-        _mode = SakhiTextPostMode.values.firstWhere(
-          (item) => item.name == mode,
-          orElse: () => widget.initialMode,
-        );
-        final category = data['category']?.toString();
-        if (sakhiPostCategories.containsKey(category)) {
-          _category = category!;
-        }
-        final audience = data['audience']?.toString();
-        if (sakhiPostAudiences.containsKey(audience)) {
-          _audience = audience!;
-        }
-        _cardStyle = data['cardStyle']?.toString() ?? 'Lavender';
-        _allowComments = data['allowComments'] != false;
-        _draftSaved = true;
-      });
-    } catch (_) {
-      // A corrupt/stale local draft must not block the composer.
-    }
-  }
+  bool get _hasDraft =>
+      _textController.text.trim().isNotEmpty ||
+      _locationController.text.trim().isNotEmpty ||
+      _hashtags.isNotEmpty;
 
-  Future<void> _saveDraft() async {
-    try {
-      await _storage.write(
-        key: _draftKey,
-        value: jsonEncode({
-          'body': _bodyController.text,
-          'source': _sourceController.text,
-          'mode': _mode.name,
-          'category': _category,
-          'audience': _audience,
-          'cardStyle': _cardStyle,
-          'allowComments': _allowComments,
-        }),
-      );
-      if (!mounted) return;
-      setState(() => _draftSaved = true);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Draft saved securely on this device.')),
-      );
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Draft could not be saved. Keep editing this screen.',
-            ),
-          ),
-        );
-      }
-    }
-  }
-
-  Future<bool> _discardOrSave() async {
-    if (_bodyController.text.trim().isEmpty &&
-        _sourceController.text.trim().isEmpty) {
-      return true;
-    }
-    final result = await showDialog<String>(
+  Future<bool> _confirmDiscard() async {
+    if (!_hasDraft || _isPublishing) return true;
+    final discard = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Leave this composer?'),
-        content: const Text('Save your draft before leaving?'),
+      builder: (ctx) => AlertDialog(
+        title: const Text('Discard text post?'),
+        content: const Text('Your current text post draft will be lost.'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext, 'cancel'),
+            onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Keep Editing'),
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, 'discard'),
-            child: const Text('Discard'),
-          ),
           FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, 'save'),
-            child: const Text('Save Draft'),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.sosRed),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Discard'),
           ),
         ],
       ),
     );
-    if (result == 'save') {
-      await _saveDraft();
-      return true;
-    }
-    if (result == 'discard') {
-      await _storage.delete(key: _draftKey);
-      return true;
-    }
-    return false;
-  }
-
-  Future<void> _back() async {
-    if (_submitting) return;
-    if (await _discardOrSave() && mounted) Navigator.of(context).pop();
-  }
-
-  Future<void> _chooseValue({
-    required String title,
-    required List<MapEntry<String, String>> values,
-    required String selected,
-    required ValueChanged<String> onSelect,
-  }) async {
-    final result = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: AppColors.cardSurface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFD3BFE0),
-                    borderRadius: BorderRadius.circular(99),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(title, style: AppTypography.sectionTitle),
-              const SizedBox(height: 8),
-              ...values.map(
-                (entry) => ListTile(
-                  title: Text(entry.value),
-                  trailing: selected == entry.key
-                      ? const Icon(
-                          Icons.check_circle_rounded,
-                          color: AppColors.primaryPurple,
-                        )
-                      : null,
-                  onTap: () => Navigator.pop(sheetContext, entry.key),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (result != null && mounted) onSelect(result);
+    return discard ?? false;
   }
 
   Future<void> _publish() async {
-    final rawBody = _bodyController.text.trim();
-    if (rawBody.length < 5) {
-      _message('Write at least 5 characters before sharing.');
-      return;
-    }
-    if (rawBody.length > 1000) {
-      _message('Posts must be 1,000 characters or fewer.');
-      return;
-    }
-
-    var body = rawBody;
-    if (_mode == SakhiTextPostMode.resource) {
-      final url = _sourceController.text.trim();
-      if (url.isNotEmpty && !RegExp(r'^https?://').hasMatch(url)) {
-        _message('Enter a source link beginning with https:// or http://.');
-        return;
-      }
-      if (url.isNotEmpty) body = '$body\n\nResource: $url';
-    } else if (_mode == SakhiTextPostMode.question) {
-      body = 'Community Question\n$body';
-    }
-
-    setState(() => _submitting = true);
-    final published = await SakhiPrototypeState.instance.createCommunityPost(
+    final body = _textController.text.trim();
+    if (body.isEmpty || _isPublishing) return;
+    setState(() => _isPublishing = true);
+    final ok = await SakhiPrototypeState.instance.createCommunityPost(
       body,
-      categoryBadge: sakhiPostCategories[_category],
-      categorySlug: _category,
-      visibility: _audience,
-      hashtags: RegExp(r'#[A-Za-z0-9_]+')
-          .allMatches(body)
-          .map((match) => match.group(0)!)
-          .toSet()
-          .toList(),
+      categoryBadge: sakhiPostCategoryLabels[_categorySlug] ?? 'Community',
+      categorySlug: _categorySlug,
+      visibility: _visibility,
+      hashtags: _hashtags.toList(),
+      locationTag: _locationController.text.trim(),
       allowComments: _allowComments,
     );
     if (!mounted) return;
-    setState(() => _submitting = false);
-    if (!published) {
-      _message(
-        'Could not share your post. Your draft remains available to retry.',
+    setState(() => _isPublishing = false);
+    if (!ok) {
+      SakhiDialogs.showPrototypeSnackbar(
+        context,
+        'Post could not be published. Check your connection and retry.',
       );
       return;
     }
-    await _storage.delete(key: _draftKey);
-    if (!mounted) return;
-    SakhiPrototypeState.instance.loadFeed(categorySlug: 'all');
+    SakhiDialogs.showPrototypeSnackbar(context, 'Text post published!');
     widget.onPublished?.call();
-    final success = _mode == SakhiTextPostMode.question
-        ? 'Question shared to ${sakhiPostCategories[_category]!}!'
-        : _mode == SakhiTextPostMode.resource
-        ? 'Resource shared to ${sakhiPostCategories[_category]!}!'
-        : 'Post shared to ${sakhiPostCategories[_category]!}!';
-    _message(success);
     Navigator.of(context).pop();
-  }
-
-  void _message(String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
   Widget build(BuildContext context) {
-    final question = _mode == SakhiTextPostMode.question;
-    final resource = _mode == SakhiTextPostMode.resource;
     final user = SakhiPrototypeState.instance.currentUser;
-    final background = switch (_cardStyle) {
-      'Soft Pink' => const Color(0xFFFDF4F7),
-      'Lavender' => const Color(0xFFF5EBF9),
-      'Cream' => const Color(0xFFFFF8F0),
-      _ => AppColors.primaryPurple,
-    };
-    final foreground = _cardStyle == 'Floral Plum'
-        ? Colors.white
-        : AppColors.textPrimary;
-
-    return Scaffold(
-      backgroundColor: AppColors.scaffoldBackground,
-      appBar: AppBar(
+    final canPost = _textController.text.trim().isNotEmpty && !_isPublishing;
+    return PopScope<void>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        final navigator = Navigator.of(context);
+        if (await _confirmDiscard() && mounted) {
+          navigator.pop();
+        }
+      },
+      child: Scaffold(
         backgroundColor: AppColors.scaffoldBackground,
-        elevation: 0,
-        leadingWidth: 100,
-        leading: TextButton(
-          onPressed: _submitting ? null : _back,
-          child: const Text('‹ Discard'),
-        ),
-        title: Text(
-          question
-              ? 'Community Question'
-              : resource
-              ? 'Share a Resource'
-              : 'Text Post',
-          style: AppTypography.appBarTitle,
-        ),
-        actions: [
-          TextButton(
-            onPressed: _submitting ? null : _saveDraft,
-            child: const Text('Save Draft'),
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.close_rounded),
+            onPressed: () async {
+              final navigator = Navigator.of(context);
+              if (await _confirmDiscard() && mounted) {
+                navigator.pop();
+              }
+            },
           ),
-          const SizedBox(width: 6),
-        ],
-      ),
-      body: SafeArea(
-        bottom: false,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 8, 18, 96),
-          children: [
-            SegmentedButton<SakhiTextPostMode>(
-              segments: const [
-                ButtonSegment(
-                  value: SakhiTextPostMode.text,
-                  label: Text('Text Post'),
-                  icon: Icon(Icons.edit_note_rounded),
-                ),
-                ButtonSegment(
-                  value: SakhiTextPostMode.question,
-                  label: Text('Community Question'),
-                  icon: Icon(Icons.forum_outlined),
-                ),
-              ],
-              selected: {resource ? SakhiTextPostMode.text : _mode},
-              showSelectedIcon: false,
-              onSelectionChanged: _submitting
-                  ? null
-                  : (values) => setState(() => _mode = values.first),
+          title: const Text('Write a Post'),
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: FilledButton(
+                onPressed: canPost ? _publish : null,
+                child: Text(_isPublishing ? 'Posting…' : 'Post'),
+              ),
             ),
-            const SizedBox(height: 12),
-            SakhiCard(
-              child: Row(
+          ],
+        ),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(AppSpacing.screenPaddingH),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
                 children: [
                   SakhiAvatar(
                     imageAsset: user.avatarAsset,
                     fallbackLabel: user.displayName,
-                    size: 42,
+                    size: 44,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -1649,270 +2207,558 @@ class _SakhiTextPostComposerScreenState
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(user.displayName, style: AppTypography.cardTitle),
-                        Text(user.username, style: AppTypography.subtitle),
+                        Text(
+                          sakhiPostCategoryLabels[_categorySlug] ?? 'Community',
+                          style: AppTypography.caption,
+                        ),
                       ],
                     ),
-                  ),
-                  TextButton(
-                    onPressed: () => _chooseValue(
-                      title: 'Post audience',
-                      values: const [
-                        MapEntry('VERIFIED_MEMBERS', 'All Verified Members'),
-                        MapEntry('FOLLOWERS_ONLY', 'Followers Only'),
-                        MapEntry('PRIVATE_SELF', 'Only Me'),
-                      ],
-                      selected: _audience,
-                      onSelect: (value) => setState(() => _audience = value),
-                    ),
-                    child: Text(sakhiPostAudiences[_audience]!),
                   ),
                 ],
               ),
-            ),
-            const SizedBox(height: 12),
-            SakhiCard(
-              padding: const EdgeInsets.all(0),
-              child: Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: background,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppColors.borderSubtle),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (question || resource) ...[
-                      Text(
-                        question
-                            ? 'SAKHI COMMUNITY QUESTION'
-                            : 'USEFUL COMMUNITY RESOURCE',
-                        style: TextStyle(
-                          color: foreground,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: .6,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                    ],
-                    TextField(
-                      controller: _bodyController,
-                      maxLength: 1000,
-                      maxLines: 7,
-                      onChanged: (_) => setState(() {}),
-                      decoration: InputDecoration(
-                        hintText: question
-                            ? 'Ask the Sakhi Community...'
-                            : 'Share a thought, experience, or update...',
-                        hintStyle: TextStyle(
-                          color: foreground.withValues(alpha: .72),
-                        ),
-                        border: InputBorder.none,
-                        counterText: '',
-                      ),
-                      style: TextStyle(
-                        color: foreground,
-                        fontSize: 15,
-                        height: 1.45,
-                      ),
-                    ),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: Text(
-                        '${_bodyController.text.length}/1000',
-                        style: AppTypography.subtitle,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            if (resource) ...[
-              const SizedBox(height: 10),
+              const SizedBox(height: 14),
               TextField(
-                controller: _sourceController,
-                keyboardType: TextInputType.url,
+                controller: _textController,
+                autofocus: true,
+                maxLines: 7,
+                maxLength: 500,
+                onChanged: (_) => setState(() {}),
                 decoration: const InputDecoration(
-                  labelText: 'Source link (optional)',
-                  hintText: 'https://example.com/resource',
-                  prefixIcon: Icon(Icons.link_rounded),
+                  hintText: 'Share a thought, experience, or update…',
                 ),
               ),
-            ],
-            const SizedBox(height: 14),
-            const Text('Category', style: AppTypography.bodyMedium),
-            const SizedBox(height: 6),
-            SakhiCard(
-              padding: EdgeInsets.zero,
-              child: ListTile(
-                title: Text(sakhiPostCategories[_category]!),
-                trailing: const Icon(Icons.keyboard_arrow_down_rounded),
-                onTap: () => _chooseValue(
-                  title: 'Choose a category',
-                  values: sakhiPostCategories.entries
-                      .map((entry) => MapEntry(entry.key, entry.value))
-                      .toList(),
-                  selected: _category,
-                  onSelect: (value) => setState(() => _category = value),
-                ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: SakhiPrototypeState.instance.trendingHashtags.map((
+                  tag,
+                ) {
+                  final selected = _hashtags.contains(tag);
+                  return SakhiChip(
+                    label: tag,
+                    isSelected: selected,
+                    onTap: () => setState(() {
+                      if (selected) {
+                        _hashtags.remove(tag);
+                      } else {
+                        _hashtags.add(tag);
+                      }
+                    }),
+                  );
+                }).toList(),
               ),
-            ),
-            const SizedBox(height: 14),
-            const Text(
-              'Card Background Style',
-              style: AppTypography.bodyMedium,
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 12,
-              children:
-                  [
-                    ('Soft Pink', const Color(0xFFFDF4F7)),
-                    ('Lavender', const Color(0xFFF5EBF9)),
-                    ('Cream', const Color(0xFFFFF8F0)),
-                    ('Floral Plum', AppColors.primaryPurple),
-                  ].map((choice) {
-                    return InkWell(
-                      onTap: () => setState(() => _cardStyle = choice.$1),
-                      borderRadius: BorderRadius.circular(20),
-                      child: Tooltip(
-                        message: choice.$1,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              height: 38,
-                              width: 38,
-                              decoration: BoxDecoration(
-                                color: choice.$2,
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: _cardStyle == choice.$1
-                                      ? AppColors.primaryPurple
-                                      : AppColors.borderSubtle,
-                                  width: _cardStyle == choice.$1 ? 3 : 1,
-                                ),
-                              ),
-                              child: _cardStyle == choice.$1
-                                  ? Icon(
-                                      Icons.check_rounded,
-                                      size: 16,
-                                      color: choice.$1 == 'Floral Plum'
-                                          ? Colors.white
-                                          : AppColors.primaryPurple,
-                                    )
-                                  : null,
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              choice.$1,
-                              style: AppTypography.caption.copyWith(
-                                fontWeight: _cardStyle == choice.$1
-                                    ? FontWeight.w700
-                                    : FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
+              const SizedBox(height: 14),
+              DropdownButtonFormField<String>(
+                initialValue: _categorySlug,
+                decoration: const InputDecoration(labelText: 'Category'),
+                items: sakhiPostCategoryLabels.entries
+                    .map(
+                      (e) => DropdownMenuItem<String>(
+                        value: e.key,
+                        child: Text(e.value),
                       ),
-                    );
-                  }).toList(),
-            ),
-            const SizedBox(height: 14),
-            const Text('Suggested hashtags', style: AppTypography.bodyMedium),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children:
-                  [
-                    '#SafetyAwareness',
-                    '#AskSakhi',
-                    '#CareerSupport',
-                    '+ Add Tag',
-                  ].map((tag) {
-                    return SakhiChip(
-                      label: tag,
-                      onTap: () {
-                        final body = _bodyController.text.trimRight();
-                        _bodyController.text = body.isEmpty
-                            ? tag
-                            : '$body $tag';
-                        _bodyController.selection = TextSelection.collapsed(
-                          offset: _bodyController.text.length,
-                        );
-                        setState(() {});
-                      },
-                    );
-                  }).toList(),
-            ),
-            const SizedBox(height: 12),
-            Material(
-              color: AppColors.cardSurface,
-              borderRadius: BorderRadius.circular(16),
-              child: SwitchListTile(
+                    )
+                    .toList(),
+                onChanged: (v) {
+                  if (v != null) setState(() => _categorySlug = v);
+                },
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: _visibility,
+                decoration: const InputDecoration(labelText: 'Audience'),
+                items: sakhiPostAudiences.entries
+                    .map(
+                      (e) => DropdownMenuItem<String>(
+                        value: e.key,
+                        child: Text(e.value),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (v) {
+                  if (v != null) setState(() => _visibility = v);
+                },
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _locationController,
+                decoration: const InputDecoration(
+                  labelText: 'Add Location (optional)',
+                  prefixIcon: Icon(Icons.location_on_outlined),
+                ),
+              ),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
                 value: _allowComments,
                 activeThumbColor: AppColors.primaryPurple,
                 title: const Text('Allow member comments'),
-                onChanged: (value) => setState(() => _allowComments = value),
-              ),
-            ),
-            if (_draftSaved) ...[
-              const SizedBox(height: 8),
-              const Text(
-                'Draft saved on this device.',
-                style: AppTypography.subtitle,
+                onChanged: (v) => setState(() => _allowComments = v),
               ),
             ],
-            const SizedBox(height: 18),
-            SizedBox(
-              width: double.infinity,
-              child: SakhiPillButton(
-                label: _submitting
-                    ? 'Sharing...'
-                    : question
-                    ? 'Share Question to Social Wall'
-                    : resource
-                    ? 'Share Resource to Social Wall'
-                    : 'Share Post',
-                onPressed: _submitting ? null : _publish,
-              ),
-            ),
-            if (_submitting) ...[
-              const SizedBox(height: 10),
-              const LinearProgressIndicator(
-                color: AppColors.primaryPurple,
-                minHeight: 4,
-              ),
-            ],
-          ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _InlineError extends StatelessWidget {
-  const _InlineError({required this.message});
+/// Flow 3 — Create a Community Question
+class SakhiQuestionComposerScreen extends StatefulWidget {
+  const SakhiQuestionComposerScreen({
+    super.key,
+    this.onPublished,
+    this.initialCategory,
+  });
 
-  final String message;
+  final VoidCallback? onPublished;
+  final String? initialCategory;
+
+  @override
+  State<SakhiQuestionComposerScreen> createState() =>
+      _SakhiQuestionComposerScreenState();
+}
+
+class _SakhiQuestionComposerScreenState
+    extends State<SakhiQuestionComposerScreen> {
+  final TextEditingController _titleController = TextEditingController();
+  final TextEditingController _detailsController = TextEditingController();
+  late String _categorySlug;
+  String _visibility = 'VERIFIED_MEMBERS';
+  final Set<String> _topicTags = <String>{'#Question'};
+  bool _allowComments = true;
+  bool _isPublishing = false;
+
+  static const List<String> _questionTopics = [
+    '#Question',
+    '#SafetyAdvice',
+    '#CareerSupport',
+    '#HealthAndWellness',
+    '#LocalRecommendations',
+    '#WomenEntrepreneurs',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initialCategory;
+    _categorySlug =
+        (initial != null && sakhiPostCategoryLabels.containsKey(initial))
+        ? initial
+        : 'community';
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _detailsController.dispose();
+    super.dispose();
+  }
+
+  bool get _hasDraft =>
+      _titleController.text.trim().isNotEmpty ||
+      _detailsController.text.trim().isNotEmpty;
+
+  Future<bool> _confirmDiscard() async {
+    if (!_hasDraft || _isPublishing) return true;
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Discard question?'),
+        content: const Text('Your community question draft will be lost.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Keep Editing'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.sosRed),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Discard'),
+          ),
+        ],
+      ),
+    );
+    return discard ?? false;
+  }
+
+  Future<void> _publish() async {
+    final title = _titleController.text.trim();
+    if (title.isEmpty || _isPublishing) return;
+    setState(() => _isPublishing = true);
+    final details = _detailsController.text.trim();
+    final content = details.isEmpty
+        ? '❓ Question: $title'
+        : '❓ Question: $title\n\n$details';
+    final ok = await SakhiPrototypeState.instance.createCommunityPost(
+      content,
+      categoryBadge: sakhiPostCategoryLabels[_categorySlug] ?? 'Community',
+      categorySlug: _categorySlug,
+      visibility: _visibility,
+      hashtags: _topicTags.toList(),
+      allowComments: _allowComments,
+    );
+    if (!mounted) return;
+    setState(() => _isPublishing = false);
+    if (!ok) {
+      SakhiDialogs.showPrototypeSnackbar(
+        context,
+        'Question could not be published. Check your connection and retry.',
+      );
+      return;
+    }
+    SakhiDialogs.showPrototypeSnackbar(
+      context,
+      'Community question posted to the Social Wall!',
+    );
+    widget.onPublished?.call();
+    Navigator.of(context).pop();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFDECEF),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.sosRed.withValues(alpha: .22)),
+    final canPost = _titleController.text.trim().isNotEmpty && !_isPublishing;
+    return PopScope<void>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        final navigator = Navigator.of(context);
+        if (await _confirmDiscard() && mounted) {
+          navigator.pop();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.scaffoldBackground,
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.close_rounded),
+            onPressed: () async {
+              final navigator = Navigator.of(context);
+              if (await _confirmDiscard() && mounted) {
+                navigator.pop();
+              }
+            },
+          ),
+          title: const Text('Ask a Question'),
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: FilledButton(
+                onPressed: canPost ? _publish : null,
+                child: Text(_isPublishing ? 'Posting…' : 'Post'),
+              ),
+            ),
+          ],
+        ),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(AppSpacing.screenPaddingH),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                controller: _titleController,
+                autofocus: true,
+                maxLength: 140,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  labelText: 'Question Title *',
+                  hintText: 'What would you like to ask the community?',
+                  prefixIcon: Icon(Icons.help_outline_rounded),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _detailsController,
+                maxLines: 5,
+                maxLength: 400,
+                decoration: const InputDecoration(
+                  labelText: 'Details / Context (optional)',
+                  hintText:
+                      'Add helpful context so members can give relevant answers…',
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text('Topic Tags', style: AppTypography.bodyMedium),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: _questionTopics.map((tag) {
+                  final selected = _topicTags.contains(tag);
+                  return SakhiChip(
+                    label: tag,
+                    isSelected: selected,
+                    onTap: () => setState(() {
+                      if (selected && _topicTags.length > 1) {
+                        _topicTags.remove(tag);
+                      } else {
+                        _topicTags.add(tag);
+                      }
+                    }),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 14),
+              DropdownButtonFormField<String>(
+                initialValue: _categorySlug,
+                decoration: const InputDecoration(labelText: 'Category'),
+                items: sakhiPostCategoryLabels.entries
+                    .map(
+                      (e) => DropdownMenuItem<String>(
+                        value: e.key,
+                        child: Text(e.value),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (v) {
+                  if (v != null) setState(() => _categorySlug = v);
+                },
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: _visibility,
+                decoration: const InputDecoration(labelText: 'Audience'),
+                items: sakhiPostAudiences.entries
+                    .map(
+                      (e) => DropdownMenuItem<String>(
+                        value: e.key,
+                        child: Text(e.value),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (v) {
+                  if (v != null) setState(() => _visibility = v);
+                },
+              ),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: _allowComments,
+                activeThumbColor: AppColors.primaryPurple,
+                title: const Text('Allow member answers & comments'),
+                onChanged: (v) => setState(() => _allowComments = v),
+              ),
+            ],
+          ),
+        ),
       ),
-      child: Row(
-        children: [
-          const Icon(Icons.error_outline_rounded, color: AppColors.sosRed),
-          const SizedBox(width: 8),
-          Expanded(child: Text(message, style: AppTypography.bodyRegular)),
+    );
+  }
+}
+
+/// Flow 4 — Share a Useful Resource
+class SakhiResourceComposerScreen extends StatefulWidget {
+  const SakhiResourceComposerScreen({super.key, this.onPublished});
+
+  final VoidCallback? onPublished;
+
+  @override
+  State<SakhiResourceComposerScreen> createState() =>
+      _SakhiResourceComposerScreenState();
+}
+
+class _SakhiResourceComposerScreenState
+    extends State<SakhiResourceComposerScreen> {
+  final TextEditingController _titleController = TextEditingController();
+  final TextEditingController _descriptionController = TextEditingController();
+  final TextEditingController _linkOrContactController =
+      TextEditingController();
+  String _resourceType = 'Safety';
+  String _visibility = 'VERIFIED_MEMBERS';
+  bool _isPublishing = false;
+
+  static const Map<String, String> _resourceCategoryToSlug = {
+    'Safety': 'safety_awareness',
+    'Health': 'wellness_lifestyle',
+    'Legal': 'safety_awareness',
+    'Emergency': 'safety_awareness',
+    'Support': 'community',
+    'Community': 'community',
+  };
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _descriptionController.dispose();
+    _linkOrContactController.dispose();
+    super.dispose();
+  }
+
+  bool get _hasDraft =>
+      _titleController.text.trim().isNotEmpty ||
+      _descriptionController.text.trim().isNotEmpty ||
+      _linkOrContactController.text.trim().isNotEmpty;
+
+  Future<bool> _confirmDiscard() async {
+    if (!_hasDraft || _isPublishing) return true;
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Discard resource?'),
+        content: const Text('Your resource draft will be lost.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Keep Editing'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.sosRed),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Discard'),
+          ),
         ],
+      ),
+    );
+    return discard ?? false;
+  }
+
+  Future<void> _publish() async {
+    final title = _titleController.text.trim();
+    final description = _descriptionController.text.trim();
+    if (title.isEmpty || description.isEmpty || _isPublishing) return;
+
+    setState(() => _isPublishing = true);
+    final contact = _linkOrContactController.text.trim();
+    final categorySlug = _resourceCategoryToSlug[_resourceType] ?? 'community';
+    final formatted = StringBuffer()
+      ..writeln('📘 Resource ($_resourceType): $title')
+      ..writeln(description);
+    if (contact.isNotEmpty) {
+      formatted.writeln('🔗 Contact / Link: $contact');
+    }
+
+    final ok = await SakhiPrototypeState.instance.createCommunityPost(
+      formatted.toString().trim(),
+      categoryBadge: sakhiPostCategoryLabels[categorySlug] ?? 'Community',
+      categorySlug: categorySlug,
+      visibility: _visibility,
+      hashtags: <String>['#${_resourceType}Resource', '#SakhiSupport'],
+    );
+    if (!mounted) return;
+    setState(() => _isPublishing = false);
+    if (!ok) {
+      SakhiDialogs.showPrototypeSnackbar(
+        context,
+        'Resource could not be shared. Check your connection and retry.',
+      );
+      return;
+    }
+    SakhiDialogs.showPrototypeSnackbar(
+      context,
+      'Resource shared with the Sakhi community!',
+    );
+    widget.onPublished?.call();
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canShare =
+        _titleController.text.trim().isNotEmpty &&
+        _descriptionController.text.trim().isNotEmpty &&
+        !_isPublishing;
+    return PopScope<void>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        final navigator = Navigator.of(context);
+        if (await _confirmDiscard() && mounted) {
+          navigator.pop();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.scaffoldBackground,
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.close_rounded),
+            onPressed: () async {
+              final navigator = Navigator.of(context);
+              if (await _confirmDiscard() && mounted) {
+                navigator.pop();
+              }
+            },
+          ),
+          title: const Text('Share Resource'),
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: FilledButton(
+                onPressed: canShare ? _publish : null,
+                child: Text(_isPublishing ? 'Sharing…' : 'Share'),
+              ),
+            ),
+          ],
+        ),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(AppSpacing.screenPaddingH),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                controller: _titleController,
+                autofocus: true,
+                maxLength: 120,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  labelText: 'Resource Title *',
+                  hintText: 'e.g., 24×7 Women Legal Aid Helpline & Guide',
+                  prefixIcon: Icon(Icons.menu_book_outlined),
+                ),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: _resourceType,
+                decoration: const InputDecoration(
+                  labelText: 'Resource Category',
+                ),
+                items: _resourceCategoryToSlug.keys
+                    .map(
+                      (k) => DropdownMenuItem<String>(value: k, child: Text(k)),
+                    )
+                    .toList(),
+                onChanged: (v) {
+                  if (v != null) setState(() => _resourceType = v);
+                },
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _descriptionController,
+                maxLines: 5,
+                maxLength: 400,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  labelText: 'Description / How it helps *',
+                  hintText:
+                      'Summarize key details so other members know how to use this resource…',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _linkOrContactController,
+                decoration: const InputDecoration(
+                  labelText: 'Reference Link or Helpline Number (optional)',
+                  hintText: 'https://… or phone number',
+                  prefixIcon: Icon(Icons.link_rounded),
+                ),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: _visibility,
+                decoration: const InputDecoration(labelText: 'Audience'),
+                items: sakhiPostAudiences.entries
+                    .map(
+                      (e) => DropdownMenuItem<String>(
+                        value: e.key,
+                        child: Text(e.value),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (v) {
+                  if (v != null) setState(() => _visibility = v);
+                },
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

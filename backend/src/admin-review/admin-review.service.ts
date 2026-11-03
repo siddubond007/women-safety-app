@@ -1549,11 +1549,18 @@ export class AdminReviewService {
       cloudStorage: {
         provider:
           process.env.SAKHI_CLOUD_STORAGE_PROVIDER?.trim() ||
-          "sakhi_cloud_bridge",
+          "google_drive",
         publicBaseUrl:
           process.env.SAKHI_CLOUD_STORAGE_PUBLIC_BASE_URL?.trim() ||
-          "http://127.0.0.1:3001/api/v1/module2/media/object",
+          "https://sakhi-staging-api.onrender.com/api/v1/module2/media/object",
         status: "connected" as const,
+      },
+      healthDataIsolation: {
+        enforced: true,
+        adminAccessBlocked: true,
+        rlsPolicyActive: true,
+        policyNote:
+          "SRS 9.4 & 12.2: Menstrual and reproductive health records are strictly owner-isolated and inaccessible to administrators.",
       },
       reports,
       blocks,

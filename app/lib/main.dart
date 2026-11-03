@@ -28,6 +28,7 @@ import 'features/profile/screens/profile_screen.dart';
 import 'features/safety/screens/safety_screen.dart';
 import 'features/settings/screens/more_options_menu_screen.dart';
 import 'features/settings/screens/privacy_settings_screen.dart';
+import 'features/wellness/screens/menstrual_cycle_tracker_screen.dart';
 import 'features/wellness/screens/wellness_screen.dart';
 
 const Color sakhiPlum = SakhiColors.plum;
@@ -176,6 +177,8 @@ class _SakhiAppState extends State<SakhiApp> {
         AppRoutes.businessCreate: (_) =>
             const BusinessRegistrationWizardScreen(forceCreateNew: true),
         AppRoutes.businessEnquiries: (_) => const BusinessEnquiryInboxScreen(),
+        AppRoutes.menstrualCycleTracker: (_) =>
+            const MenstrualCycleTrackerScreen(),
       },
       home: SakhiStartupRouter(authService: _authService),
     );
