@@ -1,4 +1,4 @@
-import 'dart:typed_data';
+﻿import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -13,7 +13,7 @@ import '../../../core/widgets/sakhi_avatar.dart';
 import '../../../core/widgets/sakhi_chip.dart';
 import '../../../core/widgets/sakhi_create_hub_sheet.dart';
 import '../../../core/widgets/sakhi_dialogs.dart';
-import '../../../core/widgets/sakhi_liquid_glass.dart';
+import '../../../core/widgets/sakhi_card.dart';
 
 const Map<String, String> sakhiPostCategoryLabels = {
   'community': 'Community',
@@ -119,7 +119,7 @@ const List<SakhiStudioFilterPreset> sakhiStudioFilters = [
   SakhiStudioFilterPreset(
     id: 'original',
     label: 'Original',
-    emoji: '✨',
+    emoji: 'âœ¨',
     matrix: <double>[
       1, 0, 0, 0, 0,
       0, 1, 0, 0, 0,
@@ -131,7 +131,7 @@ const List<SakhiStudioFilterPreset> sakhiStudioFilters = [
   SakhiStudioFilterPreset(
     id: 'rose_glow',
     label: 'Rose Glow',
-    emoji: '🌸',
+    emoji: 'ðŸŒ¸',
     matrix: <double>[
       1.12, 0.04, 0.04, 0, 10,
       0.02, 0.98, 0.02, 0, 2,
@@ -143,7 +143,7 @@ const List<SakhiStudioFilterPreset> sakhiStudioFilters = [
   SakhiStudioFilterPreset(
     id: 'golden_hour',
     label: 'Golden Hour',
-    emoji: '☀️',
+    emoji: 'â˜€ï¸',
     matrix: <double>[
       1.14, 0.06, 0.0, 0, 12,
       0.04, 1.05, 0.0, 0, 6,
@@ -155,7 +155,7 @@ const List<SakhiStudioFilterPreset> sakhiStudioFilters = [
   SakhiStudioFilterPreset(
     id: 'velvet_plum',
     label: 'Velvet Plum',
-    emoji: '💜',
+    emoji: 'ðŸ’œ',
     matrix: <double>[
       1.05, 0.02, 0.08, 0, 6,
       0.0, 0.95, 0.04, 0, 0,
@@ -167,7 +167,7 @@ const List<SakhiStudioFilterPreset> sakhiStudioFilters = [
   SakhiStudioFilterPreset(
     id: 'soft_pearl',
     label: 'Soft Pearl',
-    emoji: '🤍',
+    emoji: 'ðŸ¤',
     matrix: <double>[
       1.04, 0.04, 0.04, 0, 14,
       0.04, 1.04, 0.04, 0, 14,
@@ -179,7 +179,7 @@ const List<SakhiStudioFilterPreset> sakhiStudioFilters = [
   SakhiStudioFilterPreset(
     id: 'warm_peach',
     label: 'Warm Peach',
-    emoji: '🍑',
+    emoji: 'ðŸ‘',
     matrix: <double>[
       1.15, 0.05, 0.02, 0, 12,
       0.03, 1.02, 0.02, 0, 6,
@@ -268,7 +268,7 @@ class _SelectedVideoDraft {
 final List<_SelectedDevicePhoto> _sessionRecentDevicePhotos =
     <_SelectedDevicePhoto>[];
 
-/// Flow 1 — Instagram-Style "Lovely Girls" Photo & Video Studio Composer
+/// Flow 1 â€” Instagram-Style "Lovely Girls" Photo & Video Studio Composer
 class SakhiMediaPostFlowScreen extends StatefulWidget {
   const SakhiMediaPostFlowScreen({
     super.key,
@@ -593,7 +593,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
                       alignment: Alignment.center,
                       child: Text(
                         _quoteCardController.text.trim().isEmpty
-                            ? 'Type your affirmation, announcement, or sisterhood message below…'
+                            ? 'Type your affirmation, announcement, or sisterhood message belowâ€¦'
                             : _quoteCardController.text.trim(),
                         textAlign: TextAlign.center,
                         style: const TextStyle(
@@ -640,7 +640,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
                       maxLength: 180,
                       onChanged: (_) => setSheetState(() {}),
                       decoration: const InputDecoration(
-                        hintText: 'Write your quote or message for the card…',
+                        hintText: 'Write your quote or message for the cardâ€¦',
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -705,7 +705,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
 
       final tp = TextPainter(
         text: TextSpan(
-          text: '“$quoteText”\n\n— Sakhi Sisterhood ✨',
+          text: 'â€œ$quoteTextâ€\n\nâ€” Sakhi Sisterhood âœ¨',
           style: const TextStyle(
             color: Colors.white,
             fontSize: 54,
@@ -910,7 +910,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
         setState(() => _isPublishing = false);
         SakhiDialogs.showPrototypeSnackbar(
           context,
-          'Media upload failed — your draft is preserved so you can retry.',
+          'Media upload failed â€” your draft is preserved so you can retry.',
         );
         return;
       }
@@ -918,7 +918,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
       final caption = _captionController.text.trim();
       final uploadId = uploadRes['uploadId'] ?? '';
       final ok = await state.createCommunityPost(
-        caption.isEmpty ? 'Shared a moment with the Sakhi community ✨' : caption,
+        caption.isEmpty ? 'Shared a moment with the Sakhi community âœ¨' : caption,
         categoryBadge: sakhiPostCategoryLabels[_categorySlug] ?? 'Community',
         categorySlug: _categorySlug,
         visibility: _visibility,
@@ -941,7 +941,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
 
       SakhiDialogs.showPrototypeSnackbar(
         context,
-        'Published to the Sakhi Social Wall! 🌸',
+        'Published to the Sakhi Social Wall! ðŸŒ¸',
       );
       widget.onPublished?.call();
       Navigator.of(context).pop();
@@ -1071,7 +1071,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
                         )
                       : const Icon(Icons.send_rounded, size: 15),
                   label: Text(
-                    _isPublishing ? 'Sharing…' : 'Share',
+                    _isPublishing ? 'Sharingâ€¦' : 'Share',
                     style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
                 ),
@@ -1160,7 +1160,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
                               ),
                               const SizedBox(height: 6),
                               Text(
-                                '${(_selectedVideo!.bytes.length / (1024 * 1024)).toStringAsFixed(2)} MB • Ready to share',
+                                '${(_selectedVideo!.bytes.length / (1024 * 1024)).toStringAsFixed(2)} MB â€¢ Ready to share',
                                 style: TextStyle(
                                   color: Colors.white.withValues(alpha: 0.78),
                                   fontSize: 12.5,
@@ -1241,7 +1241,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
                               ),
                               const SizedBox(height: 16),
                               const Text(
-                                'Share Your Moment ✨',
+                                'Share Your Moment âœ¨',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   color: Colors.white,
@@ -1418,7 +1418,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
                             ),
                             const SizedBox(width: 6),
                             Text(
-                              '${_zoom.toStringAsFixed(1)}×',
+                              '${_zoom.toStringAsFixed(1)}Ã—',
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 12,
@@ -1766,7 +1766,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SakhiGlassCard(
+          SakhiCard(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1798,7 +1798,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
                     maxLength: 500,
                     decoration: const InputDecoration(
                       hintText:
-                          'Write a warm caption, story, or #hashtags for your Sakhis…',
+                          'Write a warm caption, story, or #hashtags for your Sakhisâ€¦',
                       border: InputBorder.none,
                     ),
                   ),
@@ -1938,7 +1938,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
                   : const Icon(Icons.send_rounded),
               label: Text(
                 _isPublishing
-                    ? 'Uploading & Publishing…'
+                    ? 'Uploading & Publishingâ€¦'
                     : 'Publish to Sakhi Social Wall',
                 style: const TextStyle(
                   fontWeight: FontWeight.w800,
@@ -2055,7 +2055,7 @@ class _RuleOfThirdsGridPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-/// Flow 2 — Write a Text Post
+/// Flow 2 â€” Write a Text Post
 class SakhiTextPostComposerScreen extends StatefulWidget {
   const SakhiTextPostComposerScreen({
     super.key,
@@ -2184,7 +2184,7 @@ class _SakhiTextPostComposerScreenState
               padding: const EdgeInsets.only(right: 12),
               child: FilledButton(
                 onPressed: canPost ? _publish : null,
-                child: Text(_isPublishing ? 'Posting…' : 'Post'),
+                child: Text(_isPublishing ? 'Postingâ€¦' : 'Post'),
               ),
             ),
           ],
@@ -2224,7 +2224,7 @@ class _SakhiTextPostComposerScreenState
                 maxLength: 500,
                 onChanged: (_) => setState(() {}),
                 decoration: const InputDecoration(
-                  hintText: 'Share a thought, experience, or update…',
+                  hintText: 'Share a thought, experience, or updateâ€¦',
                 ),
               ),
               const SizedBox(height: 10),
@@ -2303,7 +2303,7 @@ class _SakhiTextPostComposerScreenState
   }
 }
 
-/// Flow 3 — Create a Community Question
+/// Flow 3 â€” Create a Community Question
 class SakhiQuestionComposerScreen extends StatefulWidget {
   const SakhiQuestionComposerScreen({
     super.key,
@@ -2388,8 +2388,8 @@ class _SakhiQuestionComposerScreenState
     setState(() => _isPublishing = true);
     final details = _detailsController.text.trim();
     final content = details.isEmpty
-        ? '❓ Question: $title'
-        : '❓ Question: $title\n\n$details';
+        ? 'â“ Question: $title'
+        : 'â“ Question: $title\n\n$details';
     final ok = await SakhiPrototypeState.instance.createCommunityPost(
       content,
       categoryBadge: sakhiPostCategoryLabels[_categorySlug] ?? 'Community',
@@ -2445,7 +2445,7 @@ class _SakhiQuestionComposerScreenState
               padding: const EdgeInsets.only(right: 12),
               child: FilledButton(
                 onPressed: canPost ? _publish : null,
-                child: Text(_isPublishing ? 'Posting…' : 'Post'),
+                child: Text(_isPublishing ? 'Postingâ€¦' : 'Post'),
               ),
             ),
           ],
@@ -2474,7 +2474,7 @@ class _SakhiQuestionComposerScreenState
                 decoration: const InputDecoration(
                   labelText: 'Details / Context (optional)',
                   hintText:
-                      'Add helpful context so members can give relevant answers…',
+                      'Add helpful context so members can give relevant answersâ€¦',
                 ),
               ),
               const SizedBox(height: 12),
@@ -2545,7 +2545,7 @@ class _SakhiQuestionComposerScreenState
   }
 }
 
-/// Flow 4 — Share a Useful Resource
+/// Flow 4 â€” Share a Useful Resource
 class SakhiResourceComposerScreen extends StatefulWidget {
   const SakhiResourceComposerScreen({super.key, this.onPublished});
 
@@ -2620,10 +2620,10 @@ class _SakhiResourceComposerScreenState
     final contact = _linkOrContactController.text.trim();
     final categorySlug = _resourceCategoryToSlug[_resourceType] ?? 'community';
     final formatted = StringBuffer()
-      ..writeln('📘 Resource ($_resourceType): $title')
+      ..writeln('ðŸ“˜ Resource ($_resourceType): $title')
       ..writeln(description);
     if (contact.isNotEmpty) {
-      formatted.writeln('🔗 Contact / Link: $contact');
+      formatted.writeln('ðŸ”— Contact / Link: $contact');
     }
 
     final ok = await SakhiPrototypeState.instance.createCommunityPost(
@@ -2683,7 +2683,7 @@ class _SakhiResourceComposerScreenState
               padding: const EdgeInsets.only(right: 12),
               child: FilledButton(
                 onPressed: canShare ? _publish : null,
-                child: Text(_isPublishing ? 'Sharing…' : 'Share'),
+                child: Text(_isPublishing ? 'Sharingâ€¦' : 'Share'),
               ),
             ),
           ],
@@ -2700,7 +2700,7 @@ class _SakhiResourceComposerScreenState
                 onChanged: (_) => setState(() {}),
                 decoration: const InputDecoration(
                   labelText: 'Resource Title *',
-                  hintText: 'e.g., 24×7 Women Legal Aid Helpline & Guide',
+                  hintText: 'e.g., 24Ã—7 Women Legal Aid Helpline & Guide',
                   prefixIcon: Icon(Icons.menu_book_outlined),
                 ),
               ),
@@ -2728,7 +2728,7 @@ class _SakhiResourceComposerScreenState
                 decoration: const InputDecoration(
                   labelText: 'Description / How it helps *',
                   hintText:
-                      'Summarize key details so other members know how to use this resource…',
+                      'Summarize key details so other members know how to use this resourceâ€¦',
                 ),
               ),
               const SizedBox(height: 12),
@@ -2736,7 +2736,7 @@ class _SakhiResourceComposerScreenState
                 controller: _linkOrContactController,
                 decoration: const InputDecoration(
                   labelText: 'Reference Link or Helpline Number (optional)',
-                  hintText: 'https://… or phone number',
+                  hintText: 'https://â€¦ or phone number',
                   prefixIcon: Icon(Icons.link_rounded),
                 ),
               ),
@@ -2763,3 +2763,4 @@ class _SakhiResourceComposerScreenState
     );
   }
 }
+

@@ -1,26 +1,24 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/assets/app_assets.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../core/widgets/sakhi_artwork_card.dart';
-import '../../../core/widgets/sakhi_category_tile.dart';
-import '../../../core/widgets/sakhi_liquid_glass.dart';
+import '../../../core/widgets/sakhi_botanical_flower.dart';
+import '../../../core/widgets/sakhi_card.dart';
 import '../../../core/widgets/sakhi_section_header.dart';
 import '../models/menstrual_cycle_models.dart';
+import '../widgets/guided_meditation_card.dart';
+import '../widgets/wellness_category_tile.dart';
 import 'menstrual_cycle_tracker_screen.dart';
 
-/// Screen 4 — Wellness & Health Hub
-/// Connects directly to Module 7 (Women's Menstrual Cycle Tracker — SRS Section 9),
-/// interactive 4-7-8 Guided Breathing & Grounding timer, Cycle-Synced Nutrition
-/// & Movement guide, and Menstrual Health Articles & FAQs.
 class WellnessScreen extends StatefulWidget {
   final bool showBackButton;
   final VoidCallback? onBackTap;
-
-  const WellnessScreen({super.key, this.showBackButton = false, this.onBackTap});
-
+  const WellnessScreen({
+    super.key,
+    this.showBackButton = false,
+    this.onBackTap,
+  });
   @override
   State<WellnessScreen> createState() => _WellnessScreenState();
 }
@@ -28,7 +26,6 @@ class WellnessScreen extends StatefulWidget {
 class _WellnessScreenState extends State<WellnessScreen> {
   final MenstrualCycleController _cycleController =
       MenstrualCycleController.instance;
-
   @override
   void initState() {
     super.initState();
@@ -38,7 +35,8 @@ class _WellnessScreenState extends State<WellnessScreen> {
   void _openCycleTracker({int initialTab = 0}) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => MenstrualCycleTrackerScreen(initialTabIndex: initialTab),
+        builder: (_) =>
+            MenstrualCycleTrackerScreen(initialTabIndex: initialTab),
       ),
     );
   }
@@ -91,7 +89,7 @@ class _WellnessScreenState extends State<WellnessScreen> {
                     padding: const EdgeInsets.all(22),
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(
-                        colors: [Color(0xFFF3E8FF), Color(0xFFFFEBF4)],
+                        colors: [Color(0xFFF3E6FA), Color(0xFFFDECF3)],
                       ),
                       borderRadius: BorderRadius.circular(22),
                     ),
@@ -100,12 +98,12 @@ class _WellnessScreenState extends State<WellnessScreen> {
                         Container(
                           width: 92,
                           height: 92,
-                          decoration: BoxDecoration(
+                          decoration: const BoxDecoration(
                             shape: BoxShape.circle,
-                            gradient: const LinearGradient(
+                            gradient: LinearGradient(
                               colors: [Color(0xFF7B228E), Color(0xFFD63E85)],
                             ),
-                            boxShadow: const [
+                            boxShadow: [
                               BoxShadow(
                                 color: Color(0x33D63E85),
                                 blurRadius: 18,
@@ -265,42 +263,40 @@ class _WellnessScreenState extends State<WellnessScreen> {
           (
             Icons.water_drop_rounded,
             'Period Tracker',
-            p.nextPeriodStart != null
-                ? 'Next est: ${p.nextPeriodStart}'
-                : 'Log cycle & symptoms',
             AppColors.pastelPink,
+            const Color(0xFFD63E85),
+            SakhiFlowerType.cherryBlossom,
             () => _openCycleTracker(initialTab: 0),
           ),
           (
             Icons.self_improvement_rounded,
             'Mental Wellness',
-            'Guided 4-7-8 breathing & mood log',
             AppColors.pastelLavender,
+            AppColors.primaryPurple,
+            SakhiFlowerType.lavenderSprig,
             _openMentalWellnessBreathingSheet,
           ),
           (
             Icons.fitness_center_rounded,
             'Fitness & Nutrition',
-            'Phase-synced food & movement',
-            AppColors.pastelRose,
+            AppColors.pastelMint,
+            AppColors.wellnessGreen,
+            SakhiFlowerType.eucalyptusSage,
             _openFitnessAndNutritionSheet,
           ),
           (
             Icons.menu_book_rounded,
             'Expert Articles & FAQs',
-            'Cycle science, relief & privacy',
             AppColors.pastelPeach,
+            const Color(0xFFB45309),
+            SakhiFlowerType.roseClassic,
             () => _openCycleTracker(initialTab: 3),
           ),
         ];
-
         final content = SafeArea(
           bottom: false,
           child: SingleChildScrollView(
-            padding: const EdgeInsets.only(
-              top: 8,
-              bottom: AppSpacing.scrollBottomClearance,
-            ),
+            padding: const EdgeInsets.only(top: 8, bottom: 132),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -341,20 +337,13 @@ class _WellnessScreenState extends State<WellnessScreen> {
                     ],
                   ),
                 ),
-
                 const SizedBox(height: 8),
-
-                // Module 7 Hero Card — Live Period & Cycle Status
                 Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: AppSpacing.screenPaddingH,
                   ),
-                  child: SakhiGlassCard(
+                  child: SakhiCard(
                     onTap: () => _openCycleTracker(initialTab: 0),
-                    tintColors: [
-                      Colors.white.withValues(alpha: 0.88),
-                      const Color(0xFFFFEEF6).withValues(alpha: 0.82),
-                    ],
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -439,10 +428,7 @@ class _WellnessScreenState extends State<WellnessScreen> {
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 16),
-
-                // 2x2 Category Grid
                 Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: AppSpacing.screenPaddingH,
@@ -455,79 +441,45 @@ class _WellnessScreenState extends State<WellnessScreen> {
                           crossAxisCount: 2,
                           mainAxisSpacing: 12,
                           crossAxisSpacing: 12,
-                          childAspectRatio: 0.96,
+                          childAspectRatio: 2.15,
                         ),
                     itemCount: categories.length,
                     itemBuilder: (context, index) {
-                      final (icon, title, subtitle, bgColor, onTap) =
+                      final (icon, title, bgColor, iconColor, flower, onTap) =
                           categories[index];
-                      return SakhiCategoryTile(
+                      return WellnessCategoryTile(
                         icon: icon,
                         title: title,
-                        subtitle: subtitle,
-                        backgroundColor: bgColor,
+                        iconBgColor: bgColor,
+                        iconColor: iconColor,
+                        flowerType: flower,
                         onTap: onTap,
                       );
                     },
                   ),
                 ),
-
                 const SizedBox(height: 16),
-
-                // Today's Pick Section
-                SakhiSectionHeader(
-                  title: "Today's Wellness Pick",
-                  actionText: 'All Articles',
-                  onActionTap: () => _openCycleTracker(initialTab: 3),
-                ),
-
                 Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: AppSpacing.screenPaddingH,
                   ),
-                  child: SakhiArtworkCard(
-                    imageAsset: AppAssets.breathingExerciseIllustration,
-                    height: 168,
-                    borderRadius: AppSpacing.cardRadiusLarge,
-                    overlayAlignment: Alignment.bottomLeft,
-                    padding: const EdgeInsets.all(18),
-                    overlayGradient: LinearGradient(
-                      colors: [
-                        AppColors.cardOverlayStart.withValues(alpha: 0.84),
-                        AppColors.cardOverlayEnd.withValues(alpha: 0.42),
-                        Colors.transparent,
-                      ],
-                      begin: Alignment.bottomLeft,
-                      end: Alignment.topRight,
-                    ),
-                    onTap: _openMentalWellnessBreathingSheet,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '5-Minute Breathing Exercise\nfor Stress & Cramp Relief',
-                          style: AppTypography.heroHeadline.copyWith(
-                            fontSize: 16,
-                            height: 1.3,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Tap to start interactive 4-7-8 guided breathing',
-                          style: AppTypography.caption.copyWith(
-                            color: Colors.white.withValues(alpha: 0.88),
-                          ),
-                        ),
-                      ],
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SakhiSectionHeader(
+                        title: "Today's Wellness & Meditation",
+                        actionLabel: 'All Articles >',
+                        onActionTap: () => _openCycleTracker(initialTab: 3),
+                      ),
+                      const SizedBox(height: 10),
+                      const GuidedMeditationCard(),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
         );
-
         if (widget.showBackButton) {
           return Scaffold(
             backgroundColor: AppColors.scaffoldBackground,

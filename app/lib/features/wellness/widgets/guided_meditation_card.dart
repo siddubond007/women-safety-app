@@ -147,8 +147,11 @@ class _GuidedMeditationCardState extends State<GuidedMeditationCard> {
         final progress = _session.totalSeconds > 0
             ? (_session.elapsedSeconds / _session.totalSeconds).clamp(0.0, 1.0)
             : 0.0;
-        final remainingSeconds = (_session.totalSeconds - _session.elapsedSeconds)
-            .clamp(0, _session.totalSeconds);
+        final remainingSeconds =
+            (_session.totalSeconds - _session.elapsedSeconds).clamp(
+              0,
+              _session.totalSeconds,
+            );
 
         return Container(
           padding: const EdgeInsets.all(14),
@@ -205,7 +208,9 @@ class _GuidedMeditationCardState extends State<GuidedMeditationCard> {
                           _breathingPhaseLabel,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: AppTypography.subtitle.copyWith(fontSize: 11.5),
+                          style: AppTypography.subtitle.copyWith(
+                            fontSize: 11.5,
+                          ),
                         ),
                       ],
                     ),
