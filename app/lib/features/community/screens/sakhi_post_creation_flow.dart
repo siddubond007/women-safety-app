@@ -1013,7 +1013,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
               ),
               const SizedBox(width: 8),
               Text(
-                _step == 0 ? 'Sakhi Studio' : 'New Post Details',
+                _step == 0 ? (_selectedVideo != null ? 'New Video Post' : 'New Photo Post') : 'New Post Details',
                 style: AppTypography.appBarTitle.copyWith(fontSize: 17.5),
               ),
             ],
@@ -1566,7 +1566,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
           // 3. Studio Action Tiles (Camera, Gallery, Multi-Photo, Video, Quote Card)
           const SizedBox(height: 16),
           Text(
-            'Choose Media Source',
+            'Choose your moment',
             style: AppTypography.bodyMedium.copyWith(
               fontWeight: FontWeight.w800,
             ),
@@ -1621,8 +1621,8 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
               Expanded(
                 child: _StudioActionTile(
                   icon: Icons.auto_awesome_rounded,
-                  label: 'Quote Card',
-                  subtitle: 'Design card',
+                  label: 'Create with Template',
+                  subtitle: 'Quote & story card',
                   gradient: const [Color(0xFF0D9488), Color(0xFF115E59)],
                   onTap: _openQuoteCardCreatorSheet,
                 ),
@@ -2763,4 +2763,5 @@ class _SakhiResourceComposerScreenState
     );
   }
 }
+
 

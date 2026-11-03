@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -49,9 +49,9 @@ class _WellnessScreenState extends State<WellnessScreen> {
       builder: (ctx) {
         var step = 0; // 0 = Inhale 4s, 1 = Hold 7s, 2 = Exhale 8s
         const labels = [
-          'Inhale gently through your nose for 4 seconds…',
-          'Hold your breath softly for 7 seconds…',
-          'Exhale slowly through your mouth for 8 seconds…',
+          'Inhale gently through your nose for 4 secondsâ€¦',
+          'Hold your breath softly for 7 secondsâ€¦',
+          'Exhale slowly through your mouth for 8 secondsâ€¦',
         ];
         return StatefulBuilder(
           builder: (sheetCtx, setSheetState) {
@@ -243,7 +243,7 @@ class _WellnessScreenState extends State<WellnessScreen> {
                     _openCycleTracker(initialTab: 1);
                   },
                   icon: const Icon(Icons.local_drink_rounded),
-                  label: const Text('Log Today’s Hydration & Energy'),
+                  label: const Text('Log Todayâ€™s Hydration & Energy'),
                 ),
               ),
             ],
@@ -322,7 +322,7 @@ class _WellnessScreenState extends State<WellnessScreen> {
                       ],
                       const Expanded(
                         child: Text(
-                          'Wellness & Cycle Hub',
+                          'Your Wellbeing & Cycle Hub',
                           style: AppTypography.appBarTitle,
                         ),
                       ),
@@ -359,7 +359,7 @@ class _WellnessScreenState extends State<WellnessScreen> {
                                 borderRadius: BorderRadius.circular(999),
                               ),
                               child: const Text(
-                                'MODULE 7 • MENSTRUAL CYCLE TRACKER',
+                                'MODULE 7 â€¢ MENSTRUAL CYCLE TRACKER',
                                 style: TextStyle(
                                   color: Colors.white,
                                   fontSize: 10,
@@ -387,8 +387,8 @@ class _WellnessScreenState extends State<WellnessScreen> {
                         const SizedBox(height: 12),
                         Text(
                           p.currentCycleDay != null && p.currentCycleDay! > 0
-                              ? 'Cycle Day ${p.currentCycleDay} • ${p.currentPhase}'
-                              : 'Women’s Menstrual Cycle & Symptom Tracker',
+                              ? 'Cycle Day ${p.currentCycleDay} â€¢ ${p.currentPhase}'
+                              : 'Womenâ€™s Menstrual Cycle & Symptom Tracker',
                           style: AppTypography.sectionTitle,
                         ),
                         const SizedBox(height: 4),
@@ -486,8 +486,9 @@ class _WellnessScreenState extends State<WellnessScreen> {
             body: content,
           );
         }
-        return content;
+        return Material(color: AppColors.scaffoldBackground, child: content);
       },
     );
   }
 }
+
