@@ -1,4 +1,4 @@
-import 'package:flutter_test/flutter_test.dart';
+﻿import 'package:flutter_test/flutter_test.dart';
 import 'package:women_safety_app/features/wellness/models/menstrual_cycle_models.dart';
 
 void main() {
@@ -8,21 +8,21 @@ void main() {
         const MenstrualCycleEntry(
           id: 'cycle-1',
           startDate: '2026-09-01',
-          endDate: '2026-09-06',
+          endDate: '2026-09-05',
           periodDurationDays: 5,
           createdAt: '2026-09-01T08:00:00Z',
         ),
         const MenstrualCycleEntry(
           id: 'cycle-2',
           startDate: '2026-09-29',
-          endDate: '2026-10-04',
+          endDate: '2026-10-03',
           periodDurationDays: 5,
           createdAt: '2026-09-29T08:00:00Z',
         ),
         const MenstrualCycleEntry(
           id: 'cycle-3',
           startDate: '2026-10-27',
-          endDate: '2026-11-01',
+          endDate: '2026-10-31',
           periodDurationDays: 5,
           createdAt: '2026-10-27T08:00:00Z',
         ),
@@ -138,3 +138,4 @@ void main() {
     });
   });
 }
+

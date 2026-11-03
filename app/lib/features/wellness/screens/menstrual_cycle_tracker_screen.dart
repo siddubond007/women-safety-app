@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -254,7 +254,7 @@ class _MenstrualCycleTrackerScreenState
                         decoration: const InputDecoration(
                           labelText: 'Private Cycle Notes (optional)',
                           hintText:
-                              'e.g., Travel week, mild cramps on Day 1–2…',
+                              'e.g., Travel week, mild cramps on Day 1â€“2â€¦',
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -276,7 +276,7 @@ class _MenstrualCycleTrackerScreenState
                           SakhiDialogs.showPrototypeSnackbar(
                             context,
                             existing == null
-                                ? 'Period dates saved to your private tracker 🌸'
+                                ? 'Period dates saved to your private tracker ðŸŒ¸'
                                 : 'Cycle entry updated.',
                           );
                         },
@@ -314,7 +314,7 @@ class _MenstrualCycleTrackerScreenState
     if (!mounted) return;
     SakhiDialogs.showPrototypeSnackbar(
       context,
-      'Saved daily wellness check-in for $_selectedDateIso 🌸',
+      'Saved daily wellness check-in for $_selectedDateIso ðŸŒ¸',
     );
   }
 
@@ -346,7 +346,7 @@ class _MenstrualCycleTrackerScreenState
                       borderRadius: BorderRadius.circular(999),
                     ),
                     child: Text(
-                      '${article.category} • ${article.readTime}',
+                      '${article.category} â€¢ ${article.readTime}',
                       style: const TextStyle(
                         fontSize: 11.5,
                         fontWeight: FontWeight.w800,
@@ -504,6 +504,7 @@ class _MenstrualCycleTrackerScreenState
                       await Clipboard.setData(ClipboardData(text: report));
                       if (!ctx.mounted) return;
                       Navigator.pop(ctx);
+                      if (!mounted) return;
                       SakhiDialogs.showPrototypeSnackbar(
                         context,
                         'Clinical summary copied to clipboard.',
@@ -546,7 +547,7 @@ class _MenstrualCycleTrackerScreenState
       builder: (ctx) => AlertDialog(
         title: const Text('Delete All Menstrual Health Data?'),
         content: const Text(
-          'This permanently deletes all recorded period cycles, daily symptom logs, and custom cycle preferences from both the cloud database and your device’s encrypted storage (SRS 9.2 & 9.4). This action cannot be undone.',
+          'This permanently deletes all recorded period cycles, daily symptom logs, and custom cycle preferences from both the cloud database and your deviceâ€™s encrypted storage (SRS 9.2 & 9.4). This action cannot be undone.',
         ),
         actions: [
           TextButton(
@@ -607,7 +608,7 @@ class _MenstrualCycleTrackerScreenState
                         style: AppTypography.appBarTitle.copyWith(fontSize: 17),
                       ),
                       Text(
-                        'Private & Encrypted • SRS Module 7',
+                        'Private & Encrypted â€¢ SRS Module 7',
                         style: AppTypography.caption.copyWith(
                           fontSize: 10.5,
                           color: const Color(0xFFD63E85),
@@ -889,13 +890,13 @@ class _MenstrualCycleTrackerScreenState
                   label: 'Fertile Window (Est.)',
                   value:
                       p.fertileWindowStart != null && p.fertileWindowEnd != null
-                      ? '${p.fertileWindowStart!.substring(5)} → ${p.fertileWindowEnd!.substring(5)}'
+                      ? '${p.fertileWindowStart!.substring(5)} â†’ ${p.fertileWindowEnd!.substring(5)}'
                       : _controller.preferences.fertilityTrackingEnabled
                       ? 'Log cycle'
                       : 'Hidden',
                   sublabel: p.estimatedOvulationDate != null
                       ? 'Ovulation ~${p.estimatedOvulationDate}'
-                      : 'Estimate only • Not contraception',
+                      : 'Estimate only â€¢ Not contraception',
                   accentColor: AppColors.primaryPurple,
                 ),
               ),
@@ -1081,7 +1082,7 @@ class _MenstrualCycleTrackerScreenState
                         const SizedBox(height: 6),
                         Text(
                           log != null
-                              ? 'Symptoms: ${log.symptoms.isEmpty ? "None" : log.symptoms.join(", ")} • Cramps: ${log.crampsSeverity ?? "None"}${log.personalNotes != null && log.personalNotes!.isNotEmpty ? "\nNote: ${log.personalNotes}" : ""}'
+                              ? 'Symptoms: ${log.symptoms.isEmpty ? "None" : log.symptoms.join(", ")} â€¢ Cramps: ${log.crampsSeverity ?? "None"}${log.personalNotes != null && log.personalNotes!.isNotEmpty ? "\nNote: ${log.personalNotes}" : ""}'
                               : 'No symptoms or notes logged for $_selectedDateIso yet. Tap Check-In to record flow, cramps, mood, hydration, or notes.',
                           style: AppTypography.subtitle.copyWith(
                             fontSize: 12.4,
@@ -1166,7 +1167,7 @@ class _MenstrualCycleTrackerScreenState
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Medical Disclaimer (SRS 9.3 & 9.5): Cycle, ovulation, and fertility-window predictions are mathematical estimates for informational wellness tracking only — not medical diagnoses or guarantees. Fertility estimates must NEVER be used as contraception. Consult a qualified gynecologist for medical advice.',
+                    'Medical Disclaimer (SRS 9.3 & 9.5): Cycle, ovulation, and fertility-window predictions are mathematical estimates for informational wellness tracking only â€” not medical diagnoses or guarantees. Fertility estimates must NEVER be used as contraception. Consult a qualified gynecologist for medical advice.',
                     style: AppTypography.caption.copyWith(
                       color: AppColors.textPrimary,
                       height: 1.4,
@@ -1283,7 +1284,7 @@ class _MenstrualCycleTrackerScreenState
                   const Positioned(
                     top: 2,
                     right: 3,
-                    child: Text('✦', style: TextStyle(fontSize: 9)),
+                    child: Text('âœ¦', style: TextStyle(fontSize: 9)),
                   ),
                 if (hasDailyLog)
                   Positioned(
@@ -1584,7 +1585,7 @@ class _MenstrualCycleTrackerScreenState
                   maxLength: 300,
                   decoration: const InputDecoration(
                     labelText: 'Private Personal Notes',
-                    hintText: 'Write private wellness notes, cravings, or questions for your doctor…',
+                    hintText: 'Write private wellness notes, cravings, or questions for your doctorâ€¦',
                   ),
                 ),
               ],
@@ -1682,7 +1683,7 @@ class _MenstrualCycleTrackerScreenState
                       child: _MetricBox(
                         label: 'Avg Cycle Length',
                         value: '${p.averageCycleLength} days',
-                        sub: 'Typical: 21–35d',
+                        sub: 'Typical: 21â€“35d',
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -1690,7 +1691,7 @@ class _MenstrualCycleTrackerScreenState
                       child: _MetricBox(
                         label: 'Avg Period Duration',
                         value: '${p.averagePeriodDuration} days',
-                        sub: 'Typical: 2–7d',
+                        sub: 'Typical: 2â€“7d',
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -1804,12 +1805,12 @@ class _MenstrualCycleTrackerScreenState
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              '${cycle.startDate} → ${cycle.endDate ?? "Ongoing"}',
+                              '${cycle.startDate} â†’ ${cycle.endDate ?? "Ongoing"}',
                               style: AppTypography.cardTitle,
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Flow: ${cycle.flowIntensity} • Duration: ${cycle.periodDurationDays ?? p.averagePeriodDuration} days${cycle.cycleLengthDays != null ? " • Cycle: ${cycle.cycleLengthDays}d" : ""}',
+                              'Flow: ${cycle.flowIntensity} â€¢ Duration: ${cycle.periodDurationDays ?? p.averagePeriodDuration} days${cycle.cycleLengthDays != null ? " â€¢ Cycle: ${cycle.cycleLengthDays}d" : ""}',
                               style: AppTypography.caption,
                             ),
                             if (cycle.notes != null &&
@@ -1938,7 +1939,7 @@ class _MenstrualCycleTrackerScreenState
                     style: AppTypography.bodyMedium,
                   ),
                   subtitle: const Text(
-                    'Estimates only — never use as contraception (SRS 9.3)',
+                    'Estimates only â€” never use as contraception (SRS 9.3)',
                     style: AppTypography.caption,
                   ),
                   onChanged: (v) => _controller.updatePreferences(
@@ -2005,7 +2006,7 @@ class _MenstrualCycleTrackerScreenState
                           Text(article.title, style: AppTypography.cardTitle),
                           const SizedBox(height: 3),
                           Text(
-                            '${article.category} • ${article.readTime}',
+                            '${article.category} â€¢ ${article.readTime}',
                             style: AppTypography.caption.copyWith(
                               color: const Color(0xFFD63E85),
                               fontWeight: FontWeight.w700,
@@ -2261,3 +2262,4 @@ class _MetricBox extends StatelessWidget {
     );
   }
 }
+

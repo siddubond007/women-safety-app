@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -337,9 +337,9 @@ class CyclePredictionEngine {
     if (hasIrregularity) {
       if (cycleVariationDays > 7) {
         irregularityReason =
-            'Your recorded cycle lengths vary by $cycleVariationDays days (typical clinical regularity is ≤ 7 days variation).';
+            'Your recorded cycle lengths vary by $cycleVariationDays days (typical clinical regularity is â‰¤ 7 days variation).';
       } else {
-        irregularityReason = 'One or more recorded cycles fell outside the typical 21–35 day range.';
+        irregularityReason = 'One or more recorded cycles fell outside the typical 21â€“35 day range.';
       }
     }
     final regularityStatus = sortedAsc.length < 2
@@ -408,14 +408,14 @@ class CyclePredictionEngine {
         'Gentle heat therapy, warm ginger-fennel tea, and restorative stretches can soothe uterine cramps.',
       ] else if (currentPhase.contains('Fertile') ||
           currentPhase.contains('Ovulation')) ...[
-        'Energy and communication often peak mid-cycle — stay well hydrated (8–10 glasses of water) and add antioxidant-rich berries or greens.',
+        'Energy and communication often peak mid-cycle â€” stay well hydrated (8â€“10 glasses of water) and add antioxidant-rich berries or greens.',
         'Reminder (SRS 9.3): Fertility and ovulation windows are mathematical estimates and must never be used as contraception.',
       ] else if (currentPhase.contains('PMS') ||
           currentPhase == 'Luteal Phase') ...[
         'Complex carbohydrates, magnesium-rich foods (pumpkin seeds, almonds, bananas), and reducing excess salt help ease bloating and mood shifts.',
         'Wind down 30 minutes earlier tonight to support progesterone-linked sleep changes.',
       ] else ...[
-        'Follicular phase supports steady energy — a great window for strength training, brisk walks, and learning new skills.',
+        'Follicular phase supports steady energy â€” a great window for strength training, brisk walks, and learning new skills.',
         'Keep logging daily mood, hydration, and cramps to sharpen your rolling cycle predictions.',
       ],
     ];
@@ -481,10 +481,10 @@ const List<MenstrualHealthArticle> sakhiMenstrualHealthArticles = [
     readTime: '4 min read',
     summary: 'Your menstrual cycle is more than just your period. Across the Menstrual, Follicular, Ovulatory, and Luteal phases, shifting estrogen and progesterone levels influence energy, sleep, metabolism, and mood.',
     keyTakeaways: [
-      'Menstrual Phase (Days 1–5): Hormone levels dip as the uterine lining sheds. Focus on iron replenishment, warm fluids, and gentle movement.',
-      'Follicular Phase (Days 6–13): Rising estrogen boosts focus, stamina, and mood — ideal for strength workouts and creative planning.',
+      'Menstrual Phase (Days 1â€“5): Hormone levels dip as the uterine lining sheds. Focus on iron replenishment, warm fluids, and gentle movement.',
+      'Follicular Phase (Days 6â€“13): Rising estrogen boosts focus, stamina, and mood â€” ideal for strength workouts and creative planning.',
       'Ovulatory Phase (~Day 14 in a 28-day cycle): Luteinizing hormone surges to release an egg. Hydration and balanced electrolytes support peak energy.',
-      'Luteal Phase (Days 15–28): Progesterone rises, increasing basal body temperature and caloric needs slightly. Magnesium and B-vitamins help ease premenstrual tension.',
+      'Luteal Phase (Days 15â€“28): Progesterone rises, increasing basal body temperature and caloric needs slightly. Magnesium and B-vitamins help ease premenstrual tension.',
     ],
     clinicalNote: 'A typical adult menstrual cycle ranges from 21 to 35 days, with bleeding lasting 2 to 7 days.',
   ),
@@ -493,7 +493,7 @@ const List<MenstrualHealthArticle> sakhiMenstrualHealthArticles = [
     title: 'When Are Irregular Periods Worth a Gynecologist Visit?',
     category: 'Clinical Guidance',
     readTime: '5 min read',
-    summary: 'Occasional cycle shifts of a few days are common during travel, exams, illness, or stress. Persistent variation greater than 7–9 days or cycles shorter than 21 days or longer than 35 days merit clinical evaluation.',
+    summary: 'Occasional cycle shifts of a few days are common during travel, exams, illness, or stress. Persistent variation greater than 7â€“9 days or cycles shorter than 21 days or longer than 35 days merit clinical evaluation.',
     keyTakeaways: [
       'Common causes of cycle irregularity include PCOS, thyroid imbalances, iron-deficiency anemia, perimenopause, and high cortisol.',
       'Track period start/end dates, flow intensity, and accompanying symptoms (such as acne, hair changes, or severe pelvic pain) for 3 cycles to share with your doctor.',
@@ -508,7 +508,7 @@ const List<MenstrualHealthArticle> sakhiMenstrualHealthArticles = [
     readTime: '3 min read',
     summary: 'Primary dysmenorrhea (period cramps) is caused by prostaglandins triggering uterine muscle contractions. Targeted heat, anti-inflammatory nutrition, and gentle movement reduce prostaglandin discomfort.',
     keyTakeaways: [
-      'Continuous low-level heat wraps (40°C) on the lower abdomen improve pelvic blood flow and relax contracting muscle fibers.',
+      'Continuous low-level heat wraps (40Â°C) on the lower abdomen improve pelvic blood flow and relax contracting muscle fibers.',
       'Omega-3 fatty acids (flaxseeds, walnuts), ginger tea, and magnesium glycinate support natural prostaglandin balance.',
       'Reducing refined sugar and excess sodium 5 days before your period helps minimize water retention and breast tenderness.',
     ],
@@ -539,7 +539,7 @@ const List<MenstrualHealthFaq> sakhiMenstrualHealthFaqs = [
   ),
   MenstrualHealthFaq(
     question: 'What do Discreet Notifications look like on my lock screen?',
-    answer: 'When Discreet Notifications are enabled (the default), lock-screen alerts use neutral wording — "Wellness Check-In: You have a personal calendar update waiting in your wellness tracker" — without mentioning periods, ovulation, or symptoms.',
+    answer: 'When Discreet Notifications are enabled (the default), lock-screen alerts use neutral wording â€” "Wellness Check-In: You have a personal calendar update waiting in your wellness tracker" â€” without mentioning periods, ovulation, or symptoms.',
   ),
   MenstrualHealthFaq(
     question: 'Can I rely on the fertile window estimate to avoid pregnancy?',
@@ -782,7 +782,7 @@ class MenstrualCycleController extends ChangeNotifier {
           'startDate': startDate,
           if (endDate != null && endDate.isNotEmpty) 'endDate': endDate,
           'flowIntensity': flowIntensity,
-          if (notes != null) 'notes': notes,
+          'notes': notes ?? '',
         },
       );
       await syncWithBackend();
@@ -897,21 +897,21 @@ class MenstrualCycleController extends ChangeNotifier {
     final p = predictions;
     final buf = StringBuffer()
       ..writeln('====================================================')
-      ..writeln('SAKHI WOMEN’S MENSTRUAL HEALTH CLINICAL SUMMARY')
+      ..writeln('SAKHI WOMENâ€™S MENSTRUAL HEALTH CLINICAL SUMMARY')
       ..writeln('Generated: ${DateTime.now().toIso8601String()}')
       ..writeln('Privacy Classification: STRICTLY OWNER-ISOLATED (SRS 9.4)')
       ..writeln('====================================================')
       ..writeln('')
       ..writeln('1. CYCLE SUMMARY & ROLLING AVERAGES')
-      ..writeln('• Average Cycle Length: ${p.averageCycleLength} days')
-      ..writeln('• Average Period Duration: ${p.averagePeriodDuration} days')
-      ..writeln('• Regularity Status: ${p.regularityStatus}')
-      ..writeln('• Cycle Variation: ${p.cycleVariationDays} days')
-      ..writeln('• Last Recorded Period Start: ${p.lastPeriodStart ?? "None"}')
-      ..writeln('• Estimated Next Period: ${p.nextPeriodStart ?? "Pending"}')
-      ..writeln('• Current Phase Estimate: ${p.currentPhase}')
+      ..writeln('â€¢ Average Cycle Length: ${p.averageCycleLength} days')
+      ..writeln('â€¢ Average Period Duration: ${p.averagePeriodDuration} days')
+      ..writeln('â€¢ Regularity Status: ${p.regularityStatus}')
+      ..writeln('â€¢ Cycle Variation: ${p.cycleVariationDays} days')
+      ..writeln('â€¢ Last Recorded Period Start: ${p.lastPeriodStart ?? "None"}')
+      ..writeln('â€¢ Estimated Next Period: ${p.nextPeriodStart ?? "Pending"}')
+      ..writeln('â€¢ Current Phase Estimate: ${p.currentPhase}')
       ..writeln(
-        '• Irregularity Flag: ${p.hasIrregularity ? "YES (${p.irregularityReason})" : "None detected"}',
+        'â€¢ Irregularity Flag: ${p.hasIrregularity ? "YES (${p.irregularityReason})" : "None detected"}',
       )
       ..writeln('')
       ..writeln('2. HISTORICAL MENSTRUAL CYCLES (${cycles.length})');
@@ -961,3 +961,4 @@ class MenstrualCycleController extends ChangeNotifier {
     return true;
   }
 }
+
