@@ -21,12 +21,16 @@ import {
   CreateCommunityPostDto,
   CreateEmergencyContactDto,
   CreatePostCommentDto,
+  CreateSafetyEvidenceDto,
   EditCommunityPostDto,
   EditPostCommentDto,
+  PatchMemberBusinessDto,
   ReactToPostDto,
   RecordSafetyEventDto,
+  SendDirectMessageDto,
   StartLocationShareDto,
   UpdateEmergencyContactDto,
+  UpdateVolunteerOptInDto,
   ReportUserOrPostDto,
   RequestAccountDeletionDto,
   RequestMediaUploadDto,
@@ -43,6 +47,7 @@ import {
   UpdateSecurityPinDto,
   UploadBinaryMediaDto,
   UploadMediaObjectDto,
+  VotePollPostDto,
 } from "./module2.dto.js";
 import { Module2Service } from "./module2.service.js";
 
@@ -307,6 +312,16 @@ export class Module2Controller {
     return this.service.reactToPost(authorization, postId, dto.reactionType);
   }
 
+  @Post("posts/:postId/poll-vote")
+  @HttpCode(200)
+  votePollPost(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("postId") postId: string,
+    @Body() dto: VotePollPostDto,
+  ) {
+    return this.service.votePollPost(authorization, postId, dto.optionIndex);
+  }
+
   @Post("posts/:postId/like")
   @HttpCode(200)
   togglePostLike(
@@ -367,6 +382,16 @@ export class Module2Controller {
     return this.service.deletePostComment(authorization, postId, commentId);
   }
 
+  @Post("posts/:postId/comments/:commentId/like")
+  @HttpCode(200)
+  toggleCommentLike(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("postId") postId: string,
+    @Param("commentId") commentId: string,
+  ) {
+    return this.service.toggleCommentLike(authorization, postId, commentId);
+  }
+
   @Post("followers/:profileId/toggle")
   @HttpCode(200)
   toggleFollow(
@@ -383,6 +408,38 @@ export class Module2Controller {
     @Param("profileId") profileId: string,
   ) {
     return this.service.toggleFollow(authorization, profileId);
+  }
+
+  @Get("messages")
+  listDirectMessages(
+    @Headers("authorization") authorization: string | undefined,
+    @Query("peerId") peerId?: string,
+  ) {
+    return this.service.listDirectMessages(authorization, peerId);
+  }
+
+  @Post("messages")
+  @HttpCode(201)
+  sendDirectMessage(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: SendDirectMessageDto,
+  ) {
+    return this.service.sendDirectMessage(authorization, dto);
+  }
+
+  @Get("sessions")
+  listLoginSessions(
+    @Headers("authorization") authorization: string | undefined,
+  ) {
+    return this.service.listLoginSessions(authorization);
+  }
+
+  @Delete("sessions/:sessionId")
+  revokeLoginSession(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("sessionId") sessionId: string,
+  ) {
+    return this.service.revokeLoginSession(authorization, sessionId);
   }
 
   @Put("privacy")
@@ -440,6 +497,30 @@ export class Module2Controller {
     @Body() dto: RecordSafetyEventDto,
   ) {
     return this.service.recordSafetyEvent(authorization, dto);
+  }
+
+  @Get("safety/evidence")
+  listSafetyEvidence(
+    @Headers("authorization") authorization: string | undefined,
+  ) {
+    return this.service.listSafetyEvidence(authorization);
+  }
+
+  @Post("safety/evidence")
+  @HttpCode(201)
+  addSafetyEvidence(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: CreateSafetyEvidenceDto,
+  ) {
+    return this.service.addSafetyEvidence(authorization, dto);
+  }
+
+  @Put("safety/volunteer")
+  updateVolunteerOptIn(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: UpdateVolunteerOptInDto,
+  ) {
+    return this.service.updateVolunteerOptIn(authorization, dto);
   }
 
   @Post("safety/sos/activate")
@@ -682,8 +763,9 @@ export class Module2Controller {
   @Get("businesses/enquiries/list")
   listBusinessEnquiries(
     @Headers("authorization") authorization: string | undefined,
+    @Query("businessId") businessId?: string,
   ) {
-    return this.service.listBusinessEnquiries(authorization);
+    return this.service.listBusinessEnquiries(authorization, businessId);
   }
 
   @Post("businesses/enquiries/:enquiryId/messages")
@@ -750,7 +832,7 @@ export class Module2Controller {
   updateBusinessPatch(
     @Headers("authorization") authorization: string | undefined,
     @Param("businessId") businessId: string,
-    @Body() dto: Partial<UpsertMemberBusinessDto>,
+    @Body() dto: PatchMemberBusinessDto,
   ) {
     return this.service.updateMemberBusiness(authorization, businessId, dto);
   }
@@ -782,5 +864,91 @@ export class Module2Controller {
     @Body() dto: CreateBusinessEnquiryDto,
   ) {
     return this.service.createBusinessEnquiry(authorization, businessId, dto);
+  }
+
+  // ===========================================================================
+  // MODULE 7: WOMEN'S MENSTRUAL CYCLE TRACKER ROUTES (SRS Sections 9.1–9.5)
+  // ===========================================================================
+
+  @Get("cycle-tracker")
+  getMenstrualCycleTracker(@Headers("authorization") authorization?: string) {
+    return this.service.getMenstrualCycleTracker(authorization);
+  }
+
+  @Get("cycle-tracker/calculate")
+  calculateMenstrualCycleStateless(
+    @Query("lastPeriod") lastPeriod?: string,
+    @Query("cycleLength") cycleLength?: string,
+    @Query("periodLength") periodLength?: string,
+  ) {
+    return this.service.calculateMenstrualCycleStateless({
+      lastPeriod,
+      cycleLength: cycleLength !== undefined ? Number(cycleLength) : undefined,
+      periodLength:
+        periodLength !== undefined ? Number(periodLength) : undefined,
+    });
+  }
+
+  @Post("cycle-tracker/cycles")
+  @HttpCode(201)
+  createMenstrualCycleLog(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: Record<string, unknown>,
+  ) {
+    return this.service.upsertMenstrualCycleLog(authorization, dto);
+  }
+
+  @Put("cycle-tracker/cycles/:cycleId")
+  updateMenstrualCycleLog(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("cycleId") cycleId: string,
+    @Body() dto: Record<string, unknown>,
+  ) {
+    return this.service.upsertMenstrualCycleLog(authorization, dto, cycleId);
+  }
+
+  @Delete("cycle-tracker/cycles/:cycleId")
+  deleteMenstrualCycleLog(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("cycleId") cycleId: string,
+  ) {
+    return this.service.deleteMenstrualCycleLog(authorization, cycleId);
+  }
+
+  @Post("cycle-tracker/daily-logs")
+  @HttpCode(200)
+  upsertMenstrualDailyLog(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: Record<string, unknown>,
+  ) {
+    return this.service.upsertMenstrualDailyLog(authorization, dto);
+  }
+
+  @Delete("cycle-tracker/daily-logs/:logId")
+  deleteMenstrualDailyLog(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("logId") logId: string,
+  ) {
+    return this.service.deleteMenstrualDailyLog(authorization, logId);
+  }
+
+  @Put("cycle-tracker/preferences")
+  updateMenstrualTrackerPreferences(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: Record<string, unknown>,
+  ) {
+    return this.service.updateMenstrualTrackerPreferences(authorization, dto);
+  }
+
+  @Get("cycle-tracker/export")
+  exportMenstrualTrackerData(@Headers("authorization") authorization?: string) {
+    return this.service.exportMenstrualTrackerData(authorization);
+  }
+
+  @Delete("cycle-tracker/all")
+  deleteAllMenstrualTrackerData(
+    @Headers("authorization") authorization?: string,
+  ) {
+    return this.service.deleteAllMenstrualTrackerData(authorization);
   }
 }

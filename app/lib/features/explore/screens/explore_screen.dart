@@ -316,7 +316,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                   borderRadius: BorderRadius.circular(999),
                                 ),
                                 child: Text(
-                                  'MODULE 6 • VERIFIED MARKETPLACE',
+                                  'SAKHI VERIFIED MARKETPLACE',
                                   style: AppTypography.businessCategoryPill
                                       .copyWith(fontSize: 9.5),
                                 ),

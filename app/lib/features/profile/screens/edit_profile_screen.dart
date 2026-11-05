@@ -37,6 +37,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   bool? _usernameAvailable = true;
   String? _usernameMessage = 'Username is available';
   late String _selectedAvatar;
+  String _selectedCoverAsset = AppAssets.profileHeaderBanner;
   bool _isSaving = false;
   bool _isUploadingAvatar = false;
   bool _businessProfileEnabled = true;
@@ -50,7 +51,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final user = SakhiPrototypeState.instance.currentUser;
     _nameController = TextEditingController(text: user.displayName);
     _originalUsername = user.username.replaceFirst(RegExp(r'^@'), '');
-    if (_originalUsername.isEmpty) _originalUsername = 'ananya_rao';
+    if (_originalUsername.isEmpty) _originalUsername = '';
     _usernameController = TextEditingController(text: _originalUsername);
     _emailController = TextEditingController(text: user.email);
     _bioController = TextEditingController(
@@ -72,7 +73,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ];
     _selectedAvatar = user.avatarAsset;
     _businessProfileEnabled =
-        (user.businessProfileUrl ?? '').trim().isNotEmpty || true;
+        (user.businessProfileUrl ?? '').trim().isNotEmpty;
     final locationSetting = SakhiPrototypeState.instance.privacySettings
         .where((setting) => setting.id == 'show_location')
         .firstOrNull;
@@ -171,8 +172,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       username: handle,
       email: _emailController.text.trim(),
       businessProfileUrl: _businessProfileEnabled
-          ? (SakhiPrototypeState.instance.currentUser.businessProfileUrl ??
-                'https://sakhi.community/business')
+          ? (SakhiPrototypeState.instance.currentUser.businessProfileUrl ?? '')
           : '',
       bio: _bioController.text.trim(),
       location: _locationController.text.trim(),
@@ -257,6 +257,86 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     SakhiDialogs.showPrototypeSnackbar(
       context,
       'Profile photo uploaded and saved.',
+    );
+  }
+
+  void _openCoverBannerPicker() {
+    final coverPresets = <Map<String, String>>[
+      {'label': 'Botanical Dawn', 'asset': AppAssets.profileHeaderBanner},
+      {'label': 'Artisan Studio', 'asset': AppAssets.businessArtisanStudio},
+      {'label': 'Wellness Sanctuary', 'asset': AppAssets.wellnessHeroIllustration},
+      {'label': 'Community Bloom', 'asset': AppAssets.communityCircleGathering},
+    ];
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.cardSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Choose Profile Cover Banner',
+              style: AppTypography.sectionTitle,
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Select an illustrated Sakhi sanctuary cover theme for your profile:',
+              style: AppTypography.subtitle,
+            ),
+            const SizedBox(height: 14),
+            SizedBox(
+              height: 96,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: coverPresets.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 12),
+                itemBuilder: (_, idx) {
+                  final item = coverPresets[idx];
+                  final asset = item['asset']!;
+                  final isCurrent = _selectedCoverAsset == asset;
+                  return GestureDetector(
+                    onTap: () {
+                      setState(() => _selectedCoverAsset = asset);
+                      Navigator.pop(ctx);
+                    },
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 126,
+                          height: 68,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: isCurrent
+                                  ? AppColors.primaryPurple
+                                  : AppColors.borderSubtle,
+                              width: isCurrent ? 2.5 : 1.2,
+                            ),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.asset(asset, fit: BoxFit.cover),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          item['label']!,
+                          style: AppTypography.subtitle.copyWith(fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -456,7 +536,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             fit: StackFit.expand,
                             children: [
                               Image.asset(
-                                AppAssets.profileHeaderBanner,
+                                _selectedCoverAsset,
                                 fit: BoxFit.cover,
                                 filterQuality: FilterQuality.high,
                               ),
@@ -464,7 +544,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 right: 10,
                                 top: 10,
                                 child: InkWell(
-                                  onTap: _openAvatarAndCloudPicker,
+                                  onTap: _openCoverBannerPicker,
                                   borderRadius: BorderRadius.circular(18),
                                   child: Container(
                                     padding: const EdgeInsets.symmetric(
@@ -651,6 +731,29 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     ],
                   ),
                 ],
+
+                const SizedBox(height: 14),
+                Text(
+                  'Email Address (Optional)',
+                  style: AppTypography.bodyMedium.copyWith(fontSize: 13),
+                ),
+                const SizedBox(height: 6),
+                TextFormField(
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  autocorrect: false,
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(
+                      Icons.mail_outline_rounded,
+                      size: 19,
+                      color: AppColors.primaryPurple,
+                    ),
+                    hintText: 'name@example.com',
+                  ),
+                  style: AppTypography.bodyRegular.copyWith(
+                    color: AppColors.textPrimary,
+                  ),
+                ),
 
                 const SizedBox(height: 14),
                 Text(

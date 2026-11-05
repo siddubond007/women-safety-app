@@ -28,6 +28,7 @@ import 'features/profile/screens/profile_screen.dart';
 import 'features/safety/screens/safety_screen.dart';
 import 'features/settings/screens/more_options_menu_screen.dart';
 import 'features/settings/screens/privacy_settings_screen.dart';
+import 'features/wellness/screens/menstrual_cycle_tracker_screen.dart';
 import 'features/wellness/screens/wellness_screen.dart';
 
 const Color sakhiPlum = SakhiColors.plum;
@@ -66,8 +67,10 @@ class SakhiHomeScreen extends StatelessWidget {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
             ),
-            leading:
-                const Icon(Icons.shield_outlined, color: SakhiColors.purple),
+            leading: const Icon(
+              Icons.shield_outlined,
+              color: SakhiColors.purple,
+            ),
             title: const Text('Safety & support'),
             subtitle: const Text('SOS check-ins, helplines & trusted contacts'),
             onTap: () {
@@ -95,7 +98,11 @@ class SakhiHomeScreen extends StatelessWidget {
 }
 
 class SakhiApp extends StatefulWidget {
-  const SakhiApp({super.key});
+  const SakhiApp({super.key, this.authService});
+
+  /// Optional auth-service injection keeps startup deterministic in tests and
+  /// allows hosts to provide an explicitly configured authentication service.
+  final AuthService? authService;
 
   @override
   State<SakhiApp> createState() => _SakhiAppState();
@@ -108,7 +115,7 @@ class _SakhiAppState extends State<SakhiApp> {
   @override
   void initState() {
     super.initState();
-    _authService = authServiceForCurrentBuild();
+    _authService = widget.authService ?? authServiceForCurrentBuild();
   }
 
   @override
@@ -125,8 +132,10 @@ class _SakhiAppState extends State<SakhiApp> {
         final mq = MediaQuery.of(context);
         return MediaQuery(
           data: mq.copyWith(
-            textScaler:
-                mq.textScaler.clamp(minScaleFactor: 0.85, maxScaleFactor: 1.2),
+            textScaler: mq.textScaler.clamp(
+              minScaleFactor: 0.85,
+              maxScaleFactor: 1.2,
+            ),
           ),
           child: child ?? const SizedBox.shrink(),
         );
@@ -167,8 +176,9 @@ class _SakhiAppState extends State<SakhiApp> {
             const WomenBusinessHubScreen(showBackButton: true),
         AppRoutes.businessCreate: (_) =>
             const BusinessRegistrationWizardScreen(forceCreateNew: true),
-        AppRoutes.businessEnquiries: (_) =>
-            const BusinessEnquiryInboxScreen(),
+        AppRoutes.businessEnquiries: (_) => const BusinessEnquiryInboxScreen(),
+        AppRoutes.menstrualCycleTracker: (_) =>
+            const MenstrualCycleTrackerScreen(),
       },
       home: SakhiStartupRouter(authService: _authService),
     );
@@ -224,9 +234,8 @@ class _SakhiStartupRouterState extends State<SakhiStartupRouter> {
       onGetStarted: () {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute<void>(
-            builder: (_) => SakhiRegistrationScreen(
-              authService: widget.authService,
-            ),
+            builder: (_) =>
+                SakhiRegistrationScreen(authService: widget.authService),
           ),
         );
       },
@@ -295,9 +304,8 @@ class _SakhiStartupRouterState extends State<SakhiStartupRouter> {
                         ),
                         TextButton(
                           key: const Key('auth-session-continue-button'),
-                          onPressed: () => setState(
-                            () => _continueWithoutRestore = true,
-                          ),
+                          onPressed: () =>
+                              setState(() => _continueWithoutRestore = true),
                           child: const Text('Continue to welcome screen'),
                         ),
                       ],

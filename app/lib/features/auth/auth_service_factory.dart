@@ -1,22 +1,24 @@
-import 'package:flutter/foundation.dart';
+import 'dart:io';
 
+import '../../core/constants/mock_data.dart';
 import 'auth_service.dart';
 import 'backend_auth_service.dart';
 
-/// The hosted backend can be selected in debug builds for local development,
-/// or explicitly for the allowlisted staging-test APK. Release builds otherwise
-/// fail closed to the unconfigured service.
+/// Uses the live Sakhi backend (`BackendAuthService`) by default in both debug
+/// and release builds unless explicitly disabled via `--dart-define=SAKHI_BACKEND_ENABLED=false`
+/// or running inside an automated test harness without a live server.
 AuthService authServiceForCurrentBuild() {
-  const stagingTestBuild = bool.fromEnvironment(
-    'SAKHI_STAGING_TEST_MODE',
-    defaultValue: false,
+  const backendEnabled = bool.fromEnvironment(
+    'SAKHI_BACKEND_ENABLED',
+    defaultValue: true,
   );
-  if (!kDebugMode && !stagingTestBuild) {
-    return const UnconfiguredAuthService();
+  final isTestEnvironment =
+      Platform.environment.containsKey('FLUTTER_TEST') ||
+      const bool.fromEnvironment('FLUTTER_TEST_MODE');
+  if (!backendEnabled || isTestEnvironment) {
+    return const DemoAuthService();
   }
-  if (stagingTestBuild) return BackendAuthService();
-  if (const bool.fromEnvironment('SAKHI_BACKEND_ENABLED', defaultValue: false)) {
-    return BackendAuthService();
-  }
-  return const DemoAuthService();
+  return BackendAuthService(
+    onSessionCleared: SakhiPrototypeState.instance.clearAccountScopedData,
+  );
 }

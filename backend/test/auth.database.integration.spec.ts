@@ -82,7 +82,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
       );
       Reflect.defineMetadata(
         "design:paramtypes",
-        [VerifyOtpDto],
+        [VerifyOtpDto, String],
         AuthController.prototype,
         "verifyOtp",
       );

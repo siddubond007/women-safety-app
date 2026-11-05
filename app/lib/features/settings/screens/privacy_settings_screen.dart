@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/mock_data.dart';
@@ -6,7 +8,6 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/sakhi_card.dart';
 import '../../../core/widgets/sakhi_section_header.dart';
-import '../../account_security/screens/account_security_screen.dart';
 import '../../notifications/screens/notification_preferences_screen.dart';
 
 /// Screen 09 — Privacy & Account Settings
@@ -392,7 +393,7 @@ class PrivacySettingsScreen extends StatelessWidget {
                         style: AppTypography.bodyMedium,
                       ),
                       subtitle: const Text(
-                        'Extra security for your account',
+                        'Unavailable • no second-factor provider is configured',
                         style: AppTypography.subtitle,
                       ),
                       trailing: Row(
@@ -404,15 +405,13 @@ class PrivacySettingsScreen extends StatelessWidget {
                               vertical: 3,
                             ),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFE3F5EC),
+                              color: AppColors.pastelLavender,
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            child: Text(
-                              state.currentUser.twoFactorEnabled
-                                  ? 'Enabled'
-                                  : 'Configure',
-                              style: const TextStyle(
-                                color: Color(0xFF1E7E52),
+                            child: const Text(
+                              'Unavailable',
+                              style: TextStyle(
+                                color: AppColors.textMuted,
                                 fontSize: 11,
                                 fontWeight: FontWeight.w700,
                               ),
@@ -425,11 +424,7 @@ class PrivacySettingsScreen extends StatelessWidget {
                           ),
                         ],
                       ),
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => const AccountSecurityScreen(),
-                        ),
-                      ),
+                      onTap: () => _showTwoFactorInfo(context),
                     ),
                     const Divider(height: 1, color: AppColors.dividerColor),
                     ListTile(
@@ -450,19 +445,15 @@ class PrivacySettingsScreen extends StatelessWidget {
                         'Active Login Sessions',
                         style: AppTypography.bodyMedium,
                       ),
-                      subtitle: Text(
-                        '${state.currentUser.activeSessionsCount} active device(s) • Bangalore (Current)',
+                      subtitle: const Text(
+                        'View the platforms and times for your signed-in sessions',
                         style: AppTypography.subtitle,
                       ),
                       trailing: const Icon(
                         Icons.chevron_right_rounded,
                         color: AppColors.textMuted,
                       ),
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => const AccountSecurityScreen(),
-                        ),
-                      ),
+                      onTap: () => _showLoginSessions(context, state),
                     ),
                   ],
                 ),
@@ -505,6 +496,245 @@ class PrivacySettingsScreen extends StatelessWidget {
             ],
           );
         },
+      ),
+    );
+  }
+
+  void _showTwoFactorInfo(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Two-Factor Authentication'),
+        content: const Text(
+          'Sakhi currently signs in with phone OTP. A separate TOTP, passkey, or other second-factor provider has not been configured, so two-factor authentication is unavailable and no second-factor protection is active.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatSessionDate(dynamic value) {
+    if (value is! String) return 'Not recorded';
+    final parsed = DateTime.tryParse(value);
+    if (parsed == null) return 'Not recorded';
+    return parsed.toLocal().toString().split('.').first;
+  }
+
+  Future<void> _showLoginSessions(
+    BuildContext context,
+    SakhiPrototypeState state,
+  ) async {
+    final initialEpoch = state.accountStateEpoch;
+    unawaited(state.loadLoginSessions());
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => AnimatedBuilder(
+        animation: state,
+        builder: (context, _) {
+          final sessionChanged = state.accountStateEpoch != initialEpoch;
+          return SafeArea(
+          child: SizedBox(
+            height: MediaQuery.of(context).size.height * .72,
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Active Login Sessions',
+                    style: AppTypography.sectionTitle,
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Platform names are reported by the Sakhi app. Sakhi does not collect precise device location or hardware identifiers here.',
+                    style: AppTypography.subtitle,
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: sessionChanged
+                        ? const Center(
+                            child: Text(
+                              'Login sessions were cleared because your Sakhi session changed. Sign in again to view active devices.',
+                              textAlign: TextAlign.center,
+                              style: AppTypography.subtitle,
+                            ),
+                          )
+                        : state.isLoadingLoginSessions &&
+                              state.loginSessions.isEmpty
+                        ? const Center(child: CircularProgressIndicator())
+                        : state.loginSessionsError != null &&
+                              state.loginSessions.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  state.loginSessionsError!,
+                                  textAlign: TextAlign.center,
+                                  style: AppTypography.subtitle,
+                                ),
+                                const SizedBox(height: 10),
+                                TextButton.icon(
+                                  onPressed: state.isLoadingLoginSessions
+                                      ? null
+                                      : () => unawaited(
+                                          state.loadLoginSessions(),
+                                        ),
+                                  icon: const Icon(Icons.refresh_rounded),
+                                  label: const Text('Retry'),
+                                ),
+                              ],
+                            ),
+                          )
+                        : state.loginSessions.isEmpty
+                        ? const Center(
+                            child: Text(
+                              'No login sessions were returned for this account.',
+                              textAlign: TextAlign.center,
+                              style: AppTypography.subtitle,
+                            ),
+                          )
+                        : ListView.separated(
+                            itemCount: state.loginSessions.length,
+                            separatorBuilder: (_, _) =>
+                                const Divider(height: 18),
+                            itemBuilder: (context, index) {
+                              final session = state.loginSessions[index];
+                              final active = session['isActive'] == true;
+                              final current = session['isCurrent'] == true;
+                              final platform =
+                                  session['deviceName']?.toString().trim() ??
+                                  '';
+                              final label = current
+                                  ? 'This device • Current session'
+                                  : platform.isNotEmpty
+                                  ? '$platform • Other session'
+                                  : 'Other signed-in session';
+                              return Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(
+                                    current
+                                        ? Icons.smartphone_rounded
+                                        : Icons.devices_other_rounded,
+                                    color: AppColors.primaryPurple,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          label,
+                                          style: AppTypography.cardTitle
+                                              .copyWith(fontSize: 13),
+                                        ),
+                                        Text(
+                                          'Started: ${_formatSessionDate(session['createdAt'])}',
+                                          style: AppTypography.subtitle,
+                                        ),
+                                        Text(
+                                          'Expires: ${_formatSessionDate(session['expiresAt'])}',
+                                          style: AppTypography.subtitle,
+                                        ),
+                                        Text(
+                                          active
+                                              ? 'Active'
+                                              : 'Revoked or expired',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: active
+                                                ? AppColors.verifiedGreenText
+                                                : AppColors.textMuted,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  if (active && !current)
+                                    TextButton(
+                                      onPressed: () =>
+                                          _confirmRevokeLoginSession(
+                                            context,
+                                            state,
+                                            session,
+                                          ),
+                                      child: const Text('Revoke'),
+                                    ),
+                                ],
+                              );
+                            },
+                          ),
+                  ),
+                  if (state.loginSessionsError != null &&
+                      state.loginSessions.isNotEmpty)
+                    Text(
+                      state.loginSessionsError!,
+                      style: const TextStyle(
+                        color: AppColors.sosRed,
+                        fontSize: 12,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _confirmRevokeLoginSession(
+    BuildContext context,
+    SakhiPrototypeState state,
+    Map<String, dynamic> session,
+  ) async {
+    final sessionId = session['id'];
+    if (sessionId is! String) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Revoke this login session?'),
+        content: const Text(
+          'The selected session will no longer be able to access this Sakhi account.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Revoke session'),
+          ),
+        ],
+      ),
+    );
+    if (!context.mounted || confirmed != true) return;
+    final initialEpoch = state.accountStateEpoch;
+    final success = await state.revokeLoginSession(sessionId);
+    if (!context.mounted || state.accountStateEpoch != initialEpoch) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          success
+              ? 'Login session revoked.'
+              : (state.loginSessionsError ??
+                    'Login session could not be revoked.'),
+        ),
       ),
     );
   }

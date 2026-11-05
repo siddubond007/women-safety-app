@@ -15,6 +15,9 @@ TO sakhi_staging_app;
 GRANT SELECT ON TABLE public.policy_document_versions TO sakhi_staging_app;
 GRANT INSERT, SELECT ON TABLE public.audit_events TO sakhi_staging_app;
 
+-- Module 2 dedicated DM persistence. No general UPDATE or DELETE access.
+GRANT SELECT, INSERT ON TABLE public.direct_messages TO sakhi_staging_app;
+
 -- Explicit eligibility/manual-review request records; no raw evidence tables exist.
 GRANT SELECT, INSERT, UPDATE ON TABLE
   public.eligibility_consents,
@@ -39,6 +42,9 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   public.member_notification_preferences,
   public.safety_emergency_contacts,
   public.safety_sos_events,
+  public.safety_location_shares,
+  public.safety_helpline_configs,
+  public.verified_police_stations,
   public.wellness_resources,
   public.member_moderation_blocks,
   public.member_user_reports
@@ -72,6 +78,8 @@ TO sakhi_staging_app;
 
 GRANT SELECT, INSERT, UPDATE ON TABLE
   public.business_directory_listings,
+  public.business_enquiries,
+  public.business_reports,
   public.platform_config_settings
 TO sakhi_staging_app;
 
@@ -92,3 +100,10 @@ TO sakhi_staging_app;
 -- The bootstrap-roles.sql setup grants the runtime role USAGE only (not CREATE)
 -- on public. Leave schema ACL ownership changes to the Supabase project owner.
 REVOKE ALL ON TABLE public._prisma_migrations FROM sakhi_staging_app;
+
+-- Module 7 owner-isolated menstrual health tables.
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
+  public.menstrual_cycle_logs,
+  public.menstrual_daily_logs,
+  public.menstrual_tracker_preferences
+TO sakhi_staging_app;

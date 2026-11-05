@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
 import 'dart:math' as math;
 import 'dart:async';
 
@@ -94,6 +98,25 @@ class FeedCategoryModel {
   ];
 }
 
+String formatSakhiRelativeTimestamp(String? raw) {
+  if (raw == null || raw.trim().isEmpty) return 'Just now';
+  final trimmed = raw.trim();
+  if (!trimmed.contains('T') &&
+      !RegExp(r'^\d{4}-\d{2}-\d{2}').hasMatch(trimmed)) {
+    return trimmed;
+  }
+  final parsed = DateTime.tryParse(trimmed);
+  if (parsed == null) return trimmed;
+  final diff = DateTime.now().difference(parsed.toLocal());
+  if (diff.inSeconds < 45) return 'Just now';
+  if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+  if (diff.inHours < 24) return '${diff.inHours}h ago';
+  if (diff.inDays < 7) return '${diff.inDays}d ago';
+  final weeks = (diff.inDays / 7).floor();
+  if (weeks < 5) return '${weeks}w ago';
+  return '${parsed.day}/${parsed.month}/${parsed.year}';
+}
+
 class PostCommentItem {
   final String id;
   final String authorAccountId;
@@ -101,12 +124,15 @@ class PostCommentItem {
   final String authorUsername;
   final String authorAvatar;
   String body;
-  final String createdAt;
+  String createdAt;
   final String? parentCommentId;
   final String? replyToHandle;
   final bool isOwnComment;
   final bool canEdit;
   final bool canDelete;
+  bool isEdited;
+  int likesCount;
+  bool isLiked;
 
   PostCommentItem({
     required this.id,
@@ -121,32 +147,89 @@ class PostCommentItem {
     this.isOwnComment = false,
     this.canEdit = false,
     this.canDelete = false,
+    this.isEdited = false,
+    this.likesCount = 0,
+    this.isLiked = false,
   });
 
   factory PostCommentItem.fromJson(Map<String, dynamic> json) {
     final authorId = (json['authorAccountId'] ?? json['accountId'] ?? '')
         .toString();
     final authorName = json['authorName']?.toString() ?? 'Sakhi Member';
-    final rawAvatar = json['authorAvatar']?.toString() ?? '';
-    final currentUserId = SakhiPrototypeState.instance.currentUser.accountId;
+    var rawAvatar = (json['authorAvatar'] ?? json['avatarAsset'] ?? '')
+        .toString()
+        .trim();
+    final currentUser = SakhiPrototypeState.instance.currentUser;
+    final currentUserId = currentUser.accountId;
     final isOwn =
         json['isOwnComment'] == true ||
         (authorId.isNotEmpty &&
             currentUserId.isNotEmpty &&
             authorId == currentUserId);
+    if (rawAvatar.isEmpty && isOwn && currentUser.avatarAsset.isNotEmpty) {
+      rawAvatar = currentUser.avatarAsset;
+    }
+    if (rawAvatar.isEmpty) {
+      for (final f in SakhiPrototypeState.instance.followers) {
+        if ((authorId.isNotEmpty && f.id == authorId) ||
+            f.name.trim().toLowerCase() == authorName.trim().toLowerCase()) {
+          if (f.avatarAsset.isNotEmpty) {
+            rawAvatar = f.avatarAsset;
+            break;
+          }
+        }
+      }
+    }
+    var rawUsername = (json['authorUsername'] ?? '').toString().trim();
+    if (rawUsername.isEmpty || rawUsername == '@member') {
+      if (isOwn && currentUser.username.isNotEmpty) {
+        rawUsername = currentUser.username;
+      } else {
+        rawUsername =
+            '@${authorName.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_')}';
+      }
+    }
+    if (!rawUsername.startsWith('@')) {
+      rawUsername = '@$rawUsername';
+    }
+
+    final replyHandle = json['replyToHandle']?.toString().trim();
+    var cleanBody = (json['body'] ?? json['content'] ?? json['text'] ?? '')
+        .toString()
+        .trim();
+    if (replyHandle != null && replyHandle.isNotEmpty) {
+      final normRh = replyHandle.startsWith('@')
+          ? replyHandle
+          : '@$replyHandle';
+      if (cleanBody.toLowerCase().startsWith('${normRh.toLowerCase()} ')) {
+        final stripped = cleanBody.substring(normRh.length).trim();
+        if (stripped.isNotEmpty) {
+          cleanBody = stripped;
+        }
+      }
+    }
+
+    final rawTime = (json['timestamp'] ?? json['createdAt'] ?? 'Just now')
+        .toString();
+
     return PostCommentItem(
       id: (json['id'] ?? json['commentId'] ?? '').toString(),
       authorAccountId: authorId,
       authorName: authorName,
-      authorUsername: json['authorUsername']?.toString() ?? '@member',
+      authorUsername: rawUsername,
       authorAvatar: rawAvatar,
-      body: (json['body'] ?? json['content'] ?? json['text'] ?? '').toString(),
-      createdAt: json['createdAt']?.toString() ?? 'Just now',
+      body: cleanBody,
+      createdAt: formatSakhiRelativeTimestamp(rawTime),
       parentCommentId: json['parentCommentId']?.toString(),
-      replyToHandle: json['replyToHandle']?.toString(),
+      replyToHandle: (replyHandle != null && replyHandle.isNotEmpty)
+          ? replyHandle
+          : null,
       isOwnComment: isOwn,
       canEdit: json['canEdit'] == true || isOwn,
       canDelete: json['canDelete'] == true || isOwn,
+      isEdited: json['isEdited'] == true,
+      likesCount: (json['likesCount'] as num?)?.toInt() ?? 0,
+      isLiked: json['isLiked'] == true,
     );
   }
 }
@@ -225,6 +308,11 @@ class FeedPostModel {
   String? viewerReaction;
   Map<String, int> reactionBreakdown;
   List<PostCommentItem> comments;
+  List<String> mediaAssets;
+  String? pollQuestion;
+  List<String> pollOptions;
+  List<int> pollVoteCounts;
+  int? viewerPollChoice;
 
   FeedPostModel({
     required this.id,
@@ -258,16 +346,30 @@ class FeedPostModel {
     this.viewerReaction,
     Map<String, int>? reactionBreakdown,
     List<PostCommentItem>? comments,
+    List<String>? mediaAssets,
+    this.pollQuestion,
+    List<String>? pollOptions,
+    List<int>? pollVoteCounts,
+    this.viewerPollChoice,
   }) : reactionBreakdown = reactionBreakdown ?? <String, int>{},
-       comments = comments ?? <PostCommentItem>[];
+       comments = comments ?? <PostCommentItem>[],
+       mediaAssets =
+           mediaAssets ??
+           (imageAsset != null && imageAsset.isNotEmpty
+               ? <String>[imageAsset]
+               : <String>[]),
+       pollOptions = pollOptions ?? <String>[],
+       pollVoteCounts = pollVoteCounts ?? <int>[];
 
   String get audience => visibility;
   String get timeAgo => timestamp;
   String? get reactionType => viewerReaction;
   int get reactionsCount => likesCount;
-  List<String> get mediaItems => imageAsset != null && imageAsset!.isNotEmpty
-      ? <String>[imageAsset!]
-      : const <String>[];
+  List<String> get mediaItems => mediaAssets.isNotEmpty
+      ? mediaAssets
+      : (imageAsset != null && imageAsset!.isNotEmpty
+            ? <String>[imageAsset!]
+            : const <String>[]);
 
   factory FeedPostModel.fromJson(Map<String, dynamic> json) {
     final authorId = json['authorAccountId']?.toString() ?? '';
@@ -326,8 +428,9 @@ class FeedPostModel {
       likesCount:
           ((json['reactionsCount'] ?? json['likesCount']) as num?)?.toInt() ??
           0,
-      commentsCount:
-          (json['commentsCount'] as num?)?.toInt() ?? parsedComments.length,
+      commentsCount: rawComments is List
+          ? parsedComments.length
+          : ((json['commentsCount'] as num?)?.toInt() ?? 0),
       savesCount: (json['savesCount'] as num?)?.toInt() ?? 0,
       sharesCount: (json['sharesCount'] as num?)?.toInt() ?? 0,
       isLiked: json['isLiked'] == true || json['likedByViewer'] == true,
@@ -338,7 +441,47 @@ class FeedPostModel {
       viewerReaction: json['viewerReaction'] as String?,
       reactionBreakdown: parsedBreakdown,
       comments: parsedComments,
+      mediaAssets: (json['mediaAssets'] is List)
+          ? (json['mediaAssets'] as List)
+                .map((e) => e.toString().trim())
+                .where((s) => s.isNotEmpty)
+                .toList()
+          : null,
+      pollQuestion: json['pollQuestion']?.toString(),
+      pollOptions: (json['pollOptions'] is List)
+          ? (json['pollOptions'] as List)
+                .map((e) => e.toString().trim())
+                .where((s) => s.isNotEmpty)
+                .toList()
+          : _extractInlinePollOptions(
+              (json['content'] ?? json['body'] ?? '').toString(),
+            ),
+      pollVoteCounts: (json['optionVoteCounts'] is List)
+          ? (json['optionVoteCounts'] as List)
+                .map((e) => (e is num) ? e.toInt() : 0)
+                .toList()
+          : null,
     );
+  }
+
+  static List<String> _extractInlinePollOptions(String text) {
+    if (!text.contains('📊') && !text.toLowerCase().contains('poll:')) {
+      return <String>[];
+    }
+    final lines = text.split('\n');
+    final opts = <String>[];
+    for (final line in lines) {
+      final trimmed = line.trim();
+      if (trimmed.startsWith('• ') ||
+          trimmed.startsWith('- ') ||
+          RegExp(r'^[1-6][\)\.]\s+').hasMatch(trimmed)) {
+        final cleaned = trimmed
+            .replaceFirst(RegExp(r'^([•\-]|[1-6][\)\.])\s*'), '')
+            .trim();
+        if (cleaned.isNotEmpty) opts.add(cleaned);
+      }
+    }
+    return opts.length >= 2 ? opts : <String>[];
   }
 }
 
@@ -529,12 +672,134 @@ class NotificationPrefItem {
 /// Unified domain state and backend repository store for Module 2 & Module 3.
 class SakhiPrototypeState extends ChangeNotifier {
   static final SakhiPrototypeState instance = SakhiPrototypeState._internal();
-  SakhiPrototypeState._internal();
+  SakhiPrototypeState._internal() {
+    unawaited(_restoreLocalCache());
+  }
+
+  static const FlutterSecureStorage _localCacheStorage = FlutterSecureStorage();
+  static const String _localCacheKey = 'sakhi_prototype_state_cache_v1';
+
+  int _accountStateEpoch = 0;
+  int _loginSessionsRequestId = 0;
+  final List<FutureOr<void> Function()> _accountClearCallbacks =
+      <FutureOr<void> Function()>[];
+
+  void registerAccountClearCallback(FutureOr<void> Function() callback) {
+    if (!_accountClearCallbacks.contains(callback)) {
+      _accountClearCallbacks.add(callback);
+    }
+  }
+  Future<void> _localCacheOperationQueue = Future<void>.value();
+  VoidCallback? _localCacheDeleteOverrideForTesting;
+
+  Future<void> _restoreLocalCache() async {
+    final restoreEpoch = _accountStateEpoch;
+    try {
+      final raw = await _localCacheStorage.read(key: _localCacheKey);
+      if (restoreEpoch != _accountStateEpoch) return;
+      if (raw == null || raw.trim().isEmpty) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) return;
+      if (!_isBackendSynced) {
+        final u = decoded['currentUser'];
+        if (u is Map<String, dynamic>) {
+          currentUser.accountId =
+              u['accountId']?.toString() ?? currentUser.accountId;
+          currentUser.displayName =
+              u['displayName']?.toString() ?? currentUser.displayName;
+          currentUser.username =
+              u['username']?.toString() ?? currentUser.username;
+          currentUser.bio = u['bio']?.toString() ?? currentUser.bio;
+          currentUser.location =
+              u['location']?.toString() ?? currentUser.location;
+          currentUser.avatarAsset =
+              u['avatarAsset']?.toString() ?? currentUser.avatarAsset;
+          currentUser.email = u['email']?.toString() ?? currentUser.email;
+          currentUser.postsCount =
+              (u['postsCount'] as num?)?.toInt() ?? currentUser.postsCount;
+          currentUser.followersCount =
+              (u['followersCount'] as num?)?.toInt() ??
+              currentUser.followersCount;
+          currentUser.followingCount =
+              (u['followingCount'] as num?)?.toInt() ??
+              currentUser.followingCount;
+          currentUser.businessProfileUrl = u['businessProfileUrl']?.toString();
+        }
+        final jc = decoded['joinedCircleNames'];
+        if (jc is List) {
+          joinedCircleNames.addAll(jc.map((e) => e.toString()));
+        }
+        final sp = decoded['seenPostIds'];
+        if (sp is List) {
+          _seenPostIds.addAll(sp.map((e) => e.toString()));
+        }
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _enqueueLocalCacheOperation(Future<void> Function() operation) {
+    final pending = _localCacheOperationQueue.then((_) => operation());
+    _localCacheOperationQueue = pending.catchError((Object _) {});
+    return pending;
+  }
+
+  Future<void> _writeLocalCacheIfCurrent(int epoch, String value) {
+    return _enqueueLocalCacheOperation(() async {
+      if (epoch != _accountStateEpoch) return;
+      await _localCacheStorage.write(key: _localCacheKey, value: value);
+    });
+  }
+
+  @visibleForTesting
+  void setLocalCacheDeleteOverrideForTesting(VoidCallback? deleteOperation) {
+    _localCacheDeleteOverrideForTesting = deleteOperation;
+  }
+
+  Future<void> _deleteLocalCache() {
+    final override = _localCacheDeleteOverrideForTesting;
+    if (override != null) {
+      override();
+      return Future<void>.value();
+    }
+    return _enqueueLocalCacheOperation(() async {
+      await _localCacheStorage.delete(key: _localCacheKey);
+    });
+  }
+
+  Future<void> _persistLocalCache() async {
+    final persistEpoch = _accountStateEpoch;
+    try {
+      final snapshot = <String, dynamic>{
+        'currentUser': <String, dynamic>{
+          'accountId': currentUser.accountId,
+          'displayName': currentUser.displayName,
+          'username': currentUser.username,
+          'bio': currentUser.bio,
+          'location': currentUser.location,
+          'avatarAsset': currentUser.avatarAsset,
+          'email': currentUser.email,
+          'postsCount': currentUser.postsCount,
+          'followersCount': currentUser.followersCount,
+          'followingCount': currentUser.followingCount,
+          'businessProfileUrl': currentUser.businessProfileUrl,
+        },
+        'joinedCircleNames': joinedCircleNames.toList(),
+        'seenPostIds': _seenPostIds.take(250).toList(),
+      };
+      if (persistEpoch != _accountStateEpoch) return;
+      await _writeLocalCacheIfCurrent(persistEpoch, jsonEncode(snapshot));
+    } catch (_) {}
+  }
 
   BackendApiClient? _apiClient;
   dynamic _boundBackend;
   bool _isBackendSynced = false;
   bool _isBackendSyncing = false;
+
+  List<Map<String, dynamic>> loginSessions = <Map<String, dynamic>>[];
+  bool isLoadingLoginSessions = false;
+  String? loginSessionsError;
 
   /// Persistent shell navigation state so minimizing/resuming the app never resets to Home.
   int activeShellTabIndex = 0;
@@ -553,6 +818,85 @@ class SakhiPrototypeState extends ChangeNotifier {
       final token = await _client.readAccessToken();
       return token != null && token.trim().isNotEmpty;
     } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> loadLoginSessions() async {
+    final requestEpoch = _accountStateEpoch;
+    final requestId = ++_loginSessionsRequestId;
+    isLoadingLoginSessions = true;
+    loginSessionsError = null;
+    loginSessions = <Map<String, dynamic>>[];
+    notifyListeners();
+
+    try {
+      final response = await _client.get(
+        'module2/sessions',
+        authenticated: true,
+      );
+      if (requestEpoch != _accountStateEpoch ||
+          requestId != _loginSessionsRequestId) {
+        return false;
+      }
+      final raw = response['sessions'];
+      if (raw is! List) {
+        loginSessionsError =
+            'The server returned an invalid login-session response.';
+        return false;
+      }
+      loginSessions = raw
+          .whereType<Map<String, dynamic>>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+      return true;
+    } on BackendApiException catch (error) {
+      if (requestEpoch != _accountStateEpoch ||
+          requestId != _loginSessionsRequestId) {
+        return false;
+      }
+      loginSessionsError = error.message;
+      return false;
+    } catch (_) {
+      if (requestEpoch != _accountStateEpoch ||
+          requestId != _loginSessionsRequestId) {
+        return false;
+      }
+      loginSessionsError = 'Login sessions could not be loaded. Check your connection and retry.';
+      return false;
+    } finally {
+      if (requestEpoch == _accountStateEpoch &&
+          requestId == _loginSessionsRequestId) {
+        isLoadingLoginSessions = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<bool> revokeLoginSession(String sessionId) async {
+    final requestEpoch = _accountStateEpoch;
+    final cleanedId = sessionId.trim();
+    if (cleanedId.isEmpty) {
+      loginSessionsError = 'The selected login session is unavailable.';
+      notifyListeners();
+      return false;
+    }
+    try {
+      await _client.delete(
+        'module2/sessions/${Uri.encodeComponent(cleanedId)}',
+        authenticated: true,
+      );
+      if (requestEpoch != _accountStateEpoch) return false;
+      return await loadLoginSessions();
+    } on BackendApiException catch (error) {
+      if (requestEpoch != _accountStateEpoch) return false;
+      loginSessionsError = error.message;
+      notifyListeners();
+      return false;
+    } catch (_) {
+      if (requestEpoch != _accountStateEpoch) return false;
+      loginSessionsError = 'The login session could not be revoked. Check your connection and retry.';
+      notifyListeners();
       return false;
     }
   }
@@ -588,6 +932,7 @@ class SakhiPrototypeState extends ChangeNotifier {
   dynamic get backend => _boundBackend;
   bool get isBackendSynced => _isBackendSynced;
   bool get isBackendSyncing => _isBackendSyncing;
+  int get accountStateEpoch => _accountStateEpoch;
 
   void bind(dynamic backendState) {
     _boundBackend = backendState;
@@ -598,6 +943,108 @@ class SakhiPrototypeState extends ChangeNotifier {
 
   void configureApiClient(BackendApiClient client) {
     _apiClient = client;
+  }
+
+  /// Removes account-scoped in-memory and persisted data when authentication
+  /// ends or a new login flow begins on this device.
+  Future<void> clearAccountScopedData() async {
+    _accountStateEpoch++;
+    _isBackendSyncing = false;
+    _resetAccountScopedDataInMemory();
+    for (final cb in List<FutureOr<void> Function()>.from(_accountClearCallbacks)) {
+      try {
+        await cb();
+      } catch (_) {}
+    }
+    notifyListeners();
+    try {
+      await _deleteLocalCache();
+    } catch (_) {
+      // The in-memory account state is still cleared if secure storage fails.
+    }
+  }
+
+  void _resetAccountScopedDataInMemory() {
+    _boundBackend = null;
+    _isBackendSynced = false;
+    currentUser
+      ..accountId = ''
+      ..displayName = 'Sakhi Member'
+      ..username = ''
+      ..bio = ''
+      ..location = ''
+      ..avatarAsset = ''
+      ..email = ''
+      ..phoneMasked = ''
+      ..phoneVerified = false
+      ..verificationStatus = 'UNVERIFIED'
+      ..postsCount = 0
+      ..followersCount = 0
+      ..followingCount = 0
+      ..interests = <String>[]
+      ..businessProfileUrl = null
+      ..twoFactorEnabled = false
+      ..activeSessionsCount = 0;
+
+    communityPosts.clear();
+    exploreRecommendedPosts.clear();
+    profilePosts.clear();
+    groups.clear();
+    followers.clear();
+    emergencyContacts.clear();
+    blockedUsers.clear();
+
+    // Module 6 owner data and saved-business state must never survive an
+    // account boundary. Re-fetch these collections after the next sign-in.
+    cachedBusinesses.clear();
+    myBusinessPages.clear();
+    myBusinessPage = null;
+    cachedBusinessEnquiries.clear();
+
+    _loginSessionsRequestId++;
+    loginSessions = <Map<String, dynamic>>[];
+    isLoadingLoginSessions = false;
+    loginSessionsError = null;
+    _seenPostIds.clear();
+    joinedCircleNames.clear();
+
+    const privacyDefaults = <String, String>{
+      'view_profile': 'All Verified Members',
+      'message_me': 'Followers Only',
+      'see_posts': 'All Verified Members',
+      'show_location': 'Verified Members',
+      'search_results': 'Yes',
+      'business_enquiries': 'Yes',
+    };
+    for (final setting in privacySettings) {
+      setting.selectedValue =
+          privacyDefaults[setting.id] ?? setting.selectedValue;
+    }
+
+    const notificationDefaults = <String, bool>{
+      'community_updates': true,
+      'group_activity': true,
+      'wellness_reminders': true,
+      'safety_alerts': true,
+      'messages': true,
+      'business_enquiries': true,
+      'marketing_updates': false,
+    };
+    for (final preference in notificationPreferences) {
+      preference.isEnabled =
+          notificationDefaults[preference.id] ?? preference.isEnabled;
+    }
+
+    feedCategories = List<FeedCategoryModel>.from(
+      FeedCategoryModel.defaultCategories,
+    );
+    totalDatabaseMembers = 0;
+    totalDatabasePosts = 0;
+    lastSyncError = 'Sign in to load your live Social Wall and profile.';
+    lastSyncSource = 'Authentication required';
+    showSavedPostsFirst = false;
+    searchQuery = '';
+    selectedCategorySlug = 'community';
   }
 
   List<FeedCategoryModel> feedCategories = List<FeedCategoryModel>.from(
@@ -897,7 +1344,76 @@ class SakhiPrototypeState extends ChangeNotifier {
     await syncFromBackend();
   }
 
-  Future<void> loadComments(String postId) async {
+  List<PostCommentItem> groupThreadedComments(List<PostCommentItem> flat) {
+    if (flat.length <= 1) return List<PostCommentItem>.from(flat);
+    final byId = <String, PostCommentItem>{};
+    for (final c in flat) {
+      byId[c.id] = c;
+    }
+    final childrenByParent = <String, List<PostCommentItem>>{};
+    final roots = <PostCommentItem>[];
+    for (final c in flat) {
+      final pid = c.parentCommentId?.trim() ?? '';
+      if (pid.isNotEmpty && byId.containsKey(pid) && pid != c.id) {
+        childrenByParent.putIfAbsent(pid, () => <PostCommentItem>[]).add(c);
+      } else {
+        roots.add(c);
+      }
+    }
+    final ordered = <PostCommentItem>[];
+    final visited = <String>{};
+    void visit(PostCommentItem node) {
+      if (!visited.add(node.id)) return;
+      ordered.add(node);
+      final kids = childrenByParent[node.id];
+      if (kids != null) {
+        for (final k in kids) {
+          visit(k);
+        }
+      }
+    }
+
+    for (final r in roots) {
+      visit(r);
+    }
+    for (final c in flat) {
+      if (!visited.contains(c.id)) {
+        ordered.add(c);
+      }
+    }
+    return ordered;
+  }
+
+  List<FeedPostModel> _findAllPosts(
+    String postId, [
+    FeedPostModel? activePost,
+  ]) {
+    final results = <FeedPostModel>[];
+    for (final collection in [
+      communityPosts,
+      exploreRecommendedPosts,
+      profilePosts,
+    ]) {
+      for (final post in collection) {
+        if (post.id == postId && !results.any((r) => identical(r, post))) {
+          results.add(post);
+        }
+      }
+    }
+    if (activePost != null &&
+        activePost.id == postId &&
+        !results.any((r) => identical(r, activePost))) {
+      results.add(activePost);
+    }
+    return results;
+  }
+
+  FeedPostModel resolveLivePost(FeedPostModel fallback) {
+    final matches = _findAllPosts(fallback.id, fallback);
+    return matches.isNotEmpty ? matches.first : fallback;
+  }
+
+  Future<void> loadComments(String postId, [FeedPostModel? activePost]) async {
     try {
       final token = await _client.readAccessToken();
       if (token == null || token.isEmpty) return;
@@ -911,21 +1427,26 @@ class SakhiPrototypeState extends ChangeNotifier {
             .whereType<Map<String, dynamic>>()
             .map(PostCommentItem.fromJson)
             .toList();
-        var updatedAny = false;
-        for (final collection in [
-          communityPosts,
-          exploreRecommendedPosts,
-          profilePosts,
-        ]) {
-          for (final p in collection) {
-            if (p.id == postId) {
-              p.comments = List<PostCommentItem>.from(parsed);
-              p.commentsCount = parsed.length;
-              updatedAny = true;
-            }
-          }
+        final targets = _findAllPosts(postId, activePost);
+        for (final p in targets) {
+          // Preserve any in-flight optimistic comments ('pending_...') not yet in server response
+          final pendingItems = p.comments.where(
+            (c) =>
+                c.id.startsWith('pending_') &&
+                !parsed.any(
+                  (s) =>
+                      s.body.trim() == c.body.trim() &&
+                      s.authorName == c.authorName,
+                ),
+          );
+          final combined = groupThreadedComments(<PostCommentItem>[
+            ...parsed,
+            ...pendingItems,
+          ]);
+          p.comments = combined;
+          p.commentsCount = combined.length;
         }
-        if (updatedAny) {
+        if (targets.isNotEmpty) {
           notifyListeners();
         }
       }
@@ -937,6 +1458,7 @@ class SakhiPrototypeState extends ChangeNotifier {
   Future<void> syncFromBackend() async {
     if (_isBackendSyncing) return;
     _isBackendSyncing = true;
+    var syncEpoch = _accountStateEpoch;
     lastSyncError = null;
     notifyListeners();
     try {
@@ -944,18 +1466,18 @@ class SakhiPrototypeState extends ChangeNotifier {
       try {
         token = await _client.readAccessToken();
       } catch (_) {
-        _isBackendSynced = false;
-        lastSyncError = 'Sign in to load your live Social Wall and profile.';
-        lastSyncSource = 'Authentication required';
+        if (syncEpoch == _accountStateEpoch) {
+          await clearAccountScopedData();
+        }
         return;
       }
+      if (syncEpoch != _accountStateEpoch) return;
       if (token == null || token.isEmpty) {
-        _isBackendSynced = false;
-        lastSyncError = 'Sign in to load your live Social Wall and profile.';
-        lastSyncSource = 'Authentication required';
+        await clearAccountScopedData();
         return;
       }
       final data = await _client.get('module2/bootstrap', authenticated: true);
+      if (syncEpoch != _accountStateEpoch) return;
 
       final userMap = data['currentUser'] ?? data['user'];
       if (userMap is Map<String, dynamic>) {
@@ -964,9 +1486,10 @@ class SakhiPrototypeState extends ChangeNotifier {
         if (nextAccountId.isNotEmpty &&
             currentUser.accountId.isNotEmpty &&
             nextAccountId != currentUser.accountId) {
-          _seenPostIds.clear();
-          emergencyContacts.clear();
-          joinedCircleNames.clear();
+          _accountStateEpoch++;
+          syncEpoch = _accountStateEpoch;
+          _resetAccountScopedDataInMemory();
+          unawaited(_deleteLocalCache().catchError((Object _) {}));
         }
         currentUser.accountId = nextAccountId;
         currentUser.displayName =
@@ -1005,7 +1528,7 @@ class SakhiPrototypeState extends ChangeNotifier {
             currentUser.followingCount;
         currentUser.twoFactorEnabled = userMap['twoFactorEnabled'] == true;
         currentUser.activeSessionsCount =
-            (userMap['activeSessionsCount'] as num?)?.toInt() ?? 1;
+            (userMap['activeSessionsCount'] as num?)?.toInt() ?? 0;
         currentUser.businessProfileUrl = userMap['businessProfileUrl']
             ?.toString();
       }
@@ -1033,14 +1556,82 @@ class SakhiPrototypeState extends ChangeNotifier {
             .toList();
       }
 
+      final existingPostStateById = <String, FeedPostModel>{};
+      for (final p in [
+        ...communityPosts,
+        ...exploreRecommendedPosts,
+        ...profilePosts,
+      ]) {
+        if (p.id.isNotEmpty) {
+          existingPostStateById[p.id] = p;
+        }
+      }
+
+      FeedPostModel mergeSyncedPost(Map<String, dynamic> json) {
+        final parsed = FeedPostModel.fromJson(json);
+        final prev = existingPostStateById[parsed.id];
+        if (prev != null) {
+          if (parsed.comments.isEmpty && prev.comments.isNotEmpty) {
+            parsed.comments = List<PostCommentItem>.from(prev.comments);
+            parsed.commentsCount = parsed.comments.length;
+          } else if (parsed.comments.isNotEmpty) {
+            parsed.comments = groupThreadedComments(parsed.comments);
+            parsed.commentsCount = parsed.comments.length;
+          } else if (json['comments'] is List) {
+            parsed.commentsCount = parsed.comments.length;
+          }
+          if (parsed.viewerReaction == null &&
+              prev.viewerReaction != null &&
+              parsed.isLiked) {
+            parsed.viewerReaction = prev.viewerReaction;
+          }
+          if (parsed.reactionBreakdown.isEmpty &&
+              prev.reactionBreakdown.isNotEmpty &&
+              parsed.likesCount > 0) {
+            parsed.reactionBreakdown = Map<String, int>.from(
+              prev.reactionBreakdown,
+            );
+          }
+          if (parsed.pollOptions.isEmpty && prev.pollOptions.isNotEmpty) {
+            parsed.pollQuestion = prev.pollQuestion;
+            parsed.pollOptions = List<String>.from(prev.pollOptions);
+            parsed.pollVoteCounts = List<int>.from(prev.pollVoteCounts);
+            parsed.viewerPollChoice = prev.viewerPollChoice;
+          }
+        }
+        return parsed;
+      }
+
+      const legacyDemoHandles = <String>{
+        '@siddhu',
+        '@ananya',
+        '@meera',
+        '@kavya',
+        '@ishita',
+        '@priya',
+        '@sneha',
+        '@riya',
+      };
+
+      bool isDemoPost(FeedPostModel p) {
+        if (p.id.startsWith('11111111-1111-4111-8111-')) return true;
+        final handle = p.authorUsername.toLowerCase();
+        if (legacyDemoHandles.contains(handle) &&
+            currentUser.username.toLowerCase() != handle) {
+          return true;
+        }
+        return false;
+      }
+
       final rawCommunity = data['communityPosts'] ?? data['posts'];
       if (rawCommunity is List) {
         communityPosts
           ..clear()
           ..addAll(
-            rawCommunity.whereType<Map<String, dynamic>>().map(
-              FeedPostModel.fromJson,
-            ),
+            rawCommunity
+                .whereType<Map<String, dynamic>>()
+                .map(mergeSyncedPost)
+                .where((p) => !isDemoPost(p)),
           );
       }
       final rawExplorePosts = data['exploreRecommendedPosts'];
@@ -1048,9 +1639,10 @@ class SakhiPrototypeState extends ChangeNotifier {
         exploreRecommendedPosts
           ..clear()
           ..addAll(
-            rawExplorePosts.whereType<Map<String, dynamic>>().map(
-              FeedPostModel.fromJson,
-            ),
+            rawExplorePosts
+                .whereType<Map<String, dynamic>>()
+                .map(mergeSyncedPost)
+                .where((p) => !isDemoPost(p)),
           );
       }
       totalDatabasePosts =
@@ -1064,13 +1656,21 @@ class SakhiPrototypeState extends ChangeNotifier {
           ..addAll(
             rawProfilePosts
                 .whereType<Map<String, dynamic>>()
-                .map(FeedPostModel.fromJson)
+                .map(mergeSyncedPost)
                 .where(
                   (post) =>
                       post.id.isNotEmpty &&
-                      post.authorAccountId == currentUser.accountId,
+                      !post.id.startsWith('11111111-1111-4111-8111-') &&
+                      post.authorAccountId.isNotEmpty &&
+                      post.authorAccountId == currentUser.accountId &&
+                      (currentUser.username.isEmpty ||
+                          post.authorUsername.isEmpty ||
+                          post.authorUsername.replaceFirst('@', '').toLowerCase() ==
+                              currentUser.username.replaceFirst('@', '').toLowerCase() ||
+                          post.isOwnPost == true),
                 ),
           );
+        currentUser.postsCount = profilePosts.length;
       }
 
       final rawGroups = data['groups'];
@@ -1089,9 +1689,14 @@ class SakhiPrototypeState extends ChangeNotifier {
         followers
           ..clear()
           ..addAll(
-            rawFollowers.whereType<Map<String, dynamic>>().map(
-              FollowerUserModel.fromJson,
-            ),
+            rawFollowers
+                .whereType<Map<String, dynamic>>()
+                .map(FollowerUserModel.fromJson)
+                .where(
+                  (m) =>
+                      !legacyDemoHandles.contains(m.username.toLowerCase()) ||
+                      currentUser.username.toLowerCase() == m.username.toLowerCase(),
+                ),
           );
       }
       totalDatabaseMembers =
@@ -1179,13 +1784,18 @@ class SakhiPrototypeState extends ChangeNotifier {
       _isBackendSynced = true;
       lastSyncError = null;
       lastSyncSource = 'PostgreSQL Live DB';
+      unawaited(_persistLocalCache());
     } catch (_) {
-      _isBackendSynced = false;
-      lastSyncError = 'Live Sakhi data could not be loaded. Check the connection and retry.';
-      lastSyncSource = 'Backend unavailable';
+      if (syncEpoch == _accountStateEpoch) {
+        _isBackendSynced = false;
+        lastSyncError = 'Live Sakhi data could not be loaded. Check the connection and retry.';
+        lastSyncSource = 'Backend unavailable';
+      }
     } finally {
-      _isBackendSyncing = false;
-      notifyListeners();
+      if (syncEpoch == _accountStateEpoch) {
+        _isBackendSyncing = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -1327,9 +1937,8 @@ class SakhiPrototypeState extends ChangeNotifier {
           'bio': bio.trim(),
           'location': location.trim(),
           if (interests != null) 'interests': currentUser.interests,
-          if (email != null && email.trim().isNotEmpty) 'email': email.trim(),
-          if (businessProfileUrl != null &&
-              businessProfileUrl.trim().isNotEmpty)
+          if (email != null) 'email': email.trim(),
+          if (businessProfileUrl != null)
             'businessProfileUrl': businessProfileUrl.trim(),
           if (avatarAsset != null && avatarAsset.trim().isNotEmpty)
             'avatarAsset': avatarAsset.trim(),
@@ -1365,6 +1974,7 @@ class SakhiPrototypeState extends ChangeNotifier {
           (response['avatarAsset'] as String).isNotEmpty) {
         currentUser.avatarAsset = response['avatarAsset'] as String;
       }
+      unawaited(_persistLocalCache());
       notifyListeners();
       return true;
     } catch (_) {
@@ -1661,22 +2271,25 @@ class SakhiPrototypeState extends ChangeNotifier {
     final previousBreakdown = Map<String, int>.from(post.reactionBreakdown);
     final isRemoving = previousReaction == reactionType;
 
-    if (previousReaction != null) {
-      final oldVal = (post.reactionBreakdown[previousReaction] ?? 1) - 1;
-      if (oldVal <= 0) {
-        post.reactionBreakdown.remove(previousReaction);
-      } else {
-        post.reactionBreakdown[previousReaction] = oldVal;
+    final targets = _findAllPosts(post.id, post);
+    for (final t in targets) {
+      if (previousReaction != null) {
+        final oldVal = (t.reactionBreakdown[previousReaction] ?? 1) - 1;
+        if (oldVal <= 0) {
+          t.reactionBreakdown.remove(previousReaction);
+        } else {
+          t.reactionBreakdown[previousReaction] = oldVal;
+        }
       }
+      if (!isRemoving) {
+        t.reactionBreakdown[reactionType] =
+            (t.reactionBreakdown[reactionType] ?? 0) + 1;
+      }
+      final delta = isRemoving ? -1 : (previousReaction == null ? 1 : 0);
+      t.likesCount = (previousCount + delta).clamp(0, 999999);
+      t.viewerReaction = isRemoving ? null : reactionType;
+      t.isLiked = !isRemoving;
     }
-    if (!isRemoving) {
-      post.reactionBreakdown[reactionType] =
-          (post.reactionBreakdown[reactionType] ?? 0) + 1;
-    }
-    final delta = isRemoving ? -1 : (previousReaction == null ? 1 : 0);
-    post.likesCount = (post.likesCount + delta).clamp(0, 999999);
-    post.viewerReaction = isRemoving ? null : reactionType;
-    post.isLiked = !isRemoving;
     notifyListeners();
 
     if (!isServerPost) return true;
@@ -1913,11 +2526,13 @@ class SakhiPrototypeState extends ChangeNotifier {
     final previousSaved = post.isSaved;
     final previousCount = post.savesCount;
 
-    post.isSaved = !previousSaved;
-    post.savesCount = (previousCount + (post.isSaved ? 1 : -1)).clamp(
-      0,
-      999999,
-    );
+    final targets = _findAllPosts(post.id, post);
+    final nextSaved = !previousSaved;
+    final nextCount = (previousCount + (nextSaved ? 1 : -1)).clamp(0, 999999);
+    for (final t in targets) {
+      t.isSaved = nextSaved;
+      t.savesCount = nextCount;
+    }
     notifyListeners();
 
     if (!isServerPost) return true;
@@ -1927,16 +2542,22 @@ class SakhiPrototypeState extends ChangeNotifier {
         authenticated: true,
       );
       if (response['isSaved'] is bool) {
-        post.isSaved = response['isSaved'] as bool;
-        post.savesCount =
+        final confirmedSaved = response['isSaved'] as bool;
+        final confirmedCount =
             (response['savesCount'] as num?)?.toInt() ??
-            (previousCount + (post.isSaved ? 1 : -1)).clamp(0, 999999);
+            (previousCount + (confirmedSaved ? 1 : -1)).clamp(0, 999999);
+        for (final t in _findAllPosts(post.id, post)) {
+          t.isSaved = confirmedSaved;
+          t.savesCount = confirmedCount;
+        }
         notifyListeners();
       }
       return true;
     } catch (_) {
-      post.isSaved = previousSaved;
-      post.savesCount = previousCount;
+      for (final t in _findAllPosts(post.id, post)) {
+        t.isSaved = previousSaved;
+        t.savesCount = previousCount;
+      }
       notifyListeners();
       return false;
     }
@@ -1961,18 +2582,32 @@ class SakhiPrototypeState extends ChangeNotifier {
     String? parentCommentId,
     String? replyToHandle,
   }) async {
-    final trimmed = commentText.trim();
+    var trimmed = commentText.trim();
+    if (replyToHandle != null && replyToHandle.trim().isNotEmpty) {
+      final normRh = replyToHandle.trim().startsWith('@')
+          ? replyToHandle.trim()
+          : '@${replyToHandle.trim()}';
+      if (trimmed.toLowerCase().startsWith('${normRh.toLowerCase()} ')) {
+        final stripped = trimmed.substring(normRh.length).trim();
+        if (stripped.isNotEmpty) {
+          trimmed = stripped;
+        }
+      }
+    }
     if (trimmed.isEmpty || trimmed.length > 500 || !post.allowComments) {
       return false;
     }
     final isServerPost = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(post.id);
     if (!isServerPost && _isBackendSynced) return false;
 
+    final targets = _findAllPosts(post.id, post);
     final item = PostCommentItem(
       id: 'pending_${DateTime.now().microsecondsSinceEpoch}',
       authorAccountId: currentUser.accountId,
       authorName: currentUser.displayName,
-      authorUsername: currentUser.username,
+      authorUsername: currentUser.username.isNotEmpty
+          ? currentUser.username
+          : '@${currentUser.displayName.toLowerCase().replaceAll(' ', '_')}',
       authorAvatar: currentUser.avatarAsset,
       body: trimmed,
       createdAt: 'Just now',
@@ -1982,8 +2617,13 @@ class SakhiPrototypeState extends ChangeNotifier {
       canEdit: true,
       canDelete: true,
     );
-    post.comments.add(item);
-    post.commentsCount++;
+    for (final t in targets) {
+      t.comments = groupThreadedComments(<PostCommentItem>[
+        ...t.comments,
+        item,
+      ]);
+      t.commentsCount = t.comments.length;
+    }
     notifyListeners();
 
     if (!isServerPost) return true;
@@ -2007,26 +2647,34 @@ class SakhiPrototypeState extends ChangeNotifier {
         serverJson['body'] ??= serverJson['content'] ?? trimmed;
         serverJson['authorAccountId'] ??= currentUser.accountId;
         serverJson['authorName'] ??= currentUser.displayName;
-        serverJson['authorUsername'] ??= currentUser.username;
-        serverJson['authorAvatar'] ??= currentUser.avatarAsset;
+        if ((serverJson['authorUsername'] ?? '').toString().isEmpty) {
+          serverJson['authorUsername'] = currentUser.username;
+        }
+        if ((serverJson['authorAvatar'] ?? '').toString().isEmpty) {
+          serverJson['authorAvatar'] = currentUser.avatarAsset;
+        }
         serverJson['parentCommentId'] ??= parentCommentId;
         serverJson['replyToHandle'] ??= replyToHandle;
         serverJson['isOwnComment'] = true;
         serverJson['canEdit'] = true;
         serverJson['canDelete'] = true;
         final serverComment = PostCommentItem.fromJson(serverJson);
-        final idx = post.comments.indexWhere(
-          (comment) => comment.id == item.id,
-        );
-        if (idx != -1 && serverComment.id.isNotEmpty) {
-          post.comments[idx] = serverComment;
+        for (final t in _findAllPosts(post.id, post)) {
+          final idx = t.comments.indexWhere((comment) => comment.id == item.id);
+          if (idx != -1 && serverComment.id.isNotEmpty) {
+            t.comments[idx] = serverComment;
+            t.comments = groupThreadedComments(t.comments);
+          }
+          t.commentsCount = t.comments.length;
         }
       }
       notifyListeners();
       return true;
     } catch (_) {
-      post.comments.removeWhere((comment) => comment.id == item.id);
-      post.commentsCount = (post.commentsCount - 1).clamp(0, 999999);
+      for (final t in _findAllPosts(post.id, post)) {
+        t.comments.removeWhere((comment) => comment.id == item.id);
+        t.commentsCount = t.comments.length;
+      }
       notifyListeners();
       return false;
     }
@@ -2041,14 +2689,17 @@ class SakhiPrototypeState extends ChangeNotifier {
   Future<bool> editComment(
     String postId,
     String commentId,
-    String newBody,
-  ) async {
+    String newBody, [
+    FeedPostModel? activePost,
+  ]) async {
     final trimmed = newBody.trim();
     if (trimmed.isEmpty || trimmed.length > 500) return false;
-    final post = _findPost(postId);
-    if (post == null) return false;
-    final cIdx = post.comments.indexWhere((comment) => comment.id == commentId);
-    if (cIdx == -1) return false;
+    final targets = _findAllPosts(postId, activePost);
+    if (targets.isEmpty) return false;
+    final hasComment = targets.any(
+      (p) => p.comments.any((comment) => comment.id == commentId),
+    );
+    if (!hasComment) return false;
     final isServerPost = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(postId);
     final isServerComment = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(commentId);
     if (_isBackendSynced && (!isServerPost || !isServerComment)) {
@@ -2060,22 +2711,35 @@ class SakhiPrototypeState extends ChangeNotifier {
         await _client.patch(
           'module2/posts/$postId/comments/$commentId',
           authenticated: true,
-          body: {'body': trimmed},
+          body: {'body': trimmed, 'content': trimmed},
         );
       } catch (_) {
         return false;
       }
     }
-    post.comments[cIdx].body = trimmed;
+    for (final p in targets) {
+      for (final c in p.comments) {
+        if (c.id == commentId) {
+          c.body = trimmed;
+          c.isEdited = true;
+        }
+      }
+    }
     notifyListeners();
     return true;
   }
 
-  Future<bool> removeComment(String postId, String commentId) async {
-    final post = _findPost(postId);
-    if (post == null) return false;
-    final cIdx = post.comments.indexWhere((comment) => comment.id == commentId);
-    if (cIdx == -1) return false;
+  Future<bool> removeComment(
+    String postId,
+    String commentId, [
+    FeedPostModel? activePost,
+  ]) async {
+    final targets = _findAllPosts(postId, activePost);
+    if (targets.isEmpty) return false;
+    final hasComment = targets.any(
+      (p) => p.comments.any((comment) => comment.id == commentId),
+    );
+    if (!hasComment) return false;
     final isServerPost = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(postId);
     final isServerComment = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(commentId);
     if (_isBackendSynced && (!isServerPost || !isServerComment)) return false;
@@ -2090,10 +2754,171 @@ class SakhiPrototypeState extends ChangeNotifier {
         return false;
       }
     }
-    post.comments.removeAt(cIdx);
-    post.commentsCount = (post.commentsCount - 1).clamp(0, 999999);
+    for (final p in targets) {
+      p.comments.removeWhere(
+        (c) => c.id == commentId || c.parentCommentId == commentId,
+      );
+      p.commentsCount = p.comments.length;
+    }
     notifyListeners();
     return true;
+  }
+
+  Future<bool> toggleCommentLike(
+    String postId,
+    String commentId, [
+    FeedPostModel? activePost,
+  ]) async {
+    final targets = _findAllPosts(postId, activePost);
+    if (targets.isEmpty) return false;
+    bool? nextLiked;
+    for (final p in targets) {
+      for (final c in p.comments) {
+        if (c.id == commentId) {
+          nextLiked ??= !c.isLiked;
+          c.isLiked = nextLiked;
+          c.likesCount = (c.likesCount + (nextLiked ? 1 : -1)).clamp(0, 999999);
+        }
+      }
+    }
+    if (nextLiked == null) return false;
+    notifyListeners();
+
+    final isServerPost = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(postId);
+    final isServerComment = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(commentId);
+    if (isServerPost && isServerComment) {
+      try {
+        final res = await _client.post(
+          'module2/posts/$postId/comments/$commentId/like',
+          authenticated: true,
+        );
+        if (res['isLiked'] is bool) {
+          for (final p in targets) {
+            for (final c in p.comments) {
+              if (c.id == commentId) {
+                c.isLiked = res['isLiked'] as bool;
+                c.likesCount =
+                    (res['likesCount'] as num?)?.toInt() ?? c.likesCount;
+              }
+            }
+          }
+          notifyListeners();
+        }
+      } catch (_) {}
+    }
+    return true;
+  }
+
+  Future<bool> voteOnPoll(FeedPostModel post, int optionIndex) async {
+    if (post.pollOptions.isEmpty ||
+        optionIndex < 0 ||
+        optionIndex >= post.pollOptions.length) {
+      return false;
+    }
+    final targets = _findAllPosts(post.id, post);
+    for (final t in targets) {
+      if (t.pollVoteCounts.length != t.pollOptions.length) {
+        t.pollVoteCounts = List<int>.filled(t.pollOptions.length, 0);
+      }
+      final prev = t.viewerPollChoice;
+      if (prev != null && prev >= 0 && prev < t.pollVoteCounts.length) {
+        t.pollVoteCounts[prev] = math.max(0, t.pollVoteCounts[prev] - 1);
+      }
+      t.viewerPollChoice = optionIndex;
+      t.pollVoteCounts[optionIndex] = t.pollVoteCounts[optionIndex] + 1;
+    }
+    notifyListeners();
+    final isServerPost = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(post.id);
+    if (isServerPost) {
+      try {
+        final res = await _client.post(
+          'module2/posts/${post.id}/poll-vote',
+          authenticated: true,
+          body: {'optionIndex': optionIndex},
+        );
+        if (res['optionVoteCounts'] is List) {
+          final counts = (res['optionVoteCounts'] as List)
+              .map((e) => (e is num) ? e.toInt() : 0)
+              .toList();
+          for (final t in targets) {
+            if (counts.length == t.pollOptions.length) {
+              t.pollVoteCounts = counts;
+            }
+          }
+          notifyListeners();
+        }
+      } catch (_) {}
+    }
+    return true;
+  }
+
+  /// Returns null when history cannot be loaded; an empty list means the
+  /// server successfully confirmed that this conversation has no messages.
+  /// No local conversation cache is used, preventing stale cross-account data.
+  Future<List<Map<String, dynamic>>?> fetchDirectMessages(String peerId) async {
+    final requestEpoch = _accountStateEpoch;
+    final key = peerId.trim();
+    if (key.isEmpty) return const <Map<String, dynamic>>[];
+    try {
+      final token = await _client.readAccessToken();
+      if (requestEpoch != _accountStateEpoch ||
+          token == null ||
+          token.isEmpty) {
+        return null;
+      }
+      final res = await _client.get(
+        'module2/messages?peerId=${Uri.encodeQueryComponent(key)}',
+        authenticated: true,
+      );
+      if (requestEpoch != _accountStateEpoch) return null;
+      final raw = res['messages'] ?? res['items'];
+      if (raw is! List) return null;
+      return raw
+          .whereType<Map<String, dynamic>>()
+          .map((message) => Map<String, dynamic>.from(message))
+          .toList(growable: false);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> sendDirectMessage({
+    required String recipientId,
+    required String recipientHandle,
+    required String recipientName,
+    required String message,
+  }) async {
+    final requestEpoch = _accountStateEpoch;
+    final trimmed = message.trim();
+    if (trimmed.isEmpty) return null;
+
+    try {
+      final token = await _client.readAccessToken();
+      if (requestEpoch != _accountStateEpoch ||
+          token == null ||
+          token.isEmpty) {
+        return null;
+      }
+
+      final res = await _client.post(
+        'module2/messages',
+        authenticated: true,
+        body: {
+          'recipientId': recipientId,
+          'recipientHandle': recipientHandle,
+          'recipientName': recipientName,
+          'message': trimmed,
+        },
+      );
+      if (requestEpoch != _accountStateEpoch) return null;
+      if (res['sent'] != true || res['message'] is! Map<String, dynamic>) {
+        return null;
+      }
+
+      return Map<String, dynamic>.from(res['message'] as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<bool> updatePrivacySetting(String id, String newValue) async {
@@ -2232,44 +3057,15 @@ class SakhiPrototypeState extends ChangeNotifier {
     );
   }
 
-  void toggleTwoFactor() {
-    currentUser.twoFactorEnabled = !currentUser.twoFactorEnabled;
-    notifyListeners();
-
-    unawaited(
-      _sendAuthenticatedRequest((client) async {
-        await client.put(
-          'module2/security/two-factor',
-          authenticated: true,
-          body: {
-            'enabled': currentUser.twoFactorEnabled,
-            'twoFactorEnabled': currentUser.twoFactorEnabled,
-          },
-        );
-      }),
-    );
-  }
-
-  void updateSecurityPin(String newPin, {String? currentPin}) {
-    unawaited(
-      _sendAuthenticatedRequest((client) async {
-        await client.put(
-          'module2/security/pin',
-          authenticated: true,
-          body: {
-            'currentPin': currentPin ?? '0000',
-            'newPin': newPin,
-            'pin': newPin,
-          },
-        );
-      }),
-    );
-  }
-
   Future<bool> requestAccountDeletion({String? reason}) async {
+    final requestEpoch = _accountStateEpoch;
     try {
       final token = await _client.readAccessToken();
-      if (token == null || token.isEmpty) return true;
+      if (requestEpoch != _accountStateEpoch ||
+          token == null ||
+          token.trim().isEmpty) {
+        return false;
+      }
       await _client.post(
         'module2/account/delete',
         authenticated: true,
@@ -2279,6 +3075,8 @@ class SakhiPrototypeState extends ChangeNotifier {
             'reason': reason.trim(),
         },
       );
+      if (requestEpoch != _accountStateEpoch) return false;
+      await clearAccountScopedData();
       return true;
     } catch (_) {
       return false;
@@ -2655,12 +3453,15 @@ class SakhiPrototypeState extends ChangeNotifier {
 
   Future<Map<String, dynamic>?> fetchBusinessDetail(String businessId) async {
     if (businessId.trim().isEmpty) return null;
+    final requestEpoch = _accountStateEpoch;
     try {
       final token = await _client.readAccessToken();
+      if (requestEpoch != _accountStateEpoch) return null;
       final response = await _client.get(
         'module2/businesses/${Uri.encodeComponent(businessId.trim())}',
         authenticated: token != null && token.isNotEmpty,
       );
+      if (requestEpoch != _accountStateEpoch) return null;
       final raw = response['business'];
       if (raw is Map<String, dynamic>) {
         final business = Map<String, dynamic>.from(raw);
@@ -2674,7 +3475,10 @@ class SakhiPrototypeState extends ChangeNotifier {
         notifyListeners();
         return business;
       }
-    } catch (_) {}
+    } catch (_) {
+      if (requestEpoch != _accountStateEpoch) return null;
+    }
+    if (requestEpoch != _accountStateEpoch) return null;
     for (final item in cachedBusinesses) {
       if (item['id']?.toString() == businessId ||
           item['businessCode']?.toString() == businessId) {
@@ -2710,8 +3514,12 @@ class SakhiPrototypeState extends ChangeNotifier {
     bool savedOnly = false,
     bool ownerOnly = false,
   }) async {
+    final requestEpoch = _accountStateEpoch;
     try {
       final token = await _client.readAccessToken();
+      if (requestEpoch != _accountStateEpoch) {
+        return const <Map<String, dynamic>>[];
+      }
       final params = <String, String>{
         if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
         if (category != null && category.trim().isNotEmpty && category != 'All')
@@ -2730,6 +3538,9 @@ class SakhiPrototypeState extends ChangeNotifier {
         path,
         authenticated: token != null && token.isNotEmpty,
       );
+      if (requestEpoch != _accountStateEpoch) {
+        return const <Map<String, dynamic>>[];
+      }
       final rawCats = res['categories'];
       if (rawCats is List && rawCats.isNotEmpty) {
         cachedBusinessCategories = rawCats.map((e) => e.toString()).toList();
@@ -2762,14 +3573,24 @@ class SakhiPrototypeState extends ChangeNotifier {
         notifyListeners();
         return parsed;
       }
-    } catch (_) {}
-    return ownerOnly ? myBusinessPages : cachedBusinesses;
+    } catch (_) {
+      if (requestEpoch != _accountStateEpoch) {
+        return const <Map<String, dynamic>>[];
+      }
+    }
+    if (requestEpoch != _accountStateEpoch) {
+      return const <Map<String, dynamic>>[];
+    }
+    return List<Map<String, dynamic>>.from(
+      ownerOnly ? myBusinessPages : cachedBusinesses,
+    );
   }
 
   Future<Map<String, dynamic>?> createOrUpdateBusiness(
     Map<String, dynamic> payload, {
     String? businessId,
   }) async {
+    final requestEpoch = _accountStateEpoch;
     try {
       final res = businessId != null && businessId.trim().isNotEmpty
           ? await _client.put(
@@ -2782,6 +3603,7 @@ class SakhiPrototypeState extends ChangeNotifier {
               authenticated: true,
               body: payload,
             );
+      if (requestEpoch != _accountStateEpoch) return null;
       final biz = res['business'] is Map<String, dynamic>
           ? Map<String, dynamic>.from(res['business'] as Map<String, dynamic>)
           : Map<String, dynamic>.from(res);
@@ -2807,6 +3629,7 @@ class SakhiPrototypeState extends ChangeNotifier {
   }
 
   Future<bool> toggleSaveBusiness(String businessId) async {
+    final requestEpoch = _accountStateEpoch;
     final idx = cachedBusinesses.indexWhere(
       (b) => b['id']?.toString() == businessId,
     );
@@ -2828,17 +3651,25 @@ class SakhiPrototypeState extends ChangeNotifier {
         'module2/businesses/${Uri.encodeComponent(businessId)}/save',
         authenticated: true,
       );
-      if (idx != -1 && res['isSaved'] is bool) {
-        cachedBusinesses[idx]['isSaved'] = res['isSaved'];
-        cachedBusinesses[idx]['savesCount'] =
-            res['savesCount'] ?? cachedBusinesses[idx]['savesCount'];
+      if (requestEpoch != _accountStateEpoch) return false;
+      final currentIndex = cachedBusinesses.indexWhere(
+        (business) => business['id']?.toString() == businessId,
+      );
+      if (currentIndex != -1 && res['isSaved'] is bool) {
+        cachedBusinesses[currentIndex]['isSaved'] = res['isSaved'];
+        cachedBusinesses[currentIndex]['savesCount'] =
+            res['savesCount'] ?? cachedBusinesses[currentIndex]['savesCount'];
         notifyListeners();
       }
       return true;
     } catch (_) {
-      if (idx != -1) {
-        cachedBusinesses[idx]['isSaved'] = previousIsSaved;
-        cachedBusinesses[idx]['savesCount'] = previousSavesCount;
+      if (requestEpoch != _accountStateEpoch) return false;
+      final currentIndex = cachedBusinesses.indexWhere(
+        (business) => business['id']?.toString() == businessId,
+      );
+      if (currentIndex != -1) {
+        cachedBusinesses[currentIndex]['isSaved'] = previousIsSaved;
+        cachedBusinesses[currentIndex]['savesCount'] = previousSavesCount;
         notifyListeners();
       }
       return false;
@@ -2873,6 +3704,7 @@ class SakhiPrototypeState extends ChangeNotifier {
     String? preferredContactMethod,
     String? customerPhoneOrWhatsapp,
   }) async {
+    final requestEpoch = _accountStateEpoch;
     try {
       final res = await _client.post(
         'module2/businesses/${Uri.encodeComponent(businessId)}/enquiries',
@@ -2889,6 +3721,7 @@ class SakhiPrototypeState extends ChangeNotifier {
             'customerPhoneOrWhatsapp': customerPhoneOrWhatsapp.trim(),
         },
       );
+      if (requestEpoch != _accountStateEpoch) return null;
       final enq = res['enquiry'] is Map<String, dynamic>
           ? Map<String, dynamic>.from(res['enquiry'] as Map<String, dynamic>)
           : null;
@@ -2903,11 +3736,15 @@ class SakhiPrototypeState extends ChangeNotifier {
   }
 
   Future<List<Map<String, dynamic>>> fetchBusinessEnquiries() async {
+    final requestEpoch = _accountStateEpoch;
     try {
       final res = await _client.get(
         'module2/businesses/enquiries/list',
         authenticated: true,
       );
+      if (requestEpoch != _accountStateEpoch) {
+        return const <Map<String, dynamic>>[];
+      }
       final raw = res['enquiries'] ?? res['items'];
       if (raw is List) {
         cachedBusinessEnquiries = raw
@@ -2916,8 +3753,15 @@ class SakhiPrototypeState extends ChangeNotifier {
             .toList();
         notifyListeners();
       }
-    } catch (_) {}
-    return cachedBusinessEnquiries;
+    } catch (_) {
+      if (requestEpoch != _accountStateEpoch) {
+        return const <Map<String, dynamic>>[];
+      }
+    }
+    if (requestEpoch != _accountStateEpoch) {
+      return const <Map<String, dynamic>>[];
+    }
+    return List<Map<String, dynamic>>.from(cachedBusinessEnquiries);
   }
 
   Future<Map<String, dynamic>?> replyToBusinessEnquiry({
@@ -2925,6 +3769,7 @@ class SakhiPrototypeState extends ChangeNotifier {
     required String message,
     String? status,
   }) async {
+    final requestEpoch = _accountStateEpoch;
     try {
       final body = <String, Object?>{'message': message.trim()};
       if (status != null) {
@@ -2935,6 +3780,7 @@ class SakhiPrototypeState extends ChangeNotifier {
         authenticated: true,
         body: body,
       );
+      if (requestEpoch != _accountStateEpoch) return null;
       final enq = res['enquiry'] is Map<String, dynamic>
           ? Map<String, dynamic>.from(res['enquiry'] as Map<String, dynamic>)
           : null;

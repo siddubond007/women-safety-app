@@ -186,6 +186,19 @@ export class AdminReviewController {
     );
   }
 
+  @Delete("businesses/:businessId")
+  deleteBusiness(
+    @Param("businessId") businessId: string,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.deleteBusiness(
+      businessId,
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
   @Get("registration-policy")
   getRegistrationPolicy(
     @Headers("x-sakhi-admin-token") token?: string,

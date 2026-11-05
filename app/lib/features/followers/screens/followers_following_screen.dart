@@ -201,23 +201,22 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
                     size: 19,
                   ),
                 ),
-                title: const Text(
-                  'Manage Message Permission',
+                title: Text(
+                  'Message ${member.name}',
                   style: AppTypography.bodyMedium,
                 ),
-                trailing: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('Allowed', style: AppTypography.subtitle),
-                    SizedBox(width: 4),
-                    Icon(
-                      Icons.chevron_right_rounded,
-                      color: AppColors.textMuted,
-                    ),
-                  ],
+                subtitle: const Text(
+                  'Send a direct message through your Sakhi account',
+                  style: AppTypography.subtitle,
                 ),
-                onTap: () =>
-                    _showUnavailableAction(sheetContext, 'Message permissions'),
+                trailing: const Icon(
+                  Icons.chevron_right_rounded,
+                  color: AppColors.textMuted,
+                ),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  showSakhiDirectMessageSheet(context, member);
+                },
               ),
               ListTile(
                 contentPadding: EdgeInsets.zero,
@@ -235,17 +234,36 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
                   ),
                 ),
                 title: const Text(
-                  'Remove from Followers',
+                  'Remove Connection',
                   style: AppTypography.bodyMedium,
                 ),
                 subtitle: Text(
-                  'Remove ${member.username} from your followers list',
+                  'Remove ${member.username} from your active connections',
                   style: AppTypography.subtitle,
                 ),
-                onTap: () => _showUnavailableAction(
-                  sheetContext,
-                  'Remove from followers',
-                ),
+                onTap: () async {
+                  Navigator.of(sheetContext).pop();
+                  if (member.isFollowing) {
+                    await state.toggleFollowSearchMember(member);
+                  }
+                  if (!mounted || !context.mounted) return;
+                  setState(() {
+                    _members = _members
+                        .where(
+                          (m) =>
+                              m.id != member.id &&
+                              m.username != member.username,
+                        )
+                        .toList();
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Removed ${member.username} from your connections.',
+                      ),
+                    ),
+                  );
+                },
               ),
               ListTile(
                 contentPadding: EdgeInsets.zero,
@@ -270,7 +288,25 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
                   'Hide posts from feed without unfollowing',
                   style: AppTypography.subtitle,
                 ),
-                onTap: () => _showUnavailableAction(sheetContext, 'Mute posts'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  state.communityPosts.removeWhere(
+                    (p) =>
+                        p.authorUsername.toLowerCase() ==
+                        member.username.toLowerCase(),
+                  );
+                  state.exploreRecommendedPosts.removeWhere(
+                    (p) =>
+                        p.authorUsername.toLowerCase() ==
+                        member.username.toLowerCase(),
+                  );
+                  setState(() {});
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Muted posts from ${member.username}.'),
+                    ),
+                  );
+                },
               ),
               const SizedBox(height: 8),
               // Red Block Action Card matching Reference 08
@@ -397,17 +433,6 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
     );
   }
 
-  void _showUnavailableAction(BuildContext sheetContext, String action) {
-    Navigator.of(sheetContext).pop();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          '$action needs a backend API that is not currently implemented. No change was made.',
-        ),
-      ),
-    );
-  }
-
   Future<void> _showReportDialog(
     BuildContext context,
     SakhiPrototypeState state,
@@ -509,17 +534,25 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
                 : user.displayName;
             final handle = isTargetMember
                 ? (widget.targetMemberUsername ?? '@member')
-                : (user.username.isEmpty ? '@ananya_rao' : user.username);
+                : (user.username.isEmpty ? '@member' : user.username);
             final followersTotal = isTargetMember
                 ? (!_showingFollowingOnly && !_loadingConnections
                       ? _members.length
                       : (widget.initialFollowersCount ?? 0))
-                : user.followersCount;
+                : (!_showingFollowingOnly &&
+                          !_loadingConnections &&
+                          !_connectionsUnavailable
+                      ? _members.length
+                      : user.followersCount);
             final followingTotal = isTargetMember
                 ? (_showingFollowingOnly && !_loadingConnections
                       ? _members.length
                       : (widget.initialFollowingCount ?? 0))
-                : user.followingCount;
+                : (_showingFollowingOnly &&
+                          !_loadingConnections &&
+                          !_connectionsUnavailable
+                      ? _members.length
+                      : user.followingCount);
             final query = _searchController.text.trim().toLowerCase();
             final filtered = _members.where((u) {
               if (query.isEmpty) return true;
@@ -643,7 +676,9 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
 
                   const SizedBox(height: 12),
                   SakhiSearchField(
-                    hintText: 'Search followers...',
+                    hintText: _showingFollowingOnly
+                        ? 'Search following...'
+                        : 'Search followers...',
                     controller: _searchController,
                     onChanged: (_) => setState(() {}),
                     onClear: () {
@@ -813,6 +848,385 @@ class _FollowersFollowingScreenState extends State<FollowersFollowingScreen> {
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+void showSakhiDirectMessageSheet(
+  BuildContext context,
+  FollowerUserModel member,
+) {
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) => _SakhiDirectMessageSheet(member: member),
+  );
+}
+
+class _SakhiDirectMessageSheet extends StatefulWidget {
+  final FollowerUserModel member;
+
+  const _SakhiDirectMessageSheet({required this.member});
+
+  @override
+  State<_SakhiDirectMessageSheet> createState() =>
+      _SakhiDirectMessageSheetState();
+}
+
+class _SakhiDirectMessageSheetState extends State<_SakhiDirectMessageSheet> {
+  final TextEditingController _msgCtrl = TextEditingController();
+  final SakhiPrototypeState _state = SakhiPrototypeState.instance;
+  List<Map<String, dynamic>> _messages = <Map<String, dynamic>>[];
+  late int _accountStateEpoch;
+  bool _loading = true;
+  bool _loadFailed = false;
+  bool _sessionInvalidated = false;
+  bool _sending = false;
+
+  String get _peerKey => widget.member.id.trim().isNotEmpty
+      ? widget.member.id.trim()
+      : widget.member.username.trim();
+
+  @override
+  void initState() {
+    super.initState();
+    _accountStateEpoch = _state.accountStateEpoch;
+    _state.addListener(_handleAccountStateChanged);
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _state.removeListener(_handleAccountStateChanged);
+    _msgCtrl.dispose();
+    super.dispose();
+  }
+
+  void _handleAccountStateChanged() {
+    final nextEpoch = _state.accountStateEpoch;
+    if (!mounted || nextEpoch == _accountStateEpoch) return;
+    _accountStateEpoch = nextEpoch;
+    setState(() {
+      _sessionInvalidated = true;
+      _messages = <Map<String, dynamic>>[];
+      _msgCtrl.clear();
+      _loading = false;
+      _loadFailed = false;
+      _sending = false;
+    });
+  }
+
+  Future<void> _load() async {
+    if (_sessionInvalidated) return;
+    setState(() {
+      _loading = true;
+      _loadFailed = false;
+    });
+    final items = await _state.fetchDirectMessages(_peerKey);
+    if (!mounted || _sessionInvalidated) return;
+    setState(() {
+      _messages = items ?? <Map<String, dynamic>>[];
+      _loadFailed = items == null;
+      _loading = false;
+    });
+  }
+
+  Future<void> _send() async {
+    final text = _msgCtrl.text.trim();
+    if (text.isEmpty || _sending || _sessionInvalidated) return;
+    setState(() => _sending = true);
+    final sent = await _state.sendDirectMessage(
+      recipientId: widget.member.id,
+      recipientHandle: widget.member.username,
+      recipientName: widget.member.name,
+      message: text,
+    );
+    if (!mounted || _sessionInvalidated) return;
+    setState(() {
+      _sending = false;
+      if (sent != null) {
+        if (_msgCtrl.text.trim() == text) _msgCtrl.clear();
+        if (!_messages.any((m) => m['id'] == sent['id'])) {
+          _messages.add(sent);
+        }
+      }
+    });
+    if (sent == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Message was not sent. Check your connection and retry.',
+          ),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    final availH = (mq.size.height - mq.viewInsets.bottom - mq.padding.top - 24)
+        .clamp(240.0, 680.0);
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: mq.viewInsets.bottom),
+      child: Container(
+        height: availH,
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.97),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          border: Border.all(color: Colors.white, width: 1.5),
+        ),
+        child: Column(
+          children: [
+            const SizedBox(height: 10),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.borderSubtle,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
+              child: Row(
+                children: [
+                  SakhiAvatar(
+                    imageAsset: widget.member.avatarAsset,
+                    fallbackLabel: widget.member.name,
+                    size: 38,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                widget.member.name,
+                                style: AppTypography.cardTitle,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (widget.member.isVerified) ...[
+                              const SizedBox(width: 4),
+                              const Icon(
+                                Icons.verified_rounded,
+                                size: 15,
+                                color: AppColors.primaryPurple,
+                              ),
+                            ],
+                          ],
+                        ),
+                        Text(
+                          '${widget.member.username} • Sakhi direct message',
+                          style: AppTypography.caption,
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 9, 16, 9),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.info_outline_rounded,
+                    size: 16,
+                    color: AppColors.textMuted,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "These messages are not end-to-end encrypted. Message text is stored on Sakhi's server. Do not send passwords, OTPs, or other highly sensitive information.",
+                      style: AppTypography.caption.copyWith(
+                        color: AppColors.textMuted,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _sessionInvalidated
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text(
+                          'This conversation was cleared because your Sakhi session changed. Close this screen and sign in again to continue.',
+                          style: AppTypography.subtitle,
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    )
+                  : _loadFailed
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.cloud_off_outlined,
+                              size: 34,
+                              color: AppColors.textMuted,
+                            ),
+                            const SizedBox(height: 10),
+                            const Text(
+                              "Couldn't load this conversation",
+                              style: AppTypography.cardTitle,
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 6),
+                            const Text(
+                              'Your message history is unavailable. Check your connection or sign in again, then retry.',
+                              style: AppTypography.subtitle,
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 12),
+                            TextButton.icon(
+                              onPressed: _loading ? null : _load,
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: const Text('Retry'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : _messages.isEmpty
+                  ? Center(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.chat_bubble_outline_rounded,
+                              size: 34,
+                              color: AppColors.primaryPurple.withValues(
+                                alpha: 0.5,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Say hello to ${widget.member.name}',
+                              style: AppTypography.cardTitle,
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Messages are restricted to verified Sakhi women.',
+                              style: AppTypography.subtitle,
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: _messages.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 8),
+                      itemBuilder: (context, idx) {
+                        final m = _messages[idx];
+                        final isOwn = m['isOwnMessage'] == true;
+                        return Align(
+                          alignment: isOwn
+                              ? Alignment.centerRight
+                              : Alignment.centerLeft,
+                          child: Container(
+                            constraints: BoxConstraints(
+                              maxWidth: mq.size.width * 0.76,
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isOwn
+                                  ? AppColors.primaryPurple
+                                  : AppColors.pastelLavender,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Text(
+                              (m['body'] ?? '').toString(),
+                              style: TextStyle(
+                                color: isOwn
+                                    ? Colors.white
+                                    : AppColors.textPrimary,
+                                fontSize: 13.5,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+            const Divider(height: 1),
+            if (_sessionInvalidated)
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 12, 16, 20),
+                child: Text(
+                  'Messaging is disabled until you sign in again.',
+                  style: AppTypography.subtitle,
+                  textAlign: TextAlign.center,
+                ),
+              )
+            else
+              SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _msgCtrl,
+                          textInputAction: TextInputAction.send,
+                          onSubmitted: (_) => _send(),
+                          decoration: InputDecoration(
+                            hintText: 'Message ${widget.member.name}...',
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 10,
+                            ),
+                            filled: true,
+                            fillColor: const Color(0xFFFAF5FC),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(999),
+                              borderSide: const BorderSide(
+                                color: AppColors.borderSubtle,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      SakhiPillButton(
+                        label: _sending ? '...' : 'Send',
+                        onPressed: _sending ? null : _send,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );

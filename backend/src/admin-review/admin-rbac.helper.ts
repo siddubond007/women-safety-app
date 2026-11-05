@@ -1191,6 +1191,19 @@ this.staffMap.set(staff.id, staff);
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
 
+    const [enquiries, reports] = await Promise.all([
+      typeof anyPrisma.businessEnquiry?.findMany === "function"
+        ? anyPrisma.businessEnquiry
+            .findMany({ orderBy: { updatedAt: "desc" }, take: 100 })
+            .catch(() => [])
+        : Promise.resolve([]),
+      typeof anyPrisma.businessReport?.findMany === "function"
+        ? anyPrisma.businessReport
+            .findMany({ orderBy: { createdAt: "desc" }, take: 100 })
+            .catch(() => [])
+        : Promise.resolve([]),
+    ]);
+
     return {
       metrics: {
         totalBusinesses: items.length,
@@ -1211,6 +1224,8 @@ this.staffMap.set(staff.id, staff);
       },
       categories: this.platformConfig.businessCategories,
       businesses: items,
+      enquiries: Array.isArray(enquiries) ? enquiries : [],
+      reports: Array.isArray(reports) ? reports : [],
     };
   }
 
@@ -1390,7 +1405,88 @@ this.staffMap.set(staff.id, staff);
     updated.updatedAt = new Date().toISOString();
 
     await this.persistBusinessRecord(prisma, updated, actorLabel);
+    const anyPrisma = prisma as unknown as Record<string, any>;
+    if (
+      updated.ownerAccountId &&
+      typeof anyPrisma.memberProfile?.update === "function"
+    ) {
+      if (updated.approvalStatus === "APPROVED") {
+        await anyPrisma.memberProfile
+          .update({
+            where: { accountId: updated.ownerAccountId },
+            data: {
+              businessProfileName: updated.businessName.slice(0, 120),
+              businessCategory: updated.category.slice(0, 80),
+              businessProfileUrl: `sakhi://business/${updated.id}`,
+            },
+          })
+          .catch(() => undefined);
+      } else if (
+        updated.approvalStatus === "REJECTED" ||
+        updated.approvalStatus === "SUSPENDED"
+      ) {
+        const otherApproved = Array.from(this.businessMap.values()).find(
+          (b) =>
+            b.ownerAccountId === updated.ownerAccountId &&
+            b.id !== updated.id &&
+            b.approvalStatus === "APPROVED",
+        );
+        await anyPrisma.memberProfile
+          .update({
+            where: { accountId: updated.ownerAccountId },
+            data: {
+              businessProfileName: otherApproved
+                ? otherApproved.businessName.slice(0, 120)
+                : null,
+              businessCategory: otherApproved
+                ? otherApproved.category.slice(0, 80)
+                : null,
+              businessProfileUrl: otherApproved
+                ? `sakhi://business/${otherApproved.id}`
+                : null,
+            },
+          })
+          .catch(() => undefined);
+      }
+    }
     return updated;
+  }
+
+  static async deleteBusinessListing(
+    prisma: PrismaService,
+    businessId: string,
+    actorLabel: string,
+  ): Promise<{ deleted: true; businessId: string }> {
+    await this.ensureHydrated(prisma);
+    const existing =
+      this.businessMap.get(businessId) ??
+      Array.from(this.businessMap.values()).find(
+        (b) => b.businessCode === businessId,
+      );
+    const targetId = existing?.id ?? businessId;
+    this.businessMap.delete(targetId);
+    const anyPrisma = prisma as unknown as Record<string, any>;
+    if (anyPrisma.businessDirectoryListing?.delete) {
+      await anyPrisma.businessDirectoryListing
+        .delete({ where: { id: targetId } })
+        .catch(() => null);
+    }
+    if (prisma.auditEvent?.create) {
+      await prisma.auditEvent
+        .create({
+          data: {
+            actorType: "ADMIN",
+            action: "module10.business_listing.deleted",
+            targetType: "business_directory_listing",
+            targetId,
+            outcome: "deleted",
+            requestId: randomUUID(),
+            redactedMetadata: { id: targetId, deletedBy: actorLabel },
+          },
+        })
+        .catch(() => null);
+    }
+    return { deleted: true, businessId: targetId };
   }
 
   private static async persistBusinessRecord(

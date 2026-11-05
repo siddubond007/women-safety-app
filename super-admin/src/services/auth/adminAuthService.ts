@@ -2,7 +2,7 @@ const STAGING_TEST_ADMIN_MODE = import.meta.env.VITE_ADMIN_MODE === "staging-tes
 const LOCAL_TOKEN_KEY = "sakhi-admin-review-token";
 const LOCAL_PROFILE_KEY = "sakhi-admin-rbac-profile";
 const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3001/api/v1"
+  import.meta.env.VITE_API_BASE_URL ?? "https://sakhi-staging-api.onrender.com/api/v1"
 ).replace(/\/+$/, "");
 
 export type SakhiAdminRole =

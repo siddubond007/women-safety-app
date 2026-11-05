@@ -203,7 +203,7 @@ Future<SakhiCreateAction?> showSakhiCreateHub(BuildContext context) {
                   title: 'Promote a Women-Owned Business',
                   description:
                       'Create or manage your business page, products & enquiries',
-                  badgeLabel: 'MODULE 6',
+                  badgeLabel: 'MARKETPLACE',
                   tintColors: [
                     Colors.white.withValues(alpha: 0.84),
                     const Color(0xFFFFF5E4).withValues(alpha: 0.80),

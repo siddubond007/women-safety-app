@@ -42,6 +42,15 @@ class _FakeBackendApiClient extends BackendApiClient {
   }) async {
     postRequests.add((path, authenticated));
     if (logoutError != null) throw logoutError!;
+    if (path == 'auth/otp/request') {
+      return const <String, dynamic>{
+        'challengeId': 'challenge-1',
+        'expiresAt': '2026-11-01T10:15:00.000Z',
+        'resendAvailableAt': '2026-11-01T10:01:00.000Z',
+        'deliveryMode': 'development_echo',
+        'developmentCode': '123456',
+      };
+    }
     return const <String, dynamic>{'status': 'signed_out'};
   }
 
@@ -59,13 +68,20 @@ class _FakeBackendApiClient extends BackendApiClient {
 
 void main() {
   group('backend session restore', () {
-    test('does not contact the server when no token is stored', () async {
+    test('does not contact the server and clears account state when no token is stored', () async {
       final api = _FakeBackendApiClient();
-      final service = BackendAuthService(apiClient: api);
+      var clearedAccountState = 0;
+      final service = BackendAuthService(
+        apiClient: api,
+        onSessionCleared: () async {
+          clearedAccountState++;
+        },
+      );
 
       expect(await service.restoreSession(), isNull);
       expect(api.getRequests, isEmpty);
       expect(api.clearCalls, 0);
+      expect(clearedAccountState, 1);
     });
 
     test('restores a saved pending-verification account', () async {
@@ -109,34 +125,82 @@ void main() {
       expect(await service.restoreSession(), AuthAccountState.newAccount);
     });
 
-    test('clears an expired or invalid token and returns to onboarding', () async {
-      final api = _FakeBackendApiClient(
-        token: 'stale-token',
-        meError: const BackendApiException(
-          statusCode: 401,
-          code: 'unauthorized',
-          message: 'Sign in to continue.',
-        ),
-      );
-      final service = BackendAuthService(apiClient: api);
+    test(
+      'clears an expired or invalid token and returns to onboarding',
+      () async {
+        final api = _FakeBackendApiClient(
+          token: 'stale-token',
+          meError: const BackendApiException(
+            statusCode: 401,
+            code: 'unauthorized',
+            message: 'Sign in to continue.',
+          ),
+        );
+        var clearedAccountState = 0;
+        final service = BackendAuthService(
+          apiClient: api,
+          onSessionCleared: () async {
+            clearedAccountState++;
+          },
+        );
 
-      expect(await service.restoreSession(), isNull);
-      expect(api.token, isNull);
-      expect(api.clearCalls, 1);
-    });
+        expect(await service.restoreSession(), isNull);
+        expect(api.token, isNull);
+        expect(api.clearCalls, 1);
+        expect(clearedAccountState, 1);
+      },
+    );
+  });
+
+  group('backend OTP request', () {
+    test(
+      'clears the previous account state before starting a new login',
+      () async {
+        final api = _FakeBackendApiClient(token: 'previous-account-token');
+        var clearedAccountState = false;
+        final service = BackendAuthService(
+          apiClient: api,
+          onSessionCleared: () async {
+            clearedAccountState = true;
+          },
+        );
+
+        final session = await service.requestOtp(
+          countryCode: '+91',
+          phoneNumber: '9876543210',
+          purpose: AuthPurpose.login,
+        );
+
+        expect(clearedAccountState, isTrue);
+        expect(api.token, isNull);
+        expect(api.clearCalls, 1);
+        expect(api.postRequests, [('auth/otp/request', false)]);
+        expect(session.id, 'challenge-1');
+      },
+    );
   });
 
   group('backend logout', () {
-    test('calls the logout endpoint and clears the local token', () async {
-      final api = _FakeBackendApiClient(token: 'development-token');
-      final service = BackendAuthService(apiClient: api);
+    test(
+      'calls the logout endpoint and clears local token and account state',
+      () async {
+        final api = _FakeBackendApiClient(token: 'development-token');
+        var clearedAccountState = 0;
+        final service = BackendAuthService(
+          apiClient: api,
+          onSessionCleared: () async {
+            clearedAccountState++;
+          },
+        );
 
-      await service.logout();
+        await service.logout();
 
-      expect(api.postRequests, [('auth/logout', true)]);
-      expect(api.token, isNull);
-      expect(api.clearCalls, 1);
-    });
+        expect(api.postRequests, [('auth/logout', true)]);
+        expect(api.token, isNull);
+        expect(api.clearCalls, 1);
+        expect(clearedAccountState, 1);
+      },
+    );
 
     test('clears the local token even when remote revocation fails', () async {
       final api = _FakeBackendApiClient(

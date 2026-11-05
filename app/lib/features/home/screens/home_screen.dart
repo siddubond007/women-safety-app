@@ -479,6 +479,20 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         const SizedBox(height: 10),
                         ForYouItemCard(
+                          key: const Key('home-menstrual-cycle-tracker-card'),
+                          icon: Icons.water_drop_rounded,
+                          iconColor: const Color(0xFFD63E85),
+                          iconBgColor: AppColors.pastelPink,
+                          title: 'Women’s Menstrual Cycle Tracker',
+                          subtitle:
+                              'Private cycle calendar, next period & ovulation estimates, symptoms & discreet alerts',
+                          badgeText: 'Private Vault',
+                          flowerType: SakhiFlowerType.cherryBlossom,
+                          onTap: () =>
+                              _openRoute(AppRoutes.menstrualCycleTracker),
+                        ),
+                        const SizedBox(height: 10),
+                        ForYouItemCard(
                           icon: Icons.verified_user_outlined,
                           iconColor: const Color(0xFFD63E85),
                           iconBgColor: AppColors.pastelPink,

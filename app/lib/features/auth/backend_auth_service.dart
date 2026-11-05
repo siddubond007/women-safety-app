@@ -9,10 +9,19 @@ import 'backend_api_client.dart';
 /// Database-backed test adapter. SMS is never sent; staging test access is
 /// restricted by a backend allowlist and never verifies phone ownership.
 class BackendAuthService implements AuthService {
-  BackendAuthService({BackendApiClient? apiClient})
+  BackendAuthService({BackendApiClient? apiClient, this.onSessionCleared})
     : apiClient = apiClient ?? BackendApiClient();
 
   final BackendApiClient apiClient;
+  final Future<void> Function()? onSessionCleared;
+
+  Future<void> _clearAccountState() async {
+    try {
+      await onSessionCleared?.call();
+    } catch (_) {
+      // Authentication cleanup must still complete if UI state cleanup fails.
+    }
+  }
 
   @override
   bool get isDemo => const bool.fromEnvironment(
@@ -161,7 +170,10 @@ class BackendAuthService implements AuthService {
   @override
   Future<AuthAccountState?> restoreSession() async {
     final token = await apiClient.readAccessToken();
-    if (token == null || token.isEmpty) return null;
+    if (token == null || token.isEmpty) {
+      await _clearAccountState();
+      return null;
+    }
 
     try {
       final data = await apiClient.get('auth/me', authenticated: true);
@@ -169,6 +181,7 @@ class BackendAuthService implements AuthService {
     } on BackendApiException catch (error) {
       if (error.statusCode == 401) {
         await apiClient.clearAccessToken();
+        await _clearAccountState();
         return null;
       }
       throw _mapError(error);
@@ -206,6 +219,7 @@ class BackendAuthService implements AuthService {
         code: 'logout_clear_failed',
       );
     }
+    await _clearAccountState();
 
     if (failure != null) throw failure;
   }
@@ -217,6 +231,7 @@ class BackendAuthService implements AuthService {
     required AuthPurpose purpose,
   }) async {
     try {
+      await _clearAccountState();
       await apiClient.clearAccessToken();
       final data = await apiClient.post(
         'auth/otp/request',
@@ -335,6 +350,7 @@ class BackendAuthService implements AuthService {
         await apiClient.storeAccessToken(token);
       } else {
         await apiClient.clearAccessToken();
+        await _clearAccountState();
       }
 
       return OtpVerificationResult(

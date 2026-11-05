@@ -846,4 +846,319 @@ ALTER TABLE "safety_location_shares"
   FOREIGN KEY ("account_id") REFERENCES "member_accounts"("id")
   ON DELETE CASCADE ON UPDATE CASCADE;
 
+
+-- Module 3 & Auth additive columns from migrations 20261029190000 and 20261101140000
+ALTER TABLE "community_post_comments"
+  ADD COLUMN IF NOT EXISTS "parent_comment_id" UUID,
+  ADD COLUMN IF NOT EXISTS "reply_to_handle" VARCHAR(80);
+
+ALTER TABLE "auth_sessions"
+  ADD COLUMN IF NOT EXISTS "device_name" VARCHAR(80);
+
+-- Module 5: Discreet and Anonymous Complaint System (20261026183000)
+CREATE TABLE "discreet_complaints" (
+  "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+  "reference_number" VARCHAR(40) NOT NULL,
+  "passkey_digest" VARCHAR(128) NOT NULL,
+  "disguised_backup_serial" VARCHAR(64) NOT NULL,
+  "reporting_mode" VARCHAR(24) NOT NULL DEFAULT 'ANONYMOUS',
+  "confidential_account_id" UUID,
+  "blinded_rate_limit_bucket" VARCHAR(64),
+  "category_slug" VARCHAR(64) NOT NULL,
+  "category_title" VARCHAR(120) NOT NULL,
+  "custom_category_label" VARCHAR(120),
+  "urgency" VARCHAR(32) NOT NULL DEFAULT 'PAST_INCIDENT',
+  "description" TEXT NOT NULL,
+  "pii_guard_redacted" BOOLEAN NOT NULL DEFAULT false,
+  "approximate_date_label" VARCHAR(80) NOT NULL,
+  "approximate_time_window" VARCHAR(80) NOT NULL,
+  "location_type" VARCHAR(32) NOT NULL DEFAULT 'COARSE_AREA',
+  "general_location_label" VARCHAR(180),
+  "linked_target_type" VARCHAR(32),
+  "linked_target_handle" VARCHAR(120),
+  "linked_post_id" VARCHAR(80),
+  "linked_business_id" VARCHAR(80),
+  "evidence_files" JSONB NOT NULL DEFAULT '[]',
+  "supporting_links" JSONB NOT NULL DEFAULT '[]',
+  "wants_updates" BOOLEAN NOT NULL DEFAULT true,
+  "submit_anonymously_to_review_team" BOOLEAN NOT NULL DEFAULT true,
+  "acknowledged_non_police_legal_notice" BOOLEAN NOT NULL DEFAULT true,
+  "status" VARCHAR(40) NOT NULL DEFAULT 'SUBMITTED',
+  "severity" VARCHAR(24) NOT NULL DEFAULT 'S2_HIGH',
+  "priority" VARCHAR(24) NOT NULL DEFAULT 'P1_URGENT',
+  "assigned_reviewer_id" VARCHAR(64),
+  "assigned_reviewer_name" VARCHAR(120),
+  "duplicate_cluster_id" VARCHAR(64),
+  "merged_into_reference" VARCHAR(40),
+  "is_flagged_malicious_abuse" BOOLEAN NOT NULL DEFAULT false,
+  "malicious_abuse_reason" VARCHAR(500),
+  "rejection_reason_code" VARCHAR(80),
+  "public_resolution_summary" TEXT,
+  "enforcement_actions" JSONB NOT NULL DEFAULT '[]',
+  "complainant_messages" JSONB NOT NULL DEFAULT '[]',
+  "internal_notes" JSONB NOT NULL DEFAULT '[]',
+  "audit_history" JSONB NOT NULL DEFAULT '[]',
+  "media_purged_at" TIMESTAMPTZ(6),
+  "retention_expires_at" TIMESTAMPTZ(6),
+  "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "discreet_complaints_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE "complaint_category_configs" (
+  "slug" VARCHAR(64) NOT NULL,
+  "name" VARCHAR(120) NOT NULL,
+  "description" VARCHAR(300) NOT NULL,
+  "icon_key" VARCHAR(40) NOT NULL DEFAULT 'shield',
+  "flower_type" VARCHAR(40) NOT NULL DEFAULT 'peonySoft',
+  "default_priority" VARCHAR(24) NOT NULL DEFAULT 'P2_HIGH',
+  "default_severity" VARCHAR(24) NOT NULL DEFAULT 'S2_HIGH',
+  "safety_guidance_text" TEXT NOT NULL,
+  "legal_helpline_note" VARCHAR(500) NOT NULL,
+  "is_enabled" BOOLEAN NOT NULL DEFAULT true,
+  "display_order" INTEGER NOT NULL DEFAULT 1,
+  "updated_by" VARCHAR(120),
+  "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "complaint_category_configs_pkey" PRIMARY KEY ("slug")
+);
+
+CREATE TABLE "complaint_retention_policies" (
+  "policy_key" VARCHAR(40) NOT NULL DEFAULT 'default',
+  "closed_evidence_retention_days" INTEGER NOT NULL DEFAULT 90,
+  "rejected_report_retention_days" INTEGER NOT NULL DEFAULT 30,
+  "technical_rate_limit_log_days" INTEGER NOT NULL DEFAULT 14,
+  "updated_by" VARCHAR(120),
+  "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "complaint_retention_policies_pkey" PRIMARY KEY ("policy_key")
+);
+
+CREATE UNIQUE INDEX "discreet_complaints_reference_number_key" ON "discreet_complaints"("reference_number");
+CREATE INDEX "discreet_complaints_status_priority_created_idx" ON "discreet_complaints"("status", "priority", "created_at");
+CREATE INDEX "discreet_complaints_category_created_idx" ON "discreet_complaints"("category_slug", "created_at");
+CREATE INDEX "discreet_complaints_target_handle_idx" ON "discreet_complaints"("linked_target_handle");
+CREATE INDEX "discreet_complaints_duplicate_cluster_idx" ON "discreet_complaints"("duplicate_cluster_id");
+CREATE INDEX "complaint_category_configs_enabled_order_idx" ON "complaint_category_configs"("is_enabled", "display_order");
+
+-- Module 10 & Module 6: Admin Staff, Business Directory, Enquiries & Reports (20261027170000 & 20261029190000)
+CREATE TABLE "admin_staff_accounts" (
+  "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+  "staff_code" VARCHAR(40) NOT NULL,
+  "full_name" VARCHAR(120) NOT NULL,
+  "email" VARCHAR(254) NOT NULL,
+  "role" VARCHAR(40) NOT NULL DEFAULT 'COMPLAINT_REVIEWER',
+  "status" VARCHAR(24) NOT NULL DEFAULT 'ACTIVE',
+  "access_token_digest" VARCHAR(128) NOT NULL,
+  "access_token_preview" VARCHAR(64) NOT NULL,
+  "is_authorised_complaint_reviewer" BOOLEAN NOT NULL DEFAULT false,
+  "clearance_level" VARCHAR(64) NOT NULL DEFAULT 'LEVEL_2_TRUST_SAFETY',
+  "permissions" JSONB NOT NULL DEFAULT '{}',
+  "created_by" VARCHAR(120),
+  "last_login_at" TIMESTAMPTZ(6),
+  "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "admin_staff_accounts_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE "business_directory_listings" (
+  "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+  "business_code" VARCHAR(40) NOT NULL,
+  "business_name" VARCHAR(160) NOT NULL,
+  "owner_account_id" UUID,
+  "owner_display_name" VARCHAR(120) NOT NULL,
+  "category" VARCHAR(80) NOT NULL DEFAULT 'Fashion and clothing',
+  "city" VARCHAR(80) NOT NULL DEFAULT 'Bengaluru',
+  "service_area" VARCHAR(160),
+  "latitude" DOUBLE PRECISION,
+  "longitude" DOUBLE PRECISION,
+  "description" TEXT NOT NULL,
+  "price_range" VARCHAR(80) NOT NULL DEFAULT '₹500 – ₹2,500',
+  "logo_asset" TEXT,
+  "cover_image" TEXT,
+  "contact_phone" VARCHAR(32),
+  "hide_phone_number" BOOLEAN NOT NULL DEFAULT false,
+  "whatsapp_number" VARCHAR(32),
+  "instagram_handle" VARCHAR(120),
+  "website_or_instagram" VARCHAR(255),
+  "business_hours" JSONB NOT NULL DEFAULT '{}'::jsonb,
+  "products_services" JSONB NOT NULL DEFAULT '[]'::jsonb,
+  "media_gallery" JSONB NOT NULL DEFAULT '[]'::jsonb,
+  "offers_and_posts" JSONB NOT NULL DEFAULT '[]'::jsonb,
+  "saved_by_account_ids" JSONB NOT NULL DEFAULT '[]'::jsonb,
+  "enquiries_count" INTEGER NOT NULL DEFAULT 0,
+  "views_count" INTEGER NOT NULL DEFAULT 0,
+  "approval_status" VARCHAR(32) NOT NULL DEFAULT 'PENDING_APPROVAL',
+  "verification_badge_status" VARCHAR(32) NOT NULL DEFAULT 'NONE',
+  "is_featured" BOOLEAN NOT NULL DEFAULT false,
+  "is_reported_fraudulent" BOOLEAN NOT NULL DEFAULT false,
+  "report_reason" VARCHAR(500),
+  "reviewed_by" VARCHAR(120),
+  "review_notes" VARCHAR(500),
+  "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "business_directory_listings_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE "platform_config_settings" (
+  "config_key" VARCHAR(40) NOT NULL DEFAULT 'default',
+  "feature_flags" JSONB NOT NULL DEFAULT '{}',
+  "media_upload_limits" JSONB NOT NULL DEFAULT '{}',
+  "business_categories" JSONB NOT NULL DEFAULT '[]',
+  "announcement_banner" VARCHAR(500),
+  "updated_by" VARCHAR(120),
+  "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "platform_config_settings_pkey" PRIMARY KEY ("config_key")
+);
+
+CREATE TABLE "business_enquiries" (
+  "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+  "enquiry_code" VARCHAR(40) NOT NULL,
+  "business_id" UUID NOT NULL,
+  "business_name" VARCHAR(160) NOT NULL,
+  "owner_account_id" UUID,
+  "sender_account_id" UUID NOT NULL,
+  "sender_display_name" VARCHAR(120) NOT NULL,
+  "sender_username" VARCHAR(80),
+  "subject_or_product" VARCHAR(160) NOT NULL DEFAULT 'General Business Enquiry',
+  "status" VARCHAR(32) NOT NULL DEFAULT 'OPEN',
+  "messages" JSONB NOT NULL DEFAULT '[]'::jsonb,
+  "unread_for_owner" BOOLEAN NOT NULL DEFAULT true,
+  "unread_for_sender" BOOLEAN NOT NULL DEFAULT false,
+  "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "business_enquiries_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE "business_reports" (
+  "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+  "business_id" UUID NOT NULL,
+  "business_name" VARCHAR(160) NOT NULL,
+  "reporter_account_id" UUID NOT NULL,
+  "reason" VARCHAR(160) NOT NULL,
+  "details" TEXT,
+  "status" VARCHAR(32) NOT NULL DEFAULT 'OPEN',
+  "reviewed_by" VARCHAR(120),
+  "review_notes" VARCHAR(500),
+  "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "business_reports_pkey" PRIMARY KEY ("id")
+);
+
+CREATE UNIQUE INDEX "admin_staff_accounts_staff_code_key" ON "admin_staff_accounts"("staff_code");
+CREATE UNIQUE INDEX "admin_staff_accounts_email_key" ON "admin_staff_accounts"("email");
+CREATE INDEX "admin_staff_accounts_role_status_idx" ON "admin_staff_accounts"("role", "status");
+CREATE INDEX "admin_staff_accounts_token_digest_idx" ON "admin_staff_accounts"("access_token_digest");
+
+CREATE UNIQUE INDEX "business_directory_listings_code_key" ON "business_directory_listings"("business_code");
+CREATE INDEX "business_directory_listings_status_created_idx" ON "business_directory_listings"("approval_status", "created_at");
+CREATE INDEX "business_directory_listings_category_status_idx" ON "business_directory_listings"("category", "approval_status");
+CREATE INDEX "business_directory_listings_owner_idx" ON "business_directory_listings"("owner_account_id");
+
+CREATE UNIQUE INDEX "business_enquiries_code_key" ON "business_enquiries"("enquiry_code");
+CREATE INDEX "business_enquiries_business_created_idx" ON "business_enquiries"("business_id", "created_at");
+CREATE INDEX "business_enquiries_sender_created_idx" ON "business_enquiries"("sender_account_id", "created_at");
+CREATE INDEX "business_enquiries_owner_created_idx" ON "business_enquiries"("owner_account_id", "created_at");
+
+CREATE INDEX "business_reports_business_status_idx" ON "business_reports"("business_id", "status", "created_at");
+
+-- Module 2 Dedicated Direct Message Persistence (20261101120000)
+CREATE TABLE "direct_messages" (
+  "id" UUID NOT NULL,
+  "sender_account_id" UUID NOT NULL,
+  "recipient_account_id" UUID NOT NULL,
+  "sender_directory_profile_id" UUID,
+  "recipient_directory_profile_id" UUID,
+  "sender_name" VARCHAR(100) NOT NULL,
+  "sender_username" VARCHAR(50) NOT NULL,
+  "sender_avatar" TEXT,
+  "recipient_name" VARCHAR(100) NOT NULL,
+  "recipient_handle" VARCHAR(50) NOT NULL,
+  "body" TEXT NOT NULL,
+  "source_audit_event_id" UUID,
+  "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "direct_messages_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "direct_messages_sender_account_fkey"
+    FOREIGN KEY ("sender_account_id") REFERENCES "member_accounts"("id")
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT "direct_messages_recipient_account_fkey"
+    FOREIGN KEY ("recipient_account_id") REFERENCES "member_accounts"("id")
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT "direct_messages_source_audit_event_fkey"
+    FOREIGN KEY ("source_audit_event_id") REFERENCES "audit_events"("id")
+    ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+CREATE UNIQUE INDEX "direct_messages_source_audit_event_key" ON "direct_messages"("source_audit_event_id");
+CREATE INDEX "direct_messages_sender_recipient_created_idx" ON "direct_messages"("sender_account_id", "recipient_account_id", "created_at");
+CREATE INDEX "direct_messages_recipient_sender_created_idx" ON "direct_messages"("recipient_account_id", "sender_account_id", "created_at");
+CREATE INDEX "direct_messages_sender_created_idx" ON "direct_messages"("sender_account_id", "created_at");
+CREATE INDEX "direct_messages_recipient_created_idx" ON "direct_messages"("recipient_account_id", "created_at");
+
+-- Module 7: Women's Menstrual Cycle Tracker (SRS Sections 9.1–9.5)
+-- Strictly owner-isolated health tables with foreign-key cascade deletion.
+
+CREATE TABLE "menstrual_cycle_logs" (
+  "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+  "account_id" UUID NOT NULL,
+  "start_date" DATE NOT NULL,
+  "end_date" DATE,
+  "cycle_length_days" INTEGER,
+  "period_duration_days" INTEGER,
+  "flow_intensity" VARCHAR(24) NOT NULL DEFAULT 'MEDIUM',
+  "symptoms" JSONB NOT NULL DEFAULT '[]'::jsonb,
+  "mood" VARCHAR(40),
+  "energy_level" INTEGER,
+  "cramps_severity" VARCHAR(24),
+  "notes_encrypted" TEXT,
+  "is_irregular" BOOLEAN NOT NULL DEFAULT false,
+  "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "menstrual_cycle_logs_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "menstrual_cycle_logs_account_id_fkey"
+    FOREIGN KEY ("account_id") REFERENCES "member_accounts"("id")
+    ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE "menstrual_daily_logs" (
+  "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+  "account_id" UUID NOT NULL,
+  "log_date" DATE NOT NULL,
+  "flow_intensity" VARCHAR(24),
+  "cramps_severity" VARCHAR(24) NOT NULL DEFAULT 'NONE',
+  "mood" VARCHAR(40),
+  "energy_level" INTEGER NOT NULL DEFAULT 3,
+  "symptoms" JSONB NOT NULL DEFAULT '[]'::jsonb,
+  "hydration_glasses" INTEGER NOT NULL DEFAULT 0,
+  "sleep_hours" DOUBLE PRECISION,
+  "notes_encrypted" TEXT,
+  "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "menstrual_daily_logs_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "menstrual_daily_logs_account_id_fkey"
+    FOREIGN KEY ("account_id") REFERENCES "member_accounts"("id")
+    ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE "menstrual_tracker_preferences" (
+  "account_id" UUID NOT NULL,
+  "default_cycle_length" INTEGER NOT NULL DEFAULT 28,
+  "default_period_duration" INTEGER NOT NULL DEFAULT 5,
+  "discreet_notifications" BOOLEAN NOT NULL DEFAULT true,
+  "period_reminder_enabled" BOOLEAN NOT NULL DEFAULT true,
+  "period_reminder_days_before" INTEGER NOT NULL DEFAULT 2,
+  "ovulation_reminder_enabled" BOOLEAN NOT NULL DEFAULT false,
+  "hydration_reminder_enabled" BOOLEAN NOT NULL DEFAULT true,
+  "self_care_reminder_enabled" BOOLEAN NOT NULL DEFAULT true,
+  "show_fertility_estimates" BOOLEAN NOT NULL DEFAULT true,
+  "medical_disclaimer_accepted_at" TIMESTAMPTZ(6),
+  "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "menstrual_tracker_preferences_pkey" PRIMARY KEY ("account_id"),
+  CONSTRAINT "menstrual_tracker_preferences_account_id_fkey"
+    FOREIGN KEY ("account_id") REFERENCES "member_accounts"("id")
+    ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE INDEX "menstrual_cycle_logs_account_start_idx" ON "menstrual_cycle_logs"("account_id", "start_date");
+CREATE UNIQUE INDEX "menstrual_daily_logs_account_date_key" ON "menstrual_daily_logs"("account_id", "log_date");
+CREATE INDEX "menstrual_daily_logs_account_date_idx" ON "menstrual_daily_logs"("account_id", "log_date");
+
 COMMIT;

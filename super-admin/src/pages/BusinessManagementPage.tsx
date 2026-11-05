@@ -4,18 +4,23 @@ import {
   Award,
   Building2,
   CheckCircle2,
+  Clock,
+  Edit3,
   Eye,
+  Image as ImageIcon,
   MessageSquare,
   Phone,
   Plus,
   RefreshCw,
   ShieldAlert,
   Sparkles,
+  Tag,
+  Trash2,
   XCircle,
 } from "lucide-react";
 import { StatusPill } from "../components/StatusPill";
 import { SakhiQuoteLoader } from "../components/SakhiQuoteLoader";
-import { adminApi } from "../services/api/adminApi";
+import { adminApi, getAdminApiBaseUrl } from "../services/api/adminApi";
 
 interface BusinessListingRecord {
   id: string;
@@ -56,6 +61,29 @@ interface BusinessListingRecord {
   updatedAt: string;
 }
 
+interface BusinessEnquiryItem {
+  id: string;
+  enquiryCode?: string;
+  businessId: string;
+  businessName?: string;
+  senderDisplayName?: string;
+  senderUsername?: string;
+  subjectOrProduct?: string;
+  status?: string;
+  messages?: Array<Record<string, unknown>>;
+  createdAt?: string;
+}
+
+interface BusinessReportItem {
+  id: string;
+  businessId: string;
+  businessName?: string;
+  reason: string;
+  details?: string | null;
+  status?: string;
+  createdAt?: string;
+}
+
 interface BusinessDirectoryPayload {
   metrics: {
     totalBusinesses: number;
@@ -68,6 +96,8 @@ interface BusinessDirectoryPayload {
   };
   categories: string[];
   businesses: BusinessListingRecord[];
+  enquiries?: BusinessEnquiryItem[];
+  reports?: BusinessReportItem[];
 }
 
 function formatEnumLabel(val: string): string {
@@ -77,6 +107,17 @@ function formatEnumLabel(val: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function resolveMediaPreviewUrl(rawUrl?: string | null): string | null {
+  if (!rawUrl || !rawUrl.trim()) return null;
+  const clean = rawUrl.trim();
+  if (clean.startsWith("http://") || clean.startsWith("https://")) return clean;
+  if (clean.startsWith("/api/v1/")) {
+    const base = getAdminApiBaseUrl().replace(/\/api\/v1\/?$/, "");
+    return `${base}${clean}`;
+  }
+  return null;
+}
+
 export function BusinessManagementPage() {
   const [data, setData] = useState<BusinessDirectoryPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -84,19 +125,43 @@ export function BusinessManagementPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [searchFilter, setSearchFilter] = useState("");
   const [inspectingBiz, setInspectingBiz] =
     useState<BusinessListingRecord | null>(null);
   const [reviewNotesDraft, setReviewNotesDraft] = useState("");
+  const [editingInModal, setEditingInModal] = useState(false);
+  const [editDraft, setEditDraft] = useState<{
+    businessName: string;
+    category: string;
+    city: string;
+    serviceArea: string;
+    priceRange: string;
+    contactPhone: string;
+    whatsappNumber: string;
+    websiteOrInstagram: string;
+    description: string;
+  }>({
+    businessName: "",
+    category: "",
+    city: "",
+    serviceArea: "",
+    priceRange: "",
+    contactPhone: "",
+    whatsappNumber: "",
+    websiteOrInstagram: "",
+    description: "",
+  });
 
   // Add Business Listing State (Module 6 SRS Section 8.1-8.5)
   const [businessName, setBusinessName] = useState("");
   const [ownerDisplayName, setOwnerDisplayName] = useState("");
-  const [category, setCategory] = useState("Fashion & Clothing");
+  const [category, setCategory] = useState("Fashion and clothing");
   const [city, setCity] = useState("Bengaluru");
   const [serviceArea, setServiceArea] = useState("Pan-India & Local City");
-  const [priceRange, setPriceRange] = useState("₹₹");
+  const [priceRange, setPriceRange] = useState("₹500 – ₹2,500");
   const [description, setDescription] = useState("");
   const [website, setWebsite] = useState("");
+  const [newCategoryName, setNewCategoryName] = useState("");
 
   const loadBusinesses = useCallback(async () => {
     try {
@@ -109,7 +174,7 @@ export function BusinessManagementPage() {
       }
       setInspectingBiz((prev) => {
         if (!prev) return null;
-        return res.businesses.find((b) => b.id === prev.id) ?? prev;
+        return res.businesses.find((b) => b.id === prev.id) ?? null;
       });
     } catch (err) {
       setError(
@@ -166,6 +231,43 @@ export function BusinessManagementPage() {
     }
   }
 
+  async function handleSaveModalEdits() {
+    if (!inspectingBiz) return;
+    setSubmitting(true);
+    setError("");
+    setNotice("");
+    try {
+      await adminApi("/admin-review/businesses", {
+        method: "POST",
+        body: {
+          ...inspectingBiz,
+          businessName: editDraft.businessName.trim(),
+          category: editDraft.category.trim(),
+          city: editDraft.city.trim(),
+          serviceArea: editDraft.serviceArea.trim(),
+          priceRange: editDraft.priceRange.trim(),
+          contactPhone: editDraft.contactPhone.trim() || null,
+          whatsappNumber: editDraft.whatsappNumber.trim() || null,
+          websiteOrInstagram: editDraft.websiteOrInstagram.trim() || null,
+          description: editDraft.description.trim(),
+        },
+      });
+      setEditingInModal(false);
+      setNotice(
+        `Updated business details for ${editDraft.businessName.trim()}.`,
+      );
+      await loadBusinesses();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to save business detail edits.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   async function handleReviewAction(
     biz: BusinessListingRecord,
     patch: Record<string, unknown>,
@@ -193,6 +295,88 @@ export function BusinessManagementPage() {
     }
   }
 
+  async function handleDeleteBusiness(biz: BusinessListingRecord) {
+    if (
+      !window.confirm(
+        `Delete business listing "${biz.businessName}" (${biz.businessCode}) permanently?`,
+      )
+    ) {
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    setNotice("");
+    try {
+      await adminApi(
+        `/admin-review/businesses/${encodeURIComponent(biz.id)}`,
+        {
+          method: "DELETE",
+        },
+      );
+      if (inspectingBiz?.id === biz.id) {
+        setInspectingBiz(null);
+      }
+      setNotice(`Deleted business listing ${biz.businessName}.`);
+      await loadBusinesses();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to delete business listing.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleAddCategory() {
+    const clean = newCategoryName.trim();
+    if (clean.length < 2 || !data) return;
+    if (
+      data.categories.some((c) => c.toLowerCase() === clean.toLowerCase())
+    ) {
+      setError(`Category "${clean}" already exists.`);
+      return;
+    }
+    const nextCategories = [...data.categories, clean];
+    setSubmitting(true);
+    setError("");
+    try {
+      await adminApi("/admin-review/platform-config", {
+        method: "PUT",
+        body: { businessCategories: nextCategories },
+      });
+      setNewCategoryName("");
+      setNotice(`Added "${clean}" to Marketplace Business Categories.`);
+      await loadBusinesses();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not update categories.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleRemoveCategory(catToRemove: string) {
+    if (!data || data.categories.length <= 1) return;
+    const nextCategories = data.categories.filter((c) => c !== catToRemove);
+    setSubmitting(true);
+    setError("");
+    try {
+      await adminApi("/admin-review/platform-config", {
+        method: "PUT",
+        body: { businessCategories: nextCategories },
+      });
+      setNotice(`Removed "${catToRemove}" from Business Categories.`);
+      await loadBusinesses();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not remove category.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   if (loading && !data) {
     return (
       <SakhiQuoteLoader statusLabel="Loading Module 6 Women-Owned Business & Marketplace Directory..." />
@@ -209,22 +393,47 @@ export function BusinessManagementPage() {
     featuredCount: 0,
   };
   const categories = data?.categories ?? [
-    "Fashion & Clothing",
-    "Beauty & Salon Services",
-    "Home Baking & Food",
-    "Handicrafts & Art",
-    "Health & Wellness",
-    "Education & Coaching",
-    "Freelancing & Digital Services",
-    "Fitness & Yoga",
-    "Childcare & Parenting",
-    "Event Planning & Photography",
+    "Fashion and clothing",
+    "Beauty and personal care",
+    "Food and catering",
+    "Health and fitness",
+    "Education and training",
+    "Home services",
+    "Professional consulting",
+    "Art and handicrafts",
+    "Retail and ecommerce",
+    "Events and photography",
+    "Freelancers and independent professionals",
+    "Other",
   ];
   const businesses = (data?.businesses ?? []).filter((b) => {
-    if (statusFilter === "ALL") return true;
-    if (statusFilter === "REPORTED") return b.isReportedFraudulent;
-    return b.approvalStatus === statusFilter;
+    if (statusFilter === "REPORTED" && !b.isReportedFraudulent) return false;
+    if (
+      statusFilter !== "ALL" &&
+      statusFilter !== "REPORTED" &&
+      b.approvalStatus !== statusFilter
+    ) {
+      return false;
+    }
+    if (searchFilter.trim()) {
+      const q = searchFilter.trim().toLowerCase();
+      return (
+        b.businessName.toLowerCase().includes(q) ||
+        b.businessCode.toLowerCase().includes(q) ||
+        b.ownerDisplayName.toLowerCase().includes(q) ||
+        b.category.toLowerCase().includes(q) ||
+        b.city.toLowerCase().includes(q)
+      );
+    }
+    return true;
   });
+
+  const modalEnquiries = inspectingBiz
+    ? (data?.enquiries ?? []).filter((e) => e.businessId === inspectingBiz.id)
+    : [];
+  const modalReports = inspectingBiz
+    ? (data?.reports ?? []).filter((r) => r.businessId === inspectingBiz.id)
+    : [];
 
   return (
     <div
@@ -242,9 +451,9 @@ export function BusinessManagementPage() {
           <h1>Women-Owned Business Directory &amp; Badge Governance</h1>
           <p>
             Review and approve women-owned business pages, inspect uploaded
-            showcase photos and offerings catalogs, issue Verified Woman-Owned
-            Business badges, curate featured placements, and investigate
-            reported listings.
+            showcase photos, logos, operating hours, offerings catalogs, and
+            customer enquiries, issue Verified Woman-Owned Business badges,
+            curate featured placements, and govern marketplace categories.
           </p>
         </div>
         <div className="hero-actions">
@@ -406,93 +615,37 @@ export function BusinessManagementPage() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "1fr 1.45fr",
+          gridTemplateColumns: "1fr 1.55fr",
           gap: "22px",
           alignItems: "start",
         }}
       >
-        {/* Left: Register / Onboard Business Page */}
-        <div
-          style={{
-            background: "#fff",
-            borderRadius: "18px",
-            border: "1px solid #eee7ee",
-            padding: "22px",
-          }}
-        >
-          <h3 style={{ margin: "0 0 12px 0", fontSize: "17px" }}>
-            <Building2
-              size={17}
-              style={{ verticalAlign: "middle", marginRight: "6px" }}
-            />
-            Register Women-Owned Business Listing
-          </h3>
+        {/* Left Column: Register Business + Category Governance */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
           <div
-            style={{ display: "flex", flexDirection: "column", gap: "12px" }}
+            style={{
+              background: "#fff",
+              borderRadius: "18px",
+              border: "1px solid #eee7ee",
+              padding: "22px",
+            }}
           >
-            <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
-              Business Name *
-              <input
-                value={businessName}
-                onChange={(e) => setBusinessName(e.target.value)}
-                placeholder="e.g., Zari & Lotus Handloom Studio"
-                style={{
-                  width: "100%",
-                  marginTop: "4px",
-                  padding: "10px 12px",
-                  borderRadius: "10px",
-                  border: "1px solid #dcd0e0",
-                }}
+            <h3 style={{ margin: "0 0 12px 0", fontSize: "17px" }}>
+              <Building2
+                size={17}
+                style={{ verticalAlign: "middle", marginRight: "6px" }}
               />
-            </label>
-            <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
-              Founder / Member Name
-              <input
-                value={ownerDisplayName}
-                onChange={(e) => setOwnerDisplayName(e.target.value)}
-                placeholder="e.g., Ananya Sharma"
-                style={{
-                  width: "100%",
-                  marginTop: "4px",
-                  padding: "10px 12px",
-                  borderRadius: "10px",
-                  border: "1px solid #dcd0e0",
-                }}
-              />
-            </label>
-            <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
-              Business Category (SRS 8.3)
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                style={{
-                  width: "100%",
-                  marginTop: "4px",
-                  padding: "10px 12px",
-                  borderRadius: "10px",
-                  border: "1px solid #dcd0e0",
-                }}
-              >
-                {categories.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat}
-                  </option>
-                ))}
-              </select>
-            </label>
+              Register Women-Owned Business Listing
+            </h3>
             <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: "10px",
-              }}
+              style={{ display: "flex", flexDirection: "column", gap: "12px" }}
             >
               <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
-                City / Neighbourhood
+                Business Name *
                 <input
-                  value={city}
-                  onChange={(e) => setCity(e.target.value)}
-                  placeholder="Bengaluru"
+                  value={businessName}
+                  onChange={(e) => setBusinessName(e.target.value)}
+                  placeholder="e.g., Zari & Lotus Handloom Studio"
                   style={{
                     width: "100%",
                     marginTop: "4px",
@@ -503,10 +656,25 @@ export function BusinessManagementPage() {
                 />
               </label>
               <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
-                Price Tier
+                Founder / Member Name
+                <input
+                  value={ownerDisplayName}
+                  onChange={(e) => setOwnerDisplayName(e.target.value)}
+                  placeholder="e.g., Ananya Sharma"
+                  style={{
+                    width: "100%",
+                    marginTop: "4px",
+                    padding: "10px 12px",
+                    borderRadius: "10px",
+                    border: "1px solid #dcd0e0",
+                  }}
+                />
+              </label>
+              <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
+                Business Category (SRS 8.3)
                 <select
-                  value={priceRange}
-                  onChange={(e) => setPriceRange(e.target.value)}
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
                   style={{
                     width: "100%",
                     marginTop: "4px",
@@ -515,62 +683,179 @@ export function BusinessManagementPage() {
                     border: "1px solid #dcd0e0",
                   }}
                 >
-                  <option value="₹">₹ (Budget Friendly)</option>
-                  <option value="₹₹">₹₹ (Moderate)</option>
-                  <option value="₹₹₹">₹₹₹ (Premium)</option>
-                  <option value="₹₹₹₹">₹₹₹₹ (Luxury / Bespoke)</option>
+                  {categories.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
                 </select>
               </label>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "10px",
+                }}
+              >
+                <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
+                  City / Neighbourhood
+                  <input
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    placeholder="Bengaluru"
+                    style={{
+                      width: "100%",
+                      marginTop: "4px",
+                      padding: "10px 12px",
+                      borderRadius: "10px",
+                      border: "1px solid #dcd0e0",
+                    }}
+                  />
+                </label>
+                <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
+                  Price Range
+                  <input
+                    value={priceRange}
+                    onChange={(e) => setPriceRange(e.target.value)}
+                    placeholder="₹500 – ₹2,500"
+                    style={{
+                      width: "100%",
+                      marginTop: "4px",
+                      padding: "10px 12px",
+                      borderRadius: "10px",
+                      border: "1px solid #dcd0e0",
+                    }}
+                  />
+                </label>
+              </div>
+              <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
+                Service Area
+                <input
+                  value={serviceArea}
+                  onChange={(e) => setServiceArea(e.target.value)}
+                  placeholder="Pan-India & Local City"
+                  style={{
+                    width: "100%",
+                    marginTop: "4px",
+                    padding: "10px 12px",
+                    borderRadius: "10px",
+                    border: "1px solid #dcd0e0",
+                  }}
+                />
+              </label>
+              <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
+                Description &amp; Offerings
+                <textarea
+                  rows={2}
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Describe services, products, and women-led credentials..."
+                  style={{
+                    width: "100%",
+                    marginTop: "4px",
+                    padding: "10px 12px",
+                    borderRadius: "10px",
+                    border: "1px solid #dcd0e0",
+                  }}
+                />
+              </label>
+              <button
+                className="button button--secondary"
+                type="button"
+                disabled={submitting}
+                onClick={() => void handleCreateBusiness()}
+                style={{
+                  padding: "12px",
+                  borderRadius: "999px",
+                  border: 0,
+                  background: "#631d76",
+                  color: "#fff",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                <Plus size={15} style={{ verticalAlign: "middle" }} /> Add
+                Business to Queue
+              </button>
             </div>
-            <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
-              Service Area
+          </div>
+
+          {/* Marketplace Category Governance */}
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: "18px",
+              border: "1px solid #eee7ee",
+              padding: "22px",
+            }}
+          >
+            <h3 style={{ margin: "0 0 10px 0", fontSize: "16px" }}>
+              <Tag
+                size={16}
+                style={{ verticalAlign: "middle", marginRight: "6px" }}
+              />
+              Marketplace Category Governance ({categories.length})
+            </h3>
+            <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
               <input
-                value={serviceArea}
-                onChange={(e) => setServiceArea(e.target.value)}
-                placeholder="Pan-India & Local City"
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+                placeholder="Add new business category..."
                 style={{
-                  width: "100%",
-                  marginTop: "4px",
-                  padding: "10px 12px",
+                  flex: 1,
+                  padding: "8px 12px",
                   borderRadius: "10px",
                   border: "1px solid #dcd0e0",
+                  fontSize: "13px",
                 }}
               />
-            </label>
-            <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
-              Description &amp; Offerings
-              <textarea
-                rows={2}
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Describe services, products, and women-led credentials..."
-                style={{
-                  width: "100%",
-                  marginTop: "4px",
-                  padding: "10px 12px",
-                  borderRadius: "10px",
-                  border: "1px solid #dcd0e0",
-                }}
-              />
-            </label>
-            <button
-              className="button button--secondary"
-              type="button"
-              disabled={submitting}
-              onClick={() => void handleCreateBusiness()}
-              style={{
-                padding: "12px",
-                borderRadius: "999px",
-                border: 0,
-                background: "#631d76",
-                color: "#fff",
-                fontWeight: 700,
-                cursor: "pointer",
-              }}
-            >
-              <Plus size={15} style={{ verticalAlign: "middle" }} /> Add Business
-              to Queue
-            </button>
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={submitting || newCategoryName.trim().length < 2}
+                onClick={() => void handleAddCategory()}
+              >
+                <Plus size={14} /> Add
+              </button>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+              {categories.map((cat) => (
+                <span
+                  key={cat}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    padding: "4px 10px",
+                    borderRadius: "999px",
+                    background: "#f8f2fa",
+                    border: "1px solid #e5d4ec",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    color: "#52345f",
+                  }}
+                >
+                  {cat}
+                  {categories.length > 1 && (
+                    <button
+                      type="button"
+                      title={`Remove ${cat}`}
+                      onClick={() => void handleRemoveCategory(cat)}
+                      style={{
+                        border: 0,
+                        background: "transparent",
+                        color: "#a63b4a",
+                        cursor: "pointer",
+                        padding: 0,
+                        fontWeight: 800,
+                      }}
+                    >
+                      ×
+                    </button>
+                  )}
+                </span>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -596,24 +881,37 @@ export function BusinessManagementPage() {
             <h3 style={{ margin: 0, fontSize: "17px" }}>
               Business Directory &amp; Approval Queue ({businesses.length})
             </h3>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              style={{
-                padding: "8px 12px",
-                borderRadius: "10px",
-                border: "1px solid #dcd0e0",
-                fontWeight: 600,
-                fontSize: "13px",
-              }}
-            >
-              <option value="ALL">All Listings</option>
-              <option value="PENDING_APPROVAL">Pending Approval</option>
-              <option value="APPROVED">Approved</option>
-              <option value="REJECTED">Rejected</option>
-              <option value="SUSPENDED">Suspended</option>
-              <option value="REPORTED">Reported / Fraud Flagged</option>
-            </select>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <input
+                value={searchFilter}
+                onChange={(e) => setSearchFilter(e.target.value)}
+                placeholder="Search name, founder, city..."
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: "10px",
+                  border: "1px solid #dcd0e0",
+                  fontSize: "13px",
+                }}
+              />
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: "10px",
+                  border: "1px solid #dcd0e0",
+                  fontWeight: 600,
+                  fontSize: "13px",
+                }}
+              >
+                <option value="ALL">All Listings</option>
+                <option value="PENDING_APPROVAL">Pending Approval</option>
+                <option value="APPROVED">Approved</option>
+                <option value="REJECTED">Rejected</option>
+                <option value="SUSPENDED">Suspended</option>
+                <option value="REPORTED">Reported / Fraud Flagged</option>
+              </select>
+            </div>
           </div>
 
           {businesses.length === 0 ? (
@@ -761,6 +1059,21 @@ export function BusinessManagementPage() {
                         Report Reason: {biz.reportReason}
                       </div>
                     )}
+                    {biz.reviewNotes && (
+                      <div
+                        style={{
+                          marginBottom: "10px",
+                          padding: "8px 12px",
+                          borderRadius: "8px",
+                          background: "#fff8e6",
+                          color: "#92400e",
+                          fontSize: "12px",
+                          fontWeight: 600,
+                        }}
+                      >
+                        Reviewer Notes: {biz.reviewNotes}
+                      </div>
+                    )}
                     <div
                       style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}
                     >
@@ -770,9 +1083,21 @@ export function BusinessManagementPage() {
                         onClick={() => {
                           setInspectingBiz(biz);
                           setReviewNotesDraft(biz.reviewNotes ?? "");
+                          setEditingInModal(false);
+                          setEditDraft({
+                            businessName: biz.businessName,
+                            category: biz.category,
+                            city: biz.city,
+                            serviceArea: biz.serviceArea ?? biz.city,
+                            priceRange: biz.priceRange ?? "₹500 – ₹2,500",
+                            contactPhone: biz.contactPhone ?? "",
+                            whatsappNumber: biz.whatsappNumber ?? "",
+                            websiteOrInstagram: biz.websiteOrInstagram ?? "",
+                            description: biz.description,
+                          });
                         }}
                       >
-                        <Eye size={14} /> Inspect 360° &amp; Catalog
+                        <Eye size={14} /> Inspect 360° &amp; Media
                       </button>
                       <button
                         type="button"
@@ -850,6 +1175,15 @@ export function BusinessManagementPage() {
                           ? "Restore Business"
                           : "Suspend / Flag Fraud"}
                       </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={submitting}
+                        onClick={() => void handleDeleteBusiness(biz)}
+                        style={{ color: "#991b1b" }}
+                      >
+                        <Trash2 size={14} /> Delete
+                      </button>
                     </div>
                   </div>
                 );
@@ -878,9 +1212,9 @@ export function BusinessManagementPage() {
             style={{
               background: "#fff",
               borderRadius: "22px",
-              maxWidth: "760px",
+              maxWidth: "840px",
               width: "100%",
-              maxHeight: "88vh",
+              maxHeight: "90vh",
               overflowY: "auto",
               padding: "26px",
               boxShadow: "0 24px 60px rgba(33,18,42,0.28)",
@@ -926,14 +1260,169 @@ export function BusinessManagementPage() {
                   {inspectingBiz.serviceArea || inspectingBiz.city})
                 </p>
               </div>
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => setInspectingBiz(null)}
-              >
-                Close ✕
-              </button>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => setEditingInModal((v) => !v)}
+                >
+                  <Edit3 size={14} />{" "}
+                  {editingInModal ? "Cancel Edit" : "Edit Details"}
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => setInspectingBiz(null)}
+                >
+                  Close ✕
+                </button>
+              </div>
             </div>
+
+            {editingInModal && (
+              <div
+                style={{
+                  padding: "16px",
+                  borderRadius: "14px",
+                  background: "#f8f2fa",
+                  border: "1px solid #decbe6",
+                  marginBottom: "16px",
+                }}
+              >
+                <strong
+                  style={{
+                    display: "block",
+                    marginBottom: "10px",
+                    color: "#631d76",
+                  }}
+                >
+                  Admin Quick-Edit Business Listing
+                </strong>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: "10px",
+                    marginBottom: "10px",
+                  }}
+                >
+                  <input
+                    value={editDraft.businessName}
+                    onChange={(e) =>
+                      setEditDraft({
+                        ...editDraft,
+                        businessName: e.target.value,
+                      })
+                    }
+                    placeholder="Business Name"
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: "8px",
+                      border: "1px solid #dcd0e0",
+                    }}
+                  />
+                  <select
+                    value={editDraft.category}
+                    onChange={(e) =>
+                      setEditDraft({ ...editDraft, category: e.target.value })
+                    }
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: "8px",
+                      border: "1px solid #dcd0e0",
+                    }}
+                  >
+                    {categories.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    value={editDraft.city}
+                    onChange={(e) =>
+                      setEditDraft({ ...editDraft, city: e.target.value })
+                    }
+                    placeholder="City"
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: "8px",
+                      border: "1px solid #dcd0e0",
+                    }}
+                  />
+                  <input
+                    value={editDraft.serviceArea}
+                    onChange={(e) =>
+                      setEditDraft({
+                        ...editDraft,
+                        serviceArea: e.target.value,
+                      })
+                    }
+                    placeholder="Service Area"
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: "8px",
+                      border: "1px solid #dcd0e0",
+                    }}
+                  />
+                  <input
+                    value={editDraft.priceRange}
+                    onChange={(e) =>
+                      setEditDraft({ ...editDraft, priceRange: e.target.value })
+                    }
+                    placeholder="Price Range"
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: "8px",
+                      border: "1px solid #dcd0e0",
+                    }}
+                  />
+                  <input
+                    value={editDraft.contactPhone}
+                    onChange={(e) =>
+                      setEditDraft({
+                        ...editDraft,
+                        contactPhone: e.target.value,
+                      })
+                    }
+                    placeholder="Contact Phone"
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: "8px",
+                      border: "1px solid #dcd0e0",
+                    }}
+                  />
+                </div>
+                <textarea
+                  rows={2}
+                  value={editDraft.description}
+                  onChange={(e) =>
+                    setEditDraft({ ...editDraft, description: e.target.value })
+                  }
+                  placeholder="Business Description"
+                  style={{
+                    width: "100%",
+                    padding: "8px 10px",
+                    borderRadius: "8px",
+                    border: "1px solid #dcd0e0",
+                    marginBottom: "10px",
+                  }}
+                />
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={submitting}
+                  onClick={() => void handleSaveModalEdits()}
+                  style={{
+                    background: "#631d76",
+                    color: "#fff",
+                    borderColor: "#631d76",
+                  }}
+                >
+                  Save Listing Edits
+                </button>
+              </div>
+            )}
 
             <div
               style={{
@@ -998,7 +1487,11 @@ export function BusinessManagementPage() {
                 }}
               >
                 <strong style={{ fontSize: "12.5px", color: "#631d76" }}>
-                  Marketplace Engagement &amp; Media
+                  <Clock
+                    size={13}
+                    style={{ verticalAlign: "middle", marginRight: 4 }}
+                  />
+                  Operating Hours &amp; Engagement
                 </strong>
                 <div
                   style={{
@@ -1008,23 +1501,140 @@ export function BusinessManagementPage() {
                   }}
                 >
                   <div>
-                    Showcase Photos Uploaded:{" "}
-                    {Array.isArray(inspectingBiz.mediaGallery)
-                      ? inspectingBiz.mediaGallery.length
-                      : 0}{" "}
-                    / 3
+                    Mon–Fri:{" "}
+                    {String(
+                      (inspectingBiz.businessHours as Record<string, unknown>)
+                        ?.mondayToFriday ?? "10:00 AM – 7:00 PM",
+                    )}
                   </div>
                   <div>
-                    Catalog Offerings:{" "}
-                    {Array.isArray(inspectingBiz.productsServices)
-                      ? inspectingBiz.productsServices.length
-                      : 0}
+                    Saturday:{" "}
+                    {String(
+                      (inspectingBiz.businessHours as Record<string, unknown>)
+                        ?.saturday ?? "10:00 AM – 5:00 PM",
+                    )}
                   </div>
                   <div>
-                    Customer Enquiries: {inspectingBiz.enquiriesCount ?? 0}
+                    Sunday:{" "}
+                    {String(
+                      (inspectingBiz.businessHours as Record<string, unknown>)
+                        ?.sunday ?? "By Appointment",
+                    )}
                   </div>
-                  <div>Page Views: {inspectingBiz.viewsCount ?? 0}</div>
+                  <div>
+                    Enquiries: {inspectingBiz.enquiriesCount ?? 0} • Views:{" "}
+                    {inspectingBiz.viewsCount ?? 0}
+                  </div>
                 </div>
+              </div>
+            </div>
+
+            {/* Visual Media Gallery & Branding Preview */}
+            <div style={{ marginBottom: "16px" }}>
+              <strong
+                style={{
+                  display: "block",
+                  fontSize: "13px",
+                  marginBottom: "8px",
+                }}
+              >
+                <ImageIcon
+                  size={14}
+                  style={{ verticalAlign: "middle", marginRight: 5 }}
+                />
+                Uploaded Brand Assets &amp; Showcase Photos (
+                {Array.isArray(inspectingBiz.mediaGallery)
+                  ? inspectingBiz.mediaGallery.length
+                  : 0}{" "}
+                / 3)
+              </strong>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
+                  gap: "10px",
+                }}
+              >
+                {[
+                  ...(inspectingBiz.logoAsset
+                    ? [{ label: "Brand Logo", url: inspectingBiz.logoAsset }]
+                    : []),
+                  ...(inspectingBiz.coverImage
+                    ? [{ label: "Cover Banner", url: inspectingBiz.coverImage }]
+                    : []),
+                  ...(Array.isArray(inspectingBiz.mediaGallery)
+                    ? inspectingBiz.mediaGallery.map((u, idx) => ({
+                        label: `Showcase #${idx + 1}`,
+                        url: String(u),
+                      }))
+                    : []),
+                ].map((asset, idx) => {
+                  const resolved = resolveMediaPreviewUrl(asset.url);
+                  return (
+                    <div
+                      key={idx}
+                      style={{
+                        borderRadius: "12px",
+                        border: "1px solid #e6d9eb",
+                        padding: "8px",
+                        background: "#fdf9fc",
+                      }}
+                    >
+                      {resolved ? (
+                        <a
+                          href={resolved}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ display: "block" }}
+                        >
+                          <img
+                            src={resolved}
+                            alt={asset.label}
+                            style={{
+                              width: "100%",
+                              height: "96px",
+                              objectFit: "cover",
+                              borderRadius: "8px",
+                              background: "#f3eaf7",
+                            }}
+                          />
+                        </a>
+                      ) : (
+                        <div
+                          style={{
+                            width: "100%",
+                            height: "96px",
+                            borderRadius: "8px",
+                            background:
+                              "linear-gradient(135deg, #f3e8ff, #fce7f3)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: "11px",
+                            fontWeight: 700,
+                            color: "#631d76",
+                            textAlign: "center",
+                            padding: "6px",
+                          }}
+                        >
+                          App Studio Asset
+                          <br />
+                          {asset.url.split("/").pop()}
+                        </div>
+                      )}
+                      <div
+                        style={{
+                          fontSize: "11.5px",
+                          fontWeight: 700,
+                          marginTop: "6px",
+                          color: "#31263a",
+                        }}
+                      >
+                        {asset.label}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -1088,6 +1698,126 @@ export function BusinessManagementPage() {
                 </div>
               )}
 
+            {Array.isArray(inspectingBiz.offersAndPosts) &&
+              inspectingBiz.offersAndPosts.length > 0 && (
+                <div style={{ marginBottom: "16px" }}>
+                  <strong
+                    style={{
+                      display: "block",
+                      fontSize: "13px",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    Promotional Offers &amp; Updates (
+                    {inspectingBiz.offersAndPosts.length})
+                  </strong>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns:
+                        "repeat(auto-fit, minmax(220px, 1fr))",
+                      gap: "10px",
+                    }}
+                  >
+                    {inspectingBiz.offersAndPosts.map((offer, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          padding: "10px 12px",
+                          borderRadius: "10px",
+                          border: "1px solid #f5d0fe",
+                          background: "#fdf4ff",
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, fontSize: "13px" }}>
+                          {String(offer.title ?? "Special Offer")}{" "}
+                          {offer.badge ? `• ${String(offer.badge)}` : ""}
+                        </div>
+                        {Boolean(offer.description) && (
+                          <div style={{ fontSize: "12px", color: "#6e6275" }}>
+                            {String(offer.description ?? "")}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+            {modalEnquiries.length > 0 && (
+              <div style={{ marginBottom: "16px" }}>
+                <strong
+                  style={{
+                    display: "block",
+                    fontSize: "13px",
+                    marginBottom: "8px",
+                  }}
+                >
+                  Customer Enquiries Log ({modalEnquiries.length})
+                </strong>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "8px",
+                  }}
+                >
+                  {modalEnquiries.map((enq) => (
+                    <div
+                      key={enq.id}
+                      style={{
+                        padding: "10px 12px",
+                        borderRadius: "10px",
+                        background: "#f8fafc",
+                        border: "1px solid #e2e8f0",
+                        fontSize: "12.5px",
+                      }}
+                    >
+                      <strong>
+                        {enq.senderDisplayName || "Sakhi Member"}{" "}
+                        {enq.senderUsername ? `(${enq.senderUsername})` : ""}
+                      </strong>{" "}
+                      • {enq.subjectOrProduct || "Enquiry"} •{" "}
+                      <StatusPill tone="neutral">
+                        {enq.status || "OPEN"}
+                      </StatusPill>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {modalReports.length > 0 && (
+              <div style={{ marginBottom: "16px" }}>
+                <strong
+                  style={{
+                    display: "block",
+                    fontSize: "13px",
+                    marginBottom: "8px",
+                    color: "#a63b4a",
+                  }}
+                >
+                  Member Safety Reports ({modalReports.length})
+                </strong>
+                {modalReports.map((rep) => (
+                  <div
+                    key={rep.id}
+                    style={{
+                      padding: "10px 12px",
+                      borderRadius: "10px",
+                      background: "#fcebed",
+                      color: "#a63b4a",
+                      fontSize: "12.5px",
+                      marginBottom: "6px",
+                    }}
+                  >
+                    <strong>{rep.reason}</strong>
+                    {rep.details ? ` — ${rep.details}` : ""}
+                  </div>
+                ))}
+              </div>
+            )}
+
             <label
               style={{
                 display: "block",
@@ -1096,8 +1826,8 @@ export function BusinessManagementPage() {
                 marginBottom: "14px",
               }}
             >
-              Reviewer Decision Notes (shared with business owner in My Business
-              Pages)
+              Reviewer Decision Notes (shared directly with business owner in My
+              Business Pages)
               <textarea
                 rows={2}
                 value={reviewNotesDraft}

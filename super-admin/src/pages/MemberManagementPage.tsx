@@ -548,7 +548,7 @@ export function MemberManagementPage({
   const totalPages = data
     ? Math.max(1, Math.ceil(data.total / data.pageSize))
     : 1;
-  const activeDetail = (detail360 ?? selected) as any;
+  const activeDetail: Member360Detail | null = detail360 ?? selected;
 
   return (
     <div className="members-page">
@@ -560,7 +560,7 @@ export function MemberManagementPage({
       <section className="page-heading members-page-heading">
         <div>
           <div className="eyebrow">
-            <span className="eyebrow-line" /> PEOPLE &amp; TRUST • MODULE 1 &amp; ADMIN 360° CONTROL
+            <span className="eyebrow-line" /> PEOPLE &amp; TRUST • MEMBER 360° GOVERNANCE
           </div>
           <h1>Members, Phone Numbers &amp; Eligibility Control</h1>
           <p>
@@ -655,7 +655,7 @@ export function MemberManagementPage({
                 : "Loading database records…"}
             </p>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, marginLeft: "auto", flexShrink: 0 }}>
             <button
               className="button button--secondary"
               type="button"

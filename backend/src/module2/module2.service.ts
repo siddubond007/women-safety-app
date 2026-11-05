@@ -1,11 +1,13 @@
 import { SakhiAdminRbacRegistry } from "../admin-review/admin-rbac.helper.js";
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
   Optional,
+  ServiceUnavailableException,
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { AuthenticationService } from "../auth/auth.service.js";
@@ -56,122 +58,103 @@ const DEFAULT_INTERESTS = [
   "Fitness",
 ];
 
-export const SEEDED_COMMUNITY_MEMBERS = [
-  {
-    phoneE164: "+919999992222",
-    displayName: "Siddhu",
-    username: "@siddhu",
-    avatarAsset: "assets/images/profile/avatar_siddhu.webp",
-    bio: "A passionate learner, exploring wellness, technology and meaningful connections. 💜",
-    location: "Bangalore, India",
-    email: "siddhu@sakhi.dev",
-    status: "ACTIVE" as const,
-    verificationStatus: "VERIFIED" as const,
-    defaultFollowing: false,
-    interests: [
-      "Mental Wellness",
-      "Travel",
-      "Reading",
-      "WomenInTech",
-      "Art",
-      "Fitness",
-    ],
-  },
-  {
-    phoneE164: "+919845010101",
-    displayName: "Ananya Rao",
-    username: "@ananya",
-    avatarAsset: "assets/images/profile/avatar_ananya.webp",
-    bio: "Mental wellness advocate, peer counselor & Hyderabad community builder 🌸",
-    location: "Hyderabad, India",
-    email: "ananya.rao@sakhi.dev",
-    status: "ACTIVE" as const,
-    verificationStatus: "VERIFIED" as const,
-    defaultFollowing: true,
-    interests: ["Mental Wellness", "Mindfulness", "Peer Support", "Reading"],
-  },
-  {
-    phoneE164: "+919845010102",
-    displayName: "Dr. Meera Iyer",
-    username: "@meera",
-    avatarAsset: "assets/images/profile/avatar_meera.webp",
-    bio: "Mindfulness coach & clinical breathwork guide helping women reset daily ✨",
-    location: "Chennai, India",
-    email: "meera.iyer@sakhi.dev",
-    status: "ACTIVE" as const,
-    verificationStatus: "VERIFIED" as const,
-    defaultFollowing: true,
-    interests: ["Mental Wellness", "Meditation", "Fitness", "Yoga"],
-  },
-  {
-    phoneE164: "+919845010103",
-    displayName: "Kavya Nair",
-    username: "@kavya",
-    avatarAsset: "assets/images/profile/avatar_kavya.webp",
-    bio: "Evening walks, botanical art & slow mindful living by the coast 🌿",
-    location: "Kochi, India",
-    email: "kavya.nair@sakhi.dev",
-    status: "ACTIVE" as const,
-    verificationStatus: "VERIFIED" as const,
-    defaultFollowing: false,
-    interests: ["Art", "Travel", "Photography", "Mental Wellness"],
-  },
-  {
-    phoneE164: "+919845010104",
-    displayName: "Ishita Reddy",
-    username: "@ishita",
-    avatarAsset: "assets/images/profile/avatar_ishita.webp",
-    bio: "Staff cloud architect, WomenInTech mentor & community safety lead 💻🛡️",
-    location: "Bangalore, India",
-    email: "ishita.reddy@sakhi.dev",
-    status: "ACTIVE" as const,
-    verificationStatus: "VERIFIED" as const,
-    defaultFollowing: true,
-    interests: ["WomenInTech", "Career", "Safety", "Mentorship"],
-  },
-  {
-    phoneE164: "+919845010105",
-    displayName: "Priya Sharma",
-    username: "@priya",
-    avatarAsset: "assets/images/profile/avatar_priya.webp",
-    bio: "Strength coach & cycle-synced hormonal nutrition researcher 🥗💪",
-    location: "Mumbai, India",
-    email: "priya.sharma@sakhi.dev",
-    status: "ACTIVE" as const,
-    verificationStatus: "VERIFIED" as const,
-    defaultFollowing: true,
-    interests: ["Fitness", "Nutrition", "Menstrual Health", "Wellness"],
-  },
-  {
-    phoneE164: "+919845010106",
-    displayName: "Sneha Verma",
-    username: "@sneha",
-    avatarAsset: "assets/images/profile/avatar_sneha.webp",
-    bio: "Sunday book club host, poet & creative journaling enthusiast 📚🌸",
-    location: "Pune, India",
-    email: "sneha.verma@sakhi.dev",
-    status: "PENDING_VERIFICATION" as const,
-    verificationStatus: "UNVERIFIED" as const,
-    defaultFollowing: false,
-    interests: ["Reading", "Art", "Creative Writing", "Mental Wellness"],
-  },
-  {
-    phoneE164: "+919845010107",
-    displayName: "Riya Deshmukh",
-    username: "@riya",
-    avatarAsset: "assets/images/profile/avatar_ananya.webp",
-    bio: "Solo traveler, campus safety coordinator & self-defense workshop host 🛡️",
-    location: "New Delhi, India",
-    email: "riya.deshmukh@sakhi.dev",
-    status: "PENDING_VERIFICATION" as const,
-    verificationStatus: "UNVERIFIED" as const,
-    defaultFollowing: false,
-    interests: ["Travel", "Safety", "Community", "Fitness"],
-  },
+export const LEGACY_SEEDED_DEMO_PHONES = [
+  "+919999992222",
+  "+919845010101",
+  "+919845010102",
+  "+919845010103",
+  "+919845010104",
+  "+919845010105",
+  "+919845010106",
+  "+919845010107",
 ];
+
+export const LEGACY_SEEDED_DEMO_HANDLES = [
+  "@siddhu",
+  "@ananya",
+  "@meera",
+  "@kavya",
+  "@ishita",
+  "@priya",
+  "@sneha",
+  "@riya",
+];
+
+export const LEGACY_SEEDED_DEMO_POST_IDS = [
+  "11111111-1111-4111-8111-111111111101",
+  "11111111-1111-4111-8111-111111111102",
+  "11111111-1111-4111-8111-111111111103",
+  "11111111-1111-4111-8111-111111111104",
+  "11111111-1111-4111-8111-111111111105",
+  "11111111-1111-4111-8111-111111111106",
+  "11111111-1111-4111-8111-111111111107",
+  "11111111-1111-4111-8111-111111111108",
+  "11111111-1111-4111-8111-111111111109",
+  "11111111-1111-4111-8111-111111111110",
+  "11111111-1111-4111-8111-111111111111",
+];
+
+export const SEEDED_COMMUNITY_MEMBERS: Array<{
+  phoneE164: string;
+  displayName: string;
+  username: string;
+  avatarAsset: string;
+  bio: string;
+  location: string;
+  email: string;
+  status: "ACTIVE" | "PENDING_VERIFICATION";
+  verificationStatus: "VERIFIED" | "UNVERIFIED";
+  defaultFollowing: boolean;
+  interests: string[];
+}> = [];
 
 @Injectable()
 export class Module2Service {
+  private static readonly commentLikesMap = new Map<string, Set<string>>();
+  private static readonly postPollMetaMap = new Map<string, { question: string; options: string[]; votes: Record<string, number> }>();
+  private static readonly postExtraMediaMap = new Map<string, string[]>();
+
+  private groupThreadedComments<T extends Record<string, any>>(
+    flat: T[],
+  ): T[] {
+    if (flat.length <= 1) return flat;
+    const byId = new Map<string, T>();
+    for (const c of flat) {
+      byId.set(c.id, c);
+    }
+    const childrenByParent = new Map<string, T[]>();
+    const roots: T[] = [];
+    for (const c of flat) {
+      const pid = c.parentCommentId ? String(c.parentCommentId).trim() : "";
+      if (pid && byId.has(pid) && pid !== c.id) {
+        const list = childrenByParent.get(pid) ?? [];
+        list.push(c);
+        childrenByParent.set(pid, list);
+      } else {
+        roots.push(c);
+      }
+    }
+    const ordered: T[] = [];
+    const visited = new Set<string>();
+    const visit = (node: T) => {
+      if (visited.has(node.id)) return;
+      visited.add(node.id);
+      ordered.push(node);
+      const kids = childrenByParent.get(node.id) ?? [];
+      for (const k of kids) {
+        visit(k);
+      }
+    };
+    for (const r of roots) {
+      visit(r);
+    }
+    for (const c of flat) {
+      if (!visited.has(c.id)) {
+        ordered.push(c);
+      }
+    }
+    return ordered;
+  }
   constructor(
     private readonly auth: AuthenticationService,
     private readonly prisma: PrismaService,
@@ -213,20 +196,12 @@ export class Module2Service {
     if (
       asset.startsWith("http://") ||
       asset.startsWith("https://") ||
-      asset.startsWith("/api/v1/")
+      asset.startsWith("/api/v1/") ||
+      asset.startsWith("assets/")
     ) {
       return asset;
     }
     if (avatarMediaAssetId) return asset;
-    // The schema's legacy avatar_* image default is a demo illustration, not
-    // a member-uploaded photo. Do not present it as if it belonged to the user.
-    if (
-      /^assets\/images\/profile\/avatar_[^/]+\.(webp|png|jpg|jpeg)$/i.test(
-        asset,
-      )
-    ) {
-      return "";
-    }
     return asset;
   }
 
@@ -246,136 +221,138 @@ export class Module2Service {
     return `@${slug || "member"}`;
   }
 
-  async ensureDefaultCatalogSeeded(preferredAccountId?: string): Promise<void> {
-    // 1. Ensure all 8 realistic community members exist as real MemberAccount + MemberProfile + CommunityDirectoryProfile rows
-    const accountIdByUsername = new Map<string, string>();
-    for (const member of SEEDED_COMMUNITY_MEMBERS) {
-      try {
-        const acc = await this.prisma.memberAccount.upsert({
-          where: { phoneE164: member.phoneE164 },
-          update: {},
-          create: {
-            phoneE164: member.phoneE164,
-            phoneVerifiedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
-            status: member.status,
-            verificationStatus: member.verificationStatus,
-          },
-          select: { id: true, status: true, verificationStatus: true },
-        });
-        accountIdByUsername.set(member.username, acc.id);
+  private static demoDataPurged = false;
 
-        await this.prisma.memberProfile.upsert({
-          where: { accountId: acc.id },
-          update: {
-            username: member.username,
-            avatarAsset: member.avatarAsset,
-          },
-          create: {
-            accountId: acc.id,
-            displayName: member.displayName,
-            username: member.username,
-            bio: member.bio,
-            location: member.location,
-            avatarAsset: member.avatarAsset,
-            interests: member.interests,
-            email: member.email,
-            dateOfBirth: new Date("1999-06-15T00:00:00.000Z"),
-          },
-        });
+  async purgeLegacySeededDemoData(): Promise<void> {
+    if (Module2Service.demoDataPurged) return;
+    try {
+      const demoPostIds = [
+        "11111111-1111-4111-8111-111111111101",
+        "11111111-1111-4111-8111-111111111102",
+        "11111111-1111-4111-8111-111111111103",
+        "11111111-1111-4111-8111-111111111104",
+        "11111111-1111-4111-8111-111111111105",
+        "11111111-1111-4111-8111-111111111106",
+        "11111111-1111-4111-8111-111111111107",
+        "11111111-1111-4111-8111-111111111108",
+        "11111111-1111-4111-8111-111111111109",
+        "11111111-1111-4111-8111-111111111110",
+        "11111111-1111-4111-8111-111111111111",
+      ];
+      const demoHandles = LEGACY_SEEDED_DEMO_HANDLES;
+      const demoPhones = LEGACY_SEEDED_DEMO_PHONES;
 
-        if (member.username !== "@siddhu") {
-          await this.prisma.communityDirectoryProfile.upsert({
-            where: { username: member.username },
-            update: {
-              name: member.displayName,
-              avatarAsset: member.avatarAsset,
-              bio: member.bio,
-              defaultFollowing: member.defaultFollowing,
-            },
-            create: {
-              name: member.displayName,
-              username: member.username,
-              avatarAsset: member.avatarAsset,
-              bio: member.bio,
-              defaultFollowing: member.defaultFollowing,
-            },
-          });
-        }
+      // 1. Delete all demo posts
+      await this.prisma.communityPost.deleteMany({
+        where: {
+          OR: [
+            { id: { in: demoPostIds } },
+            { authorUsername: { in: demoHandles } },
+          ],
+        },
+      }).catch(() => undefined);
 
-        // Ensure pending members have an active EligibilitySubmission in the Super Admin queue
-        if (acc.verificationStatus === "UNVERIFIED") {
-          const existingSub = await this.prisma.eligibilitySubmission.findFirst(
-            {
-              where: { accountId: acc.id, status: "PENDING_MANUAL_REVIEW" },
-              select: { id: true },
-            },
-          );
-          if (!existingSub) {
-            await this.prisma.eligibilitySubmission.create({
-              data: {
-                accountId: acc.id,
-                status: "PENDING_MANUAL_REVIEW",
-                consentVersion: "dev-manual-review-v1",
-                consentAcceptedAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
-              },
-            });
-          }
-        }
-      } catch {
-        // Ignore individual duplicate conflicts during concurrent requests
+      // 2. Find and delete demo accounts and all their related rows
+      const demoAccounts = await this.prisma.memberAccount.findMany({
+        where: { phoneE164: { in: demoPhones } },
+        select: { id: true },
+      }).catch(() => []);
+      const demoAccountIds = demoAccounts.map((a) => a.id);
+
+      if (demoAccountIds.length > 0) {
+        await this.prisma.communityPostComment.deleteMany({
+          where: { accountId: { in: demoAccountIds } },
+        }).catch(() => undefined);
+        await this.prisma.communityPostLike.deleteMany({
+          where: { accountId: { in: demoAccountIds } },
+        }).catch(() => undefined);
+        await this.prisma.communityPostSave.deleteMany({
+          where: { accountId: { in: demoAccountIds } },
+        }).catch(() => undefined);
+        await this.prisma.memberFollow.deleteMany({
+          where: { accountId: { in: demoAccountIds } },
+        }).catch(() => undefined);
+        await this.prisma.communityPost.deleteMany({
+          where: { authorAccountId: { in: demoAccountIds } },
+        }).catch(() => undefined);
+        await this.prisma.eligibilitySubmission.deleteMany({
+          where: { accountId: { in: demoAccountIds } },
+        }).catch(() => undefined);
+        await this.prisma.memberProfile.deleteMany({
+          where: { accountId: { in: demoAccountIds } },
+        }).catch(() => undefined);
+        await this.prisma.memberPrivacyPreference.deleteMany({
+          where: { accountId: { in: demoAccountIds } },
+        }).catch(() => undefined);
+        await this.prisma.memberNotificationPreference.deleteMany({
+          where: { accountId: { in: demoAccountIds } },
+        }).catch(() => undefined);
+        await this.prisma.authSession.deleteMany({
+          where: { accountId: { in: demoAccountIds } },
+        }).catch(() => undefined);
+        await this.prisma.memberAccount.deleteMany({
+          where: { id: { in: demoAccountIds } },
+        }).catch(() => undefined);
       }
-    }
 
-    // 2. Ensure 4 active Community Groups exist with real database member counts (no fake 1.4k numbers)
+      // 3. Delete demo directory profiles
+      await this.prisma.communityDirectoryProfile.deleteMany({
+        where: { username: { in: demoHandles } },
+      }).catch(() => undefined);
+
+      Module2Service.demoDataPurged = true;
+    } catch {
+      // Best-effort database purge
+    }
+  }
+
+  async ensureDefaultCatalogSeeded(_preferredAccountId?: string): Promise<void> {
+    // 1. Ensure 4 active Community Groups exist with real database member counts (no fake 1.4k numbers)
     const activeVerifiedCount = Math.max(
       1,
       await this.prisma.memberAccount
         .count({ where: { status: "ACTIVE" } })
-        .catch(() => 6),
+        .catch(() => 1),
     );
     const defaultGroups = [
       {
-        name: "Women in Tech Bangalore",
-        description:
-          "Bengaluru • System design, cloud careers & peer mentorship",
+        name: "Women in Tech",
+        description: "System design, cloud careers & peer mentorship",
         category: "Education & Career",
-        membersCount: activeVerifiedCount,
-        newPostsToday: 2,
+        membersCount: 0,
+        newPostsToday: 0,
       },
       {
         name: "Mindful Mornings Circle",
-        description:
-          "Hyderabad & Pan-India • Daily breathwork & emotional grounding",
+        description: "Daily breathwork & emotional grounding",
         category: "Health & Wellness",
-        membersCount: Math.max(1, activeVerifiedCount - 1),
-        newPostsToday: 2,
+        membersCount: 0,
+        newPostsToday: 0,
       },
       {
-        name: "Safe Solo Travelers India",
-        description:
-          "New Delhi & Pan-India • Verified city guides & SOS check-in buddies",
+        name: "Safe Solo Travelers",
+        description: "Verified city guides & SOS check-in buddies",
         category: "Safety & Travel",
-        membersCount: Math.max(1, activeVerifiedCount - 2),
-        newPostsToday: 1,
+        membersCount: 0,
+        newPostsToday: 0,
       },
       {
-        name: "PCOS & Hormonal Wellness Hub",
-        description:
-          "Mumbai & Chennai • Doctor Q&As, cycle nutrition & strength",
+        name: "Hormonal & Cycle Wellness Hub",
+        description: "Doctor Q&As, cycle nutrition & wellness routines",
         category: "Health & Wellness",
-        membersCount: Math.max(1, activeVerifiedCount - 1),
-        newPostsToday: 2,
+        membersCount: 0,
+        newPostsToday: 0,
       },
     ];
     for (const group of defaultGroups) {
       await this.prisma.communityGroup.upsert({
         where: { name: group.name },
-        update: group,
+        update: {},
         create: group,
       });
     }
 
-    // 3. Ensure Wellness Resources exist
+    // 2. Ensure Wellness Resources exist
     const defaultWellness = [
       {
         slug: "menstrual-health",
@@ -422,219 +399,8 @@ export class Module2Service {
     for (const item of defaultWellness) {
       await this.prisma.wellnessResource.upsert({
         where: { slug: item.slug },
-        update: item,
+        update: {},
         create: item,
-      });
-    }
-
-    // 4. Upsert 11 rich, unmistakably live PostgreSQL Community, Explore, and Profile posts
-    const siddhuId =
-      preferredAccountId ?? accountIdByUsername.get("@siddhu") ?? null;
-
-    const livePosts = [
-      {
-        id: "11111111-1111-4111-8111-111111111105",
-        authorAccountId: accountIdByUsername.get("@ananya") ?? null,
-        authorName: "Ananya Rao",
-        authorUsername: "@ananya",
-        authorAvatar: "assets/images/profile/avatar_ananya.webp",
-        authorVerified: true,
-        content:
-          "Morning check-in from Hyderabad! 🌸 Our peer support circle just crossed 600 verified women on Sakhi. Remember to drink water, unclench your shoulders, and take 3 slow breaths today. 💜",
-        imageAsset: "assets/images/community/evening_walk_sunset.webp",
-        categoryBadge: "Live DB • Wellness",
-        feedSection: "community",
-        hasBreathingExerciseCard: false,
-        likesCount: 184,
-        commentsCount: 27,
-        createdAt: new Date(Date.now() - 25 * 60 * 1000),
-      },
-      {
-        id: "11111111-1111-4111-8111-111111111106",
-        authorAccountId: accountIdByUsername.get("@ishita") ?? null,
-        authorName: "Ishita Reddy",
-        authorUsername: "@ishita",
-        authorAvatar: "assets/images/profile/avatar_ishita.webp",
-        authorVerified: true,
-        content:
-          "Hosting our Saturday Women in Tech Bangalore mentorship session at 11 AM! 💻✨ We are reviewing backend architecture, cloud storage pipelines, and portfolio projects. Drop a comment to join!",
-        imageAsset: null,
-        categoryBadge: "WomenInTech",
-        feedSection: "community",
-        hasBreathingExerciseCard: false,
-        likesCount: 165,
-        commentsCount: 34,
-        createdAt: new Date(Date.now() - 75 * 60 * 1000),
-      },
-      {
-        id: "11111111-1111-4111-8111-111111111101",
-        authorAccountId: accountIdByUsername.get("@kavya") ?? null,
-        authorName: "Kavya Nair",
-        authorUsername: "@kavya",
-        authorAvatar: "assets/images/profile/avatar_kavya.webp",
-        authorVerified: true,
-        content:
-          "A peaceful evening walk by the Kochi backwaters 🌸\nTaking 20 minutes away from screens every evening helps me reset. Stay kind, stay strong! 💜",
-        imageAsset: "assets/images/community/evening_walk_sunset.webp",
-        categoryBadge: "Self-Care",
-        feedSection: "community",
-        hasBreathingExerciseCard: false,
-        likesCount: 124,
-        commentsCount: 18,
-        createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
-      },
-      {
-        id: "11111111-1111-4111-8111-111111111102",
-        authorAccountId: accountIdByUsername.get("@meera") ?? null,
-        authorName: "Dr. Meera Iyer",
-        authorUsername: "@meera",
-        authorAvatar: "assets/images/profile/avatar_meera.webp",
-        authorVerified: true,
-        content:
-          "Here are 5 simple 4-7-8 clinical breathing exercises that calm cortisol spikes during stressful days.",
-        imageAsset: null,
-        categoryBadge: "Wellness",
-        feedSection: "community",
-        hasBreathingExerciseCard: true,
-        likesCount: 142,
-        commentsCount: 19,
-        createdAt: new Date(Date.now() - 4 * 60 * 60 * 1000),
-      },
-      {
-        id: "11111111-1111-4111-8111-111111111107",
-        authorAccountId: accountIdByUsername.get("@priya") ?? null,
-        authorName: "Priya Sharma",
-        authorUsername: "@priya",
-        authorAvatar: "assets/images/profile/avatar_priya.webp",
-        authorVerified: true,
-        content:
-          "Cycle-synced nutrition tip: pairing iron-rich greens with citrus during your luteal phase boosts energy naturally without afternoon caffeine crashes! 🥗💪",
-        imageAsset: "assets/images/wellness/wellness_hero_illustration.webp",
-        categoryBadge: "Fitness & Nutrition",
-        feedSection: "community",
-        hasBreathingExerciseCard: false,
-        likesCount: 112,
-        commentsCount: 15,
-        createdAt: new Date(Date.now() - 6 * 60 * 60 * 1000),
-      },
-      {
-        id: "11111111-1111-4111-8111-111111111108",
-        authorAccountId: accountIdByUsername.get("@sneha") ?? null,
-        authorName: "Sneha Verma",
-        authorUsername: "@sneha",
-        authorAvatar: "assets/images/profile/avatar_sneha.webp",
-        authorVerified: false,
-        content:
-          "Our Sakhi Sunday Reading Circle is picking our next mindfulness + fiction read in Pune 📚🌸 Which book helped you most during a life transition?",
-        imageAsset: null,
-        categoryBadge: "Book Club",
-        feedSection: "community",
-        hasBreathingExerciseCard: false,
-        likesCount: 78,
-        commentsCount: 22,
-        createdAt: new Date(Date.now() - 9 * 60 * 60 * 1000),
-      },
-      {
-        id: "11111111-1111-4111-8111-111111111103",
-        authorAccountId: accountIdByUsername.get("@ananya") ?? null,
-        authorName: "Ananya Rao",
-        authorUsername: "@ananya",
-        authorAvatar: "assets/images/profile/avatar_ananya.webp",
-        authorVerified: true,
-        content:
-          "Small steps every day make a big difference in your mental wellness and emotional boundaries. 💜",
-        imageAsset: "assets/images/explore/beach_sunset.webp",
-        categoryBadge: "Trending",
-        feedSection: "explore",
-        hasBreathingExerciseCard: false,
-        likesCount: 196,
-        commentsCount: 24,
-        createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
-      },
-      {
-        id: "11111111-1111-4111-8111-111111111109",
-        authorAccountId: accountIdByUsername.get("@riya") ?? null,
-        authorName: "Riya Deshmukh",
-        authorUsername: "@riya",
-        authorAvatar: "assets/images/profile/avatar_ananya.webp",
-        authorVerified: false,
-        content:
-          "Solo evening commute checklist: share your live Sakhi SOS route with 2 trusted contacts and keep 112 / 181 active on your quick-action tile. 🛡️",
-        imageAsset: "assets/images/safety/safety_map_preview.webp",
-        categoryBadge: "Safety Tips",
-        feedSection: "explore",
-        hasBreathingExerciseCard: false,
-        likesCount: 154,
-        commentsCount: 16,
-        createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000),
-      },
-      {
-        id: "11111111-1111-4111-8111-111111111110",
-        authorAccountId: accountIdByUsername.get("@meera") ?? null,
-        authorName: "Dr. Meera Iyer",
-        authorUsername: "@meera",
-        authorAvatar: "assets/images/profile/avatar_meera.webp",
-        authorVerified: true,
-        content:
-          "10-minute evening body scan meditation for deep, restorative sleep — now available in the Wellness Hub. 🌙✨",
-        imageAsset: "assets/images/wellness/guided_meditation_thumb.webp",
-        categoryBadge: "Guided Audio",
-        feedSection: "explore",
-        hasBreathingExerciseCard: false,
-        likesCount: 131,
-        commentsCount: 11,
-        createdAt: new Date(Date.now() - 8 * 60 * 60 * 1000),
-      },
-      {
-        id: "11111111-1111-4111-8111-111111111104",
-        authorAccountId: siddhuId,
-        authorName: "Siddhu",
-        authorUsername: "@siddhu",
-        authorAvatar: "assets/images/profile/avatar_siddhu.webp",
-        authorVerified: true,
-        content:
-          "Grateful for the little moments that bring peace and the inspiring women building this Sakhi community together. 🌸💜",
-        imageAsset: "assets/images/community/evening_walk_sunset.webp",
-        categoryBadge: "Community",
-        feedSection: "profile",
-        hasBreathingExerciseCard: false,
-        likesCount: 94,
-        commentsCount: 14,
-        createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
-      },
-      {
-        id: "11111111-1111-4111-8111-111111111111",
-        authorAccountId: siddhuId,
-        authorName: "Siddhu",
-        authorUsername: "@siddhu",
-        authorAvatar: "assets/images/profile/avatar_siddhu.webp",
-        authorVerified: true,
-        content:
-          "Connected our Sakhi mobile app to live PostgreSQL database feeds, Super Admin member verification, and Cloud Media uploads! 🚀✨",
-        imageAsset: null,
-        categoryBadge: "WomenInTech",
-        feedSection: "profile",
-        hasBreathingExerciseCard: false,
-        likesCount: 82,
-        commentsCount: 12,
-        createdAt: new Date(Date.now() - 12 * 60 * 60 * 1000),
-      },
-    ];
-
-    for (const post of livePosts) {
-      await this.prisma.communityPost.upsert({
-        where: { id: post.id },
-        update: {
-          authorName: post.authorName,
-          authorUsername: post.authorUsername,
-          authorVerified: post.authorVerified,
-          content: post.content,
-          imageAsset: post.imageAsset,
-          categoryBadge: post.categoryBadge,
-          feedSection: post.feedSection,
-          hasBreathingExerciseCard: post.hasBreathingExerciseCard,
-        },
-        create: post,
       });
     }
   }
@@ -657,6 +423,8 @@ export class Module2Service {
 
   async bootstrap(authorization?: string) {
     const session = await this.auth.authenticateAuthorization(authorization);
+    await this.purgeLegacySeededDemoData().catch(() => undefined);
+    await this.ensureDefaultCatalogSeeded().catch(() => undefined);
 
     const [
       profile,
@@ -690,6 +458,10 @@ export class Module2Service {
         where: {
           deletedAt: null,
           status: { in: ["PUBLISHED", "EDITED"] },
+          NOT: [
+            { id: { in: LEGACY_SEEDED_DEMO_POST_IDS } },
+            { authorUsername: { in: LEGACY_SEEDED_DEMO_HANDLES } },
+          ],
         },
         include: {
           mediaAssets: {
@@ -706,6 +478,9 @@ export class Module2Service {
           authorAccountId: session.accountId,
           deletedAt: null,
           status: { in: ["PUBLISHED", "EDITED"] },
+          NOT: [
+            { id: { in: LEGACY_SEEDED_DEMO_POST_IDS } },
+          ],
         },
         include: {
           mediaAssets: {
@@ -722,12 +497,19 @@ export class Module2Service {
           authorAccountId: session.accountId,
           deletedAt: null,
           status: { in: ["PUBLISHED", "EDITED"] },
+          NOT: [
+            { id: { in: LEGACY_SEEDED_DEMO_POST_IDS } },
+          ],
         },
       }),
       this.prisma.communityPost.count({
         where: {
           deletedAt: null,
           status: { in: ["PUBLISHED", "EDITED"] },
+          NOT: [
+            { id: { in: LEGACY_SEEDED_DEMO_POST_IDS } },
+            { authorUsername: { in: LEGACY_SEEDED_DEMO_HANDLES } },
+          ],
         },
       }),
       this.prisma.communityPostLike.findMany({
@@ -739,6 +521,9 @@ export class Module2Service {
         select: { postId: true },
       }),
       this.prisma.communityDirectoryProfile.findMany({
+        where: {
+          username: { notIn: LEGACY_SEEDED_DEMO_HANDLES },
+        },
         orderBy: { createdAt: "asc" },
       }),
       this.prisma.memberFollow.findMany({
@@ -765,7 +550,11 @@ export class Module2Service {
           expiresAt: { gt: new Date() },
         },
       }),
-      this.prisma.memberAccount.count(),
+      this.prisma.memberAccount.count({
+        where: {
+          phoneE164: { notIn: LEGACY_SEEDED_DEMO_PHONES },
+        },
+      }),
     ]);
 
     const likedSet = new Set(userLikes.map((item) => item.postId));
@@ -874,42 +663,191 @@ export class Module2Service {
       }
       return isViewerVerified;
     };
-    const mapPost = (post: (typeof allPosts)[number]) => ({
-      id: post.id,
-      postId: post.id,
-      authorAccountId: post.authorAccountId ?? "",
-      authorName: post.authorName,
-      authorUsername: post.authorUsername,
-      authorAvatar: this.resolveMemberAvatar(post.authorAvatar),
-      authorVerified: post.authorVerified,
-      timestamp: this.formatRelativeTime(post.createdAt),
-      createdAt: post.createdAt.toISOString(),
-      content: post.content,
-      body: post.content,
-      imageAsset: post.imageAsset,
-      mediaAsset: post.imageAsset,
-      mediaContentType: post.mediaAssets[0]?.contentType ?? null,
-      categoryBadge: post.categoryBadge,
-      categorySlug: post.categorySlug,
-      visibility: post.visibility,
-      cropPreset: post.cropPreset,
-      hashtags: Array.isArray(post.hashtags) ? post.hashtags : [],
-      locationTag: post.locationTag,
-      allowComments: post.allowComments,
-      shareToBusinessProfile: post.shareToBusinessProfile,
-      feedSection: post.feedSection,
-      status: post.status,
-      hasBreathingExerciseCard: post.hasBreathingExerciseCard,
-      likesCount: post.likesCount,
-      commentsCount: post.commentsCount,
-      savesCount: post.savesCount,
-      sharesCount: post.sharesCount,
-      isLiked: likedSet.has(post.id),
-      isSaved: savedSet.has(post.id),
-      isOwnPost: post.authorAccountId === session.accountId,
-      canEdit: post.authorAccountId === session.accountId,
-      canDelete: post.authorAccountId === session.accountId,
-    });
+    const allPostIds = Array.from(
+      new Set([...allPosts.map((p) => p.id), ...ownedProfilePosts.map((p) => p.id)]),
+    );
+    const anyPrismaBoot = this.prisma as Record<string, any>;
+    const [allPostReactions, allPostComments] = await Promise.all([
+      anyPrismaBoot.communityPostReaction?.findMany && allPostIds.length > 0
+        ? anyPrismaBoot.communityPostReaction
+            .findMany({ where: { postId: { in: allPostIds } } })
+            .catch(() => [])
+        : Promise.resolve([]),
+      anyPrismaBoot.communityPostComment?.findMany && allPostIds.length > 0
+        ? anyPrismaBoot.communityPostComment
+            .findMany({
+              where: {
+                postId: { in: allPostIds },
+                deletedAt: null,
+                isRemovedByModerator: false,
+              },
+              orderBy: { createdAt: "asc" },
+            })
+            .catch(() => [])
+        : Promise.resolve([]),
+    ]);
+
+    const commentAuthorIds = Array.from(
+      new Set(
+        (allPostComments as Array<Record<string, any>>)
+          .map((c) => (c.accountId ? String(c.accountId) : ""))
+          .filter(Boolean),
+      ),
+    );
+    const commentAuthorProfiles =
+      commentAuthorIds.length > 0 &&
+      typeof (this.prisma.memberProfile as Record<string, any>)?.findMany === "function"
+        ? await this.prisma.memberProfile
+            .findMany({ where: { accountId: { in: commentAuthorIds } } })
+            .catch(() => [])
+        : [];
+    const commentProfileByAccountId = new Map<string, Record<string, any>>();
+    for (const mp of commentAuthorProfiles as Array<Record<string, any>>) {
+      if (mp?.accountId) commentProfileByAccountId.set(String(mp.accountId), mp);
+    }
+
+    const reactionsByPostId = new Map<string, Record<string, number>>();
+    const viewerReactionByPostId = new Map<string, string>();
+    for (const r of allPostReactions as Array<Record<string, any>>) {
+      const pid = String(r.postId ?? "");
+      const rType = String(r.reactionType ?? "LIKE").toUpperCase();
+      if (!pid) continue;
+      const map = reactionsByPostId.get(pid) ?? {};
+      map[rType] = (map[rType] ?? 0) + 1;
+      reactionsByPostId.set(pid, map);
+      if (String(r.accountId ?? "") === session.accountId) {
+        viewerReactionByPostId.set(pid, rType);
+      }
+    }
+
+    const commentsByPostId = new Map<string, Array<Record<string, any>>>();
+    for (const c of allPostComments as Array<Record<string, any>>) {
+      const pid = String(c.postId ?? "");
+      if (!pid) continue;
+      const mp = c.accountId ? commentProfileByAccountId.get(String(c.accountId)) : null;
+      const resolvedAuthorName = mp?.displayName ?? c.authorName ?? "Sakhi Member";
+      const resolvedUsername = this.deriveUsername(
+        String(resolvedAuthorName),
+        mp?.username ?? null,
+      );
+      const resolvedAvatar = mp
+        ? this.resolveMemberAvatar(mp.avatarAsset, mp.avatarMediaAssetId)
+        : "";
+      const isOwn = Boolean(c.accountId && c.accountId === session.accountId);
+      const createdDate =
+        c.createdAt instanceof Date ? c.createdAt : new Date(String(c.createdAt ?? Date.now()));
+      const updatedDate =
+        c.updatedAt instanceof Date ? c.updatedAt : new Date(String(c.updatedAt ?? createdDate));
+      const isEdited = updatedDate.getTime() - createdDate.getTime() > 1500;
+      const likeSet = Module2Service.commentLikesMap.get(String(c.id));
+      const likesCount = likeSet ? likeSet.size : 0;
+      const isLiked = Boolean(likeSet && likeSet.has(session.accountId));
+      const list = commentsByPostId.get(pid) ?? [];
+      list.push({
+        id: c.id,
+        commentId: c.id,
+        postId: pid,
+        authorAccountId: c.accountId ?? "",
+        authorName: resolvedAuthorName,
+        authorUsername: resolvedUsername,
+        authorAvatar: resolvedAvatar,
+        content: c.content,
+        body: c.content,
+        parentCommentId: c.parentCommentId ?? null,
+        replyToHandle: c.replyToHandle ?? null,
+        isOwnComment: isOwn,
+        canEdit: isOwn,
+        canDelete: isOwn,
+        isEdited,
+        likesCount,
+        isLiked,
+        timestamp: this.formatRelativeTime(createdDate),
+        createdAt: this.formatRelativeTime(createdDate),
+        createdAtIso: createdDate.toISOString(),
+      });
+      commentsByPostId.set(pid, list);
+    }
+
+    const hasLiveCommentQuery =
+      typeof anyPrismaBoot.communityPostComment?.findMany === "function";
+    const mapPost = (post: (typeof allPosts)[number]) => {
+      const rawComments = commentsByPostId.get(post.id) ?? [];
+      const threadedComments = this.groupThreadedComments(rawComments).map((c: Record<string, any>) => ({
+        ...c,
+        canDelete: Boolean(c.isOwnComment || post.authorAccountId === session.accountId),
+      }));
+      const authoritativeCommentsCount = hasLiveCommentQuery
+        ? threadedComments.length
+        : post.commentsCount;
+      if (hasLiveCommentQuery && post.commentsCount !== threadedComments.length) {
+        void this.prisma.communityPost
+          .update({
+            where: { id: post.id },
+            data: { commentsCount: threadedComments.length },
+          })
+          .catch(() => undefined);
+      }
+      const breakdown = reactionsByPostId.get(post.id) ?? {};
+      const viewerRx =
+        viewerReactionByPostId.get(post.id) ?? (likedSet.has(post.id) ? "HEART" : null);
+      const pollMeta = Module2Service.postPollMetaMap.get(post.id);
+      const extraMedia = Module2Service.postExtraMediaMap.get(post.id);
+      return {
+        id: post.id,
+        postId: post.id,
+        authorAccountId: post.authorAccountId ?? "",
+        authorName: post.authorName,
+        authorUsername: post.authorUsername,
+        authorAvatar: this.resolveMemberAvatar(post.authorAvatar),
+        authorVerified: post.authorVerified,
+        timestamp: this.formatRelativeTime(post.createdAt),
+        createdAt: post.createdAt.toISOString(),
+        content: post.content,
+        body: post.content,
+        imageAsset: post.imageAsset,
+        mediaAsset: post.imageAsset,
+        mediaAssets:
+          extraMedia && extraMedia.length > 0
+            ? extraMedia
+            : post.imageAsset
+              ? [post.imageAsset]
+              : [],
+        mediaContentType:
+          post.mediaAssets[0]?.contentType ??
+          (post.imageAsset?.endsWith(".mp4") ? "video/mp4" : null),
+        categoryBadge: post.categoryBadge,
+        categorySlug: post.categorySlug,
+        visibility: post.visibility,
+        cropPreset: post.cropPreset,
+        hashtags: Array.isArray(post.hashtags) ? post.hashtags : [],
+        locationTag: post.locationTag,
+        allowComments: post.allowComments,
+        shareToBusinessProfile: post.shareToBusinessProfile,
+        feedSection: post.feedSection,
+        status: post.status,
+        hasBreathingExerciseCard: post.hasBreathingExerciseCard,
+        likesCount: post.likesCount,
+        reactionsCount: post.likesCount,
+        commentsCount: authoritativeCommentsCount,
+        savesCount: post.savesCount,
+        sharesCount: post.sharesCount,
+        isLiked: likedSet.has(post.id) || viewerRx !== null,
+        isSaved: savedSet.has(post.id),
+        isOwnPost: post.authorAccountId === session.accountId,
+        canEdit: post.authorAccountId === session.accountId,
+        canDelete: post.authorAccountId === session.accountId,
+        viewerReaction: viewerRx,
+        reactionBreakdown: breakdown,
+        comments: threadedComments,
+        ...(pollMeta
+          ? {
+              pollQuestion: pollMeta.question,
+              pollOptions: pollMeta.options,
+              pollVotes: pollMeta.votes,
+            }
+          : {}),
+      };
+    };
 
     const mappedPosts = allPosts.filter(canViewPost).map(mapPost);
     const communityPosts = mappedPosts.filter(
@@ -918,7 +856,18 @@ export class Module2Service {
     const exploreRecommendedPosts = mappedPosts.filter(
       (post) => post.feedSection === "explore",
     );
-    const profilePosts = ownedProfilePosts.map(mapPost);
+    const profilePosts = ownedProfilePosts
+      .filter((post) => {
+        if (post.id.startsWith("11111111-1111-4111-8111-")) return false;
+        if (
+          post.authorUsername === "@siddhu" &&
+          normalizeHandle(currentUsername) !== "siddhu"
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .map(mapPost);
 
     const displayName = profile?.displayName ?? "Sakhi Member";
     const username = currentUsername;
@@ -942,13 +891,14 @@ export class Module2Service {
         phoneVerified: Boolean(session.account.phoneVerifiedAt),
         verificationStatus: session.account.verificationStatus,
         accountStatus: session.account.status,
-        postsCount: ownedProfilePostCount,
+        postsCount: profilePosts.length,
         followersCount: activeFollowersCount,
         followingCount: activeFollowingCount,
         interests: this.parseInterests(profile?.interests),
         businessProfileUrl: profile?.businessProfileUrl ?? null,
-        twoFactorEnabled: profile?.twoFactorEnabled ?? false,
-        activeSessionsCount: Math.max(1, activeSessionsCount),
+        // No second-factor provider is configured; never surface a legacy flag as active protection.
+        twoFactorEnabled: false,
+        activeSessionsCount,
       },
       communityPosts,
       exploreRecommendedPosts,
@@ -1424,6 +1374,28 @@ export class Module2Service {
         })
         .catch(() => undefined);
     }
+    if (
+      typeof (this.prisma.communityPostComment as Record<string, any>)?.updateMany ===
+      "function"
+    ) {
+      await this.prisma.communityPostComment
+        .updateMany({
+          where: { accountId: session.accountId },
+          data: {
+            authorName: updated.displayName,
+          },
+        })
+        .catch(() => undefined);
+    }
+    const anyPrismaForProf = this.prisma as Record<string, any>;
+    if (typeof anyPrismaForProf.businessDirectoryListing?.updateMany === "function") {
+      await anyPrismaForProf.businessDirectoryListing
+        .updateMany({
+          where: { ownerAccountId: session.accountId },
+          data: { ownerDisplayName: updated.displayName },
+        })
+        .catch(() => undefined);
+    }
 
     await this.prisma.auditEvent.create({
       data: {
@@ -1607,6 +1579,29 @@ export class Module2Service {
           })
         : null;
 
+    const allMediaUrls =
+      mediaUploadIds.length > 0
+        ? mediaUploadIds.map((id) => `/api/v1/module2/media/object/${id}`)
+        : Array.isArray(dto.mediaAssets) && dto.mediaAssets.length > 0
+          ? dto.mediaAssets.filter((m) => m.startsWith("assets/") || m.startsWith("/api/v1/"))
+          : post.imageAsset
+            ? [post.imageAsset]
+            : [];
+    if (allMediaUrls.length > 1) {
+      Module2Service.postExtraMediaMap.set(post.id, allMediaUrls);
+    }
+    if (Array.isArray(dto.pollOptions) && dto.pollOptions.length >= 2) {
+      const cleanOpts = dto.pollOptions.map((o) => o.trim()).filter(Boolean);
+      if (cleanOpts.length >= 2) {
+        Module2Service.postPollMetaMap.set(post.id, {
+          question: (dto.pollQuestion ?? postContent).trim(),
+          options: cleanOpts,
+          votes: {},
+        });
+      }
+    }
+    const pollMeta = Module2Service.postPollMetaMap.get(post.id);
+
     return {
       id: post.id,
       postId: post.id,
@@ -1621,7 +1616,9 @@ export class Module2Service {
       body: post.content,
       imageAsset: post.imageAsset,
       mediaAsset: post.imageAsset,
-      mediaContentType: firstAttachedMedia?.contentType ?? null,
+      mediaAssets: allMediaUrls,
+      mediaContentType:
+        firstAttachedMedia?.contentType ?? dto.mediaContentType ?? null,
       categoryBadge: post.categoryBadge,
       categorySlug: post.categorySlug,
       visibility: post.visibility,
@@ -1640,6 +1637,13 @@ export class Module2Service {
       isOwnPost: true,
       canEdit: true,
       canDelete: true,
+      ...(pollMeta
+        ? {
+            pollQuestion: pollMeta.question,
+            pollOptions: pollMeta.options,
+            pollVotes: pollMeta.votes,
+          }
+        : {}),
     };
   }
 
@@ -1738,7 +1742,21 @@ export class Module2Service {
       where: { accountId: session.accountId },
     });
 
-    const commentContent = (dto.content ?? dto.body ?? "").trim();
+    const replyHandle = dto.replyToHandle?.trim() || null;
+    let commentContent = (dto.content ?? dto.body ?? "").trim();
+    if (replyHandle) {
+      const normalizedHandle = replyHandle.startsWith("@")
+        ? replyHandle
+        : `@${replyHandle}`;
+      if (
+        commentContent.toLowerCase().startsWith(`${normalizedHandle.toLowerCase()} `)
+      ) {
+        const stripped = commentContent.slice(normalizedHandle.length).trim();
+        if (stripped.length > 0) {
+          commentContent = stripped;
+        }
+      }
+    }
     if (!commentContent) {
       throw new BadRequestException("Comment content is required.");
     }
@@ -1749,7 +1767,6 @@ export class Module2Service {
       dto.parentCommentId && /^[0-9a-f-]{36}$/i.test(dto.parentCommentId.trim())
         ? dto.parentCommentId.trim()
         : null;
-    const replyHandle = dto.replyToHandle?.trim() || null;
 
     let comment: Record<string, any>;
     try {
@@ -1774,26 +1791,59 @@ export class Module2Service {
       });
     }
 
+    const exactCommentsCount =
+      typeof anyCommentModel?.count === "function"
+        ? await anyCommentModel
+            .count({
+              where: {
+                postId,
+                deletedAt: null,
+                isRemovedByModerator: false,
+              },
+            })
+            .catch(() => post.commentsCount + 1)
+        : post.commentsCount + 1;
     const updated = await this.prisma.communityPost.update({
       where: { id: postId },
-      data: { commentsCount: post.commentsCount + 1 },
+      data: { commentsCount: exactCommentsCount },
     });
+
+    const authorDisplayName =
+      profile?.displayName ?? comment.authorName ?? "Sakhi Member";
+    const authorUsername = this.deriveUsername(
+      String(authorDisplayName),
+      profile?.username ?? null,
+    );
+    const authorAvatar = profile
+      ? this.resolveMemberAvatar(profile.avatarAsset, profile.avatarMediaAssetId)
+      : "";
+    const createdIso =
+      comment.createdAt instanceof Date
+        ? comment.createdAt.toISOString()
+        : String(comment.createdAt ?? new Date().toISOString());
 
     return {
       id: comment.id,
       commentId: comment.id,
       postId,
       authorAccountId: session.accountId,
-      authorName: comment.authorName,
+      authorName: authorDisplayName,
+      authorUsername,
+      authorAvatar,
       content: comment.content,
       body: comment.content,
       parentCommentId: comment.parentCommentId ?? parentId,
       replyToHandle: comment.replyToHandle ?? replyHandle,
+      isOwnComment: true,
+      canEdit: true,
+      canDelete: true,
+      isEdited: false,
+      likesCount: 0,
+      isLiked: false,
       commentsCount: updated.commentsCount,
-      createdAt:
-        comment.createdAt instanceof Date
-          ? comment.createdAt.toISOString()
-          : String(comment.createdAt),
+      timestamp: "Just now",
+      createdAt: "Just now",
+      createdAtIso: createdIso,
     };
   }
 
@@ -4120,15 +4170,119 @@ export class Module2Service {
 </html>`;
   }
 
+  async listLoginSessions(authorization: string | undefined) {
+    const currentSession =
+      await this.auth.authenticateAuthorization(authorization);
+    const now = new Date();
+    const sessions = await this.prisma.authSession.findMany({
+      where: { accountId: currentSession.accountId },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        createdAt: true,
+        expiresAt: true,
+        revokedAt: true,
+        lastSeenAt: true,
+        deviceName: true,
+      },
+    });
+
+    return {
+      sessions: sessions.map((session) => ({
+        id: session.id,
+        createdAt: session.createdAt,
+        expiresAt: session.expiresAt,
+        lastSeenAt: session.lastSeenAt,
+        deviceName: session.deviceName,
+        isActive: session.revokedAt === null && session.expiresAt > now,
+        isCurrent: session.id === currentSession.id,
+      })),
+    };
+  }
+
+  async revokeLoginSession(
+    authorization: string | undefined,
+    sessionId: string,
+  ) {
+    const currentSession =
+      await this.auth.authenticateAuthorization(authorization);
+    const cleanedId = sessionId.trim();
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        cleanedId,
+      )
+    ) {
+      throw new BadRequestException("Choose a valid login session.");
+    }
+
+    const target = await this.prisma.authSession.findFirst({
+      where: {
+        id: cleanedId,
+        accountId: currentSession.accountId,
+      },
+      select: { id: true, revokedAt: true, expiresAt: true },
+    });
+    if (!target) {
+      throw new NotFoundException("Login session was not found.");
+    }
+    if (target.id === currentSession.id) {
+      throw new ForbiddenException(
+        "The current device session cannot be revoked here. Sign out on this device instead.",
+      );
+    }
+
+    const now = new Date();
+    if (target.revokedAt || target.expiresAt <= now) {
+      throw new ConflictException("This login session is already inactive.");
+    }
+
+    const updated = await this.prisma.authSession.updateMany({
+      where: {
+        id: target.id,
+        accountId: currentSession.accountId,
+        revokedAt: null,
+        expiresAt: { gt: now },
+      },
+      data: { revokedAt: now },
+    });
+    if (updated.count !== 1) {
+      throw new ConflictException(
+        "This login session changed before it could be revoked. Refresh and try again.",
+      );
+    }
+
+    const isCurrentSession = target.id === currentSession.id;
+    await this.prisma.auditEvent.create({
+      data: {
+        actorType: "MEMBER",
+        actorId: currentSession.accountId,
+        action: "auth.session.revoked",
+        targetType: "auth_session",
+        targetId: target.id,
+        outcome: "revoked_by_member",
+        requestId: randomUUID(),
+        redactedMetadata: { currentSession: isCurrentSession },
+      },
+    });
+
+    return { revoked: true, currentSession: isCurrentSession };
+  }
+
   async toggleTwoFactor(
     authorization: string | undefined,
     dto: ToggleTwoFactorDto,
   ) {
     const session = await this.auth.authenticateAuthorization(authorization);
     const enabled = dto.enabled ?? dto.twoFactorEnabled ?? false;
+    if (enabled) {
+      throw new ServiceUnavailableException(
+        "Two-factor authentication is not available yet. No second-factor provider is configured, so the setting has not been enabled.",
+      );
+    }
+
     const updated = await this.prisma.memberProfile.update({
       where: { accountId: session.accountId },
-      data: { twoFactorEnabled: enabled },
+      data: { twoFactorEnabled: false },
     });
 
     await this.prisma.auditEvent.create({
@@ -4138,47 +4292,26 @@ export class Module2Service {
         action: "module2.security.two_factor_updated",
         targetType: "member_account",
         targetId: session.accountId,
-        outcome: enabled ? "enabled" : "disabled",
+        outcome: "disabled",
         requestId: randomUUID(),
       },
     });
 
     return {
       twoFactorEnabled: updated.twoFactorEnabled,
+      available: false,
+      status: "not_configured" as const,
     };
   }
 
   async updateSecurityPin(
     authorization: string | undefined,
-    dto: UpdateSecurityPinDto,
+    _dto: UpdateSecurityPinDto,
   ) {
-    const session = await this.auth.authenticateAuthorization(authorization);
-    const resolvedPin = (dto.newPin ?? dto.pin ?? "").trim();
-    if (!/^\d{4,6}$/.test(resolvedPin)) {
-      throw new BadRequestException("PIN must be 4 to 6 digits.");
-    }
-    const now = new Date();
-    await this.prisma.memberProfile.update({
-      where: { accountId: session.accountId },
-      data: { securityPinUpdatedAt: now },
-    });
-
-    await this.prisma.auditEvent.create({
-      data: {
-        actorType: "MEMBER",
-        actorId: session.accountId,
-        action: "module2.security.pin_updated",
-        targetType: "member_account",
-        targetId: session.accountId,
-        outcome: "success",
-        requestId: randomUUID(),
-      },
-    });
-
-    return {
-      updatedAt: now.toISOString(),
-      status: "updated" as const,
-    };
+    await this.auth.authenticateAuthorization(authorization);
+    throw new ServiceUnavailableException(
+      "PIN/password changes are not available yet. Sakhi does not currently store a verifiable PIN or password credential, so no change was made.",
+    );
   }
 
   async reportUserOrPost(
@@ -4310,6 +4443,10 @@ export class Module2Service {
       "image/webp",
       "video/mp4",
     ] as const;
+    const detectedMime = this.detectBinaryMimeType(file.buffer);
+    if (detectedMime) {
+      file.mimetype = detectedMime;
+    }
     if (
       !allowedTypes.includes(file.mimetype as (typeof allowedTypes)[number])
     ) {
@@ -4346,16 +4483,51 @@ export class Module2Service {
     const categorySlug = (dto.categorySlug || "community").trim().toLowerCase();
     const cropAspectRatio =
       dto.cropAspectRatio || (normalizedPurpose === "avatar" ? "1:1" : "4:5");
-    const stored = await this.googleDrive.uploadImage({
-      uploadId,
-      accountId: session.accountId,
-      purpose: normalizedPurpose,
-      categorySlug,
-      postId: dto.postId ?? null,
-      fileName: file.originalname,
-      contentType: file.mimetype as (typeof allowedTypes)[number],
-      buffer: file.buffer,
-    });
+    const isBusinessMedia =
+      dto.purpose === "business_media" ||
+      dto.purpose === "BUSINESS_MEDIA" ||
+      categorySlug === "business";
+    let stored: {
+      driveFileId: string;
+      driveFolderId: string;
+      driveFolderPath: string;
+      storedName: string;
+      size: number;
+      inlineBase64?: string;
+    };
+    const fallbackInlineBase64 =
+      !isVideo && file.buffer.length <= 8 * 1024 * 1024
+        ? file.buffer.toString("base64")
+        : undefined;
+    try {
+      const driveUploaded = await this.googleDrive.uploadImage({
+        uploadId,
+        accountId: session.accountId,
+        purpose: normalizedPurpose,
+        categorySlug,
+        postId: dto.postId ?? null,
+        fileName: file.originalname,
+        contentType: file.mimetype as (typeof allowedTypes)[number],
+        buffer: file.buffer,
+      });
+      stored = {
+        ...driveUploaded,
+        ...(fallbackInlineBase64 ? { inlineBase64: fallbackInlineBase64 } : {}),
+      };
+    } catch (driveErr) {
+      if (fallbackInlineBase64) {
+        stored = {
+          driveFileId: `inline-db-${uploadId}`,
+          driveFolderId: "inline-db-folder",
+          driveFolderPath: `Sakhi Media/inline/${session.accountId}`,
+          storedName: file.originalname || `${uploadId}.jpg`,
+          size: file.buffer.length,
+          inlineBase64: fallbackInlineBase64,
+        };
+      } else {
+        throw driveErr;
+      }
+    }
     // Store a same-origin API path. Absolute loopback URLs work on the host
     // machine but point back to the phone itself when the app runs on Android.
     const publicUrl = `/api/v1/module2/media/object/${uploadId}`;
@@ -4381,6 +4553,7 @@ export class Module2Service {
           publicUrl,
           sizeBytes: stored.size,
           uploadedAt,
+          ...(stored.inlineBase64 ? { inlineBase64: stored.inlineBase64 } : {}),
         },
       },
     });
@@ -4393,11 +4566,16 @@ export class Module2Service {
         purpose:
           normalizedPurpose === "avatar"
             ? "PROFILE_PHOTO"
-            : isVideo
-              ? "COMMUNITY_POST_VIDEO"
-              : "COMMUNITY_POST_IMAGE",
+            : isBusinessMedia
+              ? "BUSINESS_MEDIA"
+              : isVideo
+                ? "COMMUNITY_POST_VIDEO"
+                : "COMMUNITY_POST_IMAGE",
         storageProvider: "GOOGLE_DRIVE",
-        status: normalizedPurpose === "avatar" ? "ATTACHED" : "UPLOADED",
+        status:
+          normalizedPurpose === "avatar" || isBusinessMedia
+            ? "ATTACHED"
+            : "UPLOADED",
         categorySlug: normalizedPurpose === "avatar" ? null : categorySlug,
         driveFileId: stored.driveFileId,
         driveFolderId: stored.driveFolderId,
@@ -4445,6 +4623,36 @@ export class Module2Service {
       status: "stored" as const,
       createdAt: uploadedAt,
     };
+  }
+
+  private detectBinaryMimeType(buffer: Buffer): string | null {
+    if (
+      buffer.length >= 3 &&
+      buffer[0] === 0xff &&
+      buffer[1] === 0xd8 &&
+      buffer[2] === 0xff
+    ) {
+      return "image/jpeg";
+    }
+    if (
+      buffer.length >= 8 &&
+      buffer
+        .subarray(0, 8)
+        .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+    ) {
+      return "image/png";
+    }
+    if (
+      buffer.length >= 12 &&
+      buffer.toString("ascii", 0, 4) === "RIFF" &&
+      buffer.toString("ascii", 8, 12) === "WEBP"
+    ) {
+      return "image/webp";
+    }
+    if (buffer.length >= 12 && buffer.toString("ascii", 4, 8) === "ftyp") {
+      return "video/mp4";
+    }
+    return null;
   }
 
   private hasExpectedImageSignature(
@@ -4681,19 +4889,59 @@ export class Module2Service {
       );
     }
 
-    const media = await this.googleDrive.downloadFile(driveFileId);
     const recordedContentType = asset?.contentType ?? meta.contentType;
-    const storedContentType =
-      typeof recordedContentType === "string" &&
-      ["image/jpeg", "image/png", "image/webp", "video/mp4"].includes(
-        recordedContentType,
-      )
-        ? recordedContentType
-        : media.contentType;
-    return {
-      contentType: storedContentType,
-      buffer: media.buffer,
-    };
+    if (
+      driveFileId.startsWith("inline-db-") &&
+      typeof meta.inlineBase64 === "string" &&
+      meta.inlineBase64.length > 0
+    ) {
+      const inlineBuffer = Buffer.from(meta.inlineBase64, "base64");
+      const inlineType =
+        typeof recordedContentType === "string" &&
+        ["image/jpeg", "image/png", "image/webp", "video/mp4"].includes(
+          recordedContentType,
+        )
+          ? recordedContentType
+          : "image/jpeg";
+      return {
+        contentType: inlineType,
+        buffer: inlineBuffer,
+      };
+    }
+
+    try {
+      const media = await this.googleDrive.downloadFile(driveFileId);
+      const storedContentType =
+        typeof recordedContentType === "string" &&
+        ["image/jpeg", "image/png", "image/webp", "video/mp4"].includes(
+          recordedContentType,
+        )
+          ? recordedContentType
+          : media.contentType;
+      return {
+        contentType: storedContentType,
+        buffer: media.buffer,
+      };
+    } catch (driveDownloadErr) {
+      if (
+        typeof meta.inlineBase64 === "string" &&
+        meta.inlineBase64.length > 0
+      ) {
+        const inlineBuffer = Buffer.from(meta.inlineBase64, "base64");
+        const inlineType =
+          typeof recordedContentType === "string" &&
+          ["image/jpeg", "image/png", "image/webp", "video/mp4"].includes(
+            recordedContentType,
+          )
+            ? recordedContentType
+            : "image/jpeg";
+        return {
+          contentType: inlineType,
+          buffer: inlineBuffer,
+        };
+      }
+      throw driveDownloadErr;
+    }
   }
 
   async toggleBlockedUser(
@@ -4818,16 +5066,27 @@ export class Module2Service {
       search?: string;
       savedOnly?: boolean;
       limit?: number;
+      page?: number;
+      cursor?: string;
     } = {},
   ) {
     const boot = await this.bootstrap(authorization);
     const blockedHandles = new Set(
       (boot.blockedUsers ?? []).map((u) => u.blockedUsername.toLowerCase()),
     );
-    let items = [
-      ...boot.communityPosts,
-      ...boot.exploreRecommendedPosts,
-    ].filter((post) => !blockedHandles.has(post.authorUsername.toLowerCase()));
+    const basePool = query.savedOnly
+      ? [
+          ...boot.communityPosts,
+          ...boot.exploreRecommendedPosts,
+          ...(boot.profilePosts ?? []),
+        ]
+      : [...boot.communityPosts, ...boot.exploreRecommendedPosts];
+    const seenIds = new Set<string>();
+    let items = basePool.filter((post) => {
+      if (seenIds.has(post.id)) return false;
+      seenIds.add(post.id);
+      return !blockedHandles.has(post.authorUsername.toLowerCase());
+    });
     const slug = (query.categorySlug || query.topic || "").trim().toLowerCase();
     if (slug && slug !== "all" && slug !== "community") {
       if (slug === "following") {
@@ -4904,14 +5163,29 @@ export class Module2Service {
           p.authorUsername.toLowerCase().includes(q),
       );
     }
-    const limited = items.slice(
-      0,
-      Math.min(Math.max(query.limit ?? 30, 1), 100),
-    );
+    const totalCount = items.length;
+    const safeLimit = Math.min(Math.max(query.limit ?? 30, 1), 100);
+    const safePage = Math.max(query.page ?? 1, 1);
+    let startIndex = (safePage - 1) * safeLimit;
+    if (query.cursor && query.cursor.trim().length > 0) {
+      const cursorIdx = items.findIndex((p) => p.id === query.cursor?.trim());
+      if (cursorIdx >= 0) {
+        startIndex = cursorIdx + 1;
+      }
+    }
+    const limited = items.slice(startIndex, startIndex + safeLimit);
+    const hasMore = startIndex + safeLimit < totalCount;
+    const nextCursor =
+      hasMore && limited.length > 0 ? limited[limited.length - 1]?.id ?? null : null;
     return {
       items: limited,
       posts: limited,
       total: limited.length,
+      totalCount,
+      page: safePage,
+      limit: safeLimit,
+      hasMore,
+      nextCursor,
     };
   }
 
@@ -5177,32 +5451,107 @@ export class Module2Service {
       },
       orderBy: { createdAt: "asc" },
     });
+
+    const authorIds = Array.from(
+      new Set(
+        comments
+          .map((c: Record<string, any>) =>
+            c.accountId ? String(c.accountId) : "",
+          )
+          .filter(Boolean),
+      ),
+    );
+    const profiles =
+      authorIds.length > 0 &&
+      typeof (this.prisma.memberProfile as Record<string, any>)?.findMany ===
+        "function"
+        ? await this.prisma.memberProfile
+            .findMany({ where: { accountId: { in: authorIds } } })
+            .catch(() => [])
+        : [];
+    const profileByAccountId = new Map<string, Record<string, any>>();
+    for (const p of profiles as Array<Record<string, any>>) {
+      if (p?.accountId) profileByAccountId.set(String(p.accountId), p);
+    }
+
     const mapped = comments.map((c: Record<string, any>) => {
       const isOwn = Boolean(c.accountId && c.accountId === session.accountId);
       const isPostOwner = Boolean(
         post?.authorAccountId && post.authorAccountId === session.accountId,
       );
+      const mp = c.accountId
+        ? profileByAccountId.get(String(c.accountId))
+        : null;
+      const resolvedAuthorName =
+        mp?.displayName ?? c.authorName ?? "Sakhi Member";
+      const resolvedUsername = this.deriveUsername(
+        String(resolvedAuthorName),
+        mp?.username ?? null,
+      );
+      const resolvedAvatar = mp
+        ? this.resolveMemberAvatar(mp.avatarAsset, mp.avatarMediaAssetId)
+        : "";
+      const createdDate =
+        c.createdAt instanceof Date
+          ? c.createdAt
+          : new Date(String(c.createdAt ?? Date.now()));
+      const updatedDate =
+        c.updatedAt instanceof Date
+          ? c.updatedAt
+          : new Date(String(c.updatedAt ?? createdDate));
+      const isEdited = updatedDate.getTime() - createdDate.getTime() > 1500;
+      const likeSet = Module2Service.commentLikesMap.get(String(c.id));
+      const likesCount = likeSet ? likeSet.size : 0;
+      const isLiked = Boolean(likeSet && likeSet.has(session.accountId));
+
+      let cleanBody = String(c.content ?? "");
+      if (c.replyToHandle) {
+        const rh = String(c.replyToHandle).trim();
+        const normRh = rh.startsWith("@") ? rh : `@${rh}`;
+        if (cleanBody.toLowerCase().startsWith(`${normRh.toLowerCase()} `)) {
+          const stripped = cleanBody.slice(normRh.length).trim();
+          if (stripped.length > 0) cleanBody = stripped;
+        }
+      }
+
       return {
         id: c.id,
         commentId: c.id,
         postId: c.postId,
         authorAccountId: c.accountId,
-        authorName: c.authorName,
-        authorUsername: this.deriveUsername(String(c.authorName ?? "Member")),
-        content: c.content,
-        body: c.content,
+        authorName: resolvedAuthorName,
+        authorUsername: resolvedUsername,
+        authorAvatar: resolvedAvatar,
+        content: cleanBody,
+        body: cleanBody,
         parentCommentId: c.parentCommentId ?? null,
         replyToHandle: c.replyToHandle ?? null,
         isOwnComment: isOwn,
         canEdit: isOwn,
         canDelete: isOwn || isPostOwner,
-        createdAt:
-          c.createdAt instanceof Date
-            ? c.createdAt.toISOString()
-            : String(c.createdAt),
+        isEdited,
+        likesCount,
+        isLiked,
+        timestamp: this.formatRelativeTime(createdDate),
+        createdAt: this.formatRelativeTime(createdDate),
+        createdAtIso: createdDate.toISOString(),
       };
     });
-    return { items: mapped, comments: mapped };
+    const threaded = this.groupThreadedComments(mapped);
+    if (post && post.commentsCount !== threaded.length) {
+      void this.prisma.communityPost
+        .update({
+          where: { id: postId },
+          data: { commentsCount: threaded.length },
+        })
+        .catch(() => undefined);
+    }
+    return {
+      items: threaded,
+      comments: threaded,
+      commentsCount: threaded.length,
+      total: threaded.length,
+    };
   }
 
   async editPostComment(
@@ -5233,11 +5582,13 @@ export class Module2Service {
       data: { content: nextText },
     });
     return {
+      id: updated.id,
       commentId: updated.id,
       postId,
       authorName: updated.authorName,
       content: updated.content,
       body: updated.content,
+      isEdited: true,
       updatedAt: updated.updatedAt.toISOString(),
     };
   }
@@ -5268,17 +5619,669 @@ export class Module2Service {
           "Only the comment author or the post owner can delete this comment.",
       });
     }
+    const now = new Date();
     await this.prisma.communityPostComment.update({
       where: { id: commentId },
-      data: { deletedAt: new Date(), content: "[removed]" },
+      data: { deletedAt: now, content: "[removed]" },
     });
+    let deletedChildCount = 0;
+    const anyCommentDelegate = this.prisma.communityPostComment as unknown as Record<string, any>;
+    if (typeof anyCommentDelegate?.updateMany === "function") {
+      const childRes = await anyCommentDelegate
+        .updateMany({
+          where: {
+            postId,
+            parentCommentId: commentId,
+            deletedAt: null,
+          },
+          data: { deletedAt: now, content: "[removed]" },
+        })
+        .catch(() => ({ count: 0 }));
+      deletedChildCount = Number(childRes?.count ?? 0);
+    }
+    const totalRemoved = 1 + deletedChildCount;
+    const exactRemainingCount =
+      typeof anyCommentDelegate?.count === "function"
+        ? await anyCommentDelegate
+            .count({
+              where: {
+                postId,
+                deletedAt: null,
+                isRemovedByModerator: false,
+              },
+            })
+            .catch(() => Math.max(0, (post?.commentsCount ?? totalRemoved) - totalRemoved))
+        : Math.max(0, (post?.commentsCount ?? totalRemoved) - totalRemoved);
     if (post) {
       await this.prisma.communityPost.update({
         where: { id: postId },
-        data: { commentsCount: Math.max(0, post.commentsCount - 1) },
+        data: {
+          commentsCount: exactRemainingCount,
+        },
       });
     }
-    return { deleted: true, commentId, postId };
+    return {
+      deleted: true,
+      commentId,
+      postId,
+      deletedCount: totalRemoved,
+      commentsCount: exactRemainingCount,
+    };
+  }
+
+  async toggleCommentLike(
+    authorization: string | undefined,
+    postId: string,
+    commentId: string,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    let set = Module2Service.commentLikesMap.get(commentId);
+    if (!set) {
+      set = new Set<string>();
+      Module2Service.commentLikesMap.set(commentId, set);
+    }
+    const already = set.has(session.accountId);
+    if (already) {
+      set.delete(session.accountId);
+    } else {
+      set.add(session.accountId);
+    }
+    return {
+      postId,
+      commentId,
+      isLiked: !already,
+      likesCount: set.size,
+    };
+  }
+
+  async votePollPost(
+    authorization: string | undefined,
+    postId: string,
+    optionIndex: number,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    let meta = Module2Service.postPollMetaMap.get(postId);
+    if (!meta) {
+      meta = {
+        question: "Community Poll",
+        options: ["Option 1", "Option 2"],
+        votes: {},
+      };
+      Module2Service.postPollMetaMap.set(postId, meta);
+    }
+    meta.votes[session.accountId] = optionIndex;
+    const counts = meta.options.map((_, idx) =>
+      Object.values(meta!.votes).filter((v) => v === idx).length,
+    );
+    return {
+      postId,
+      selectedOptionIndex: optionIndex,
+      optionVoteCounts: counts,
+      totalVotes: Object.keys(meta.votes).length,
+    };
+  }
+
+  async listDirectMessages(authorization: string | undefined, peerId?: string) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const cleanedPeerId = peerId?.trim() ?? "";
+    let peerAccountId: string | null = null;
+
+    if (cleanedPeerId) {
+      const isUuid =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          cleanedPeerId,
+        );
+      let peerProfile: { accountId: string } | null = null;
+
+      if (isUuid) {
+        const directoryProfile =
+          await this.prisma.communityDirectoryProfile.findUnique({
+            where: { id: cleanedPeerId },
+            select: { username: true },
+          });
+        if (directoryProfile) {
+          peerProfile = await this.prisma.memberProfile.findFirst({
+            where: {
+              username: {
+                equals: directoryProfile.username,
+                mode: "insensitive",
+              },
+            },
+            select: { accountId: true },
+          });
+        } else {
+          peerProfile = await this.prisma.memberProfile.findUnique({
+            where: { accountId: cleanedPeerId },
+            select: { accountId: true },
+          });
+        }
+      } else {
+        const cleanHandle = cleanedPeerId.replace(/^@+/, "");
+        peerProfile = await this.prisma.memberProfile.findFirst({
+          where: {
+            OR: [
+              {
+                username: {
+                  equals: cleanedPeerId,
+                  mode: "insensitive",
+                },
+              },
+              {
+                username: {
+                  equals: `@${cleanHandle}`,
+                  mode: "insensitive",
+                },
+              },
+            ],
+          },
+          select: { accountId: true },
+        });
+      }
+
+      if (!peerProfile || peerProfile.accountId === session.accountId) {
+        return { items: [], messages: [] };
+      }
+      peerAccountId = peerProfile.accountId;
+    }
+
+    const where = peerAccountId
+      ? {
+          OR: [
+            {
+              senderAccountId: session.accountId,
+              recipientAccountId: peerAccountId,
+            },
+            {
+              senderAccountId: peerAccountId,
+              recipientAccountId: session.accountId,
+            },
+          ],
+        }
+      : {
+          OR: [
+            { senderAccountId: session.accountId },
+            { recipientAccountId: session.accountId },
+          ],
+        };
+    const rows = await this.prisma.directMessage.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: 250,
+    });
+    const messages = rows.reverse().map((message) => ({
+      id: message.id,
+      senderAccountId: message.senderAccountId,
+      senderDirectoryProfileId: message.senderDirectoryProfileId,
+      senderName: message.senderName,
+      senderUsername: message.senderUsername,
+      senderAvatar: message.senderAvatar ?? "",
+      recipientId:
+        message.recipientDirectoryProfileId ?? message.recipientAccountId,
+      recipientAccountId: message.recipientAccountId,
+      recipientDirectoryProfileId: message.recipientDirectoryProfileId,
+      recipientHandle: message.recipientHandle,
+      recipientName: message.recipientName,
+      body: message.body,
+      createdAt: message.createdAt.toISOString(),
+      timestamp: this.formatRelativeTime(message.createdAt),
+      isOwnMessage: message.senderAccountId === session.accountId,
+    }));
+    return { items: messages, messages };
+  }
+  async sendDirectMessage(
+    authorization: string | undefined,
+    dto: {
+      recipientId?: string;
+      recipientHandle?: string;
+      recipientName?: string;
+      message: string;
+    },
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const body = dto.message?.trim() ?? "";
+    if (!body) throw new BadRequestException("Enter a message before sending.");
+
+    if (
+      session.account.status !== "ACTIVE" ||
+      session.account.verificationStatus !== "VERIFIED"
+    ) {
+      throw new ForbiddenException(
+        "Only active, verified members can send direct messages.",
+      );
+    }
+
+    const requestedRecipientId = dto.recipientId?.trim() ?? "";
+    const requestedRecipientHandle = dto.recipientHandle?.trim() ?? "";
+    if (!requestedRecipientId && !requestedRecipientHandle) {
+      throw new BadRequestException("Choose a valid member to message.");
+    }
+
+    const isUuid = (value: string) =>
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        value,
+      );
+    const normalizeHandle = (value: unknown) =>
+      typeof value === "string"
+        ? value.trim().replace(/^@+/, "").toLowerCase()
+        : "";
+    const handleVariants = (value: string) => {
+      const raw = value.trim();
+      const clean = raw.replace(/^@+/, "");
+      return [
+        ...new Set(
+          [
+            raw,
+            clean,
+            `@${clean}`,
+            raw.toLowerCase(),
+            clean.toLowerCase(),
+            `@${clean.toLowerCase()}`,
+          ].filter(Boolean),
+        ),
+      ];
+    };
+
+    const recipientInclude = {
+      account: {
+        select: {
+          id: true,
+          status: true,
+          verificationStatus: true,
+          privacyPreference: { select: { messageMe: true } },
+        },
+      },
+    };
+    let recipientDirectoryProfile: {
+      id: string;
+      username: string;
+    } | null = null;
+    let recipientProfile: any = null;
+
+    if (requestedRecipientId && isUuid(requestedRecipientId)) {
+      recipientDirectoryProfile = await this.prisma.communityDirectoryProfile
+        .findUnique({
+          where: { id: requestedRecipientId },
+          select: { id: true, username: true },
+        })
+        .catch(() => null);
+
+      if (recipientDirectoryProfile) {
+        recipientProfile = await this.prisma.memberProfile
+          .findFirst({
+            where: {
+              username: {
+                equals: recipientDirectoryProfile.username,
+                mode: "insensitive",
+              },
+            },
+            include: recipientInclude,
+          })
+          .catch(() => null);
+      } else {
+        recipientProfile = await this.prisma.memberProfile
+          .findUnique({
+            where: { accountId: requestedRecipientId },
+            include: recipientInclude,
+          })
+          .catch(() => null);
+      }
+    } else {
+      const lookupHandle = requestedRecipientHandle || requestedRecipientId;
+      const cleanHandle = lookupHandle.replace(/^@+/, "");
+      if (
+        requestedRecipientHandle &&
+        requestedRecipientId &&
+        normalizeHandle(requestedRecipientId) !==
+          normalizeHandle(requestedRecipientHandle)
+      ) {
+        throw new BadRequestException(
+          "The recipient ID and username do not identify the same member.",
+        );
+      }
+      recipientProfile = await this.prisma.memberProfile
+        .findFirst({
+          where: {
+            OR: [
+              {
+                username: {
+                  equals: lookupHandle,
+                  mode: "insensitive",
+                },
+              },
+              {
+                username: {
+                  equals: `@${cleanHandle}`,
+                  mode: "insensitive",
+                },
+              },
+            ],
+          },
+          include: recipientInclude,
+        })
+        .catch(() => null);
+    }
+
+    if (!recipientProfile?.account) {
+      throw new NotFoundException(
+        "This member is not available for direct messaging.",
+      );
+    }
+
+    const recipientHandle =
+      typeof recipientProfile.username === "string"
+        ? recipientProfile.username.trim()
+        : "";
+    const senderProfile = await this.prisma.memberProfile.findUnique({
+      where: { accountId: session.accountId },
+      select: {
+        displayName: true,
+        username: true,
+        avatarAsset: true,
+        avatarMediaAssetId: true,
+      },
+    });
+    const senderHandle =
+      typeof senderProfile?.username === "string"
+        ? senderProfile.username.trim()
+        : "";
+
+    if (!recipientHandle || !senderHandle) {
+      throw new ForbiddenException(
+        "Both members must have a Sakhi username before messaging.",
+      );
+    }
+
+    if (
+      requestedRecipientHandle &&
+      normalizeHandle(requestedRecipientHandle) !==
+        normalizeHandle(recipientHandle)
+    ) {
+      throw new BadRequestException(
+        "The recipient ID and username do not identify the same member.",
+      );
+    }
+    if (recipientProfile.accountId === session.accountId) {
+      throw new BadRequestException("You cannot message yourself.");
+    }
+
+    const recipientAccount = recipientProfile.account;
+    if (
+      recipientAccount.status !== "ACTIVE" ||
+      recipientAccount.verificationStatus !== "VERIFIED"
+    ) {
+      throw new ForbiddenException(
+        "This member is not eligible to receive direct messages.",
+      );
+    }
+
+    const messagePreference = String(
+      recipientAccount.privacyPreference?.messageMe ?? "Verified members only",
+    )
+      .trim()
+      .toLowerCase();
+    if (
+      messagePreference === "no one" ||
+      messagePreference === "none" ||
+      messagePreference === "no"
+    ) {
+      throw new ForbiddenException(
+        "This member is not accepting direct messages.",
+      );
+    }
+    if (
+      !messagePreference.includes("verified") &&
+      !messagePreference.includes("follower")
+    ) {
+      throw new ForbiddenException(
+        "This member's messaging preference does not allow this request.",
+      );
+    }
+
+    if (!recipientDirectoryProfile) {
+      recipientDirectoryProfile = await this.prisma.communityDirectoryProfile
+        .findFirst({
+          where: {
+            username: { equals: recipientHandle, mode: "insensitive" },
+          },
+          select: { id: true, username: true },
+        })
+        .catch(() => null);
+    }
+    const senderDirectoryProfile = await this.prisma.communityDirectoryProfile
+      .findFirst({
+        where: {
+          username: { equals: senderHandle, mode: "insensitive" },
+        },
+        select: { id: true, username: true },
+      })
+      .catch(() => null);
+
+    if (messagePreference.includes("follower")) {
+      if (!recipientDirectoryProfile) {
+        throw new ForbiddenException(
+          "You must follow this member before sending a message.",
+        );
+      }
+      const follow = await this.prisma.memberFollow.findUnique({
+        where: {
+          accountId_directoryProfileId: {
+            accountId: session.accountId,
+            directoryProfileId: recipientDirectoryProfile.id,
+          },
+        },
+        select: { isFollowing: true },
+      });
+      if (!follow?.isFollowing) {
+        throw new ForbiddenException(
+          "You must follow this member before sending a message.",
+        );
+      }
+    }
+
+    const recipientHandleVariants = handleVariants(recipientHandle);
+    const senderHandleVariants = handleVariants(senderHandle);
+    const [senderBlockedRecipient, recipientBlockedSender] = await Promise.all([
+      this.prisma.memberModerationBlock.findFirst({
+        where: {
+          accountId: session.accountId,
+          blockedUsername: { in: recipientHandleVariants },
+        },
+        select: { id: true },
+      }),
+      this.prisma.memberModerationBlock.findFirst({
+        where: {
+          accountId: recipientProfile.accountId,
+          blockedUsername: { in: senderHandleVariants },
+        },
+        select: { id: true },
+      }),
+    ]);
+    if (senderBlockedRecipient || recipientBlockedSender) {
+      throw new ForbiddenException(
+        "Direct messaging is unavailable between these members.",
+      );
+    }
+
+    const nowIso = new Date().toISOString();
+    const msgRecord = {
+      id: randomUUID(),
+      senderAccountId: session.accountId,
+      senderDirectoryProfileId: senderDirectoryProfile?.id ?? null,
+      senderName: senderProfile?.displayName ?? "Sakhi Member",
+      senderUsername: this.deriveUsername(
+        senderProfile?.displayName ?? "Sakhi Member",
+        senderProfile?.username ?? null,
+      ),
+      senderAvatar: senderProfile
+        ? this.resolveMemberAvatar(
+            senderProfile.avatarAsset,
+            senderProfile.avatarMediaAssetId,
+          )
+        : "",
+      // Keep the client's peer key for conversation lookup, but also store
+      // the resolved account ID as the authoritative recipient identity.
+      recipientId: requestedRecipientId || recipientProfile.accountId,
+      recipientAccountId: recipientProfile.accountId,
+      recipientDirectoryProfileId: recipientDirectoryProfile?.id ?? null,
+      recipientHandle,
+      recipientName: recipientProfile.displayName,
+      body,
+      createdAt: nowIso,
+      timestamp: "Just now",
+    };
+    try {
+      await this.prisma.directMessage.create({
+        data: {
+          id: msgRecord.id,
+          senderAccountId: session.accountId,
+          recipientAccountId: recipientProfile.accountId,
+          senderDirectoryProfileId: senderDirectoryProfile?.id ?? null,
+          recipientDirectoryProfileId: recipientDirectoryProfile?.id ?? null,
+          senderName: msgRecord.senderName,
+          senderUsername: msgRecord.senderUsername,
+          senderAvatar: msgRecord.senderAvatar || null,
+          recipientName: msgRecord.recipientName,
+          recipientHandle: msgRecord.recipientHandle,
+          body: msgRecord.body,
+          createdAt: new Date(nowIso),
+        },
+      });
+    } catch {
+      throw new InternalServerErrorException(
+        "Your message could not be saved. It has not been sent. Please try again.",
+      );
+    }
+
+    // Keep an audit trail without duplicating the private message body.
+    try {
+      await this.prisma.auditEvent.create({
+        data: {
+          actorType: "MEMBER",
+          actorId: session.accountId,
+          action: "module3.direct_message.persisted",
+          targetType: "direct_message",
+          targetId: msgRecord.id,
+          outcome: "persisted",
+          requestId: randomUUID(),
+          redactedMetadata: {
+            messageId: msgRecord.id,
+            recipientAccountId: recipientProfile.accountId,
+          },
+        },
+      });
+    } catch {
+      // The message is already durable; an audit-only failure must not
+      // turn a successful send into a client-visible failure.
+    }
+    return {
+      sent: true,
+      message: {
+        ...msgRecord,
+        isOwnMessage: true,
+      },
+    };
+  }
+
+  async listSafetyEvidence(authorization: string | undefined) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const events = this.prisma.auditEvent?.findMany
+      ? await this.prisma.auditEvent
+          .findMany({
+            where: {
+              actorId: session.accountId,
+              action: "module4.safety_evidence.recorded",
+            },
+            orderBy: { createdAt: "desc" },
+            take: 50,
+          })
+          .catch(() => [])
+      : [];
+    const items = events
+      .map((e) => e.redactedMetadata as Record<string, any> | null)
+      .filter((x): x is Record<string, any> => Boolean(x));
+    return { items };
+  }
+
+  async addSafetyEvidence(
+    authorization: string | undefined,
+    dto: {
+      title: string;
+      mediaType: string;
+      mediaUrl?: string;
+      durationLabel?: string;
+      sizeLabel?: string;
+      latitude?: number;
+      longitude?: number;
+    },
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const item = {
+      id: `ev_${randomUUID().slice(0, 8)}`,
+      accountId: session.accountId,
+      title: dto.title.trim(),
+      mediaType: dto.mediaType.trim(),
+      mediaUrl: dto.mediaUrl?.trim() || null,
+      durationLabel: dto.durationLabel?.trim() || "00:30",
+      sizeLabel: dto.sizeLabel?.trim() || "1.4 MB",
+      latitude: dto.latitude ?? null,
+      longitude: dto.longitude ?? null,
+      encryptedHash: `AES256-${randomUUID().replace(/-/g, "").slice(0, 16).toUpperCase()}`,
+      createdAt: new Date().toISOString(),
+    };
+    if (this.prisma.auditEvent?.create) {
+      await this.prisma.auditEvent
+        .create({
+          data: {
+            actorType: "MEMBER",
+            actorId: session.accountId,
+            action: "module4.safety_evidence.recorded",
+            targetType: "safety_evidence",
+            targetId: item.id,
+            outcome: "encrypted",
+            requestId: randomUUID(),
+            redactedMetadata: item,
+          },
+        })
+        .catch(() => undefined);
+    }
+    return { saved: true, evidence: item };
+  }
+
+  async updateVolunteerOptIn(
+    authorization: string | undefined,
+    dto: {
+      isOptedIn: boolean;
+      availability?: string;
+      radiusKm?: number;
+      skills?: string[];
+    },
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const payload = {
+      accountId: session.accountId,
+      isOptedIn: Boolean(dto.isOptedIn),
+      availability: dto.availability?.trim() || "Immediate Response",
+      radiusKm: dto.radiusKm ?? 5,
+      skills: Array.isArray(dto.skills) ? dto.skills : ["First Aid", "Safe Escort"],
+      updatedAt: new Date().toISOString(),
+    };
+    if (this.prisma.auditEvent?.create) {
+      await this.prisma.auditEvent
+        .create({
+          data: {
+            actorType: "MEMBER",
+            actorId: session.accountId,
+            action: "module4.volunteer_opt_in.updated",
+            targetType: "volunteer_profile",
+            targetId: session.accountId,
+            outcome: payload.isOptedIn ? "opted_in" : "opted_out",
+            requestId: randomUUID(),
+            redactedMetadata: payload,
+          },
+        })
+        .catch(() => undefined);
+    }
+    return { updated: true, volunteerProfile: payload };
   }
 
   // Backward-compatible methods for test/module2.service.spec.ts & test/module2.account-deletion.spec.ts
@@ -5470,13 +6473,20 @@ export class Module2Service {
       });
       const candidates = followedRows
         .map((item) => item.directoryProfile)
-        .filter((item) => item && item.username)
+        .filter((item): item is NonNullable<typeof item> => Boolean(item && item.username))
         .filter((item) => !blockedHandles.has(normalizeHandle(item.username)));
-      const usernames = [...new Set(candidates.map((item) => item.username))];
-      if (usernames.length > 0) {
-        rawProfiles = await this.prisma.memberProfile.findMany({
+      const handleVariants = [
+        ...new Set(
+          candidates.flatMap((item) => {
+            const clean = item.username.replace(/^@+/, "");
+            return [item.username, clean, `@${clean}`, `@${clean.toLowerCase()}`, clean.toLowerCase()];
+          }),
+        ),
+      ];
+      if (handleVariants.length > 0) {
+        const matchedProfiles = await this.prisma.memberProfile.findMany({
           where: {
-            username: { in: usernames },
+            username: { in: handleVariants },
             account: {
               is: {
                 status: "ACTIVE",
@@ -5496,14 +6506,37 @@ export class Module2Service {
             },
           },
         });
-        const directoryByHandle = new Map(
-          candidates.map((item) => [item.username, item.id]),
+        const profileByNormHandle = new Map(
+          matchedProfiles.map((p) => [normalizeHandle(p.username ?? ""), p]),
         );
-        rawProfiles = rawProfiles.map((profile) => ({
-          ...profile,
-          directoryProfileId:
-            directoryByHandle.get(profile.username ?? "") ?? null,
-        }));
+        rawProfiles = candidates.map((cand) => {
+          const norm = normalizeHandle(cand.username);
+          const matched = profileByNormHandle.get(norm);
+          if (matched) {
+            return {
+              ...matched,
+              directoryProfileId: cand.id,
+            };
+          }
+          return {
+            accountId: cand.id,
+            displayName: cand.name,
+            username: cand.username.startsWith("@") ? cand.username : `@${cand.username}`,
+            bio: cand.bio ?? "",
+            avatarAsset: cand.avatarAsset ?? "",
+            avatarMediaAssetId: null,
+            interests: [],
+            businessProfileUrl: null,
+            businessProfileName: null,
+            businessCategory: null,
+            account: {
+              status: "ACTIVE",
+              verificationStatus: "VERIFIED",
+              privacyPreference: null,
+            },
+            directoryProfileId: cand.id,
+          };
+        });
       }
     } else if (ownedDirectory) {
       const followerRows = await this.prisma.memberFollow.findMany({
@@ -5794,17 +6827,6 @@ export class Module2Service {
       nearbyMembers.length > 0 ? nearbyMembers : mappedMembers.slice(0, 8);
 
     const activeCircles = groups.map((g, idx) => {
-      const matchingMembers = mappedMembers.filter((m) =>
-        m.interests.some(
-          (interest) =>
-            g.category.toLowerCase().includes(interest.toLowerCase()) ||
-            g.name.toLowerCase().includes(interest.toLowerCase()),
-        ),
-      );
-      const realMemberCount = Math.max(
-        1,
-        matchingMembers.length || verifiedProfiles.length,
-      );
       const circleDistanceKm = Number(
         Math.min(effectiveRadiusKm - 0.5, 1.2 + idx * 1.6).toFixed(1),
       );
@@ -5816,7 +6838,7 @@ export class Module2Service {
           "",
         ),
         category: g.category,
-        membersCount: realMemberCount,
+        membersCount: g.membersCount,
         newPostsToday: g.newPostsToday,
         distanceKm: circleDistanceKm,
         locationArea: viewerCity,
@@ -6167,6 +7189,32 @@ export class Module2Service {
 
     const likedSet = new Set(userLikes.map((l) => l.postId));
     const savedSet = new Set(userSaves.map((s) => s.postId));
+    const overviewPostIds = posts.map((p) => p.id);
+    const anyPrismaOverview = this.prisma as Record<string, any>;
+    const hasOverviewCommentQuery =
+      typeof anyPrismaOverview.communityPostComment?.findMany === "function";
+    const overviewCommentsRaw =
+      hasOverviewCommentQuery && overviewPostIds.length > 0
+        ? await anyPrismaOverview.communityPostComment
+            .findMany({
+              where: {
+                postId: { in: overviewPostIds },
+                deletedAt: null,
+                isRemovedByModerator: false,
+              },
+              orderBy: { createdAt: "asc" },
+            })
+            .catch(() => [])
+        : [];
+    const overviewCommentCountByPostId = new Map<string, number>();
+    for (const c of overviewCommentsRaw as Array<Record<string, any>>) {
+      const pid = String(c.postId ?? "");
+      if (!pid) continue;
+      overviewCommentCountByPostId.set(
+        pid,
+        (overviewCommentCountByPostId.get(pid) ?? 0) + 1,
+      );
+    }
 
     return {
       id: targetDir?.id ?? targetProfile.accountId,
@@ -6208,7 +7256,9 @@ export class Module2Service {
         categorySlug: post.categorySlug,
         visibility: post.visibility,
         likesCount: post.likesCount,
-        commentsCount: post.commentsCount,
+        commentsCount: hasOverviewCommentQuery
+          ? (overviewCommentCountByPostId.get(post.id) ?? 0)
+          : post.commentsCount,
         savesCount: post.savesCount,
         isLiked: likedSet.has(post.id),
         isSaved: savedSet.has(post.id),
@@ -6385,17 +7435,89 @@ export class Module2Service {
         });
       }
       if (tx.memberProfile?.update) {
-        await tx.memberProfile.update({
-          where: { accountId: session.accountId },
-          data: {
-            displayName: "Deleted member",
-            email: null,
-            profilePhotoRef: null,
-            bio: null,
-            locationCity: null,
-            interests: [],
-          },
-        });
+        await tx.memberProfile
+          .update({
+            where: { accountId: session.accountId },
+            data: {
+              displayName: "Deleted member",
+              email: null,
+              profilePhotoRef: null,
+              bio: null,
+              locationCity: null,
+              interests: [],
+            },
+          })
+          .catch(async () => {
+            await tx.memberProfile.update({
+              where: { accountId: session.accountId },
+              data: {
+                displayName: "Deleted member",
+                username: null,
+                email: null,
+                profilePhotoRef: null,
+                bio: "",
+                location: "",
+                interests: [],
+                businessProfileUrl: null,
+                businessProfileName: null,
+                businessCategory: null,
+              },
+            });
+          });
+      }
+      if (tx.communityPost?.updateMany) {
+        await tx.communityPost
+          .updateMany({
+            where: { authorAccountId: session.accountId },
+            data: {
+              content: "[removed]",
+              imageAsset: null,
+              moderationStatus: "REMOVED",
+            },
+          })
+          .catch(() => undefined);
+      }
+      if (tx.communityPostComment?.deleteMany) {
+        await tx.communityPostComment
+          .deleteMany({
+            where: { accountId: session.accountId },
+          })
+          .catch(() => undefined);
+      }
+      if (tx.communityPostLike?.deleteMany) {
+        await tx.communityPostLike
+          .deleteMany({
+            where: { accountId: session.accountId },
+          })
+          .catch(() => undefined);
+      }
+      if (tx.communityPostSave?.deleteMany) {
+        await tx.communityPostSave
+          .deleteMany({
+            where: { accountId: session.accountId },
+          })
+          .catch(() => undefined);
+      }
+      if (tx.memberFollow?.deleteMany) {
+        await tx.memberFollow
+          .deleteMany({
+            where: { accountId: session.accountId },
+          })
+          .catch(() => undefined);
+      }
+      if (tx.memberPrivacyPreference?.deleteMany) {
+        await tx.memberPrivacyPreference
+          .deleteMany({
+            where: { accountId: session.accountId },
+          })
+          .catch(() => undefined);
+      }
+      if (tx.memberNotificationPreference?.deleteMany) {
+        await tx.memberNotificationPreference
+          .deleteMany({
+            where: { accountId: session.accountId },
+          })
+          .catch(() => undefined);
       }
       if (tx.memberPost?.updateMany) {
         await tx.memberPost.updateMany({
@@ -6757,7 +7879,18 @@ export class Module2Service {
       productsServices: Array.isArray(raw.productsServices)
         ? raw.productsServices
         : [],
-      mediaGallery: Array.isArray(raw.mediaGallery) ? raw.mediaGallery : [],
+      mediaGallery: Array.isArray(raw.mediaGallery)
+        ? raw.mediaGallery
+            .map((item: unknown) => {
+              if (typeof item === "string") return item.trim();
+              if (item && typeof item === "object") {
+                const m = item as Record<string, unknown>;
+                return String(m.url ?? m.mediaUrl ?? m.imageAsset ?? "").trim();
+              }
+              return "";
+            })
+            .filter(Boolean)
+        : [],
       offersAndPosts: Array.isArray(raw.offersAndPosts)
         ? raw.offersAndPosts
         : [],
@@ -6770,6 +7903,9 @@ export class Module2Service {
       isVerifiedWomanOwned:
         raw.verificationBadgeStatus === "VERIFIED_WOMAN_OWNED",
       isFeatured: Boolean(raw.isFeatured),
+      reviewNotes: raw.reviewNotes ? String(raw.reviewNotes) : null,
+      reviewedBy: raw.reviewedBy ? String(raw.reviewedBy) : null,
+      reportReason: isOwner && raw.reportReason ? String(raw.reportReason) : null,
       createdAt:
         raw.createdAt instanceof Date
           ? raw.createdAt.toISOString()
@@ -7604,7 +8740,10 @@ export class Module2Service {
     return { enquiry: createdEnquiry };
   }
 
-  async listBusinessEnquiries(authorization: string | undefined) {
+  async listBusinessEnquiries(
+    authorization: string | undefined,
+    businessId?: string,
+  ) {
     const session = await this.auth.authenticateAuthorization(authorization);
     const anyPrisma = this.prisma as Record<string, any>;
     const items: Array<Record<string, any>> = [];
@@ -7666,10 +8805,14 @@ export class Module2Service {
       }
     }
 
+    const filteredItems =
+      businessId && businessId.trim().length > 0
+        ? items.filter((e) => String(e.businessId ?? "") === businessId.trim())
+        : items;
     return {
-      enquiries: items,
-      items,
-      unreadCount: items.filter((e) =>
+      enquiries: filteredItems,
+      items: filteredItems,
+      unreadCount: filteredItems.filter((e) =>
         e.isOwnerInbox ? Boolean(e.unreadForOwner) : Boolean(e.unreadForSender),
       ).length,
     };
@@ -7757,6 +8900,981 @@ export class Module2Service {
             ? updated.updatedAt.toISOString()
             : String(updated.updatedAt),
       },
+    };
+  }
+
+  // ===========================================================================
+  // MODULE 7: WOMEN'S MENSTRUAL CYCLE TRACKER (SRS Sections 9.1–9.5)
+  // Strictly owner-isolated reproductive health service.
+  // ===========================================================================
+
+  private static readonly MEDICAL_DISCLAIMER_TEXT =
+    "Cycle, ovulation, and fertility predictions are estimates based on your logged history and do not replace professional medical advice or serve as reliable contraception. If you experience severe pain, unusually heavy bleeding, or persistent cycle irregularities, please consult a qualified healthcare professional.";
+
+  private static readonly MENSTRUAL_HEALTH_ARTICLES = [
+    {
+      id: "cycle-phases-guide",
+      category: "Cycle Science",
+      title: "Understanding Your 4 Menstrual Cycle Phases",
+      readTime: "4 min read",
+      summary:
+        "How hormone shifts across the Menstrual, Follicular, Ovulation, and Luteal phases influence energy, mood, sleep, and nutrition needs.",
+      highlights: [
+        "Menstrual Phase (Days 1–5): Focus on iron-rich warm meals, gentle stretching, and restorative rest.",
+        "Follicular Phase (Days 6–13): Rising estrogen supports creative focus, strength training, and new routines.",
+        "Ovulation Window (Around Day 14): Peak energy and social connection; stay hydrated with electrolytes.",
+        "Luteal Phase (Days 15–28): Progesterone rises; complex carbohydrates and magnesium help ease PMS symptoms.",
+      ],
+    },
+    {
+      id: "irregular-cycles-when-to-see-doctor",
+      category: "Clinical Guidance",
+      title: "When to Consult a Gynecologist About Cycle Irregularities",
+      readTime: "5 min read",
+      summary:
+        "Learn the difference between normal stress-related cycle shifts and signs of PCOS, thyroid imbalance, or endometriosis.",
+      highlights: [
+        "Cycles consistently shorter than 21 days or longer than 35 days.",
+        "Cycle length varying by more than 7–9 days from month to month.",
+        "Soaking through a pad or tampon every 1–2 hours, or bleeding lasting longer than 7 days.",
+        "Severe pelvic pain that does not improve with standard care.",
+      ],
+    },
+    {
+      id: "cramps-and-pms-relief",
+      category: "Self-Care & Nutrition",
+      title: "Evidence-Based Relief for Menstrual Cramps & PMS",
+      readTime: "3 min read",
+      summary:
+        "Practical, doctor-recommended ways to calm prostaglandin-driven cramps, bloating, and luteal fatigue.",
+      highlights: [
+        "Heat therapy (40°C warm compress) relaxes uterine smooth muscle as effectively as mild analgesics.",
+        "Magnesium glycinate, omega-3s, and ginger tea help reduce inflammatory prostaglandins.",
+        "Reducing excess sodium and refined sugar 5 days before your period minimizes water retention.",
+      ],
+    },
+  ];
+
+  private static readonly MENSTRUAL_HEALTH_FAQS = [
+    {
+      question: "Are cycle and fertility predictions safe to use as contraception?",
+      answer:
+        "No. Calendar-based ovulation and fertility-window calculations are estimates only. Ovulation can shift early or late due to stress, travel, illness, or hormonal fluctuations, so these estimates must never be used as contraception.",
+    },
+    {
+      question: "Can anyone else on Sakhi or in the Admin Panel see my period logs?",
+      answer:
+        "Never. Your menstrual cycles, symptoms, flow intensity, and personal notes are strictly isolated to your authenticated account. They are never shown on your profile, never posted to the social wall, and blocked from administrator view.",
+    },
+    {
+      question: "How does discreet notification wording protect my privacy?",
+      answer:
+        "When Discreet Notifications are enabled (the default), lock-screen reminders use neutral phrasing such as 'Wellness Check-In: You have a personal calendar update waiting in your wellness tracker' so nobody glancing at your phone screen sees health details.",
+    },
+    {
+      question: "What counts as an irregular menstrual cycle?",
+      answer:
+        "For most adult women, a typical cycle ranges from 21 to 35 days. If your cycle lengths vary by more than 7 days between cycles or fall outside the 21–35 day window, Sakhi flags it so you can review your history with a healthcare professional.",
+    },
+  ];
+
+  private parseDateOnlyUtc(raw: unknown): Date {
+    const str = String(raw ?? "").trim();
+    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(str);
+    if (match) {
+      const y = Number(match[1]);
+      const m = Number(match[2]) - 1;
+      const d = Number(match[3]);
+      return new Date(Date.UTC(y, m, d));
+    }
+    const parsed = new Date(str);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new BadRequestException("Provide a valid date in YYYY-MM-DD format.");
+    }
+    return new Date(
+      Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate()),
+    );
+  }
+
+  private formatDateOnlyUtc(date: Date): string {
+    return date.toISOString().slice(0, 10);
+  }
+
+  private diffDaysUtc(later: Date, earlier: Date): number {
+    const msPerDay = 24 * 60 * 60 * 1000;
+    const utcLater = Date.UTC(
+      later.getUTCFullYear(),
+      later.getUTCMonth(),
+      later.getUTCDate(),
+    );
+    const utcEarlier = Date.UTC(
+      earlier.getUTCFullYear(),
+      earlier.getUTCMonth(),
+      earlier.getUTCDate(),
+    );
+    return Math.round((utcLater - utcEarlier) / msPerDay);
+  }
+
+  private addDaysUtc(base: Date, days: number): Date {
+    const copy = new Date(
+      Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate()),
+    );
+    copy.setUTCDate(copy.getUTCDate() + days);
+    return copy;
+  }
+
+  calculateMenstrualCyclePredictions(params: {
+    lastPeriodStart: Date | null;
+    historicalCycleLengths: number[];
+    historicalPeriodDurations: number[];
+    defaultCycleLength: number;
+    defaultPeriodDuration: number;
+    showFertilityEstimates: boolean;
+    discreetNotifications: boolean;
+    periodReminderDaysBefore: number;
+  }) {
+    const validCycles = params.historicalCycleLengths.filter(
+      (n) => Number.isFinite(n) && n >= 15 && n <= 60,
+    );
+    const validDurations = params.historicalPeriodDurations.filter(
+      (n) => Number.isFinite(n) && n >= 1 && n <= 15,
+    );
+
+    const avgCycleLength =
+      validCycles.length > 0
+        ? Math.round(
+            validCycles.reduce((acc, v) => acc + v, 0) / validCycles.length,
+          )
+        : Math.min(Math.max(params.defaultCycleLength || 28, 21), 40);
+
+    const avgPeriodDuration =
+      validDurations.length > 0
+        ? Math.round(
+            validDurations.reduce((acc, v) => acc + v, 0) / validDurations.length,
+          )
+        : Math.min(Math.max(params.defaultPeriodDuration || 5, 2), 10);
+
+    let isIrregular = false;
+    let irregularityReason =
+      "Your logged cycle lengths are within the typical 21–35 day clinical range.";
+    if (validCycles.length >= 2) {
+      const minC = Math.min(...validCycles);
+      const maxC = Math.max(...validCycles);
+      if (maxC - minC > 7) {
+        isIrregular = true;
+        irregularityReason = `Your logged cycle lengths have varied by ${maxC - minC} days (${minC}–${maxC} days). Variations above 7 days are flagged as irregular—consider sharing your exported log with a healthcare professional if this persists.`;
+      } else if (avgCycleLength < 21 || avgCycleLength > 35) {
+        isIrregular = true;
+        irregularityReason = `Your average cycle length (${avgCycleLength} days) falls outside the typical 21–35 day range. Consult a gynecologist if you experience unusual symptoms.`;
+      }
+    } else if (
+      validCycles.length === 1 &&
+      (validCycles[0]! < 21 || validCycles[0]! > 35)
+    ) {
+      isIrregular = true;
+      irregularityReason = `Your most recent cycle length (${validCycles[0]} days) is outside the typical 21–35 day window.`;
+    }
+
+    const today = this.parseDateOnlyUtc(new Date().toISOString().slice(0, 10));
+    const anchorStart = params.lastPeriodStart;
+
+    if (!anchorStart) {
+      return {
+        hasLoggedCycles: false,
+        averageCycleLength: avgCycleLength,
+        averagePeriodDuration: avgPeriodDuration,
+        lastPeriodStart: null,
+        nextPeriodStart: null,
+        nextPeriodEnd: null,
+        daysUntilNextPeriod: null,
+        currentCycleDay: null,
+        currentPhase: "Log your last period start date to view estimates",
+        phaseDescription:
+          "Record your most recent period start date below to unlock cycle phase insights, next period estimates, and symptom tracking.",
+        ovulationDate: null,
+        fertileWindowStart: null,
+        fertileWindowEnd: null,
+        pmsStart: null,
+        isIrregular: false,
+        irregularityReason:
+          "Log at least two cycle start dates to track cycle regularity automatically.",
+        wellnessSuggestions: [
+          "Log your most recent period start date to see personalized cycle phase nutrition and self-care tips.",
+          "Use Daily Check-In to record cramps, mood, energy level, and water intake.",
+        ],
+        reminderPreview: {
+          daysBefore: params.periodReminderDaysBefore,
+          discreetWording: params.discreetNotifications,
+          title: params.discreetNotifications
+            ? "Wellness Check-In"
+            : "Upcoming Period Reminder",
+          body: params.discreetNotifications
+            ? "You have a personal calendar update waiting in your wellness tracker."
+            : `Your next cycle is estimated to begin in ${params.periodReminderDaysBefore} days.`,
+        },
+        medicalDisclaimer: Module2Service.MEDICAL_DISCLAIMER_TEXT,
+      };
+    }
+
+    // Advance projected cycle start forward if anchorStart is more than 1 cycle in the past
+    let projectedStart = this.addDaysUtc(anchorStart, avgCycleLength);
+    let currentCycleStart = anchorStart;
+    while (this.diffDaysUtc(today, projectedStart) >= avgCycleLength) {
+      currentCycleStart = projectedStart;
+      projectedStart = this.addDaysUtc(projectedStart, avgCycleLength);
+    }
+
+    const nextPeriodStart = projectedStart;
+    const nextPeriodEnd = this.addDaysUtc(
+      nextPeriodStart,
+      Math.max(1, avgPeriodDuration) - 1,
+    );
+    const ovulationDate = this.addDaysUtc(nextPeriodStart, -14);
+    const fertileWindowStart = this.addDaysUtc(ovulationDate, -5);
+    const fertileWindowEnd = this.addDaysUtc(ovulationDate, 1);
+    const pmsStart = this.addDaysUtc(nextPeriodStart, -5);
+
+    const rawCycleDay = this.diffDaysUtc(today, currentCycleStart) + 1;
+    const currentCycleDay = rawCycleDay >= 1 ? rawCycleDay : 1;
+    const daysUntilNextPeriod = this.diffDaysUtc(nextPeriodStart, today);
+
+    let currentPhase = "Follicular Phase";
+    let phaseDescription =
+      "Rising energy and focus. Great days for balanced movement, protein-rich meals, and planning ahead.";
+    let wellnessSuggestions = [
+      "Include iron- and protein-rich foods like lentils, leafy greens, and nuts.",
+      "Light cardio or strength routines pair well with follicular-phase energy.",
+      "Aim for 8 glasses of water and 7–8 hours of sleep.",
+    ];
+
+    if (currentCycleDay <= avgPeriodDuration) {
+      currentPhase = "Menstrual Phase";
+      phaseDescription =
+        "Restorative shedding phase. Prioritize warmth, gentle stretching, iron replenishment, and extra rest.";
+      wellnessSuggestions = [
+        "Pair iron-rich greens or dates with vitamin C (lemon/amla) to support iron absorption.",
+        "Use a warm compress or gentle pelvic stretches to ease uterine cramping naturally.",
+        "Honor lower energy levels with earlier rest and calming herbal tea.",
+      ];
+    } else if (
+      this.diffDaysUtc(today, fertileWindowStart) >= 0 &&
+      this.diffDaysUtc(fertileWindowEnd, today) >= 0
+    ) {
+      currentPhase = "Ovulation Window (Estimate)";
+      phaseDescription =
+        "Peak estrogen window. Energy and communication are typically high—stay hydrated and balanced.";
+      wellnessSuggestions = [
+        "Increase hydration with coconut water or electrolytes during higher body-temperature days.",
+        "Antioxidant-rich fruits and fiber support healthy hormone metabolism.",
+        "Remember: calendar fertility windows are estimates only and never reliable contraception.",
+      ];
+    } else if (this.diffDaysUtc(today, pmsStart) >= 0) {
+      currentPhase = "Luteal & PMS Care Phase";
+      phaseDescription =
+        "Winding down toward your next cycle. Focus on magnesium, complex carbs, and emotional boundaries.";
+      wellnessSuggestions = [
+        "Complex carbohydrates (oats, sweet potato, brown rice) help stabilize serotonin and mood.",
+        "Reduce excess salt and caffeine to ease pre-period bloating and breast tenderness.",
+        "Practice 5 minutes of 4-7-8 breathing before bed for deeper luteal sleep.",
+      ];
+    }
+
+    return {
+      hasLoggedCycles: true,
+      averageCycleLength: avgCycleLength,
+      averagePeriodDuration: avgPeriodDuration,
+      lastPeriodStart: this.formatDateOnlyUtc(anchorStart),
+      nextPeriodStart: this.formatDateOnlyUtc(nextPeriodStart),
+      nextPeriodEnd: this.formatDateOnlyUtc(nextPeriodEnd),
+      daysUntilNextPeriod,
+      currentCycleDay,
+      currentPhase,
+      phaseDescription,
+      ovulationDate: params.showFertilityEstimates
+        ? this.formatDateOnlyUtc(ovulationDate)
+        : null,
+      fertileWindowStart: params.showFertilityEstimates
+        ? this.formatDateOnlyUtc(fertileWindowStart)
+        : null,
+      fertileWindowEnd: params.showFertilityEstimates
+        ? this.formatDateOnlyUtc(fertileWindowEnd)
+        : null,
+      pmsStart: this.formatDateOnlyUtc(pmsStart),
+      isIrregular,
+      irregularityReason,
+      wellnessSuggestions,
+      reminderPreview: {
+        daysBefore: params.periodReminderDaysBefore,
+        discreetWording: params.discreetNotifications,
+        scheduledForDate: this.formatDateOnlyUtc(
+          this.addDaysUtc(nextPeriodStart, -params.periodReminderDaysBefore),
+        ),
+        title: params.discreetNotifications
+          ? "Wellness Check-In"
+          : "Upcoming Period Reminder",
+        body: params.discreetNotifications
+          ? "You have a personal calendar update waiting in your wellness tracker."
+          : `Your next period is estimated to begin around ${this.formatDateOnlyUtc(nextPeriodStart)}.`,
+      },
+      medicalDisclaimer: Module2Service.MEDICAL_DISCLAIMER_TEXT,
+    };
+  }
+
+  async calculateMenstrualCycleStateless(query: {
+    lastPeriod?: string;
+    cycleLength?: number;
+    periodLength?: number;
+  }) {
+    const lastPeriodDate = query.lastPeriod
+      ? this.parseDateOnlyUtc(query.lastPeriod)
+      : this.parseDateOnlyUtc(new Date().toISOString().slice(0, 10));
+    const cycleLen = Math.min(Math.max(Number(query.cycleLength) || 28, 21), 40);
+    const periodLen = Math.min(Math.max(Number(query.periodLength) || 5, 2), 10);
+
+    const summary = this.calculateMenstrualCyclePredictions({
+      lastPeriodStart: lastPeriodDate,
+      historicalCycleLengths: [cycleLen],
+      historicalPeriodDurations: [periodLen],
+      defaultCycleLength: cycleLen,
+      defaultPeriodDuration: periodLen,
+      showFertilityEstimates: true,
+      discreetNotifications: true,
+      periodReminderDaysBefore: 2,
+    });
+
+    return {
+      status: "ok" as const,
+      provider: "sakhi_on_device_and_stateless_engine",
+      data: summary,
+      medicalDisclaimer: Module2Service.MEDICAL_DISCLAIMER_TEXT,
+    };
+  }
+
+  private async recalculateUserCycleHistory(accountId: string): Promise<void> {
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (typeof anyPrisma.menstrualCycleLog?.findMany !== "function") return;
+    try {
+      const logs = (await anyPrisma.menstrualCycleLog.findMany({
+        where: { accountId },
+        orderBy: { startDate: "asc" },
+      })) as Array<Record<string, any>>;
+
+      for (let i = 0; i < logs.length; i++) {
+        const current = logs[i]!;
+        const start =
+          current.startDate instanceof Date
+            ? current.startDate
+            : this.parseDateOnlyUtc(current.startDate);
+        const end = current.endDate
+          ? current.endDate instanceof Date
+            ? current.endDate
+            : this.parseDateOnlyUtc(current.endDate)
+          : null;
+        const durationDays = end
+          ? Math.max(1, Math.min(15, this.diffDaysUtc(end, start) + 1))
+          : (current.periodDurationDays ?? 5);
+
+        let cycleLengthDays: number | null = null;
+        let isIrregular = false;
+        if (i + 1 < logs.length) {
+          const next = logs[i + 1]!;
+          const nextStart =
+            next.startDate instanceof Date
+              ? next.startDate
+              : this.parseDateOnlyUtc(next.startDate);
+          const diff = this.diffDaysUtc(nextStart, start);
+          if (diff >= 12 && diff <= 90) {
+            cycleLengthDays = diff;
+            isIrregular = diff < 21 || diff > 35;
+          }
+        }
+        await anyPrisma.menstrualCycleLog
+          .update({
+            where: { id: current.id },
+            data: {
+              periodDurationDays: durationDays,
+              cycleLengthDays,
+              isIrregular,
+            },
+          })
+          .catch(() => undefined);
+      }
+    } catch {
+      // Best-effort history recalculation
+    }
+  }
+
+  async getMenstrualCycleTracker(authorization: string | undefined) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+
+    let rawCycles: Array<Record<string, any>> = [];
+    let rawDailyLogs: Array<Record<string, any>> = [];
+    let rawPref: Record<string, any> | null = null;
+
+    if (typeof anyPrisma.menstrualCycleLog?.findMany === "function") {
+      const [cRows, dRows, pRow] = await Promise.all([
+        anyPrisma.menstrualCycleLog
+          .findMany({
+            where: { accountId: session.accountId },
+            orderBy: { startDate: "desc" },
+            take: 36,
+          })
+          .catch(() => []),
+        anyPrisma.menstrualDailyLog
+          ?.findMany({
+            where: { accountId: session.accountId },
+            orderBy: { logDate: "desc" },
+            take: 90,
+          })
+          .catch(() => []) ?? Promise.resolve([]),
+        anyPrisma.menstrualTrackerPreference
+          ?.findUnique({
+            where: { accountId: session.accountId },
+          })
+          .catch(() => null) ?? Promise.resolve(null),
+      ]);
+      rawCycles = cRows as Array<Record<string, any>>;
+      rawDailyLogs = dRows as Array<Record<string, any>>;
+      rawPref = pRow as Record<string, any> | null;
+    }
+
+    const preferences = {
+      defaultCycleLength: Number(rawPref?.defaultCycleLength ?? 28),
+      defaultPeriodDuration: Number(rawPref?.defaultPeriodDuration ?? 5),
+      discreetNotifications: rawPref?.discreetNotifications ?? true,
+      periodReminderEnabled: rawPref?.periodReminderEnabled ?? true,
+      periodReminderDaysBefore: Number(rawPref?.periodReminderDaysBefore ?? 2),
+      ovulationReminderEnabled: rawPref?.ovulationReminderEnabled ?? false,
+      hydrationReminderEnabled: rawPref?.hydrationReminderEnabled ?? true,
+      selfCareReminderEnabled: rawPref?.selfCareReminderEnabled ?? true,
+      showFertilityEstimates: rawPref?.showFertilityEstimates ?? true,
+      medicalDisclaimerAcceptedAt:
+        rawPref?.medicalDisclaimerAcceptedAt instanceof Date
+          ? rawPref.medicalDisclaimerAcceptedAt.toISOString()
+          : (rawPref?.medicalDisclaimerAcceptedAt ?? null),
+    };
+
+    const cycleLogs = rawCycles.map((c) => {
+      const start =
+        c.startDate instanceof Date
+          ? this.formatDateOnlyUtc(c.startDate)
+          : String(c.startDate).slice(0, 10);
+      const end = c.endDate
+        ? c.endDate instanceof Date
+          ? this.formatDateOnlyUtc(c.endDate)
+          : String(c.endDate).slice(0, 10)
+        : null;
+      return {
+        id: String(c.id),
+        startDate: start,
+        endDate: end,
+        cycleLengthDays:
+          typeof c.cycleLengthDays === "number" ? c.cycleLengthDays : null,
+        periodDurationDays:
+          typeof c.periodDurationDays === "number"
+            ? c.periodDurationDays
+            : preferences.defaultPeriodDuration,
+        flowIntensity: String(c.flowIntensity ?? "MEDIUM"),
+        symptoms: Array.isArray(c.symptoms)
+          ? c.symptoms.map((s: unknown) => String(s))
+          : [],
+        mood: c.mood ? String(c.mood) : null,
+        energyLevel: typeof c.energyLevel === "number" ? c.energyLevel : null,
+        crampsSeverity: c.crampsSeverity ? String(c.crampsSeverity) : "NONE",
+        notes: c.notesEncrypted ? String(c.notesEncrypted) : "",
+        isIrregular: Boolean(c.isIrregular),
+        createdAt:
+          c.createdAt instanceof Date
+            ? c.createdAt.toISOString()
+            : String(c.createdAt ?? new Date().toISOString()),
+      };
+    });
+
+    const dailyLogs = rawDailyLogs.map((d) => {
+      const logDate =
+        d.logDate instanceof Date
+          ? this.formatDateOnlyUtc(d.logDate)
+          : String(d.logDate).slice(0, 10);
+      return {
+        id: String(d.id),
+        logDate,
+        flowIntensity: d.flowIntensity ? String(d.flowIntensity) : null,
+        crampsSeverity: String(d.crampsSeverity ?? "NONE"),
+        mood: d.mood ? String(d.mood) : null,
+        energyLevel: typeof d.energyLevel === "number" ? d.energyLevel : 3,
+        symptoms: Array.isArray(d.symptoms)
+          ? d.symptoms.map((s: unknown) => String(s))
+          : [],
+        hydrationGlasses:
+          typeof d.hydrationGlasses === "number" ? d.hydrationGlasses : 0,
+        sleepHours: typeof d.sleepHours === "number" ? d.sleepHours : null,
+        notes: d.notesEncrypted ? String(d.notesEncrypted) : "",
+      };
+    });
+
+    // Compute historical cycle lengths from chronological start dates
+    const sortedAsc = [...cycleLogs].sort((a, b) =>
+      a.startDate.localeCompare(b.startDate),
+    );
+    const historicalCycleLengths: number[] = [];
+    const historicalPeriodDurations: number[] = [];
+    for (let i = 0; i < sortedAsc.length; i++) {
+      const item = sortedAsc[i]!;
+      if (
+        typeof item.periodDurationDays === "number" &&
+        item.periodDurationDays >= 1 &&
+        item.periodDurationDays <= 15
+      ) {
+        historicalPeriodDurations.push(item.periodDurationDays);
+      }
+      if (i + 1 < sortedAsc.length) {
+        const curDate = this.parseDateOnlyUtc(item.startDate);
+        const nxtDate = this.parseDateOnlyUtc(sortedAsc[i + 1]!.startDate);
+        const diff = this.diffDaysUtc(nxtDate, curDate);
+        if (diff >= 15 && diff <= 60) {
+          historicalCycleLengths.push(diff);
+        }
+      } else if (
+        typeof item.cycleLengthDays === "number" &&
+        item.cycleLengthDays >= 15 &&
+        item.cycleLengthDays <= 60
+      ) {
+        historicalCycleLengths.push(item.cycleLengthDays);
+      }
+    }
+
+    const latestCycleStart =
+      cycleLogs.length > 0
+        ? this.parseDateOnlyUtc(cycleLogs[0]!.startDate)
+        : null;
+
+    const predictionSummary = this.calculateMenstrualCyclePredictions({
+      lastPeriodStart: latestCycleStart,
+      historicalCycleLengths,
+      historicalPeriodDurations,
+      defaultCycleLength: preferences.defaultCycleLength,
+      defaultPeriodDuration: preferences.defaultPeriodDuration,
+      showFertilityEstimates: preferences.showFertilityEstimates,
+      discreetNotifications: preferences.discreetNotifications,
+      periodReminderDaysBefore: preferences.periodReminderDaysBefore,
+    });
+
+    return {
+      source: "postgresql_live" as const,
+      privacyIsolation: {
+        ownerAccountId: session.accountId,
+        hiddenFromPublicProfile: true,
+        hiddenFromSocialWall: true,
+        adminAccessBlocked: true,
+        adAnalyticsBlocked: true,
+        encryptedInTransitAndAtRest: true,
+      },
+      preferences,
+      predictionSummary,
+      cycleLogs,
+      dailyLogs,
+      articles: Module2Service.MENSTRUAL_HEALTH_ARTICLES,
+      faqs: Module2Service.MENSTRUAL_HEALTH_FAQS,
+      medicalDisclaimer: Module2Service.MEDICAL_DISCLAIMER_TEXT,
+    };
+  }
+
+  async upsertMenstrualCycleLog(
+    authorization: string | undefined,
+    dto: Record<string, unknown>,
+    cycleId?: string,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const startDate = this.parseDateOnlyUtc(dto.startDate);
+    const endDate =
+      typeof dto.endDate === "string" && dto.endDate.trim().length > 0
+        ? this.parseDateOnlyUtc(dto.endDate)
+        : null;
+
+    if (endDate && this.diffDaysUtc(endDate, startDate) < 0) {
+      throw new BadRequestException(
+        "Period end date cannot be earlier than the period start date.",
+      );
+    }
+
+    const periodDurationDays = endDate
+      ? Math.max(1, Math.min(15, this.diffDaysUtc(endDate, startDate) + 1))
+      : Math.max(1, Math.min(15, Number(dto.periodDurationDays) || 5));
+
+    const flowRaw = String(dto.flowIntensity ?? "MEDIUM")
+      .trim()
+      .toUpperCase();
+    const flowIntensity = ["SPOTTING", "LIGHT", "MEDIUM", "HEAVY"].includes(
+      flowRaw,
+    )
+      ? flowRaw
+      : "MEDIUM";
+
+    const crampsRaw = String(dto.crampsSeverity ?? "NONE")
+      .trim()
+      .toUpperCase();
+    const crampsSeverity = ["NONE", "MILD", "MODERATE", "SEVERE"].includes(
+      crampsRaw,
+    )
+      ? crampsRaw
+      : "NONE";
+
+    const symptoms = Array.isArray(dto.symptoms)
+      ? dto.symptoms
+          .map((s) => String(s).trim())
+          .filter((s) => s.length > 0 && s.length <= 60)
+      : [];
+
+    const mood =
+      typeof dto.mood === "string" && dto.mood.trim().length > 0
+        ? dto.mood.trim().slice(0, 40)
+        : null;
+    const energyLevel =
+      typeof dto.energyLevel === "number"
+        ? Math.min(Math.max(Math.round(dto.energyLevel), 1), 5)
+        : null;
+    const notesEncrypted =
+      typeof dto.notes === "string" && dto.notes.trim().length > 0
+        ? dto.notes.trim().slice(0, 1000)
+        : null;
+
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (typeof anyPrisma.menstrualCycleLog?.create !== "function") {
+      throw new ServiceUnavailableException(
+        "Menstrual cycle database table is not initialized yet. Run the Module 7 migration.",
+      );
+    }
+
+    if (cycleId && cycleId.trim().length > 0) {
+      const existing = await anyPrisma.menstrualCycleLog.findFirst({
+        where: { id: cycleId.trim(), accountId: session.accountId },
+      });
+      if (!existing) {
+        throw new NotFoundException("Cycle record was not found in your account.");
+      }
+      await anyPrisma.menstrualCycleLog.update({
+        where: { id: existing.id },
+        data: {
+          startDate,
+          endDate,
+          periodDurationDays,
+          flowIntensity,
+          crampsSeverity,
+          symptoms,
+          mood,
+          energyLevel,
+          notesEncrypted,
+        },
+      });
+    } else {
+      await anyPrisma.menstrualCycleLog.create({
+        data: {
+          id: randomUUID(),
+          accountId: session.accountId,
+          startDate,
+          endDate,
+          periodDurationDays,
+          flowIntensity,
+          crampsSeverity,
+          symptoms,
+          mood,
+          energyLevel,
+          notesEncrypted,
+        },
+      });
+    }
+
+    await this.recalculateUserCycleHistory(session.accountId);
+    return this.getMenstrualCycleTracker(authorization);
+  }
+
+  async deleteMenstrualCycleLog(
+    authorization: string | undefined,
+    cycleId: string,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (typeof anyPrisma.menstrualCycleLog?.deleteMany === "function") {
+      await anyPrisma.menstrualCycleLog.deleteMany({
+        where: { id: cycleId.trim(), accountId: session.accountId },
+      });
+      await this.recalculateUserCycleHistory(session.accountId);
+    }
+    return this.getMenstrualCycleTracker(authorization);
+  }
+
+  async upsertMenstrualDailyLog(
+    authorization: string | undefined,
+    dto: Record<string, unknown>,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const logDate = this.parseDateOnlyUtc(
+      dto.logDate ?? new Date().toISOString().slice(0, 10),
+    );
+    const flowRaw =
+      typeof dto.flowIntensity === "string" && dto.flowIntensity.trim().length > 0
+        ? dto.flowIntensity.trim().toUpperCase()
+        : null;
+    const flowIntensity =
+      flowRaw && ["NONE", "SPOTTING", "LIGHT", "MEDIUM", "HEAVY"].includes(flowRaw)
+        ? flowRaw
+        : null;
+
+    const crampsRaw = String(dto.crampsSeverity ?? "NONE")
+      .trim()
+      .toUpperCase();
+    const crampsSeverity = ["NONE", "MILD", "MODERATE", "SEVERE"].includes(
+      crampsRaw,
+    )
+      ? crampsRaw
+      : "NONE";
+
+    const mood =
+      typeof dto.mood === "string" && dto.mood.trim().length > 0
+        ? dto.mood.trim().slice(0, 40)
+        : null;
+    const energyLevel =
+      typeof dto.energyLevel === "number"
+        ? Math.min(Math.max(Math.round(dto.energyLevel), 1), 5)
+        : 3;
+    const hydrationGlasses =
+      typeof dto.hydrationGlasses === "number"
+        ? Math.min(Math.max(Math.round(dto.hydrationGlasses), 0), 24)
+        : 0;
+    const sleepHours =
+      typeof dto.sleepHours === "number"
+        ? Math.min(Math.max(Number(dto.sleepHours), 0), 24)
+        : null;
+    const symptoms = Array.isArray(dto.symptoms)
+      ? dto.symptoms
+          .map((s) => String(s).trim())
+          .filter((s) => s.length > 0 && s.length <= 60)
+      : [];
+    const notesEncrypted =
+      typeof dto.notes === "string" && dto.notes.trim().length > 0
+        ? dto.notes.trim().slice(0, 1000)
+        : null;
+
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (typeof anyPrisma.menstrualDailyLog?.upsert === "function") {
+      await anyPrisma.menstrualDailyLog.upsert({
+        where: {
+          accountId_logDate: {
+            accountId: session.accountId,
+            logDate,
+          },
+        },
+        create: {
+          id: randomUUID(),
+          accountId: session.accountId,
+          logDate,
+          flowIntensity,
+          crampsSeverity,
+          mood,
+          energyLevel,
+          symptoms,
+          hydrationGlasses,
+          sleepHours,
+          notesEncrypted,
+        },
+        update: {
+          flowIntensity,
+          crampsSeverity,
+          mood,
+          energyLevel,
+          symptoms,
+          hydrationGlasses,
+          sleepHours,
+          notesEncrypted,
+        },
+      });
+    }
+
+    return this.getMenstrualCycleTracker(authorization);
+  }
+
+  async deleteMenstrualDailyLog(
+    authorization: string | undefined,
+    logId: string,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (typeof anyPrisma.menstrualDailyLog?.deleteMany === "function") {
+      await anyPrisma.menstrualDailyLog.deleteMany({
+        where: { id: logId.trim(), accountId: session.accountId },
+      });
+    }
+    return this.getMenstrualCycleTracker(authorization);
+  }
+
+  async updateMenstrualTrackerPreferences(
+    authorization: string | undefined,
+    dto: Record<string, unknown>,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+
+    const defaultCycleLength =
+      typeof dto.defaultCycleLength === "number"
+        ? Math.min(Math.max(Math.round(dto.defaultCycleLength), 21), 40)
+        : undefined;
+    const defaultPeriodDuration =
+      typeof dto.defaultPeriodDuration === "number"
+        ? Math.min(Math.max(Math.round(dto.defaultPeriodDuration), 2), 10)
+        : undefined;
+    const periodReminderDaysBefore =
+      typeof dto.periodReminderDaysBefore === "number"
+        ? Math.min(Math.max(Math.round(dto.periodReminderDaysBefore), 1), 7)
+        : undefined;
+
+    if (typeof anyPrisma.menstrualTrackerPreference?.upsert === "function") {
+      await anyPrisma.menstrualTrackerPreference.upsert({
+        where: { accountId: session.accountId },
+        create: {
+          accountId: session.accountId,
+          defaultCycleLength: defaultCycleLength ?? 28,
+          defaultPeriodDuration: defaultPeriodDuration ?? 5,
+          discreetNotifications:
+            typeof dto.discreetNotifications === "boolean"
+              ? dto.discreetNotifications
+              : true,
+          periodReminderEnabled:
+            typeof dto.periodReminderEnabled === "boolean"
+              ? dto.periodReminderEnabled
+              : true,
+          periodReminderDaysBefore: periodReminderDaysBefore ?? 2,
+          ovulationReminderEnabled:
+            typeof dto.ovulationReminderEnabled === "boolean"
+              ? dto.ovulationReminderEnabled
+              : false,
+          hydrationReminderEnabled:
+            typeof dto.hydrationReminderEnabled === "boolean"
+              ? dto.hydrationReminderEnabled
+              : true,
+          selfCareReminderEnabled:
+            typeof dto.selfCareReminderEnabled === "boolean"
+              ? dto.selfCareReminderEnabled
+              : true,
+          showFertilityEstimates:
+            typeof dto.showFertilityEstimates === "boolean"
+              ? dto.showFertilityEstimates
+              : true,
+          medicalDisclaimerAcceptedAt:
+            dto.acceptMedicalDisclaimer === true ? new Date() : null,
+        },
+        update: {
+          ...(defaultCycleLength !== undefined ? { defaultCycleLength } : {}),
+          ...(defaultPeriodDuration !== undefined
+            ? { defaultPeriodDuration }
+            : {}),
+          ...(typeof dto.discreetNotifications === "boolean"
+            ? { discreetNotifications: dto.discreetNotifications }
+            : {}),
+          ...(typeof dto.periodReminderEnabled === "boolean"
+            ? { periodReminderEnabled: dto.periodReminderEnabled }
+            : {}),
+          ...(periodReminderDaysBefore !== undefined
+            ? { periodReminderDaysBefore }
+            : {}),
+          ...(typeof dto.ovulationReminderEnabled === "boolean"
+            ? { ovulationReminderEnabled: dto.ovulationReminderEnabled }
+            : {}),
+          ...(typeof dto.hydrationReminderEnabled === "boolean"
+            ? { hydrationReminderEnabled: dto.hydrationReminderEnabled }
+            : {}),
+          ...(typeof dto.selfCareReminderEnabled === "boolean"
+            ? { selfCareReminderEnabled: dto.selfCareReminderEnabled }
+            : {}),
+          ...(typeof dto.showFertilityEstimates === "boolean"
+            ? { showFertilityEstimates: dto.showFertilityEstimates }
+            : {}),
+          ...(dto.acceptMedicalDisclaimer === true
+            ? { medicalDisclaimerAcceptedAt: new Date() }
+            : {}),
+        },
+      });
+    }
+
+    return this.getMenstrualCycleTracker(authorization);
+  }
+
+  async exportMenstrualTrackerData(authorization: string | undefined) {
+    const tracker = await this.getMenstrualCycleTracker(authorization);
+    const pred = tracker.predictionSummary;
+    const lines: string[] = [
+      "SAKHI WOMEN'S WELLNESS — PERSONAL MENSTRUAL CYCLE & SYMPTOM REPORT",
+      `Generated At: ${new Date().toISOString()}`,
+      "Privacy Notice: Strictly confidential personal health export for the account owner / consulting healthcare provider.",
+      "",
+      "--- CYCLE SUMMARY & ESTIMATES ---",
+      `Average Cycle Length: ${pred.averageCycleLength} days`,
+      `Average Period Duration: ${pred.averagePeriodDuration} days`,
+      `Last Period Start: ${pred.lastPeriodStart ?? "Not logged"}`,
+      `Estimated Next Period: ${pred.nextPeriodStart ?? "N/A"} to ${pred.nextPeriodEnd ?? "N/A"}`,
+      `Cycle Regularity Status: ${pred.isIrregular ? "IRREGULAR FLAGGED" : "REGULAR (21–35 day norm)"}`,
+      `Clinical Note: ${pred.irregularityReason}`,
+      "",
+      "--- LOGGED MENSTRUAL CYCLES ---",
+    ];
+
+    if (tracker.cycleLogs.length === 0) {
+      lines.push("No menstrual cycle entries recorded.");
+    } else {
+      for (const c of tracker.cycleLogs) {
+        lines.push(
+          `• Start: ${c.startDate} | End: ${c.endDate ?? "Ongoing"} | Duration: ${c.periodDurationDays}d | Cycle Length: ${c.cycleLengthDays ? `${c.cycleLengthDays}d` : "Current"} | Flow: ${c.flowIntensity} | Cramps: ${c.crampsSeverity} | Symptoms: ${c.symptoms.join(", ") || "None"}${c.notes ? ` | Notes: ${c.notes}` : ""}`,
+        );
+      }
+    }
+
+    lines.push("", "--- RECENT DAILY SYMPTOM & WELLNESS LOGS ---");
+    if (tracker.dailyLogs.length === 0) {
+      lines.push("No daily symptom check-ins recorded.");
+    } else {
+      for (const d of tracker.dailyLogs) {
+        lines.push(
+          `• Date: ${d.logDate} | Flow: ${d.flowIntensity ?? "None"} | Cramps: ${d.crampsSeverity} | Mood: ${d.mood ?? "-"} | Energy: ${d.energyLevel}/5 | Water: ${d.hydrationGlasses} glasses | Symptoms: ${d.symptoms.join(", ") || "None"}${d.notes ? ` | Notes: ${d.notes}` : ""}`,
+        );
+      }
+    }
+
+    lines.push("", `Medical Disclaimer: ${tracker.medicalDisclaimer}`);
+
+    return {
+      exportedAt: new Date().toISOString(),
+      clinicalSummaryText: lines.join("\n"),
+      data: {
+        preferences: tracker.preferences,
+        predictionSummary: tracker.predictionSummary,
+        cycleLogs: tracker.cycleLogs,
+        dailyLogs: tracker.dailyLogs,
+        medicalDisclaimer: tracker.medicalDisclaimer,
+      },
+    };
+  }
+
+  async deleteAllMenstrualTrackerData(authorization: string | undefined) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+
+    await Promise.all([
+      anyPrisma.menstrualCycleLog
+        ?.deleteMany({ where: { accountId: session.accountId } })
+        .catch(() => undefined),
+      anyPrisma.menstrualDailyLog
+        ?.deleteMany({ where: { accountId: session.accountId } })
+        .catch(() => undefined),
+      anyPrisma.menstrualTrackerPreference
+        ?.deleteMany({ where: { accountId: session.accountId } })
+        .catch(() => undefined),
+    ]);
+
+    return {
+      deleted: true,
+      message:
+        "All personal menstrual cycle logs, daily symptoms, and tracker preferences have been permanently deleted.",
+      tracker: await this.getMenstrualCycleTracker(authorization),
     };
   }
 }

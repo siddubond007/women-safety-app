@@ -59,7 +59,7 @@ describe("development authentication API contract", () => {
     );
     Reflect.defineMetadata(
       "design:paramtypes",
-      [VerifyOtpDto],
+      [VerifyOtpDto, String],
       AuthController.prototype,
       "verifyOtp",
     );
@@ -150,6 +150,31 @@ describe("development authentication API contract", () => {
       phoneNumber: "9876543210",
       purpose: "registration",
     });
+  });
+
+  it("forwards the app-reported platform label during OTP verification", async () => {
+    auth.verifyOtp.mockResolvedValue({
+      accessToken: "synthetic-session-token",
+      account: { id: "b735d34b-6da0-4a01-b1be-1aeb7564f731" },
+    });
+    const app = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/api/v1/auth/otp/verify")
+      .set("X-Sakhi-Device-Name", "Android app")
+      .send({
+        challengeId: "6c12c04a-7a85-411b-9b8a-c2c5902bce00",
+        code: "123456",
+      })
+      .expect(200);
+
+    expect(auth.verifyOtp).toHaveBeenCalledWith(
+      {
+        challengeId: "6c12c04a-7a85-411b-9b8a-c2c5902bce00",
+        code: "123456",
+      },
+      "Android app",
+    );
   });
 
   it("rejects unknown DTO fields before reaching the service", async () => {

@@ -987,6 +987,8 @@ class Module2State extends ChangeNotifier {
   }
 
   Future<bool> loadSessions() async {
+    sessions = <Map<String, dynamic>>[];
+    notifyListeners();
     final payload = await _safe(
       () => api.get('module2/sessions', authenticated: true),
     );

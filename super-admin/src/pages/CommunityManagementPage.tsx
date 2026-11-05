@@ -252,7 +252,7 @@ export function CommunityManagementPage() {
       <section className="page-heading">
         <div>
           <div className="eyebrow">
-            <span className="eyebrow-line" /> MODULE 3 SOCIAL WALL GOVERNANCE
+            <span className="eyebrow-line" /> SOCIAL WALL &amp; COMMUNITY GOVERNANCE
           </div>
           <h1>Community &amp; Feed Categories</h1>
           <p>
@@ -416,7 +416,7 @@ export function CommunityManagementPage() {
           <section className="panel queue-panel" style={{ marginBottom: 20 }}>
             <div className="panel-heading">
               <div>
-                <span className="panel-kicker">SRS SECTION 5.3</span>
+                <span className="panel-kicker">FEED CATEGORY CONFIGURATION</span>
                 <h2>Social Wall Feed Categories (6)</h2>
                 <p>
                   Toggle category availability or inspect display order across

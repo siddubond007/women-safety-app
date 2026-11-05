@@ -501,7 +501,7 @@ class MoreOptionsScreen extends StatelessWidget {
       children: const [
         SizedBox(height: 12),
         Text(
-          'Profile, privacy and community controls use the authenticated Module 2 API. Some infrastructure-backed features remain unconfigured and are not represented as active.',
+          'Profile, privacy and community controls use the authenticated Sakhi Cloud API. Some infrastructure-backed features remain unconfigured and are not represented as active.',
         ),
       ],
     );

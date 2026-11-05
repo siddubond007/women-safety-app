@@ -5,6 +5,10 @@ export const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL ?? "https://sakhi-staging-api.onrender.com/api/v1"
 ).replace(/\/+$/, "");
 
+export function getAdminApiBaseUrl(): string {
+  return API_BASE_URL;
+}
+
 export class AdminApiError extends Error {
   constructor(message: string, readonly statusCode: number) {
     super(message);

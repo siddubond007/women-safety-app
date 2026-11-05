@@ -583,7 +583,7 @@ class _ComplaintAdminConsoleScreenState
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        'RBAC Clearance Level (Enforced on Backend per SRS 7.6):',
+                        'RBAC Clearance Level (Enforced on Backend):',
                         style: TextStyle(
                           fontSize: 11.5,
                           fontWeight: FontWeight.w800,
@@ -1159,7 +1159,7 @@ class _ComplaintAdminConsoleScreenState
           ),
           const SizedBox(height: 4),
           const Text(
-            'Every status change, assignment, evidence unblur, and note is chained with a SHA-256 integrity hash (SRS Section 13.10).',
+            'Every status change, assignment, evidence unblur, and note is chained with a SHA-256 integrity hash (Tamper-Evident Audit Chain).',
             style: AppTypography.subtitle,
           ),
           const SizedBox(height: 12),
@@ -1225,7 +1225,7 @@ class _ComplaintAdminConsoleScreenState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'DPDP Act 2023 Data Retention & Auto-Purge Policy (SRS 13.14)',
+                'DPDP Act 2023 Data Retention & Auto-Purge Policy (Privacy Protection)',
                 style: AppTypography.cardTitle,
               ),
               const SizedBox(height: 8),
@@ -1241,7 +1241,7 @@ class _ComplaintAdminConsoleScreenState
         ),
         const SizedBox(height: 14),
         const Text(
-          'Configurable Complaint Categories (SRS 7.2 — 10 Categories)',
+          'Configurable Complaint Categories (10 Active Categories)',
           style: AppTypography.cardTitle,
         ),
         const SizedBox(height: 8),

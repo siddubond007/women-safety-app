@@ -248,8 +248,30 @@ export class CreateCommunityPostDto {
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(4)
+  @IsString({ each: true })
+  mediaAssets?: string[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  mediaContentType?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(4)
   @IsUUID("4", { each: true })
   mediaUploadIds?: string[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  pollQuestion?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(6)
+  @IsString({ each: true })
+  pollOptions?: string[];
 }
 
 export class CreatePostDto {
@@ -329,7 +351,10 @@ export class ReactToPostDto {
   @IsIn([
     "LIKE",
     "LOVE",
+    "HEART",
+    "CLAP",
     "SUPPORT",
+    "INSIGHTFUL",
     "SOLIDARITY",
     "INSPIRED",
     "HAPPY",
@@ -341,8 +366,21 @@ export class ReactToPostDto {
     "STRONG",
     "APPLAUD",
     "CARE",
+    "like",
+    "love",
+    "heart",
+    "clap",
+    "support",
+    "insightful",
   ])
   reactionType!: string;
+}
+
+export class VotePollPostDto {
+  @IsInt()
+  @Min(0)
+  @Max(10)
+  optionIndex!: number;
 }
 
 export class CreatePostCommentDto {
@@ -797,6 +835,8 @@ export class UploadBinaryMediaDto {
     "business_media",
     "PROFILE_PHOTO",
     "COMMUNITY_POST_IMAGE",
+    "COMMUNITY_POST_VIDEO",
+    "BUSINESS_MEDIA",
   ])
   purpose?:
     | "avatar"
@@ -805,7 +845,9 @@ export class UploadBinaryMediaDto {
     | "community_post"
     | "business_media"
     | "PROFILE_PHOTO"
-    | "COMMUNITY_POST_IMAGE";
+    | "COMMUNITY_POST_IMAGE"
+    | "COMMUNITY_POST_VIDEO"
+    | "BUSINESS_MEDIA";
 
   @IsOptional()
   @IsString()
@@ -850,6 +892,16 @@ export class RequestAccountDeletionDto {
 // MODULE 6: WOMEN-OWNED BUSINESS PAGES DTOs (SRS Section 8.1 - 8.5)
 // =============================================================================
 export class UpsertMemberBusinessDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  id?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  businessCode?: string;
+
   @IsString()
   @MinLength(2)
   @MaxLength(160)
@@ -861,7 +913,7 @@ export class UpsertMemberBusinessDto {
   category!: string;
 
   @IsString()
-  @MinLength(5)
+  @MinLength(3)
   @MaxLength(2000)
   description!: string;
 
@@ -894,12 +946,12 @@ export class UpsertMemberBusinessDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(512)
+  @MaxLength(2048)
   logoAsset?: string;
 
   @IsOptional()
   @IsString()
-  @MaxLength(512)
+  @MaxLength(2048)
   coverImage?: string;
 
   @IsOptional()
@@ -936,7 +988,118 @@ export class UpsertMemberBusinessDto {
 
   @IsOptional()
   @IsArray()
-  mediaGallery?: Array<Record<string, any>>;
+  mediaGallery?: Array<string | Record<string, any>>;
+
+  @IsOptional()
+  @IsArray()
+  offersAndPosts?: Array<Record<string, any>>;
+
+  @IsOptional()
+  @IsBoolean()
+  requestVerificationBadge?: boolean;
+}
+
+export class PatchMemberBusinessDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  id?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  businessCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(160)
+  businessName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(80)
+  category?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  @MaxLength(2000)
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  serviceArea?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  latitude?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  longitude?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  priceRange?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  logoAsset?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  coverImage?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  contactPhone?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  hidePhoneNumber?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  whatsappNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  instagramHandle?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  websiteOrInstagram?: string;
+
+  @IsOptional()
+  @IsObject()
+  businessHours?: Record<string, any>;
+
+  @IsOptional()
+  @IsArray()
+  productsServices?: Array<Record<string, any>>;
+
+  @IsOptional()
+  @IsArray()
+  mediaGallery?: Array<string | Record<string, any>>;
 
   @IsOptional()
   @IsArray()
@@ -996,4 +1159,79 @@ export class ReportBusinessDto {
   @IsString()
   @MaxLength(1000)
   details?: string;
+}
+
+export class SendDirectMessageDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  recipientId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  recipientHandle?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  recipientName?: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(1500)
+  message!: string;
+}
+
+export class CreateSafetyEvidenceDto {
+  @IsString()
+  @MinLength(2)
+  @MaxLength(160)
+  title!: string;
+
+  @IsString()
+  @MaxLength(40)
+  mediaType!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  mediaUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  durationLabel?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  sizeLabel?: string;
+
+  @IsOptional()
+  @IsNumber()
+  latitude?: number;
+
+  @IsOptional()
+  @IsNumber()
+  longitude?: number;
+}
+
+export class UpdateVolunteerOptInDto {
+  @IsBoolean()
+  isOptedIn!: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  availability?: string;
+
+  @IsOptional()
+  @IsNumber()
+  radiusKm?: number;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  skills?: string[];
 }

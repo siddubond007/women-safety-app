@@ -5,6 +5,9 @@ import '../theme/app_colors.dart';
 import '../../features/auth/backend_api_client.dart';
 
 /// Loads a protected Sakhi media URL with the active session's bearer token.
+/// Supports both fixed dimensions and Instagram-style intrinsic aspect-ratio
+/// rendering (`fit: BoxFit.fitWidth` or `BoxFit.contain`) so portrait, square,
+/// and landscape posts never clip the top or bottom of uploaded photos.
 class SakhiRemoteMediaImage extends StatelessWidget {
   final String source;
   final BoxFit fit;
@@ -24,8 +27,8 @@ class SakhiRemoteMediaImage extends StatelessWidget {
   Widget _fallback(BuildContext context, Object error, StackTrace? stack) {
     if (errorBuilder != null) return errorBuilder!(context, error, stack);
     return Container(
-      width: width,
-      height: height,
+      width: width ?? double.infinity,
+      height: height ?? 220,
       color: AppColors.pastelPink,
       alignment: Alignment.center,
       child: const Icon(
@@ -42,9 +45,18 @@ class SakhiRemoteMediaImage extends StatelessWidget {
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
           return Container(
-            width: width,
-            height: height,
-            color: AppColors.pastelPink,
+            width: width ?? double.infinity,
+            height: height ?? 240,
+            color: AppColors.pastelPink.withValues(alpha: 0.45),
+            alignment: Alignment.center,
+            child: const SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.2,
+                color: AppColors.primaryPurple,
+              ),
+            ),
           );
         }
         final headers = snapshot.data ?? const <String, String>{};
@@ -63,6 +75,23 @@ class SakhiRemoteMediaImage extends StatelessWidget {
           fit: fit,
           filterQuality: FilterQuality.high,
           isAntiAlias: true,
+          loadingBuilder: (context, child, loadingProgress) {
+            if (loadingProgress == null) return child;
+            return Container(
+              width: width ?? double.infinity,
+              height: height ?? 240,
+              color: AppColors.pastelPink.withValues(alpha: 0.35),
+              alignment: Alignment.center,
+              child: const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.2,
+                  color: AppColors.primaryPurple,
+                ),
+              ),
+            );
+          },
           errorBuilder: _fallback,
         );
       },

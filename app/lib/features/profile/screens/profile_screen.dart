@@ -611,7 +611,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          user.username.isEmpty ? '@ananya_rao' : user.username,
+                          user.username.isEmpty ? '@member' : user.username,
                           style: AppTypography.subtitle,
                         ),
                         const SizedBox(height: 10),
@@ -882,7 +882,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
           .where(
             (post) =>
                 post.id.isNotEmpty &&
-                post.authorAccountId == state.currentUser.accountId,
+                !post.id.startsWith('11111111-1111-4111-8111-') &&
+                post.authorAccountId == state.currentUser.accountId &&
+                (state.currentUser.username.isEmpty ||
+                    post.authorUsername.isEmpty ||
+                    post.authorUsername.replaceFirst('@', '').toLowerCase() ==
+                        state.currentUser.username.replaceFirst('@', '').toLowerCase() ||
+                    post.isOwnPost == true),
           )
           .toList(growable: false);
       if (ownPosts.isEmpty) {
@@ -1102,7 +1108,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                         const SizedBox(width: 3),
                         Text(
-                          '${post.commentsCount}',
+                          '${post.comments.isNotEmpty ? post.comments.length : post.commentsCount}',
                           style: const TextStyle(
                             fontSize: 9.5,
                             fontWeight: FontWeight.w700,
@@ -1137,13 +1143,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onTap: () => showDialog<void>(
                   context: context,
                   builder: (dialogContext) => Dialog(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(8),
-                      child: FeedPostCard(
-                        post: post,
-                        showVerifiedCheck: true,
-                        onLikeTap: () => state.togglePostLike(post),
-                        onSaveTap: () => state.togglePostSaved(post),
+                    backgroundColor: Colors.transparent,
+                    insetPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 24,
+                    ),
+                    child: AnimatedBuilder(
+                      animation: state,
+                      builder: (context, _) => SingleChildScrollView(
+                        padding: const EdgeInsets.all(4),
+                        child: FeedPostCard(
+                          post: post,
+                          showVerifiedCheck: true,
+                          onLikeTap: () => state.togglePostLike(post),
+                          onSaveTap: () async {
+                            final ok = await state.togglePostSaved(post);
+                            if (mounted) {
+                              setState(() {
+                                if (!post.isSaved) {
+                                  _savedPosts = _savedPosts
+                                      .where((p) => p.id != post.id)
+                                      .toList(growable: false);
+                                }
+                              });
+                            }
+                            if (isSavedGrid &&
+                                !post.isSaved &&
+                                dialogContext.mounted) {
+                              Navigator.of(dialogContext).pop();
+                            }
+                            return ok;
+                          },
+                        ),
                       ),
                     ),
                   ),

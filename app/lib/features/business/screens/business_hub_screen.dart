@@ -1,3 +1,5 @@
+import '../../../core/widgets/sakhi_liquid_glass.dart';
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -973,12 +975,13 @@ class _WomenBusinessHubScreenState extends State<WomenBusinessHubScreen> {
           ),
         ],
       ),
-      body: RefreshIndicator(
-        color: AppColors.businessPlum,
-        onRefresh: () => _load(spinner: false),
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 132),
+      body: SakhiLiquidGlassAmbientMesh(
+        child: RefreshIndicator(
+          color: AppColors.businessPlum,
+          onRefresh: () => _load(spinner: false),
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 152),
           children: [
             // Hero iOS 26 Liquid Glass Banner
             ClipRRect(
@@ -1038,7 +1041,7 @@ class _WomenBusinessHubScreenState extends State<WomenBusinessHubScreen> {
                                     borderRadius: BorderRadius.circular(999),
                                   ),
                                   child: const Text(
-                                    'SRS MODULE 6 • VERIFIED MARKETPLACE',
+                                    'SAKHI VERIFIED MARKETPLACE',
                                     style: TextStyle(
                                       fontSize: 9.5,
                                       fontWeight: FontWeight.w800,
@@ -1198,170 +1201,246 @@ class _WomenBusinessHubScreenState extends State<WomenBusinessHubScreen> {
             if (_activeViewIndex == 1) ...[
               _buildMyBusinessPagesSection(),
             ] else ...[
-              // Search + Filters
-              TextField(
-                controller: _search,
-                textInputAction: TextInputAction.search,
-                onSubmitted: (_) => _load(),
-                decoration: InputDecoration(
-                  hintText: 'Search business, product, service or city...',
-                  prefixIcon: const Icon(Icons.search),
-                  suffixIcon: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (_search.text.isNotEmpty)
-                        IconButton(
-                          onPressed: () {
-                            _search.clear();
-                            _load();
-                          },
-                          icon: const Icon(Icons.clear_rounded, size: 18),
-                        ),
-                      IconButton(
-                        onPressed: _load,
-                        icon: const Icon(Icons.arrow_forward),
+              // Frosted Liquid Glass Search + Unified Price & Category Pills
+              ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.78),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.92),
+                        width: 1.4,
                       ),
-                    ],
-                  ),
-                  filled: true,
-                  fillColor: Colors.white.withValues(alpha: 0.92),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(18),
-                    borderSide: const BorderSide(color: AppColors.borderSubtle),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(18),
-                    borderSide: const BorderSide(color: AppColors.borderSubtle),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: DropdownButtonFormField<String>(
-                      initialValue:
-                          categories.contains(_category) ? _category : 'All',
-                      isExpanded: true,
-                      decoration: InputDecoration(
-                        labelText: 'Category',
-                        isDense: true,
-                        filled: true,
-                        fillColor: Colors.white.withValues(alpha: 0.92),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      items: categories
-                          .map(
-                            (c) => DropdownMenuItem(
-                              value: c,
-                              child: Text(
-                                c,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (value) {
-                        setState(() => _category = value ?? 'All');
-                        _load();
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    flex: 2,
-                    child: DropdownButtonFormField<String>(
-                      initialValue: _priceTierFilter,
-                      isExpanded: true,
-                      decoration: InputDecoration(
-                        labelText: 'Price',
-                        isDense: true,
-                        filled: true,
-                        fillColor: Colors.white.withValues(alpha: 0.92),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      items: const [
-                        DropdownMenuItem(value: 'All', child: Text('All')),
-                        DropdownMenuItem(value: '₹', child: Text('₹ Budget')),
-                        DropdownMenuItem(value: '₹₹', child: Text('₹₹ Mid')),
-                        DropdownMenuItem(
-                          value: '₹₹₹',
-                          child: Text('₹₹₹ Premium'),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x0F4A155B),
+                          blurRadius: 14,
+                          offset: Offset(0, 4),
                         ),
                       ],
-                      onChanged: (val) {
-                        setState(() => _priceTierFilter = val ?? 'All');
-                        _load(spinner: false);
-                      },
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              // Horizontal Category & Saved Filter Chips
-              SizedBox(
-                height: 36,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: FilterChip(
-                        selected: _savedOnly,
-                        label: const Text('Saved Bookmarks'),
-                        avatar: Icon(
-                          _savedOnly ? Icons.bookmark : Icons.bookmark_border,
-                          size: 16,
-                          color: _savedOnly
-                              ? Colors.white
-                              : AppColors.businessPlum,
-                        ),
-                        selectedColor: AppColors.businessPlum,
-                        labelStyle: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: _savedOnly
-                              ? Colors.white
-                              : AppColors.textPrimary,
-                        ),
-                        onSelected: (v) {
-                          setState(() => _savedOnly = v);
-                          _load();
-                        },
-                      ),
-                    ),
-                    ...categories.take(8).map(
-                          (cat) => Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: ChoiceChip(
-                              selected: _category == cat,
-                              label: Text(cat),
-                              selectedColor: AppColors.pastelLavender,
-                              labelStyle: TextStyle(
-                                fontSize: 12,
-                                fontWeight: _category == cat
-                                    ? FontWeight.w800
-                                    : FontWeight.w600,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _search,
+                            textInputAction: TextInputAction.search,
+                            onSubmitted: (_) => _load(),
+                            decoration: InputDecoration(
+                              hintText:
+                                  'Search business, product, service or city...',
+                              prefixIcon: const Icon(
+                                Icons.search_rounded,
                                 color: AppColors.businessPlum,
                               ),
-                              onSelected: (_) {
-                                setState(() => _category = cat);
-                                _load();
+                              suffixIcon: _search.text.isNotEmpty
+                                  ? IconButton(
+                                      onPressed: () {
+                                        _search.clear();
+                                        _load();
+                                      },
+                                      icon: const Icon(
+                                        Icons.clear_rounded,
+                                        size: 18,
+                                      ),
+                                    )
+                                  : null,
+                              filled: false,
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 13,
+                              ),
+                            ),
+                          ),
+                        ),
+                        Container(
+                          height: 28,
+                          width: 1,
+                          color: AppColors.borderSubtle,
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              value: _priceTierFilter,
+                              isDense: true,
+                              icon: const Icon(
+                                Icons.tune_rounded,
+                                size: 16,
+                                color: AppColors.businessPlum,
+                              ),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.businessPlum,
+                              ),
+                              items: const [
+                                DropdownMenuItem(
+                                  value: 'All',
+                                  child: Text('Any Price'),
+                                ),
+                                DropdownMenuItem(
+                                  value: '₹',
+                                  child: Text('₹ Budget'),
+                                ),
+                                DropdownMenuItem(
+                                  value: '₹₹',
+                                  child: Text('₹₹ Mid'),
+                                ),
+                                DropdownMenuItem(
+                                  value: '₹₹₹',
+                                  child: Text('₹₹₹ Luxury'),
+                                ),
+                              ],
+                              onChanged: (val) {
+                                setState(() => _priceTierFilter = val ?? 'All');
+                                _load(spinner: false);
                               },
                             ),
                           ),
                         ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              // Single Unified Liquid Glass Filter & Category Pill Strip (Full-bleed horizontal scroll)
+              SizedBox(
+                height: 38,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  clipBehavior: Clip.none,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: GestureDetector(
+                        onTap: () {
+                          setState(() => _savedOnly = !_savedOnly);
+                          _load();
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 160),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 13,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _savedOnly
+                                ? AppColors.businessPlum
+                                : Colors.white.withValues(alpha: 0.82),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: _savedOnly
+                                  ? AppColors.businessPlum
+                                  : const Color(0xFFE6C88A),
+                              width: 1.2,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                _savedOnly
+                                    ? Icons.bookmark_rounded
+                                    : Icons.bookmark_border_rounded,
+                                size: 15,
+                                color: _savedOnly
+                                    ? Colors.white
+                                    : AppColors.businessPlum,
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                'Saved Bookmarks',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  color: _savedOnly
+                                      ? Colors.white
+                                      : AppColors.businessPlum,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    ...categories.map((cat) {
+                      final isSelected = _category == cat;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: GestureDetector(
+                          onTap: () {
+                            setState(() => _category = cat);
+                            _load();
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 160),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              gradient: isSelected
+                                  ? const LinearGradient(
+                                      colors: [
+                                        AppColors.businessPlum,
+                                        Color(0xFF7B2190),
+                                      ],
+                                    )
+                                  : null,
+                              color: isSelected
+                                  ? null
+                                  : Colors.white.withValues(alpha: 0.82),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(
+                                color: isSelected
+                                    ? AppColors.businessPlum
+                                    : AppColors.borderSubtle,
+                                width: 1.2,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (isSelected) ...[
+                                  const Icon(
+                                    Icons.check_rounded,
+                                    size: 14,
+                                    color: Colors.white,
+                                  ),
+                                  const SizedBox(width: 4),
+                                ],
+                                Text(
+                                  cat,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: isSelected
+                                        ? FontWeight.w800
+                                        : FontWeight.w600,
+                                    color: isSelected
+                                        ? Colors.white
+                                        : AppColors.businessPlum,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
                   ],
                 ),
               ),
 
               if (featuredItems.isNotEmpty &&
+                  _items.length > 1 &&
                   _category == 'All' &&
                   _search.text.isEmpty &&
                   !_savedOnly) ...[
@@ -1418,7 +1497,7 @@ class _WomenBusinessHubScreenState extends State<WomenBusinessHubScreen> {
                   Text(
                     _loading
                         ? 'Loading businesses…'
-                        : '${_items.length} public listings',
+                        : '${_items.length} public listing${_items.length == 1 ? '' : 's'}',
                     style: const TextStyle(
                       fontWeight: FontWeight.w800,
                       fontSize: 16,
@@ -1512,6 +1591,7 @@ class _WomenBusinessHubScreenState extends State<WomenBusinessHubScreen> {
                 ),
             ],
           ],
+          ),
         ),
       ),
     );
@@ -1603,7 +1683,16 @@ class _WomenBusinessHubScreenState extends State<WomenBusinessHubScreen> {
                       ),
                     )
                     .then((_) => _load(spinner: false)),
-                onOpenEnquiries: _inbox,
+                onOpenEnquiries: () => Navigator.of(context)
+                    .push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => BusinessEnquiryInboxScreen(
+                          initialBusinessId: page.id,
+                          initialBusinessName: page.businessName,
+                        ),
+                      ),
+                    )
+                    .then((_) => _load(spinner: false)),
               ),
             ),
           ),
@@ -1813,7 +1902,11 @@ class _OwnerBusinessStatusCard extends StatelessWidget {
                   width: 54,
                   height: 54,
                   child: _buildBusinessMediaImage(
-                    item.logoAsset ?? item.coverImage,
+                    item.logoAsset ??
+                        item.coverImage ??
+                        (item.allShowcaseImages.isNotEmpty
+                            ? item.allShowcaseImages.first
+                            : null),
                   ),
                 ),
               ),
@@ -2723,18 +2816,50 @@ class _BusinessProfileDetailScreenState
                                 style: TextStyle(fontWeight: FontWeight.w800),
                               ),
                             ),
+                          if (item.isOwnBusiness)
+                            FilledButton.icon(
+                              onPressed: () => Navigator.of(context)
+                                  .push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => BusinessEnquiryInboxScreen(
+                                        initialBusinessId: item.id,
+                                        initialBusinessName: item.businessName,
+                                      ),
+                                    ),
+                                  )
+                                  .then((_) => _load()),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppColors.businessPlum,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                              ),
+                              icon: const Icon(Icons.inbox_outlined, size: 17),
+                              label: Text(
+                                'Customer Leads (${item.enquiriesCount})',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
                           FilledButton.icon(
                             onPressed: _busy ? null : () => _enquire(),
                             style: FilledButton.styleFrom(
-                              backgroundColor: AppColors.businessPlum,
+                              backgroundColor: item.isOwnBusiness
+                                  ? const Color(0xFF7B4B94)
+                                  : AppColors.businessPlum,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(999),
                               ),
                             ),
                             icon: const Icon(Icons.mail_outline, size: 17),
-                            label: const Text(
-                              'Enquire in App',
-                              style: TextStyle(fontWeight: FontWeight.w800),
+                            label: Text(
+                              item.isOwnBusiness
+                                  ? 'Test Enquiry Form'
+                                  : 'Enquire in App',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                           ),
                           if (hasSocial)
@@ -3071,8 +3196,10 @@ class _BusinessRegistrationWizardScreenState
     final signedIn = await _state.hasAuthenticatedSession();
     Map<String, dynamic>? business = widget.initialBusiness;
     if (business == null && !widget.forceCreateNew && signedIn) {
-      // When not forced to create new, leave blank unless explicitly passed initialBusiness
-      business = null;
+      business = _state.myBusinessPage ??
+          (_state.myBusinessPages.isNotEmpty
+              ? _state.myBusinessPages.first
+              : null);
     }
     if (!mounted) return;
     if (business != null) {
@@ -3149,7 +3276,8 @@ class _BusinessRegistrationWizardScreenState
 
       setState(() => _uploadingMedia = true);
       final res = await _state.uploadMediaFile(
-        purpose: 'community_post',
+        purpose: 'business_media',
+        categorySlug: 'business',
         fileName: picked.name.isEmpty ? 'business_photo.jpg' : picked.name,
         fileBytes: bytes,
         contentType: 'image/jpeg',
@@ -3812,8 +3940,12 @@ class _BusinessRegistrationWizardScreenState
                         setState(() => _requestVerifiedBadge = v),
                   ),
                   const SizedBox(height: 18),
-                  FilledButton.icon(
-                    onPressed: _saving ? null : _submit,
+                  SafeArea(
+                    top: false,
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: _saving ? null : _submit,
                     icon: _saving
                         ? const SizedBox(
                             width: 16,
@@ -3835,6 +3967,8 @@ class _BusinessRegistrationWizardScreenState
                       backgroundColor: AppColors.businessPlum,
                       padding: const EdgeInsets.symmetric(vertical: 15),
                     ),
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -3844,7 +3978,14 @@ class _BusinessRegistrationWizardScreenState
 }
 
 class BusinessEnquiryInboxScreen extends StatefulWidget {
-  const BusinessEnquiryInboxScreen({super.key});
+  const BusinessEnquiryInboxScreen({
+    super.key,
+    this.initialBusinessId,
+    this.initialBusinessName,
+  });
+
+  final String? initialBusinessId;
+  final String? initialBusinessName;
 
   @override
   State<BusinessEnquiryInboxScreen> createState() =>
@@ -3858,6 +3999,13 @@ class _BusinessEnquiryInboxScreenState
   int _tabIndex = 0; // 0: All, 1: Received (Customer Leads), 2: Sent by Me
   bool _loading = true;
   bool _signedIn = false;
+  String? _filterBusinessId;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _filterBusinessId ??= widget.initialBusinessId;
+  }
 
   @override
   void initState() {
@@ -3894,6 +4042,11 @@ class _BusinessEnquiryInboxScreenState
   Widget build(BuildContext context) {
     final myAccountId = _state.currentUser.accountId;
     final filteredRows = _rows.where((r) {
+      if (_filterBusinessId != null &&
+          _filterBusinessId!.isNotEmpty &&
+          r['businessId']?.toString() != _filterBusinessId) {
+        return false;
+      }
       final isOwnerInbox = r['isOwnerInbox'] == true ||
           (myAccountId.isNotEmpty && r['ownerAccountId'] == myAccountId);
       if (_tabIndex == 1) return isOwnerInbox;
@@ -4236,13 +4389,14 @@ class _BusinessEnquiryThreadState extends State<_BusinessEnquiryThread> {
     final senderName = (_row['senderDisplayName'] ?? 'Sakhi Member').toString();
     final senderUsername = (_row['senderUsername'] ?? '').toString();
 
+    final screenH = MediaQuery.sizeOf(context).height;
+    final availableH = math.max(220.0, screenH - inset - 68);
+    final sheetH = math.min(screenH * 0.78, availableH);
+
     return Padding(
       padding: EdgeInsets.fromLTRB(16, 8, 16, inset + 16),
       child: SizedBox(
-        height: (MediaQuery.sizeOf(context).height - inset - 80).clamp(
-          280.0,
-          MediaQuery.sizeOf(context).height * .78,
-        ),
+        height: sheetH,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -4403,7 +4557,9 @@ class _BusinessCard extends StatelessWidget {
                       width: 60,
                       height: 60,
                       child: _buildBusinessMediaImage(
-                        item.logoAsset ?? item.coverImage,
+                        item.logoAsset ??
+                            item.coverImage ??
+                            (showcase.isNotEmpty ? showcase.first : null),
                       ),
                     ),
                   ),
@@ -4450,7 +4606,7 @@ class _BusinessCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Founder: ${item.ownerDisplayName} • ${item.priceRange.isEmpty ? "Flexible Pricing" : item.priceRange} • ${item.savesCount} saves',
+                          'Founder: ${item.ownerDisplayName} • ${item.priceRange.isEmpty ? "Flexible Pricing" : item.priceRange} • ${item.savesCount} save${item.savesCount == 1 ? '' : 's'}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(

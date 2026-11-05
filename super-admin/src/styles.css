@@ -230,7 +230,7 @@ svg { flex-shrink: 0; }
 .indicator-item:hover .indicator-arrow { opacity: 1; }
 
 .queue-panel .panel-heading, .integrations-panel .panel-heading { margin-bottom: 14px; }
-.table-scroll { width: 100%; overflow-x: auto; }
+.table-scroll { width: 100%; overflow-x: auto; overflow-y: visible; overscroll-behavior-y: auto; }
 .operations-table { width: 100%; border-collapse: collapse; text-align: left; }
 .operations-table thead th { padding: 10px 9px; color: #a79baa; background: #fcf9fc; border-top: 1px solid #f1ebf1; border-bottom: 1px solid #f1ebf1; font-size: 10px; letter-spacing: .4px; font-weight: 800; white-space: nowrap; }
 .operations-table thead th:first-child { padding-left: 10px; }
@@ -477,7 +477,7 @@ svg { flex-shrink: 0; }
 .member-summary-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .member-summary-copy small { color: #75687d; font-size: 11.5px; line-height: 1.45; overflow-wrap: anywhere; }
 .member-summary-copy strong { color: #44354b; font-family: Manrope, sans-serif; font-size: 23px; letter-spacing: -.7px; }
-.member-directory-panel { padding: 19px 0 0; overflow: hidden; }
+.member-directory-panel { padding: 19px 0 0; overflow: visible; }
 .member-directory-heading { display: flex; justify-content: space-between; align-items: center; gap: 15px; padding: 0 19px 16px; }
 .member-directory-heading h2 { margin: 6px 0 4px; font-family: Manrope, sans-serif; color: #3e3045; font-size: 16px; line-height: 1.35; letter-spacing: -.4px; overflow-wrap: anywhere; }
 .member-directory-heading p { margin: 0; color: #766b7d; font-size: 12.5px; line-height: 1.65; overflow-wrap: anywhere; }
@@ -500,7 +500,7 @@ svg { flex-shrink: 0; }
 .member-subbar-dot { width: 6px; height: 6px; border-radius: 50%; background: #c58cae; }
 .member-directory-subbar > label { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
 .member-directory-subbar select { appearance: none; max-width: 170px; padding: 5px 0 5px 5px; border: 0; outline: 0; background: transparent; color: #6b5675; font-size: 11px; font-weight: 700; }
-.member-table-scroll { overflow-x: auto; width: 100%; }
+.member-table-scroll { overflow-x: auto; overflow-y: visible; overscroll-behavior-y: auto; width: 100%; }
 .member-table { width: 100%; border-collapse: collapse; text-align: left; }
 .member-table thead th { padding: 11px 12px; color: #9f92a4; background: #fcf9fc; border-top: 1px solid #f0e9f1; border-bottom: 1px solid #f0e9f1; font-size: 10px; font-weight: 800; letter-spacing: .55px; text-transform: uppercase; white-space: nowrap; }
 .member-table thead th:first-child { padding-left: 20px; }
@@ -714,10 +714,22 @@ svg { flex-shrink: 0; }
   min-width: 0;
 }
 
-.members-page-heading > div,
-.member-directory-heading > div {
+.members-page-heading > div:first-child,
+.member-directory-heading > div:first-child,
+.panel-heading > div:first-child {
   flex: 1 1 auto;
   min-width: 0;
+}
+
+.members-page-heading > div:last-child,
+.member-directory-heading > div:last-child,
+.panel-heading > div:last-child {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-left: auto;
 }
 
 .members-page-heading h1,
@@ -1619,12 +1631,18 @@ svg { flex-shrink: 0; }
   transform: translateZ(0);
 }
 
-.member-drawer-scroll,
-.member-table-scroll,
-.table-scroll {
+.member-drawer-scroll {
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  transform: translateZ(0);
+}
+
+.member-table-scroll,
+.table-scroll {
+  overflow-x: auto;
+  overflow-y: visible !important;
+  overscroll-behavior-x: auto;
+  overscroll-behavior-y: auto !important;
+  -webkit-overflow-scrolling: touch;
 }
 
 .member-table tbody tr,

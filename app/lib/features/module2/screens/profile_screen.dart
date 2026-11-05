@@ -85,6 +85,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final backendProfile = state.backend?.profile;
         final posts = _tabIndex == 0
             ? state.profilePosts
+                .where(
+                  (post) =>
+                      post.id.isNotEmpty &&
+                      !post.id.startsWith('11111111-1111-4111-8111-') &&
+                      post.authorAccountId == user.accountId &&
+                      (user.username.isEmpty ||
+                          post.authorUsername.isEmpty ||
+                          post.authorUsername.replaceFirst('@', '').toLowerCase() ==
+                              user.username.replaceFirst('@', '').toLowerCase() ||
+                          post.isOwnPost == true),
+                )
+                .toList(growable: false)
             : _tabIndex == 1
             ? state.savedPosts
             : <FeedPostModel>[];
