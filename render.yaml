@@ -1,7 +1,7 @@
 services:
   - type: web
     name: sakhi-staging-api
-    branch: release/complete-enterprise-fix
+    branch: main
     autoDeployTrigger: commit
     runtime: node
     plan: free
@@ -87,7 +87,7 @@ services:
 
   - type: web
     name: sakhi-staging-admin
-    branch: release/complete-enterprise-fix
+    branch: main
     autoDeployTrigger: commit
     runtime: static
     rootDir: super-admin
