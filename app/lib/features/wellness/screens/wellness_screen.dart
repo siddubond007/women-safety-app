@@ -859,11 +859,7 @@ class _SakhiAiMentalWellnessStudioScreenState
         await _voiceEngine.setSharedInstance(true);
         await _voiceEngine.setIosAudioCategory(
           IosTextToSpeechAudioCategory.ambient,
-          [
-            IosTextToSpeechAudioCategoryOptions.allowBluetooth,
-            IosTextToSpeechAudioCategoryOptions.allowBluetoothA2DP,
-            IosTextToSpeechAudioCategoryOptions.mixWithOthers,
-          ],
+          const [],
           IosTextToSpeechAudioMode.voicePrompt,
         );
       } catch (_) {
