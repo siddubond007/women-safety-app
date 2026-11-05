@@ -122,8 +122,7 @@ async function main(): Promise<void> {
     process.stdout.write(
       "Synthetic seed completed for " +
         target.databaseName +
-        ". Feed categories and policy metadata are verified.
-",
+        ". Feed categories and policy metadata are verified.\n",
     );
   } catch {
     process.stderr.write(
