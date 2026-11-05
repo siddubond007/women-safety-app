@@ -1,7 +1,9 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -815,6 +817,11 @@ class _SakhiAiMentalWellnessStudioScreenState
   int _remainingSessionSeconds = 180;
   bool _isRunning = false;
   bool _ambientSoundEnabled = true;
+  bool _voiceGuidanceEnabled = true;
+
+  final FlutterTts _voiceEngine = FlutterTts();
+  late final Future<void> _voiceInitialization;
+  int _voiceRequestId = 0;
 
   // 0 = Inhale (4s), 1 = Hold (7s), 2 = Exhale (8s)
   int _phaseIndex = 0;
@@ -833,11 +840,138 @@ class _SakhiAiMentalWellnessStudioScreenState
     'Sakhi AI: Hold your breath gently\u2026 relax your jaw, drop your shoulders, and let your heart rate settle.',
     'Sakhi AI: Exhale slowly through your mouth\u2026 release every bit of stress and tension as the circle contracts.',
   ];
+  static const List<String> _spokenPhaseGuidance = [
+    'Breathe in gently through your nose.',
+    'Hold softly. Relax your jaw and shoulders.',
+    'Breathe out slowly through your mouth.',
+  ];
+  static const String _spokenCompletionGuidance =
+      'Your breathing session is complete. Take a comfortable, natural breath.';
+
+  @override
+  void initState() {
+    super.initState();
+    _voiceInitialization = _configureVoiceGuidance();
+  }
+
+  Future<void> _configureVoiceGuidance() async {
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      try {
+        await _voiceEngine.setSharedInstance(true);
+        await _voiceEngine.setIosAudioCategory(
+          IosTextToSpeechAudioCategory.ambient,
+          const [],
+          IosTextToSpeechAudioMode.voicePrompt,
+        );
+      } catch (_) {
+        // Native speech setup must not prevent the breathing screen from opening.
+      }
+    }
+
+    try {
+      final dynamic languages = await _voiceEngine.getLanguages;
+      final installedLanguages = languages is List
+          ? languages
+                .map(
+                  (language) => language
+                      .toString()
+                      .replaceAll('_', '-')
+                      .toLowerCase(),
+                )
+                .toSet()
+          : <String>{};
+      final preferredLanguage = installedLanguages.contains('en-in')
+          ? 'en-IN'
+          : installedLanguages.contains('en-us')
+          ? 'en-US'
+          : null;
+      if (preferredLanguage != null) {
+        await _voiceEngine.setLanguage(preferredLanguage);
+      }
+    } catch (_) {
+      // Use the device's default language if language discovery is unavailable.
+    }
+
+    try {
+      await _voiceEngine.setSpeechRate(0.43);
+      await _voiceEngine.setPitch(1.0);
+      await _voiceEngine.setVolume(1.0);
+    } catch (_) {
+      // Retain device defaults if a platform rejects an optional voice setting.
+    }
+  }
+
+  bool get _canSpeakGuidance =>
+      mounted && _isRunning && _voiceGuidanceEnabled;
+
+  Future<void> _speakCurrentPhase() async {
+    if (!_canSpeakGuidance) return;
+    final requestId = ++_voiceRequestId;
+    final phaseIndex = _phaseIndex;
+
+    try {
+      await _voiceInitialization;
+      if (!_canSpeakGuidance ||
+          requestId != _voiceRequestId ||
+          phaseIndex != _phaseIndex) {
+        return;
+      }
+      await _voiceEngine.stop();
+      if (!_canSpeakGuidance ||
+          requestId != _voiceRequestId ||
+          phaseIndex != _phaseIndex) {
+        return;
+      }
+      await _voiceEngine.speak(_spokenPhaseGuidance[phaseIndex]);
+    } catch (_) {
+      // Visual countdown and prompts continue when system TTS is unavailable.
+    }
+  }
+
+  Future<void> _speakCompletionGuidance() async {
+    if (!mounted || !_voiceGuidanceEnabled) return;
+    final requestId = ++_voiceRequestId;
+    try {
+      await _voiceInitialization;
+      if (!mounted ||
+          !_voiceGuidanceEnabled ||
+          requestId != _voiceRequestId) {
+        return;
+      }
+      await _voiceEngine.stop();
+      if (!mounted ||
+          !_voiceGuidanceEnabled ||
+          requestId != _voiceRequestId) {
+        return;
+      }
+      await _voiceEngine.speak(_spokenCompletionGuidance);
+    } catch (_) {
+      // Completion is still shown visually when device TTS is unavailable.
+    }
+  }
+
+  Future<void> _stopVoiceGuidance() async {
+    _voiceRequestId++;
+    try {
+      await _voiceEngine.stop();
+    } catch (_) {}
+  }
+
+  void _toggleVoiceGuidance() {
+    final enable = !_voiceGuidanceEnabled;
+    setState(() => _voiceGuidanceEnabled = enable);
+    if (enable && _isRunning) {
+      unawaited(_speakCurrentPhase());
+    } else if (!enable) {
+      unawaited(_stopVoiceGuidance());
+    }
+  }
 
   @override
   void dispose() {
     _timer?.cancel();
     _stopAmbientAudio();
+    unawaited(_stopVoiceGuidance());
     super.dispose();
   }
 
@@ -859,6 +993,7 @@ class _SakhiAiMentalWellnessStudioScreenState
   void _selectDuration(int minutes) {
     _timer?.cancel();
     _stopAmbientAudio();
+    unawaited(_stopVoiceGuidance());
     setState(() {
       _selectedDurationMinutes = minutes;
       _remainingSessionSeconds = minutes * 60;
@@ -874,6 +1009,7 @@ class _SakhiAiMentalWellnessStudioScreenState
       _timer?.cancel();
       _stopAmbientAudio();
       setState(() => _isRunning = false);
+      unawaited(_stopVoiceGuidance());
       return;
     }
 
@@ -882,6 +1018,7 @@ class _SakhiAiMentalWellnessStudioScreenState
     }
     setState(() => _isRunning = true);
     _startAmbientAudio();
+    unawaited(_speakCurrentPhase());
     HapticFeedback.lightImpact();
 
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -889,6 +1026,9 @@ class _SakhiAiMentalWellnessStudioScreenState
         timer.cancel();
         return;
       }
+
+      var phaseChanged = false;
+      var sessionCompleted = false;
       setState(() {
         if (_remainingSessionSeconds > 1) {
           _remainingSessionSeconds--;
@@ -896,12 +1036,7 @@ class _SakhiAiMentalWellnessStudioScreenState
           _remainingSessionSeconds = 0;
           _isRunning = false;
           timer.cancel();
-          _stopAmbientAudio();
-          HapticFeedback.mediumImpact();
-          SakhiDialogs.showPrototypeSnackbar(
-            context,
-            'Sakhi AI Guided Breathing session complete! Well done.',
-          );
+          sessionCompleted = true;
           return;
         }
 
@@ -910,12 +1045,25 @@ class _SakhiAiMentalWellnessStudioScreenState
         } else {
           _phaseIndex = (_phaseIndex + 1) % 3;
           _phaseSecondsLeft = _phaseDurations[_phaseIndex];
+          phaseChanged = true;
           if (_phaseIndex == 0) {
             _completedCycles++;
           }
           HapticFeedback.selectionClick();
         }
       });
+
+      if (sessionCompleted) {
+        _stopAmbientAudio();
+        HapticFeedback.mediumImpact();
+        unawaited(_speakCompletionGuidance());
+        SakhiDialogs.showPrototypeSnackbar(
+          context,
+          'Sakhi AI Guided Breathing session complete! Well done.',
+        );
+      } else if (phaseChanged) {
+        unawaited(_speakCurrentPhase());
+      }
     });
   }
 
@@ -924,6 +1072,9 @@ class _SakhiAiMentalWellnessStudioScreenState
       _phaseIndex = (_phaseIndex + 1) % 3;
       _phaseSecondsLeft = _phaseDurations[_phaseIndex];
     });
+    if (_isRunning) {
+      unawaited(_speakCurrentPhase());
+    }
     HapticFeedback.selectionClick();
   }
 
@@ -965,6 +1116,18 @@ class _SakhiAiMentalWellnessStudioScreenState
       appBar: AppBar(
         title: const Text('Sakhi AI Mental Wellness Studio'),
         actions: [
+          IconButton(
+            tooltip: _voiceGuidanceEnabled
+                ? 'Turn voice guidance off'
+                : 'Turn voice guidance on',
+            onPressed: _toggleVoiceGuidance,
+            icon: Icon(
+              _voiceGuidanceEnabled
+                  ? Icons.record_voice_over_rounded
+                  : Icons.voice_over_off_rounded,
+              color: AppColors.primaryPurple,
+            ),
+          ),
           IconButton(
             tooltip: _ambientSoundEnabled
                 ? 'Mute singing bowl audio'
