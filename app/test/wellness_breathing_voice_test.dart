@@ -72,7 +72,10 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    await tester.tap(find.text('Start AI Guided Session'));
+    final startButton = find.text('Start AI Guided Session');
+    await tester.ensureVisible(startButton);
+    await tester.pumpAndSettle();
+    await tester.tap(startButton);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
