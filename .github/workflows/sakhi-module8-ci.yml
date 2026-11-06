@@ -76,7 +76,7 @@ jobs:
         run: npm run build
 
   flutter:
-    name: Flutter analysis, tests and debug APK
+    name: Flutter analysis, tests and staging APK builds
     runs-on: ubuntu-latest
     timeout-minutes: 40
     defaults:
@@ -88,6 +88,12 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - name: Verify hosted staging API readiness
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            --retry 6 --retry-all-errors --retry-delay 15 --max-time 40 \
+            https://sakhi-staging-api.onrender.com/api/v1/health/ready
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: "3.47.7"
@@ -98,6 +104,52 @@ jobs:
         run: flutter analyze
       - name: Run Flutter tests
         run: flutter test
+      - name: Generate a one-run staging APK signing key
+        id: staging-signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          STORE_PASSWORD="$(openssl rand -hex 32)"
+          KEY_ALIAS="sakhi-staging-ci"
+          keytool -genkeypair -noprompt \
+            -keystore android/app/sakhi-staging-ci.jks \
+            -storepass "$STORE_PASSWORD" \
+            -keypass "$STORE_PASSWORD" \
+            -alias "$KEY_ALIAS" \
+            -keyalg RSA -keysize 2048 -validity 3650 \
+            -dname "CN=Sakhi Staging CI, OU=Testing, O=Sakhi, L=Tirupati, ST=Andhra Pradesh, C=IN"
+          cat > android/key.properties <<EOF
+          storePassword=$STORE_PASSWORD
+          keyPassword=$STORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=sakhi-staging-ci.jks
+          EOF
+          chmod 600 android/key.properties android/app/sakhi-staging-ci.jks
+          echo "::add-mask::$STORE_PASSWORD"
+          echo "Generated a temporary staging-only signing certificate."
+      - name: Build staging release APK with hosted API
+        run: >-
+          flutter build apk --release
+          --dart-define=SAKHI_BACKEND_ENABLED=true
+          --dart-define=SAKHI_STAGING_TEST_MODE=true
+          --dart-define=SAKHI_API_BASE_URL=https://sakhi-staging-api.onrender.com/api/v1
+      - name: Verify staging release APK signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs build/app/outputs/flutter-apk/app-release.apk
+          sha256sum build/app/outputs/flutter-apk/app-release.apk
+      - name: Upload staging release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sakhi_Staging_Release_APK_TEST_ONLY
+          path: app/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 7
+      - name: Remove temporary staging signing material
+        if: always()
+        run: rm -f android/key.properties android/app/sakhi-staging-ci.jks
       - name: Build staging-connected debug APK (does not use production signing key)
         run: >-
           flutter build apk --debug
