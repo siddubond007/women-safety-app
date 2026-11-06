@@ -6838,7 +6838,7 @@ export class Module2Service {
           ? peerUsername
           : `@${peerUsername}`,
         peerAvatar,
-        messages: [],
+        messages: [] as Array<Record<string, any>>,
       };
       if (!existing.peerAvatar && peerAvatar) existing.peerAvatar = peerAvatar;
       if (!existing.peerDirectoryId && peerDirectoryId) {
@@ -7513,7 +7513,9 @@ export class Module2Service {
         : Promise.resolve({ stations: [] }),
     ]);
 
-    const allMembers = shouldLoad("members") ? (membersResult.members ?? []) : [];
+    const allMembers: Array<Record<string, any>> = shouldLoad("members")
+      ? (membersResult.members ?? [])
+      : [];
     const allBusinessesRaw = businessesResult.businesses ?? [];
     const allBusinesses = shouldLoad("businesses")
       ? allBusinessesRaw.filter((biz: Record<string, any>) => {

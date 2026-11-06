@@ -387,7 +387,7 @@ describe("Sakhi Modules 8–12 Repair & Hardening Regression Suite", () => {
 
   it("Section 4.1: respondToMessageRequest with BLOCK is strictly idempotent and never unblocks on repeated calls", async () => {
     const ctx = createMockContext();
-    const service = new Module2Service(ctx.prisma, ctx.auth as any);
+    const service = new Module2Service(ctx.auth as any, ctx.prisma);
 
     const first = await service.respondToMessageRequest(
       "Bearer valid-token",
@@ -411,7 +411,7 @@ describe("Sakhi Modules 8–12 Repair & Hardening Regression Suite", () => {
 
   it("Sections 4.2, 4.3 & 4.4: persists direct message attachments, clientMessageId deduplication, requestStatus, and readAt in PostgreSQL", async () => {
     const ctx = createMockContext();
-    const service = new Module2Service(ctx.prisma, ctx.auth as any);
+    const service = new Module2Service(ctx.auth as any, ctx.prisma);
 
     const sendRes = await service.sendDirectMessage("Bearer valid-token", {
       recipientHandle: "@peer_user",
@@ -477,7 +477,7 @@ describe("Sakhi Modules 8–12 Repair & Hardening Regression Suite", () => {
 
   it("Section 5: persists notifications in member_notifications and enforces account ownership on read/delete", async () => {
     const ctx = createMockContext();
-    const service = new Module2Service(ctx.prisma, ctx.auth as any);
+    const service = new Module2Service(ctx.auth as any, ctx.prisma);
 
     await service.createPersistentNotification(VIEWER_ID, {
       id: NOTIF_ID,

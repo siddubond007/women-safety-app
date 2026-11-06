@@ -314,7 +314,7 @@ export function ModerationPage({ section = "moderation" }: { section?: string })
   const [wellnessDuration, setWellnessDuration] = useState("4 min read");
 
   const currentReviewerLabel =
-    adminAuthService.getSessionProfile()?.reviewerLabel || "Trust & Safety Reviewer";
+    adminAuthService.getProfile()?.reviewerLabel || "Trust & Safety Reviewer";
 
   const fetchOperations = useCallback(async () => {
     const [ops, drive] = await Promise.all([
