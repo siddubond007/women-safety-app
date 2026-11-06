@@ -10,6 +10,14 @@ on:
       - "super-admin/**"
       - "app/**"
       - ".github/workflows/sakhi-module8-ci.yml"
+  pull_request:
+    branches:
+      - module-8-implementation
+    paths:
+      - "backend/**"
+      - "super-admin/**"
+      - "app/**"
+      - ".github/workflows/sakhi-module8-ci.yml"
 
 permissions:
   contents: read
