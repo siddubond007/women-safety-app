@@ -460,17 +460,28 @@ describe("Sakhi Modules 8–12 Repair & Hardening Regression Suite", () => {
     ).rejects.toThrow(BadRequestException);
 
     // Rejects cross-account attachment uploads
+    const crossAccountUploadId = "99999999-9999-4999-8999-999999999999";
     (ctx.prisma.mediaAsset.findUnique as any).mockResolvedValueOnce({
-      id: "99999999-9999-4999-8999-999999999999",
+      id: crossAccountUploadId,
       ownerAccountId: PEER_ID,
       contentType: "image/jpeg",
       byteSize: 1024,
+      purpose: "DIRECT_MESSAGE_IMAGE",
+      postId: null,
+      visibility: "PRIVATE_SELF",
+      status: "UPLOADED",
+    });
+    (ctx.prisma.auditEvent.findFirst as any).mockResolvedValueOnce({
+      id: "audit_cross_account_upload",
+      actorId: PEER_ID,
+      targetId: crossAccountUploadId,
+      action: "module2.media.uploaded",
     });
     await expect(
       service.sendDirectMessage("Bearer valid-token", {
         recipientHandle: "@peer_user",
         message: "Stolen media",
-        mediaUploadId: "99999999-9999-4999-8999-999999999999",
+        mediaUploadId: crossAccountUploadId,
       }),
     ).rejects.toThrow(ForbiddenException);
   });

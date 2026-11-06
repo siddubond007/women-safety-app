@@ -161,7 +161,7 @@ describe("Module 2 direct-message participant access", () => {
     expect(result.items).toEqual([]);
     expect(harness.memberProfile.findUnique).toHaveBeenCalledWith({
       where: { accountId },
-      select: { accountId: true },
+      select: { accountId: true, displayName: true, username: true },
     });
     expect(harness.findMessages).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -196,7 +196,7 @@ describe("Module 2 direct-message participant access", () => {
     expect(result.items).toEqual([]);
     expect(harness.directoryFindUnique).toHaveBeenCalledWith({
       where: { id: directoryId },
-      select: { username: true },
+      select: { id: true, name: true, username: true },
     });
     expect(harness.findMessages).toHaveBeenCalledWith(
       expect.objectContaining({

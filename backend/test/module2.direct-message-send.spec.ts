@@ -76,12 +76,14 @@ function createHarness(options: HarnessOptions = {}) {
     return Promise.resolve(data);
   });
   const followFindUnique = vi.fn().mockImplementation(({ where }) => {
-    if (where.accountId === "sender-account") {
+    const accountId =
+      where.accountId_directoryProfileId?.accountId ?? where.accountId;
+    if (accountId === "sender-account") {
       return Promise.resolve(
         options.followsRecipient === false ? null : { isFollowing: true },
       );
     }
-    if (where.accountId === "recipient-account") {
+    if (accountId === "recipient-account") {
       return Promise.resolve(
         options.recipientFollowsSender === true ? { isFollowing: true } : null,
       );

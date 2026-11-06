@@ -192,7 +192,6 @@ function AuthorizedMediaPreview({
   useEffect(() => {
     let active = true;
     let revokeUrl: string | null = null;
-    setFailed(false);
 
     const { endpointUrl, requiresAdminAuthHeader } =
       resolveAuthorizedMediaEndpoint(rawUrl);
@@ -369,15 +368,6 @@ export function ModerationPage({ section = "moderation" }: { section?: string })
     if (!data || !selectedReportId) return null;
     return data.reports.find((r) => r.id === selectedReportId) ?? null;
   }, [data, selectedReportId]);
-
-  useEffect(() => {
-    if (!selectedReport) return;
-    setTriagePriority(selectedReport.priority ?? "P2_NORMAL");
-    setTriageSeverity(selectedReport.severity ?? "S3_MEDIUM");
-    setTriageAssignee(selectedReport.assignedReviewerName ?? "");
-    setTriageAppealStatus(selectedReport.appealStatus ?? "");
-    setTriageInternalNote("");
-  }, [selectedReport]);
 
   const filteredReports = useMemo(() => {
     const list = data?.reports ?? [];
@@ -954,6 +944,8 @@ export function ModerationPage({ section = "moderation" }: { section?: string })
                                   }}
                                 >
                                   <AuthorizedMediaPreview
+                                  key={previewMediaUrl}
+
                                     rawUrl={previewMediaUrl}
                                     alt="Reported post media preview"
                                     style={{
@@ -1029,7 +1021,14 @@ export function ModerationPage({ section = "moderation" }: { section?: string })
                               <button
                                 className="button button--primary"
                                 type="button"
-                                onClick={() => setSelectedReportId(rep.id)}
+                                onClick={() => {
+                                  setSelectedReportId(rep.id);
+                                  setTriagePriority(rep.priority ?? "P2_NORMAL");
+                                  setTriageSeverity(rep.severity ?? "S3_MEDIUM");
+                                  setTriageAssignee(rep.assignedReviewerName ?? "");
+                                  setTriageAppealStatus(rep.appealStatus ?? "");
+                                  setTriageInternalNote("");
+                                }}
                               >
                                 <Eye size={13} /> Inspect Evidence &amp; Triage
                               </button>

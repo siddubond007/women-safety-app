@@ -78,7 +78,8 @@ void main() {
     (WidgetTester tester) async {
       // Screen 4: Wellness Hub
       await tester.pumpWidget(const MaterialApp(home: WellnessScreen()));
-      await tester.pumpAndSettle();
+      // Wellness contains a looping animation; pump a bounded frame instead of settling.
+      await tester.pump(const Duration(milliseconds: 500));
       expect(find.textContaining('Your Wellbeing'), findsOneWidget);
       expect(find.text('Guided Meditation'), findsOneWidget);
 
