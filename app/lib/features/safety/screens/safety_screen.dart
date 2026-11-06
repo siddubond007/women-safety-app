@@ -3044,6 +3044,7 @@ class _AddTrustedContactCardInlineState
     'Mom',
     'Dad',
     'Sister',
+    'Brother',
     'Husband / Partner',
     'Roommate',
     'Best Friend',

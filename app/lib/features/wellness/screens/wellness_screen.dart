@@ -12,6 +12,7 @@ import '../../../core/widgets/sakhi_botanical_flower.dart';
 import '../../../core/widgets/sakhi_card.dart';
 import '../../../core/widgets/sakhi_dialogs.dart';
 import '../../../core/widgets/sakhi_section_header.dart';
+import '../../../core/widgets/sakhi_wellness_illustrations.dart';
 import '../models/menstrual_cycle_models.dart';
 import '../widgets/guided_meditation_card.dart';
 import '../widgets/wellness_category_tile.dart';
@@ -58,10 +59,10 @@ class _WellnessScreenState extends State<WellnessScreen> {
     );
   }
 
-  void _openAiMentalWellnessStudio() {
+  void _openMentalWellnessHub() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => const SakhiAiMentalWellnessStudioScreen(),
+        builder: (_) => const SakhiMentalWellnessHubScreen(),
       ),
     );
   }
@@ -95,7 +96,7 @@ class _WellnessScreenState extends State<WellnessScreen> {
             AppColors.pastelLavender,
             AppColors.primaryPurple,
             SakhiFlowerType.lavenderSprig,
-            _openAiMentalWellnessStudio,
+            _openMentalWellnessHub,
           ),
           (
             Icons.fitness_center_rounded,
@@ -107,7 +108,7 @@ class _WellnessScreenState extends State<WellnessScreen> {
           ),
           (
             Icons.menu_book_rounded,
-            'Expert Articles & FAQs',
+            'Period Pain & Articles',
             AppColors.pastelPeach,
             const Color(0xFFB45309),
             SakhiFlowerType.roseClassic,
@@ -150,10 +151,7 @@ class _WellnessScreenState extends State<WellnessScreen> {
                       ),
                       FilledButton.tonalIcon(
                         onPressed: () => _openCycleTracker(initialTab: 2),
-                        icon: const Icon(
-                          Icons.insights_rounded,
-                          size: 16,
-                        ),
+                        icon: const Icon(Icons.insights_rounded, size: 16),
                         label: const Text('Cycle Insights'),
                       ),
                     ],
@@ -207,18 +205,38 @@ class _WellnessScreenState extends State<WellnessScreen> {
                           ],
                         ),
                         const SizedBox(height: 12),
-                        Text(
-                          p.currentCycleDay != null && p.currentCycleDay! > 0
-                              ? 'Cycle Day ${p.currentCycleDay} \u2022 ${p.currentPhase}'
-                              : 'Women\u2019s Menstrual Cycle & Symptom Tracker',
-                          style: AppTypography.sectionTitle,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          p.nextPeriodStart != null
-                              ? 'Estimated next period: ${p.nextPeriodStart} (avg ${p.averageCycleLength}-day cycle, ${p.averagePeriodDuration}-day period). Tap to view phase insights, calendar, or log symptoms.'
-                              : 'Record period start/end dates, view your monthly cycle calendar, track cramps/mood/energy/hydration, and receive discreet reminders.',
-                          style: AppTypography.subtitle.copyWith(height: 1.38),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    p.currentCycleDay != null &&
+                                            p.currentCycleDay! > 0
+                                        ? 'Cycle Day ${p.currentCycleDay} \u2022 ${p.currentPhase}'
+                                        : 'Women\u2019s Menstrual Cycle & Symptom Tracker',
+                                    style: AppTypography.sectionTitle,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    p.nextPeriodStart != null
+                                        ? 'Estimated next period: ${p.nextPeriodStart} (avg ${p.averageCycleLength}-day cycle, ${p.averagePeriodDuration}-day period). Personal cycle length (24, 26, 28+ days) & discreet reminders active.'
+                                        : 'Record period start/end dates, configure your personal cycle length (24, 26, 28+ days), track symptoms, and receive discreet reminders.',
+                                    style: AppTypography.subtitle.copyWith(
+                                      height: 1.38,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            const SakhiGentleWomanIllustration(
+                              pose: SakhiWomanPose.cycleCareWarmth,
+                              size: 74,
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 12),
                         Wrap(
@@ -243,6 +261,15 @@ class _WellnessScreenState extends State<WellnessScreen> {
                                 size: 17,
                               ),
                               label: const Text('Log Symptoms & Flow'),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: () => _openCycleTracker(initialTab: 3),
+                              icon: const Icon(
+                                Icons.healing_rounded,
+                                size: 17,
+                                color: Color(0xFFD63E85),
+                              ),
+                              label: const Text('Period Pain Help'),
                             ),
                           ],
                         ),
@@ -291,11 +318,13 @@ class _WellnessScreenState extends State<WellnessScreen> {
                     children: [
                       SakhiSectionHeader(
                         title: "Today's Wellness & Meditation",
-                        actionLabel: 'All Articles >',
-                        onActionTap: () => _openCycleTracker(initialTab: 3),
+                        actionLabel: 'Mental Wellness Hub >',
+                        onActionTap: _openMentalWellnessHub,
                       ),
                       const SizedBox(height: 10),
-                      const GuidedMeditationCard(),
+                      GuidedMeditationCard(
+                        onOpenFullStudio: _openMentalWellnessHub,
+                      ),
                     ],
                   ),
                 ),
@@ -312,6 +341,641 @@ class _WellnessScreenState extends State<WellnessScreen> {
         return Material(
           color: AppColors.scaffoldBackground,
           child: content,
+        );
+      },
+    );
+  }
+}
+
+/// Mental Wellness Hub Screen — Opened when the user taps "Mental Wellness".
+/// Gives the user an explicit choice between:
+/// 1. Guided Breathing Studio (4-7-8 Deep Calm, Box Breathing 4-4-4-4, Heart Coherence 5-5)
+/// 2. Guided Meditation Studio (Miracle of Mind Inner Stillness, Body Scan, Period Comfort, Deep Sleep)
+/// Never auto-starts audio without the user's explicit selection.
+class SakhiMentalWellnessHubScreen extends StatelessWidget {
+  const SakhiMentalWellnessHubScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.scaffoldBackground,
+      appBar: AppBar(
+        title: const Text('Mental Wellness Sanctuary'),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.screenPaddingH,
+          12,
+          AppSpacing.screenPaddingH,
+          36,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Hero Header Card with Animated Meditating Woman Illustration
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF4A1259), Color(0xFF832B96)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: AppSpacing.cardShadow,
+              ),
+              child: Row(
+                children: [
+                  const SakhiGentleWomanIllustration(
+                    pose: SakhiWomanPose.meditationLotus,
+                    size: 94,
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.16),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: const Text(
+                            'CHOOSE YOUR PRACTICE',
+                            style: TextStyle(
+                              color: Color(0xFFFFD6E7),
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Pause, Breathe & Restore Inner Stillness',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                            height: 1.25,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Choose between rhythmic Breathing Exercises or spoken Guided Meditation with 5 peaceful soundscapes.',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.9),
+                            fontSize: 12.5,
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+
+            // Choice Card 1: Guided Breathing Exercises
+            SakhiCard(
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const SakhiAiMentalWellnessStudioScreen(),
+                  ),
+                );
+              },
+              child: Row(
+                children: [
+                  const SakhiGentleWomanIllustration(
+                    pose: SakhiWomanPose.breathingCalm,
+                    size: 78,
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.pastelLavender,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: const Text(
+                                'OPTION 1 • BREATHWORK',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w900,
+                                  color: AppColors.primaryPurple,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Guided Breathing Exercises',
+                          style: AppTypography.sectionTitle,
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          '4-7-8 Deep Calm, Box Breathing (4-4-4-4), and Heart Coherence (5-5) with expanding visual aura & calm voice cues.',
+                          style: AppTypography.subtitle,
+                        ),
+                        const SizedBox(height: 10),
+                        FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppColors.primaryPurple,
+                          ),
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) =>
+                                    const SakhiAiMentalWellnessStudioScreen(),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.air_rounded, size: 17),
+                          label: const Text('Open Breathing Studio'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+
+            // Choice Card 2: Guided Meditation Studio
+            SakhiCard(
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const SakhiGuidedMeditationStudioScreen(),
+                  ),
+                );
+              },
+              child: Row(
+                children: [
+                  const SakhiGentleWomanIllustration(
+                    pose: SakhiWomanPose.meditationLotus,
+                    size: 78,
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFD6E7),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: const Text(
+                                'OPTION 2 • SPOKEN MEDITATION',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w900,
+                                  color: Color(0xFF9D174D),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Guided Meditation Studio',
+                          style: AppTypography.sectionTitle,
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Miracle of Mind Inner Stillness, Full-Body Scan, Warm Period Cramp Comfort, and Deep Sleep with 5 peaceful soundscapes.',
+                          style: AppTypography.subtitle,
+                        ),
+                        const SizedBox(height: 10),
+                        FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFFD63E85),
+                          ),
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) =>
+                                    const SakhiGuidedMeditationStudioScreen(),
+                              ),
+                            );
+                          },
+                          icon: const Icon(
+                            Icons.self_improvement_rounded,
+                            size: 17,
+                          ),
+                          label: const Text('Open Meditation Studio'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+
+            // Quick Player Card
+            const Text(
+              'Quick Session Player & Soundscape Mixer',
+              style: AppTypography.sectionTitle,
+            ),
+            const SizedBox(height: 8),
+            const GuidedMeditationCard(),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Full-Screen Spoken Guided Meditation Studio (Miracle of Mind inspired)
+/// Features:
+/// - 4 Guided Meditation Programs (Inner Stillness, Body Scan, Period Comfort, Deep Sleep)
+/// - 5 Rotating Peaceful Polyphonic Soundscapes (no harsh continuous buzz)
+/// - Separate Spoken Voice Volume & Ambient Soundscape Volume controls
+/// - Animated Gentle Woman in Lotus Meditation Pose
+class SakhiGuidedMeditationStudioScreen extends StatefulWidget {
+  const SakhiGuidedMeditationStudioScreen({super.key});
+
+  @override
+  State<SakhiGuidedMeditationStudioScreen> createState() =>
+      _SakhiGuidedMeditationStudioScreenState();
+}
+
+class _SakhiGuidedMeditationStudioScreenState
+    extends State<SakhiGuidedMeditationStudioScreen> {
+  final _session = GuidedMeditationSessionController.instance;
+
+  String _formatMmSs(int seconds) {
+    final clamped = seconds.clamp(0, 99999);
+    final m = (clamped ~/ 60).toString().padLeft(2, '0');
+    final s = (clamped % 60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _session,
+      builder: (context, _) {
+        final remaining = (_session.totalSeconds - _session.elapsedSeconds)
+            .clamp(0, _session.totalSeconds);
+        final progress = _session.totalSeconds > 0
+            ? (_session.elapsedSeconds / _session.totalSeconds).clamp(0.0, 1.0)
+            : 0.0;
+
+        return Scaffold(
+          backgroundColor: const Color(0xFFFDF7FA),
+          appBar: AppBar(
+            title: const Text('Guided Meditation Studio'),
+            actions: [
+              IconButton(
+                tooltip: _session.voiceGuidanceEnabled
+                    ? 'Mute spoken guide'
+                    : 'Enable spoken guide',
+                onPressed: _session.toggleVoiceGuidance,
+                icon: Icon(
+                  _session.voiceGuidanceEnabled
+                      ? Icons.record_voice_over_rounded
+                      : Icons.voice_over_off_rounded,
+                  color: AppColors.primaryPurple,
+                ),
+              ),
+              IconButton(
+                tooltip: _session.ambientMusicEnabled
+                    ? 'Mute ambient soundscape'
+                    : 'Enable ambient soundscape',
+                onPressed: _session.toggleAmbientMusic,
+                icon: Icon(
+                  _session.ambientMusicEnabled
+                      ? Icons.music_note_rounded
+                      : Icons.music_off_rounded,
+                  color: AppColors.primaryPurple,
+                ),
+              ),
+            ],
+          ),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.screenPaddingH,
+              12,
+              AppSpacing.screenPaddingH,
+              36,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // 1. Program Selector
+                const Text(
+                  '1. Choose Guided Meditation Theme',
+                  style: AppTypography.cardTitle,
+                ),
+                const SizedBox(height: 8),
+                for (
+                  var i = 0;
+                  i <
+                      GuidedMeditationSessionController
+                          .meditationPrograms
+                          .length;
+                  i++
+                )
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: () => _session.selectProgram(i),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: _session.selectedProgramIndex == i
+                              ? const Color(0xFFF3E8FF)
+                              : Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: _session.selectedProgramIndex == i
+                                ? AppColors.primaryPurple
+                                : AppColors.borderSubtle,
+                            width: _session.selectedProgramIndex == i ? 1.8 : 1,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              _session.selectedProgramIndex == i
+                                  ? Icons.radio_button_checked_rounded
+                                  : Icons.radio_button_off_rounded,
+                              color: AppColors.primaryPurple,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    GuidedMeditationSessionController
+                                        .meditationPrograms[i]['title']!,
+                                    style: AppTypography.bodyMedium.copyWith(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    GuidedMeditationSessionController
+                                        .meditationPrograms[i]['subtitle']!,
+                                    style: AppTypography.caption,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 12),
+
+                // 2. Peaceful Soundscape Selector
+                const Text(
+                  '2. Select Peaceful Ambient Soundscape',
+                  style: AppTypography.cardTitle,
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: List.generate(
+                    GuidedMeditationSessionController.soundscapeTitles.length,
+                    (i) {
+                      final selected = _session.selectedTrackIndex == i;
+                      return ChoiceChip(
+                        label: Text(
+                          GuidedMeditationSessionController.soundscapeTitles[i],
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            color: selected
+                                ? Colors.white
+                                : AppColors.textPrimary,
+                          ),
+                        ),
+                        selected: selected,
+                        selectedColor: const Color(0xFFD63E85),
+                        backgroundColor: Colors.white,
+                        onSelected: (_) => _session.selectSoundscapeTrack(i),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                // 3. Duration Pills
+                const Text(
+                  '3. Session Duration',
+                  style: AppTypography.cardTitle,
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [5, 7, 11, 15, 21].map((mins) {
+                    final selected = _session.selectedMinutes == mins;
+                    return ChoiceChip(
+                      label: Text(
+                        '$mins Minutes',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: selected
+                              ? Colors.white
+                              : AppColors.primaryPurple,
+                        ),
+                      ),
+                      selected: selected,
+                      selectedColor: AppColors.primaryPurple,
+                      backgroundColor: Colors.white,
+                      onSelected: (_) => _session.selectDuration(mins),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 16),
+
+                // 4. Center Meditation Stage
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFF6EAFC), Color(0xFFFFECF4)],
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                    ),
+                    borderRadius: BorderRadius.circular(26),
+                    border: Border.all(
+                      color: AppColors.primaryPurple.withValues(alpha: 0.2),
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      const SakhiGentleWomanIllustration(
+                        pose: SakhiWomanPose.meditationLotus,
+                        size: 132,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        _formatMmSs(remaining),
+                        style: const TextStyle(
+                          fontSize: 34,
+                          fontWeight: FontWeight.w900,
+                          color: AppColors.primaryPurple,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _session.isPlaying
+                            ? 'Spoken Guidance + ${GuidedMeditationSessionController.soundscapeTitles[_session.selectedTrackIndex]}'
+                            : 'Ready when you are • Tap Start Guided Meditation',
+                        style: AppTypography.caption.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: const Color(0xFFD63E85),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.9),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Text(
+                          '“${_session.currentSpokenPrompt}”',
+                          textAlign: TextAlign.center,
+                          style: AppTypography.bodyMedium.copyWith(
+                            height: 1.42,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Slider(
+                        value: progress,
+                        activeColor: AppColors.primaryPurple,
+                        onChanged: (v) => _session.seek(v),
+                      ),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.record_voice_over_rounded,
+                            size: 18,
+                            color: AppColors.primaryPurple,
+                          ),
+                          const SizedBox(width: 8),
+                          const SizedBox(
+                            width: 90,
+                            child: Text(
+                              'Voice Guide',
+                              style: AppTypography.caption,
+                            ),
+                          ),
+                          Expanded(
+                            child: Slider(
+                              value: _session.voiceVolume,
+                              activeColor: AppColors.primaryPurple,
+                              onChanged: _session.setVoiceVolume,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.music_note_rounded,
+                            size: 18,
+                            color: Color(0xFFD63E85),
+                          ),
+                          const SizedBox(width: 8),
+                          const SizedBox(
+                            width: 90,
+                            child: Text(
+                              'Soundscape',
+                              style: AppTypography.caption,
+                            ),
+                          ),
+                          Expanded(
+                            child: Slider(
+                              value: _session.volume,
+                              activeColor: const Color(0xFFD63E85),
+                              onChanged: _session.setVolume,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            flex: 2,
+                            child: FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: _session.isPlaying
+                                    ? const Color(0xFFD63E85)
+                                    : AppColors.primaryPurple,
+                                minimumSize: const Size.fromHeight(50),
+                              ),
+                              onPressed: _session.togglePlayPause,
+                              icon: Icon(
+                                _session.isPlaying
+                                    ? Icons.pause_circle_filled_rounded
+                                    : Icons.play_circle_fill_rounded,
+                              ),
+                              label: Text(
+                                _session.isPlaying
+                                    ? 'Pause Meditation'
+                                    : 'Start Guided Meditation',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size.fromHeight(50),
+                              ),
+                              onPressed: _session.resetSession,
+                              icon: const Icon(Icons.replay_rounded, size: 18),
+                              label: const Text('Reset'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         );
       },
     );
@@ -353,7 +1017,9 @@ class _CycleInteractiveCalendarScreenState
   Future<void> _openPeriodDateLoggerDialog() async {
     DateTime start = CyclePredictionEngine.parseIsoDate(_selectedDateIso);
     DateTime end = start.add(
-      Duration(days: (_controller.preferences.averagePeriodDuration - 1).clamp(1, 9)),
+      Duration(
+        days: (_controller.preferences.averagePeriodDuration - 1).clamp(1, 9),
+      ),
     );
     String flowIntensity = 'Medium';
 
@@ -408,7 +1074,9 @@ class _CycleInteractiveCalendarScreenState
                           context: sheetCtx,
                           initialDate: start,
                           firstDate: DateTime(2024),
-                          lastDate: DateTime.now().add(const Duration(days: 30)),
+                          lastDate: DateTime.now().add(
+                            const Duration(days: 30),
+                          ),
                         );
                         if (picked != null) {
                           setSheetState(() {
@@ -622,9 +1290,7 @@ class _CycleInteractiveCalendarScreenState
                           );
                           final isPredictedPeriod = _controller
                               .isPredictedPeriodDay(iso);
-                          final isFertile = _controller.isFertileWindowDay(
-                            iso,
-                          );
+                          final isFertile = _controller.isFertileWindowDay(iso);
                           final isOvulation = p.estimatedOvulationDate == iso;
                           final hasDailyLog =
                               _controller.dailyLogForDate(iso) != null;
@@ -793,12 +1459,10 @@ class _CalendarLegendDot extends StatelessWidget {
 
 /// Dedicated Interactive Sakhi AI Voice/Text-Guided Breathing & Grounding Studio
 /// Features:
+/// - 3 selectable breathing techniques (4-7-8 Deep Calm, Box Breathing 4-4-4-4, Heart Coherence 5-5)
 /// - Selectable session duration (1 Min, 3 Min, 5 Min, 10 Min)
-/// - Automatic Timer.periodic countdown that transitions smoothly through
-///   Inhale (4s) -> Hold (7s) -> Exhale (8s) without manual button clicks
-/// - Smoothly expanding & contracting radial gradient circle synchronized to
-///   each breath phase
-/// - Optional 432Hz + 528Hz harmonic singing bowl audio via native channel
+/// - 5 selectable peaceful soundscapes (no harsh continuous buzz)
+/// - Natural female TTS voice guidance with calm speech rate (0.39) & pitch (0.96)
 class SakhiAiMentalWellnessStudioScreen extends StatefulWidget {
   const SakhiAiMentalWellnessStudioScreen({super.key});
 
@@ -813,6 +1477,8 @@ class _SakhiAiMentalWellnessStudioScreenState
     'sakhi/native_actions',
   );
 
+  int _selectedPatternIndex = 0;
+  int _selectedTrackIndex = 0;
   int _selectedDurationMinutes = 3;
   int _remainingSessionSeconds = 180;
   bool _isRunning = false;
@@ -823,13 +1489,30 @@ class _SakhiAiMentalWellnessStudioScreenState
   late final Future<void> _voiceInitialization;
   int _voiceRequestId = 0;
 
-  // 0 = Inhale (4s), 1 = Hold (7s), 2 = Exhale (8s)
+  // 0 = Inhale, 1 = Hold, 2 = Exhale
   int _phaseIndex = 0;
   int _phaseSecondsLeft = 4;
   int _completedCycles = 0;
   Timer? _timer;
 
-  static const List<int> _phaseDurations = [4, 7, 8];
+  static const List<Map<String, dynamic>> _breathingPatterns = [
+    {
+      'title': '4-7-8 Deep Calm',
+      'durations': [4, 7, 8],
+    },
+    {
+      'title': 'Box Breath 4-4-4',
+      'durations': [4, 4, 4],
+    },
+    {
+      'title': 'Coherence 5-2-5',
+      'durations': [5, 2, 5],
+    },
+  ];
+
+  List<int> get _phaseDurations =>
+      (_breathingPatterns[_selectedPatternIndex]['durations'] as List<int>);
+
   static const List<String> _phaseTitles = [
     'Inhale Gently',
     'Hold Softly',
@@ -863,42 +1546,52 @@ class _SakhiAiMentalWellnessStudioScreenState
           const [],
           IosTextToSpeechAudioMode.voicePrompt,
         );
-      } catch (_) {
-        // Native speech setup must not prevent the breathing screen from opening.
-      }
+      } catch (_) {}
     }
 
     try {
-      final dynamic languages = await _voiceEngine.getLanguages;
-      final installedLanguages = languages is List
-          ? languages
-                .map(
-                  (language) => language
-                      .toString()
-                      .replaceAll('_', '-')
-                      .toLowerCase(),
-                )
-                .toSet()
-          : <String>{};
-      final preferredLanguage = installedLanguages.contains('en-in')
-          ? 'en-IN'
-          : installedLanguages.contains('en-us')
-          ? 'en-US'
-          : null;
-      if (preferredLanguage != null) {
-        await _voiceEngine.setLanguage(preferredLanguage);
+      final dynamic voices = await _voiceEngine.getVoices;
+      if (voices is List) {
+        Map<dynamic, dynamic>? preferredVoice;
+        for (final raw in voices) {
+          if (raw is Map) {
+            final name = (raw['name'] ?? '').toString().toLowerCase();
+            final locale = (raw['locale'] ?? '')
+                .toString()
+                .replaceAll('_', '-')
+                .toLowerCase();
+            final isEnglish =
+                locale.startsWith('en-in') ||
+                locale.startsWith('en-gb') ||
+                locale.startsWith('en-us');
+            final isFemale =
+                name.contains('female') ||
+                name.contains('veena') ||
+                name.contains('lekha') ||
+                name.contains('samantha') ||
+                name.contains('en-in-x-end');
+            if (isEnglish && isFemale) {
+              preferredVoice = raw;
+              if (locale.startsWith('en-in')) break;
+            }
+          }
+        }
+        if (preferredVoice != null) {
+          await _voiceEngine.setVoice({
+            'name': preferredVoice['name'].toString(),
+            'locale': preferredVoice['locale'].toString(),
+          });
+        } else {
+          await _voiceEngine.setLanguage('en-IN');
+        }
       }
-    } catch (_) {
-      // Use the device's default language if language discovery is unavailable.
-    }
+    } catch (_) {}
 
     try {
-      await _voiceEngine.setSpeechRate(0.43);
-      await _voiceEngine.setPitch(1.0);
-      await _voiceEngine.setVolume(1.0);
-    } catch (_) {
-      // Retain device defaults if a platform rejects an optional voice setting.
-    }
+      await _voiceEngine.setSpeechRate(0.39);
+      await _voiceEngine.setPitch(0.96);
+      await _voiceEngine.setVolume(0.92);
+    } catch (_) {}
   }
 
   bool get _canSpeakGuidance =>
@@ -923,9 +1616,7 @@ class _SakhiAiMentalWellnessStudioScreenState
         return;
       }
       await _voiceEngine.speak(_spokenPhaseGuidance[phaseIndex]);
-    } catch (_) {
-      // Visual countdown and prompts continue when system TTS is unavailable.
-    }
+    } catch (_) {}
   }
 
   Future<void> _speakCompletionGuidance() async {
@@ -939,15 +1630,8 @@ class _SakhiAiMentalWellnessStudioScreenState
         return;
       }
       await _voiceEngine.stop();
-      if (!mounted ||
-          !_voiceGuidanceEnabled ||
-          requestId != _voiceRequestId) {
-        return;
-      }
       await _voiceEngine.speak(_spokenCompletionGuidance);
-    } catch (_) {
-      // Completion is still shown visually when device TTS is unavailable.
-    }
+    } catch (_) {}
   }
 
   Future<void> _stopVoiceGuidance() async {
@@ -979,7 +1663,8 @@ class _SakhiAiMentalWellnessStudioScreenState
     if (!_ambientSoundEnabled) return;
     try {
       await _nativeChannel.invokeMethod('startMeditationAudio', {
-        'volume': 0.65,
+        'volume': 0.62,
+        'trackIndex': _selectedTrackIndex,
       });
     } catch (_) {}
   }
@@ -1086,7 +1771,6 @@ class _SakhiAiMentalWellnessStudioScreenState
 
   @override
   Widget build(BuildContext context) {
-    // Circle expands on Inhale (0), stays expanded on Hold (1), contracts on Exhale (2)
     final double targetDiameter = !_isRunning
         ? 150.0
         : _phaseIndex == 0
@@ -1114,7 +1798,7 @@ class _SakhiAiMentalWellnessStudioScreenState
     return Scaffold(
       backgroundColor: const Color(0xFFFDF7FA),
       appBar: AppBar(
-        title: const Text('Sakhi AI Mental Wellness Studio'),
+        title: const Text('Guided Breathing Studio'),
         actions: [
           IconButton(
             tooltip: _voiceGuidanceEnabled
@@ -1130,8 +1814,8 @@ class _SakhiAiMentalWellnessStudioScreenState
           ),
           IconButton(
             tooltip: _ambientSoundEnabled
-                ? 'Mute singing bowl audio'
-                : 'Enable singing bowl audio',
+                ? 'Mute peaceful soundscape'
+                : 'Enable peaceful soundscape',
             onPressed: () {
               setState(() => _ambientSoundEnabled = !_ambientSoundEnabled);
               if (_ambientSoundEnabled && _isRunning) {
@@ -1172,28 +1856,18 @@ class _SakhiAiMentalWellnessStudioScreenState
               ),
               child: Row(
                 children: [
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.18),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white70, width: 1.5),
-                    ),
-                    child: const Icon(
-                      Icons.auto_awesome_rounded,
-                      color: Colors.white,
-                      size: 24,
-                    ),
+                  const SakhiGentleWomanIllustration(
+                    pose: SakhiWomanPose.breathingCalm,
+                    size: 56,
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Sakhi AI Calm Companion \u2022 4-7-8 Rhythm',
-                          style: TextStyle(
+                        Text(
+                          'Sakhi AI Calm Companion \u2022 ${_breathingPatterns[_selectedPatternIndex]['title']}',
+                          style: const TextStyle(
                             color: Color(0xFFFFB3D1),
                             fontSize: 11.5,
                             fontWeight: FontWeight.w800,
@@ -1203,7 +1877,7 @@ class _SakhiAiMentalWellnessStudioScreenState
                         Text(
                           _isRunning
                               ? _aiVoicePrompts[_phaseIndex]
-                              : 'Choose your session duration below and tap "Start AI Guided Session" for automatic breathing transitions.',
+                              : 'Choose your breathing rhythm, peaceful soundscape, and duration below, then tap Start.',
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 13,
@@ -1218,6 +1892,43 @@ class _SakhiAiMentalWellnessStudioScreenState
               ),
             ),
             const SizedBox(height: 14),
+
+            // Breathing Pattern Picker
+            Text(
+              'Select Breathing Technique',
+              style: AppTypography.bodyMedium.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: List.generate(_breathingPatterns.length, (i) {
+                final selected = _selectedPatternIndex == i;
+                return ChoiceChip(
+                  label: Text(
+                    _breathingPatterns[i]['title'] as String,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                      color: selected ? Colors.white : AppColors.primaryPurple,
+                    ),
+                  ),
+                  selected: selected,
+                  selectedColor: const Color(0xFFD63E85),
+                  backgroundColor: Colors.white,
+                  onSelected: (_) {
+                    setState(() {
+                      _selectedPatternIndex = i;
+                      _phaseIndex = 0;
+                      _phaseSecondsLeft = _phaseDurations[0];
+                    });
+                  },
+                );
+              }),
+            ),
+            const SizedBox(height: 12),
 
             // Duration Picker Chips
             Text(
@@ -1253,6 +1964,41 @@ class _SakhiAiMentalWellnessStudioScreenState
                   onSelected: (_) => _selectDuration(mins),
                 );
               }).toList(),
+            ),
+            const SizedBox(height: 12),
+
+            // Soundscape Selector
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: List.generate(
+                  GuidedMeditationSessionController.soundscapeTitles.length,
+                  (i) => Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ChoiceChip(
+                      label: Text(
+                        GuidedMeditationSessionController.soundscapeTitles[i],
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          color: _selectedTrackIndex == i
+                              ? Colors.white
+                              : AppColors.textPrimary,
+                        ),
+                      ),
+                      selected: _selectedTrackIndex == i,
+                      selectedColor: AppColors.primaryPurple,
+                      backgroundColor: Colors.white,
+                      onSelected: (_) {
+                        setState(() => _selectedTrackIndex = i);
+                        if (_isRunning && _ambientSoundEnabled) {
+                          _startAmbientAudio();
+                        }
+                      },
+                    ),
+                  ),
+                ),
+              ),
             ),
             const SizedBox(height: 16),
 
@@ -1320,7 +2066,6 @@ class _SakhiAiMentalWellnessStudioScreenState
                       child: Stack(
                         alignment: Alignment.center,
                         children: [
-                          // Outer soft ripple aura
                           AnimatedContainer(
                             duration: animDuration,
                             curve: Curves.easeInOut,
@@ -1336,7 +2081,6 @@ class _SakhiAiMentalWellnessStudioScreenState
                               ),
                             ),
                           ),
-                          // Inner expanding / contracting gradient circle
                           AnimatedContainer(
                             duration: animDuration,
                             curve: Curves.easeInOut,
@@ -1728,11 +2472,7 @@ class _CycleSyncedFitnessNutritionScreenState
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            Icons.spa_rounded,
-                            size: 18,
-                            color: accent,
-                          ),
+                          Icon(Icons.spa_rounded, size: 18, color: accent),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(n, style: AppTypography.bodyRegular),

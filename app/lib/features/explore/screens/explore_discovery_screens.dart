@@ -3,6 +3,9 @@ import '../../../core/widgets/sakhi_quote_loader.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../../../core/navigation/app_routes.dart';
+import '../../notifications/screens/messages_and_notifications_inbox_screens.dart';
 
 import '../../../core/assets/app_assets.dart';
 import '../../../core/constants/mock_data.dart';
@@ -410,18 +413,32 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
   List<FeedPostModel> _posts = const [];
   List<FollowerUserModel> _members = const [];
   List<BusinessPageModel> _businesses = const [];
+  List<Map<String, dynamic>> _products = const [];
+  List<Map<String, dynamic>> _wellnessGuides = const [];
+  List<Map<String, dynamic>> _nearbyPoliceStations = const [];
   bool _loading = false;
   bool _failed = false;
   bool _postsUnavailable = false;
   bool _membersUnavailable = false;
   String _requestedQuery = '';
 
-  static const _filters = ['All', 'Posts', 'Members', 'Circles', 'Businesses'];
+  static const _filters = [
+    'All',
+    'Posts',
+    'Members',
+    'Businesses',
+    'Products',
+    'Circles',
+    'Wellness',
+    'Nearby Safety',
+  ];
   static const _starterTopics = [
     '#MentalWellness',
     '#WomenInTech',
     '#SafetyTips',
     '#SmallBusiness',
+    'Period Pain Help',
+    'Guided Meditation',
   ];
 
   @override
@@ -473,6 +490,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
     });
 
     final state = SakhiPrototypeState.instance;
+    state.addRecentSearch(query);
     final postsFuture = state.fetchPosts(
       search: query,
       categorySlug: 'all',
@@ -480,23 +498,39 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
     );
     final membersFuture = state.searchVisibleMembers(query);
     final businessesFuture = state.fetchBusinesses(search: query);
+    final unifiedFuture = state.unifiedSearch(q: query);
     final postsResult = await postsFuture;
     final membersResult = await membersFuture;
     final businessesResult = await businessesFuture;
+    final unifiedResult = await unifiedFuture;
 
     if (!mounted || query != _controller.text.trim()) return;
     setState(() {
-      _posts = postsResult ?? const [];
-      _members = membersResult ?? const [];
+      _posts = (postsResult ?? const [])
+          .where((p) => !state.isPostSuppressed(p))
+          .toList(growable: false);
+      _members = (membersResult ?? const [])
+          .where((m) => !state.isUsernameBlocked(m.username))
+          .toList(growable: false);
       _businesses = businessesResult
           .map(BusinessPageModel.fromJson)
           .toList(growable: false);
+      _products = List<Map<String, dynamic>>.from(
+        unifiedResult['products'] ?? const [],
+      );
+      _wellnessGuides = List<Map<String, dynamic>>.from(
+        unifiedResult['wellness'] ?? const [],
+      );
+      _nearbyPoliceStations = List<Map<String, dynamic>>.from(
+        unifiedResult['nearbyPoliceStations'] ?? const [],
+      );
       _postsUnavailable = postsResult == null;
       _membersUnavailable = membersResult == null;
       _failed =
           postsResult == null &&
           membersResult == null &&
-          businessesResult.isEmpty;
+          businessesResult.isEmpty &&
+          _wellnessGuides.isEmpty;
       _loading = false;
     });
   }
@@ -637,6 +671,35 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                 ),
                 children: [
                   if (_controller.text.trim().isEmpty) ...[
+                    if (state.recentSearches.isNotEmpty) ...[
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Recent searches',
+                            style: AppTypography.sectionTitle,
+                          ),
+                          TextButton(
+                            onPressed: state.clearRecentSearches,
+                            child: const Text('Clear all'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: state.recentSearches
+                            .map(
+                              (item) => SakhiChip(
+                                label: item,
+                                onTap: () => _openTopic(item),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                      const SizedBox(height: 18),
+                    ],
                     const Text(
                       'Explore topics',
                       style: AppTypography.sectionTitle,
@@ -902,6 +965,135 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                         ),
                       ],
                     ],
+                    if (_activeFilter == 'All' ||
+                        _activeFilter == 'Products') ...[
+                      const SizedBox(height: 12),
+                      const SakhiSectionHeader(title: 'Products & Services'),
+                      const SizedBox(height: 10),
+                      if (_products.isEmpty)
+                        const _InlineEmptyResult(
+                          text: 'No matching products or services were found.',
+                        )
+                      else
+                        ..._products.map(
+                          (prod) => Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: SakhiCard(
+                              child: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: const CircleAvatar(
+                                  backgroundColor: Color(0xFFFDF2F8),
+                                  child: Icon(
+                                    Icons.shopping_bag_outlined,
+                                    color: Color(0xFFBE185D),
+                                  ),
+                                ),
+                                title: Text(
+                                  (prod['title'] ?? '').toString(),
+                                  style: AppTypography.cardTitle,
+                                ),
+                                subtitle: Text(
+                                  '${prod['businessName'] ?? 'Verified Business'} • ${prod['priceLabel'] ?? ''} • ${prod['city'] ?? ''}',
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                    if (_activeFilter == 'All' ||
+                        _activeFilter == 'Wellness') ...[
+                      const SizedBox(height: 12),
+                      const SakhiSectionHeader(
+                        title: 'Wellness, Period Care & Meditation Guides',
+                      ),
+                      const SizedBox(height: 10),
+                      if (_wellnessGuides.isEmpty)
+                        const _InlineEmptyResult(
+                          text: 'No matching wellness guides were found.',
+                        )
+                      else
+                        ..._wellnessGuides.map(
+                          (guide) => Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: SakhiCard(
+                              onTap: () {
+                                final link =
+                                    (guide['deepLink'] ?? '').toString();
+                                if (link.contains('cycle-tracker')) {
+                                  Navigator.pushNamed(
+                                    context,
+                                    AppRoutes.menstrualCycleTracker,
+                                  );
+                                } else {
+                                  Navigator.pushNamed(
+                                    context,
+                                    AppRoutes.wellness,
+                                  );
+                                }
+                              },
+                              child: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: const CircleAvatar(
+                                  backgroundColor: Color(0xFFF3E8FF),
+                                  child: Icon(
+                                    Icons.self_improvement_rounded,
+                                    color: AppColors.primaryPurple,
+                                  ),
+                                ),
+                                title: Text(
+                                  (guide['title'] ?? '').toString(),
+                                  style: AppTypography.cardTitle,
+                                ),
+                                subtitle: Text(
+                                  '${guide['category'] ?? 'Wellness'} • ${guide['readTime'] ?? '4 min read'}\n${guide['subtitle'] ?? ''}',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                trailing: const Icon(
+                                  Icons.chevron_right_rounded,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                    if (_activeFilter == 'All' ||
+                        _activeFilter == 'Nearby Safety') ...[
+                      const SizedBox(height: 12),
+                      const SakhiSectionHeader(
+                        title: 'Verified Police Stations & Safety Resources',
+                      ),
+                      const SizedBox(height: 10),
+                      if (_nearbyPoliceStations.isEmpty)
+                        const _InlineEmptyResult(
+                          text: 'No matching police stations were found.',
+                        )
+                      else
+                        ..._nearbyPoliceStations.map(
+                          (st) => Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: SakhiCard(
+                              child: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: const CircleAvatar(
+                                  backgroundColor: Color(0xFFE0F2FE),
+                                  child: Icon(
+                                    Icons.local_police_outlined,
+                                    color: Color(0xFF0369A1),
+                                  ),
+                                ),
+                                title: Text(
+                                  (st['name'] ?? 'Police Station').toString(),
+                                  style: AppTypography.cardTitle,
+                                ),
+                                subtitle: Text(
+                                  '${st['address'] ?? ''} • Emergency: ${st['emergencyNumber'] ?? '112'}',
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ],
                 ],
               ),
@@ -931,6 +1123,7 @@ class _SearchResultMemberProfileScreenState
   int _postsCount = 0;
   int _followersCount = 0;
   int _followingCount = 0;
+  int _selectedProfileTab = 0; // 0: Posts, 1: Media, 2: About
   List<FeedPostModel> _memberPosts = const <FeedPostModel>[];
 
   @override
@@ -1036,6 +1229,160 @@ class _SearchResultMemberProfileScreenState
     );
   }
 
+  void _showMemberProfileOptionsSheet(
+    BuildContext context,
+    SakhiPrototypeState state,
+  ) {
+    final member = widget.member;
+    final isBlocked = state.isUsernameBlocked(member.username);
+    final isMuted = state.isUsernameMuted(member.username);
+    final isRestricted = state.isUsernameRestricted(member.username);
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.link_rounded, color: AppColors.primaryPurple),
+              title: const Text('Copy Profile Link'),
+              onTap: () {
+                Navigator.pop(ctx);
+                Clipboard.setData(
+                  ClipboardData(
+                    text: 'https://sakhi.app/u/${member.username.replaceFirst("@", "")}',
+                  ),
+                );
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Copied link for ${member.username}')),
+                );
+              },
+            ),
+            ListTile(
+              leading: Icon(
+                isMuted ? Icons.volume_up_outlined : Icons.volume_off_outlined,
+                color: AppColors.primaryPurple,
+              ),
+              title: Text(
+                isMuted ? 'Unmute ${member.name}' : 'Mute ${member.name}',
+              ),
+              subtitle: const Text('Hide their posts from your feed without blocking'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                final nowMuted = await state.toggleMuteUser(
+                  username: member.username,
+                  displayName: member.name,
+                );
+                if (!mounted || !context.mounted) return;
+                setState(() {});
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      nowMuted
+                          ? 'Muted ${member.username}.'
+                          : 'Unmuted ${member.username}.',
+                    ),
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: Icon(
+                isRestricted ? Icons.shield_outlined : Icons.privacy_tip_outlined,
+                color: AppColors.primaryPurple,
+              ),
+              title: Text(
+                isRestricted
+                    ? 'Unrestrict ${member.name}'
+                    : 'Restrict ${member.name}',
+              ),
+              subtitle: const Text(
+                'Move their messages to Message Requests without notifying them',
+              ),
+              onTap: () async {
+                Navigator.pop(ctx);
+                final nowRestricted = await state.toggleRestrictUser(
+                  username: member.username,
+                  displayName: member.name,
+                );
+                if (!mounted || !context.mounted) return;
+                setState(() {});
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      nowRestricted
+                          ? 'Restricted ${member.username}.'
+                          : 'Unrestricted ${member.username}.',
+                    ),
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.flag_outlined, color: AppColors.sosRed),
+              title: Text('Report ${member.name}'),
+              subtitle: const Text('Confidentially report impersonation, spam, or harassment'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                await state.reportUserOrPost(
+                  targetHandle: member.username,
+                  targetType: 'MEMBER',
+                  category: 'SAFETY_CONCERN',
+                  reason: 'Reported member profile from profile options',
+                  authorDisplayName: member.name,
+                );
+                if (!mounted || !context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Confidential report submitted for ${member.username}.',
+                    ),
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: Icon(
+                isBlocked ? Icons.lock_open_rounded : Icons.block_rounded,
+                color: AppColors.sosRed,
+              ),
+              title: Text(
+                isBlocked ? 'Unblock ${member.name}' : 'Block ${member.name}',
+                style: const TextStyle(
+                  color: AppColors.sosRed,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              onTap: () async {
+                Navigator.pop(ctx);
+                await state.toggleBlockedUser(
+                  username: member.username,
+                  displayName: member.name,
+                );
+                if (!mounted || !context.mounted) return;
+                setState(() {});
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      state.isUsernameBlocked(member.username)
+                          ? 'Blocked ${member.username}.'
+                          : 'Unblocked ${member.username}.',
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _openConnections({required bool initialFollowing}) {
     final targetKey = widget.member.id.trim().isNotEmpty
         ? widget.member.id.trim()
@@ -1069,6 +1416,29 @@ class _SearchResultMemberProfileScreenState
       appBar: AppBar(
         backgroundColor: AppColors.scaffoldBackground,
         title: Text(member.name, style: AppTypography.appBarTitle),
+        actions: [
+          IconButton(
+            tooltip: 'Share Profile',
+            icon: const Icon(Icons.share_outlined),
+            onPressed: () {
+              Clipboard.setData(
+                ClipboardData(
+                  text: 'https://sakhi.app/u/${member.username.replaceFirst("@", "")}',
+                ),
+              );
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Copied profile link for ${member.username}'),
+                ),
+              );
+            },
+          ),
+          IconButton(
+            tooltip: 'Member Safety & Profile Options',
+            icon: const Icon(Icons.more_vert_rounded),
+            onPressed: () => _showMemberProfileOptionsSheet(context, state),
+          ),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: _loadProfileOverview,
@@ -1213,15 +1583,30 @@ class _SearchResultMemberProfileScreenState
                       const SizedBox(width: 10),
                       Expanded(
                         child: OutlinedButton.icon(
-                          onPressed: () =>
-                              showSakhiDirectMessageSheet(context, member),
+                          onPressed: state.isUsernameBlocked(member.username)
+                              ? null
+                              : () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) =>
+                                          SakhiDirectConversationScreen(
+                                        peerId: member.id.isNotEmpty
+                                            ? member.id
+                                            : member.username,
+                                        peerName: member.name,
+                                        peerUsername: member.username,
+                                        peerAvatar: member.avatarAsset,
+                                      ),
+                                    ),
+                                  );
+                                },
                           icon: const Icon(
                             Icons.chat_bubble_outline_rounded,
                             size: 16,
                           ),
-                          label: const Text(
-                            'Message',
-                            style: TextStyle(fontWeight: FontWeight.w800),
+                          label: Text(
+                            member.isFollowing ? 'Message' : 'Message Request',
+                            style: const TextStyle(fontWeight: FontWeight.w800),
                           ),
                         ),
                       ),
@@ -1317,8 +1702,60 @@ class _SearchResultMemberProfileScreenState
                 ),
               ),
             ],
+            if (state.isUsernameBlocked(member.username)) ...[
+              const SizedBox(height: 14),
+              SakhiCard(
+                child: Column(
+                  children: [
+                    const Icon(
+                      Icons.block_rounded,
+                      color: AppColors.sosRed,
+                      size: 32,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'You have blocked ${member.name} (${member.username})',
+                      style: AppTypography.cardTitle,
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Their posts, comments, and direct messages are hidden from your account.',
+                      textAlign: TextAlign.center,
+                      style: AppTypography.subtitle,
+                    ),
+                    const SizedBox(height: 10),
+                    OutlinedButton(
+                      onPressed: () async {
+                        await state.toggleBlockedUser(
+                          username: member.username,
+                          displayName: member.name,
+                        );
+                        if (mounted) setState(() {});
+                      },
+                      child: const Text('Unblock Member'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 18),
-            SakhiSectionHeader(title: 'Posts by ${member.name} ($_postsCount)'),
+            Row(
+              children: [
+                ChoiceChip(
+                  label: Text('Posts (${_memberPosts.length})'),
+                  selected: _selectedProfileTab == 0,
+                  onSelected: (_) => setState(() => _selectedProfileTab = 0),
+                ),
+                const SizedBox(width: 8),
+                ChoiceChip(
+                  label: Text(
+                    'Media (${_memberPosts.where((p) => (p.imageAsset ?? "").trim().isNotEmpty).length})',
+                  ),
+                  selected: _selectedProfileTab == 1,
+                  onSelected: (_) => setState(() => _selectedProfileTab = 1),
+                ),
+              ],
+            ),
             const SizedBox(height: 10),
             if (_loadingOverview)
               const Padding(
@@ -1336,7 +1773,12 @@ class _SearchResultMemberProfileScreenState
                 padding: EdgeInsets.zero,
                   shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                itemCount: _memberPosts.length,
+                itemCount: (_selectedProfileTab == 1
+                        ? _memberPosts
+                            .where((p) => (p.imageAsset ?? '').trim().isNotEmpty)
+                            .toList()
+                        : _memberPosts)
+                    .length,
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 3,
                   crossAxisSpacing: 8,
@@ -1344,7 +1786,12 @@ class _SearchResultMemberProfileScreenState
                   childAspectRatio: 1,
                 ),
                 itemBuilder: (context, index) {
-                  final post = _memberPosts[index];
+                  final visibleList = _selectedProfileTab == 1
+                      ? _memberPosts
+                          .where((p) => (p.imageAsset ?? '').trim().isNotEmpty)
+                          .toList()
+                      : _memberPosts;
+                  final post = visibleList[index];
                   final source = post.imageAsset?.trim() ?? '';
                   return InkWell(
                     borderRadius: BorderRadius.circular(12),

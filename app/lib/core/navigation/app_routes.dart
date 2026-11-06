@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'app_route_paths.dart';
+
 import '../../features/account_security/screens/account_security_screen.dart';
 import '../../features/business/screens/business_hub_screen.dart';
 import '../../features/community/screens/community_screen.dart';
@@ -9,6 +11,7 @@ import '../../features/complaints/screens/discreet_complaint_hub_screen.dart';
 import '../../features/explore/screens/explore_screen.dart';
 import '../../features/followers/screens/followers_following_screen.dart';
 import '../../features/home/screens/home_screen.dart';
+import '../../features/notifications/screens/messages_and_notifications_inbox_screens.dart';
 import '../../features/notifications/screens/notification_preferences_screen.dart';
 import '../../features/profile/screens/edit_profile_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
@@ -34,6 +37,8 @@ class AppRoutes {
   static const String editProfile = '/edit-profile';
   static const String privacySettings = '/privacy-settings';
   static const String notificationPreferences = '/notification-preferences';
+  static const String notificationsInbox = sakhiNotificationsInboxRoute;
+  static const String messagesInbox = sakhiMessagesInboxRoute;
   static const String followers = '/followers';
   static const String following = '/following';
   static const String groups = '/groups';
@@ -54,7 +59,7 @@ class AppRoutes {
   static const String businessEnquiries = '/businesses/enquiries';
 
   // Module 7: Women's Menstrual Cycle Tracker Route (SRS Section 9)
-  static const String menstrualCycleTracker = '/wellness/cycle-tracker';
+  static const String menstrualCycleTracker = sakhiMenstrualCycleTrackerRoute;
 
   static Map<String, WidgetBuilder> get routes => {
     root: (_) => const AppNavigationShell(),
@@ -68,6 +73,8 @@ class AppRoutes {
     editProfile: (_) => const EditProfileScreen(),
     privacySettings: (_) => const PrivacySettingsScreen(),
     notificationPreferences: (_) => const NotificationPreferencesScreen(),
+    notificationsInbox: (_) => const SakhiNotificationsInboxScreen(),
+    messagesInbox: (_) => const SakhiMessagesInboxScreen(),
     followers: (_) => const FollowersFollowingScreen(),
     following: (_) => const FollowersFollowingScreen(initialFollowing: true),
     groups: (_) => const Scaffold(body: ExploreScreen()),

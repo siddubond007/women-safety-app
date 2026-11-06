@@ -1,4 +1,4 @@
-﻿import {
+import {
   BadRequestException,
   ForbiddenException,
   InternalServerErrorException,
@@ -15,6 +15,7 @@ type HarnessOptions = {
   recipientVerificationStatus?: string;
   senderVerificationStatus?: string;
   followsRecipient?: boolean;
+  recipientFollowsSender?: boolean;
   senderBlocksRecipient?: boolean;
   recipientBlocksSender?: boolean;
   recipientDirectoryFound?: boolean;
@@ -74,11 +75,19 @@ function createHarness(options: HarnessOptions = {}) {
     }
     return Promise.resolve(data);
   });
-  const followFindUnique = vi
-    .fn()
-    .mockResolvedValue(
-      options.followsRecipient === false ? null : { isFollowing: true },
-    );
+  const followFindUnique = vi.fn().mockImplementation(({ where }) => {
+    if (where.accountId === "sender-account") {
+      return Promise.resolve(
+        options.followsRecipient === false ? null : { isFollowing: true },
+      );
+    }
+    if (where.accountId === "recipient-account") {
+      return Promise.resolve(
+        options.recipientFollowsSender === true ? { isFollowing: true } : null,
+      );
+    }
+    return Promise.resolve(null);
+  });
   const blockFindFirst = vi.fn().mockImplementation(({ where }) => {
     if (where.accountId === "sender-account" && options.senderBlocksRecipient) {
       return Promise.resolve({ id: "sender-block-1" });
@@ -136,7 +145,10 @@ function createHarness(options: HarnessOptions = {}) {
     directMessage:
       options.directMessageDelegateAvailable === false
         ? undefined
-        : { create: directMessageCreate },
+        : {
+            create: directMessageCreate,
+            findFirst: vi.fn().mockResolvedValue(null),
+          },
     auditEvent: {
       create: auditCreate,
     },
@@ -205,6 +217,8 @@ describe("Module 2 direct-message recipient authorization and persistence", () =
     expect(auditCall.data.redactedMetadata).toEqual({
       messageId: result.message.id,
       recipientAccountId: "recipient-account",
+      hasAttachment: false,
+      requestStatus: "PENDING_REQUEST",
     });
     expect(auditCall.data.redactedMetadata).not.toHaveProperty("body");
   });
@@ -257,6 +271,22 @@ describe("Module 2 direct-message recipient authorization and persistence", () =
       harness.service.sendDirectMessage("Bearer test-token", request),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(harness.directMessageCreate).not.toHaveBeenCalled();
+  });
+
+  it("puts first-time senders into Message Requests until the recipient follows or accepts them", async () => {
+    const unknownSender = createHarness();
+    const pending = await unknownSender.service.sendDirectMessage(
+      "Bearer test-token",
+      request,
+    );
+    expect(pending.message.requestStatus).toBe("PENDING_REQUEST");
+
+    const knownSender = createHarness({ recipientFollowsSender: true });
+    const accepted = await knownSender.service.sendDirectMessage(
+      "Bearer test-token",
+      request,
+    );
+    expect(accepted.message.requestStatus).toBe("ACCEPTED");
   });
 
   it("honors the recipient's No One messaging preference", async () => {
