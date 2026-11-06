@@ -1,0 +1,101 @@
+name: Sakhi CI - Module 8
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - module-8-implementation
+    paths:
+      - "backend/**"
+      - "super-admin/**"
+      - "app/**"
+      - ".github/workflows/sakhi-module8-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sakhi-module8-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/sakhi_test?schema=public
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.22.0"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: Validate Prisma schema
+        run: npm run prisma:validate
+      - name: Type-check backend
+        run: npm run typecheck
+      - name: Run backend unit tests
+        run: npm test
+      - name: Build backend
+        run: npm run build
+
+  super-admin:
+    name: Super Admin validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: super-admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.22.0"
+          cache: npm
+          cache-dependency-path: super-admin/package-lock.json
+      - run: npm ci
+      - name: Type-check
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        run: npm run build
+
+  flutter:
+    name: Flutter analysis, tests and debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.7"
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Analyze Dart source
+        run: flutter analyze
+      - name: Run Flutter tests
+        run: flutter test
+      - name: Build debug APK (does not use production signing key)
+        run: flutter build apk --debug
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: sakhi-module8-debug-apk
+          path: app/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
