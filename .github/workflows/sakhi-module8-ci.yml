@@ -98,12 +98,16 @@ jobs:
         run: flutter analyze
       - name: Run Flutter tests
         run: flutter test
-      - name: Build debug APK (does not use production signing key)
-        run: flutter build apk --debug
+      - name: Build staging-connected debug APK (does not use production signing key)
+        run: >-
+          flutter build apk --debug
+          --dart-define=SAKHI_BACKEND_ENABLED=true
+          --dart-define=SAKHI_STAGING_TEST_MODE=true
+          --dart-define=SAKHI_API_BASE_URL=https://sakhi-staging-api.onrender.com/api/v1
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: sakhi-module8-debug-apk
+          name: Sakhi_Staging_Connected_Debug_APK
           path: app/build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
           retention-days: 7
