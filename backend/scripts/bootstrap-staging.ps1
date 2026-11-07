@@ -44,19 +44,11 @@ try {
     if ($bootstrapConfirmation -cne $expectedBootstrapApproval) {
       throw 'Staging bootstrap was not explicitly approved; no schema changes were attempted.'
     }
+    $env:SAKHI_ALLOW_STAGING_BOOTSTRAP = $bootstrapConfirmation
   }
 
   if ($PreflightOnly) {
-    $probeFile = Join-Path $env:TEMP ('sakhi-staging-prisma-probe-' + [guid]::NewGuid().ToString('N') + '.sql')
-    try {
-      Set-Content -LiteralPath $probeFile -Value 'SELECT current_database(), current_user, current_schema();' -Encoding ASCII
-      Write-Host 'Testing Prisma CLI TLS connectivity using a read-only SELECT...'
-      & .\node_modules\.bin\prisma.cmd db execute --file $probeFile
-      if ($LASTEXITCODE -ne 0) { throw 'Prisma TLS diagnostic failed; no schema changes were attempted.' }
-      Write-Host 'Prisma connection check passed. No database schema changes were attempted.' -ForegroundColor Green
-    } finally {
-      Remove-Item -LiteralPath $probeFile -Force -ErrorAction SilentlyContinue
-    }
+    Write-Host 'Read-only staging connection and empty-schema checks passed. No Prisma SQL execution or schema changes were attempted.' -ForegroundColor Green
     return
   }
 
@@ -108,6 +100,7 @@ try {
   Write-Host 'No local dev/test database was targeted, and no synthetic member accounts were seeded.'
 } finally {
   Remove-Item Env:SAKHI_MIGRATOR_DATABASE_URL -ErrorAction SilentlyContinue
+  Remove-Item Env:SAKHI_ALLOW_STAGING_BOOTSTRAP -ErrorAction SilentlyContinue
   Remove-Item Env:SAKHI_ENV -ErrorAction SilentlyContinue
   Pop-Location
 }
