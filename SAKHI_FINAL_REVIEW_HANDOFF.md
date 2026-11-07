@@ -1,8 +1,11 @@
 # Sakhi Modules 8–12 Reviewed Candidate — Handoff
 
-Review date: 2026-11-06
+Review date: 2026-11-07
+Clean review branch: `review/sakhi-modules8-12-clean-candidate-20261107`
+Parent source snapshot: `aeeb9bf6e3485ebf9b3a590e1fa7e0f33c6bbf52` (the reviewed PR #35 head; PR #35 remains untouched)
 Repository: `siddubond007/women-safety-app` (private)
-Intended feature branch: `module-8-to-9-implementations-and-upgrades`
+Original implementation branch: `module-8-to-9-implementations-and-upgrades`
+Clean review candidate branch: `review/sakhi-modules8-12-clean-candidate-20261107`
 Base source snapshot: `main` at `d304f119e62c4be1c7624873f7ce0c5e2a53f2d5`
 
 ## Important status
@@ -77,8 +80,10 @@ These must not be represented as completed merely because Gemini's repair report
 - Supabase project `sakhi-friend-testing` (`wmlpokholjfadyohdlgo`) is `ACTIVE_HEALTHY` in `ap-south-1`.
 - At review time, `direct_messages` and `member_notification_preferences` existed, but `member_notifications` did not. The Modules 8–12 migration is therefore not applied to this staging project.
 - Supabase migration-list API returned an empty list; rely on schema inspection rather than assuming migration history is recorded there.
-- Render services `sakhi-staging-api` and `sakhi-staging-admin` both currently track `main` with auto-deploy enabled. They are not configured to deploy this unpublished candidate branch.
-- The Render API is therefore not yet running the candidate backend implementation.
+- Read-only Render service inspection on 2026-11-07 confirmed `sakhi-staging-api` and `sakhi-staging-admin` both track `module-8-to-9-implementations-and-upgrades`, with auto-deploy enabled and the `checksPass` trigger. The repository `render.yaml` now matches that observed live branch. No live Render setting was changed.
+- The clean review candidate branch `review/sakhi-modules8-12-clean-candidate-20261107` is not configured on either live service and must not be deployed until separately approved.
+- The Render auto-deploy build command is now schema-neutral: it compiles the backend but does not run Prisma migrations.
+- A separate `backend/scripts/staging-migrate-reviewed.sh` command requires the exact explicit approval phrase, the expected migration target, the dedicated staging migrator URL, all predecessor migrations through Module 7, and an exact pending-migration allowlist before `prisma migrate deploy` can run. This command has not been executed.
 
 ## Applying this source safely in Codespaces
 
@@ -108,3 +113,12 @@ git push -u origin module-8-to-9-implementations-and-upgrades
 The push should trigger the `Sakhi Modules 8-9 validation and staging APK` workflow. Wait for all Backend, Super Admin and Flutter steps to pass. Download the `Sakhi_Staging_Release_APK_TEST_ONLY` artifact from that run. The build uses a temporary signing key that is discarded after the workflow: a later run will produce a different signing certificate, so testers may need to uninstall the previous test APK before installing a new one. This artifact is for staging/friend testing only, not a Play Store production release.
 
 **Do not merge into `main`, switch Render's service branches, or apply the Supabase migration until CI has passed and the migration/security review is signed off.** After the branch is pushed and green, deploy that branch to the existing staging services and apply the reviewed migration to `sakhi-friend-testing`, then run backend/database/device integration tests before distributing the staging APK.
+
+
+## Clean candidate deployment and migration controls (2026-11-07)
+
+- Render's live API and Admin service branches were read-only verified as `module-8-to-9-implementations-and-upgrades`; `render.yaml` intentionally matches those existing settings. The new review branch is separate and is not configured for deployment.
+- `backend/scripts/staging-build.sh` now runs only the application build. Render's automatic build path cannot apply pending Prisma migrations.
+- Migration execution is separated into `backend/scripts/staging-migrate-reviewed.sh`. It requires `SAKHI_ENV=staging`, `SAKHI_MIGRATION_TARGET=20261106010000_modules8_9_10_11_12_complete`, `SAKHI_ALLOW_STAGING_MIGRATIONS=YES_APPLY_20261106010000_MODULES8_12`, and `SAKHI_MIGRATOR_DATABASE_URL`.
+- Preflight now requires every migration from the original foundation through Modules 5, 6 and 7 (including the intervening RBAC, dedicated-message-storage, runtime-grants, session-metadata and demo-purge migrations) to be recorded as successfully applied. It rejects failed/incomplete ledger rows and any pending migration outside the reviewed Modules 8–12 migration.
+- These are repository-side safeguards only. No live Render setting or Supabase schema was changed, and no migration was executed.
