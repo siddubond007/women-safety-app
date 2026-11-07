@@ -149,12 +149,13 @@ async function main() {
       .map((entry) => entry.name)
       .sort();
     const pending = localMigrations.filter((name) => !applied.has(name));
-    const expectedPending = [
-      "20261106010000_modules8_9_10_11_12_complete",
-    ];
+    if (!localMigrations.includes(EXPECTED_MIGRATION)) {
+      throw new Error("The reviewed Modules 8–12 migration directory is missing.");
+    }
     if (
       pending.length > 1 ||
-      pending.some((name) => name !== expectedPending[0])
+      pending.some((name) => name !== EXPECTED_MIGRATION) ||
+      (pending.length === 0 && !applied.has(EXPECTED_MIGRATION))
     ) {
       throw new Error(
         "Unexpected pending migration set; only the reviewed Modules 8–12 migration is permitted.",
@@ -162,7 +163,9 @@ async function main() {
     }
 
     process.stdout.write(
-      "Staging migration preflight passed: Modules 1–7 predecessor chain is complete and exactly the reviewed Modules 8–12 migration is pending.\\n",
+      pending.length === 1
+        ? "Staging migration preflight passed: Modules 1–7 predecessors are complete and only the reviewed Modules 8–12 migration is pending.\\n"
+        : "Staging migration preflight passed: Modules 1–7 predecessors and the reviewed Modules 8–12 migration are already applied.\\n",
     );
   } finally {
     await client.end().catch(() => undefined);
