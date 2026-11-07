@@ -560,6 +560,26 @@ describe("Sakhi Modules 8–12 Repair & Hardening Regression Suite", () => {
       adminService.previewReportedMedia("missing-upload-id", REVIEWER_TOKEN),
     ).rejects.toThrow(NotFoundException);
 
+    // A database lookup failure must not be misreported as missing evidence.
+    const lookupFailureContext = createMockContext();
+    (lookupFailureContext.prisma as any).mediaAsset.findUnique.mockRejectedValueOnce(
+      new Error("media database unavailable"),
+    );
+    const lookupFailureService = new AdminReviewService(lookupFailureContext.prisma);
+    await expect(
+      lookupFailureService.previewReportedMedia(UPLOAD_ID, REVIEWER_TOKEN),
+    ).rejects.toThrow("media database unavailable");
+
+    // Evidence must not be returned when its required audit record cannot be written.
+    const auditFailureContext = createMockContext();
+    (auditFailureContext.prisma as any).auditEvent.create.mockRejectedValueOnce(
+      new Error("preview audit unavailable"),
+    );
+    const auditFailureService = new AdminReviewService(auditFailureContext.prisma);
+    await expect(
+      auditFailureService.previewReportedMedia(UPLOAD_ID, REVIEWER_TOKEN),
+    ).rejects.toThrow("preview audit unavailable");
+
     // Deleting a non-existent wellness resource must throw NotFoundException
     await expect(
       adminService.deleteWellnessResource("missing-resource-id", REVIEWER_TOKEN),
