@@ -2260,7 +2260,6 @@ export class AdminReviewService {
       typeof anyPrisma.mediaAsset?.findUnique === "function"
         ? anyPrisma.mediaAsset
             .findUnique({ where: { id: cleanId } })
-            .catch(() => null)
         : Promise.resolve(null),
       typeof anyPrisma.auditEvent?.findFirst === "function"
         ? anyPrisma.auditEvent
@@ -2276,7 +2275,6 @@ export class AdminReviewService {
               },
               orderBy: { createdAt: "desc" },
             })
-            .catch(() => null)
         : Promise.resolve(null),
     ]);
 
@@ -2298,8 +2296,7 @@ export class AdminReviewService {
             requestId: randomUUID(),
             redactedMetadata: { reviewerLabel, uploadId: cleanId },
           },
-        })
-        .catch(() => undefined);
+        });
     }
 
     const meta =
