@@ -39,6 +39,14 @@ DROP POLICY IF EXISTS "menstrual_daily_logs_backend_runtime_access"
 DROP POLICY IF EXISTS "menstrual_cycle_logs_backend_runtime_access"
   ON "menstrual_cycle_logs";
 
+-- Module 7's tracked migration created these tables without enabling RLS.
+-- Module 8–12 enabled RLS above; disable it here after removing the policies
+-- so rollback restores the pre-migration access behavior instead of leaving
+-- the tables in RLS default-deny mode.
+ALTER TABLE "menstrual_tracker_preferences" DISABLE ROW LEVEL SECURITY;
+ALTER TABLE "menstrual_daily_logs" DISABLE ROW LEVEL SECURITY;
+ALTER TABLE "menstrual_cycle_logs" DISABLE ROW LEVEL SECURITY;
+
 DROP TABLE IF EXISTS "member_notifications";
 
 DROP INDEX IF EXISTS "direct_messages_sender_client_msg_idx";
