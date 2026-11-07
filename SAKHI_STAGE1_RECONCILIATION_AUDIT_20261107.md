@@ -124,3 +124,20 @@ At the time of this audit:
 5. Record any remaining SQL review limitations; never execute the migration in this stage.
 
 Stage 1 is not complete until the integration-branch CI and final diff review are complete.
+
+
+## 10. Additional handoff findings and live-staging caveats
+
+The full Gemini handoff and repair report were re-read after the initial inventory. The following exact limitations remain relevant:
+
+- Quiet hours: no persisted quiet-hours fields, API contract or time-window enforcement was found.
+- Push delivery: no Firebase Cloud Messaging/APNs delivery integration or device-token lifecycle was found; the in-app inbox is not push delivery.
+- Message security: end-to-end encryption is not demonstrated; retention and moderator-access policy still require a product/security decision.
+- Active conversations: the Requests tab has Accept/Decline/Block, but the active conversation view lacks a complete message-level Block/Report control set.
+- Business enquiries: member-to-member messaging exists; the business-owner enquiry inbox still requires end-to-end verification.
+- TTS and soundscapes: FlutterTts is device-native and voice varies by engine; Android AudioTrack soundscapes are synthesized harmonic tones, not recorded music or generative AI audio. Device audio-focus and perceived quality remain unverified.
+- The prior handoff reported that Supabase's security advisor saw the three Module 7 menstrual tables with RLS enabled but no policies, while the tracked Module 7 migration creates them without enabling RLS. The current Modules 8–12 forward migration adds runtime-role policies; its rollback restores the tracked Module 7 state by disabling RLS. This is a live-environment drift caveat: before any future migration/rollback approval, read-only inspection must establish the actual current RLS flags and ACLs so rollback does not silently change a pre-existing live state.
+- The prior handoff reported the Supabase migration-list API returned an empty list. The actual `public._prisma_migrations` ledger has not been queried in this stage. The current preflight requires that ledger and every Module 1–7 predecessor to be recorded; if the ledger is absent/incomplete, preflight intentionally refuses. The empty-schema bootstrap also refuses non-empty application schemas. A separate, audited baseline-adoption procedure may be needed; do not bypass the gate or mark migrations as resolved without inspecting the live schema and migration history.
+- At the time of the handoff, the two Render services tracked `main`. The candidate `render.yaml` contains a feature-branch setting, but no live Render service setting was inspected or changed during this stage. No deploy occurred.
+
+These are release/deployment follow-up blockers or product gaps, not reasons to expand Stage 1 into live infrastructure changes.
