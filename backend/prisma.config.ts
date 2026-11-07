@@ -1,6 +1,6 @@
 import { defineConfig } from "prisma/config";
 import { spawnSync } from "node:child_process";
-import path from "node:path";
+import { join } from "node:path";
 import {
   assertSakhiDatabaseTarget,
   parseSakhiEnvironment,
@@ -44,7 +44,7 @@ function getMigrationDatasourceUrl(): string {
       ) {
         const preflight = spawnSync(
           process.execPath,
-          [path.join(process.cwd(), "scripts", "staging-preflight.cjs"), "migrations"],
+          [join(process.cwd(), "scripts", "staging-preflight.cjs"), "migrations"],
           { cwd: process.cwd(), env: process.env, encoding: "utf8" },
         );
         if (preflight.status !== 0) {
