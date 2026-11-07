@@ -140,8 +140,8 @@ async function main() {
       );
     }
 
-    // Never let migrate deploy apply an arbitrary backlog. Exactly one reviewed
-    // Modules 8–12 migration may be pending after the complete predecessor chain.
+    // Never let migrate deploy apply an arbitrary backlog. Only the reviewed
+    // Modules 8–12 migration may be pending; an already-applied target is also valid.
     const migrationRoot = path.join(__dirname, "..", "prisma", "migrations");
     const localMigrations = fs
       .readdirSync(migrationRoot, { withFileTypes: true })
@@ -164,8 +164,8 @@ async function main() {
 
     process.stdout.write(
       pending.length === 1
-        ? "Staging migration preflight passed: Modules 1–7 predecessors are complete and only the reviewed Modules 8–12 migration is pending.\\n"
-        : "Staging migration preflight passed: Modules 1–7 predecessors and the reviewed Modules 8–12 migration are already applied.\\n",
+        ? "Staging migration preflight passed: Modules 1–7 predecessors are complete and only the reviewed Modules 8–12 migration is pending.\n"
+        : "Staging migration preflight passed: Modules 1–7 predecessors and the reviewed Modules 8–12 migration are already applied.\n",
     );
   } finally {
     await client.end().catch(() => undefined);
