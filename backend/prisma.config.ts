@@ -9,6 +9,62 @@ function getMigrationDatasourceUrl(): string {
   const suppliedUrl = process.env.SAKHI_MIGRATOR_DATABASE_URL;
 
   if (environment === "staging") {
+    const [commandGroup, commandAction] = process.argv.slice(2);
+    const migrationApproved =
+      process.env.SAKHI_MIGRATION_TARGET ===
+        "20261106010000_modules8_9_10_11_12_complete" &&
+      process.env.SAKHI_ALLOW_STAGING_MIGRATIONS ===
+        "YES_APPLY_20261106010000_MODULES8_12";
+    const bootstrapApproved =
+      process.env.SAKHI_ALLOW_STAGING_BOOTSTRAP ===
+      "YES_BOOTSTRAP_SAKHI_STAGING_EMPTY_DATABASE";
+    const readOnlyCommand =
+      commandGroup === "generate" ||
+      commandGroup === "validate" ||
+      commandGroup === "format" ||
+      commandGroup === "version" ||
+      (commandGroup === "migrate" && commandAction === "status");
+
+    if (!readOnlyCommand) {
+      if (
+        commandGroup === "migrate" &&
+        commandAction === "deploy" &&
+        !migrationApproved
+      ) {
+        throw new Error(
+          "Staging migrate deploy requires the exact reviewed migration target and explicit approval phrase.",
+        );
+      }
+      if (
+        commandGroup === "migrate" &&
+        commandAction === "resolve" &&
+        !bootstrapApproved
+      ) {
+        throw new Error(
+          "Staging migrate resolve is restricted to an explicitly approved fresh-schema bootstrap.",
+        );
+      }
+      if (
+        commandGroup === "db" &&
+        commandAction === "execute" &&
+        !(migrationApproved || bootstrapApproved)
+      ) {
+        throw new Error(
+          "Staging SQL execution requires explicit migration or fresh-bootstrap approval.",
+        );
+      }
+      if (
+        !(
+          (commandGroup === "migrate" &&
+            (commandAction === "deploy" || commandAction === "resolve")) ||
+          (commandGroup === "db" && commandAction === "execute")
+        )
+      ) {
+        throw new Error(
+          "This Prisma command is blocked for staging; only read-only checks and explicitly approved operations are allowed.",
+        );
+      }
+    }
     if (!suppliedUrl) {
       throw new Error(
         "Staging migrations require an explicit SAKHI_MIGRATOR_DATABASE_URL supplied securely to the migration process.",
