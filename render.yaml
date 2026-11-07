@@ -1,12 +1,14 @@
 services:
   - type: web
     name: sakhi-staging-api
+    # Read-only Render inspection on 2026-11-07 confirmed both live services track this branch.
     branch: module-8-to-9-implementations-and-upgrades
     autoDeployTrigger: checksPass
     runtime: node
     plan: free
     region: singapore
     rootDir: backend
+    # Auto-deploy builds compile only; no migration or schema mutation occurs here.
     buildCommand: npm ci --include=dev && bash scripts/staging-build.sh
     startCommand: npm start
     healthCheckPath: /api/v1/health/ready
