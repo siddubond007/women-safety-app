@@ -1,6 +1,7 @@
 param(
   [ValidateSet('dev', 'test', 'staging')]
   [string]$Environment = 'dev',
+  [string]$MigrationTarget = '',
   [switch]$GrantsOnly
 )
 
@@ -14,6 +15,18 @@ Push-Location $backendRoot
 
 try {
   if ($Environment -eq 'staging') {
+    $expectedMigration = '20261106010000_modules8_9_10_11_12_complete'
+    $expectedApproval = 'YES_APPLY_20261106010000_MODULES8_12'
+    if ($MigrationTarget -cne $expectedMigration) {
+      throw 'For staging, pass -MigrationTarget 20261106010000_modules8_9_10_11_12_complete.'
+    }
+    $typedApproval = Read-Host 'Type YES_APPLY_20261106010000_MODULES8_12 to approve the reviewed migration/grants operation'
+    if ($typedApproval -cne $expectedApproval) {
+      throw 'Staging migration/grants operation was not explicitly approved.'
+    }
+    $env:SAKHI_MIGRATION_TARGET = $MigrationTarget
+    $env:SAKHI_ALLOW_STAGING_MIGRATIONS = $typedApproval
+
     $projectRef = 'wmlpokholjfadyohdlgo'
     $poolerHost = 'aws-0-ap-south-1.pooler.supabase.com'
     $poolerUser = "sakhi_staging_migrator.$projectRef"
@@ -69,6 +82,8 @@ try {
   }
 } finally {
   Remove-Item Env:SAKHI_MIGRATOR_DATABASE_URL -ErrorAction SilentlyContinue
+  Remove-Item Env:SAKHI_MIGRATION_TARGET -ErrorAction SilentlyContinue
+  Remove-Item Env:SAKHI_ALLOW_STAGING_MIGRATIONS -ErrorAction SilentlyContinue
   Remove-Item Env:SAKHI_ENV -ErrorAction SilentlyContinue
   Pop-Location
 }
