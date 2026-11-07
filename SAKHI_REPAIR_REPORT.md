@@ -26,7 +26,7 @@
 8. **Wellness Reminder Immediate Firing Defect (Blocking — Section 10):** `MainActivity.kt` ignored `nextPeriodStart` and `daysBefore` and called `NotificationManager.notify()` immediately on preference changes, and swallowed exceptions while returning `true`.
 9. **Automatic Cycle Prediction Disabled (Blocking — Section 11):** `useCustomCycleLength` defaulted to `true` and had no UI control to return to history-based automatic prediction.
 10. **Soundscape Overstatement & Unsupported Clinical Claims (Sections 12 & 13):** Synthesized harmonic sine/pad tracks were labeled as recordings of rain, ocean, piano, harp, bansuri, and Delta/Theta brainwaves; menstrual health articles included uncited specific claims (Epsom salts, walking reducing prostaglandin buildup, and heat therapy equivalence to OTC analgesics).
-11. **Render Staging Branch Drift (Section 14):** `render.yaml` changed `branch: release/complete-enterprise-fix` to `branch: main` for `sakhi-staging-api` and `sakhi-staging-admin`.
+11. **Render Staging Branch Drift (Section 14):** The earlier report's branch claim was stale. Read-only inspection on 2026-11-07 confirmed both live services track `module-8-to-9-implementations-and-upgrades`; `render.yaml` now matches that observed configuration. The clean review candidate branch is not configured on Render.
 
 ## 4. Issues Repaired (Complete Mapping)
 - **Git File Modes & Untracked Files:** Restored `0644` permissions on all non-script files (preserving `0755` only on `gradlew` and `.sh` scripts), removed the temporary review `.patch` files, and restored `sakhi_wellness_illustrations.dart` and `messages_and_notifications_inbox_screens.dart`.
@@ -40,7 +40,7 @@
 - **Date-Based Android Reminder Scheduling (`MainActivity.kt`, `AndroidManifest.xml`, `menstrual_cycle_models.dart`):** Implemented `DiscreetWellnessReminderReceiver` + `AlarmManager.setWindow` for the target `nextPeriodStart - daysBefore` date at 09:00 local time, with `BOOT_COMPLETED` restoration, `POST_NOTIFICATIONS` permission checks, and automatic reschedule on cycle log updates.
 - **Automatic vs. Custom Cycle Length Mode (`menstrual_cycle_models.dart`, `menstrual_cycle_tracker_screen.dart`):** Defaulted `useCustomCycleLength` to `false` (Automatic rolling-average mode) and added an explicit **Automatic (History)** vs. **Custom Cycle Length** segmented choice in `MenstrualCycleTrackerScreen`.
 - **Honest Synthesized Soundscape Labels & Non-Diagnostic Wellness Copy (`guided_meditation_card.dart`, `MainActivity.kt`, `module2.service.ts`, `menstrual_cycle_models.dart`):** Renamed the 5 synthesized tracks to accurate harmonic descriptions (`432 Hz Warm Harmonic Drone`, `Soft Major-7th Ambient Pad`, `Open-Fifth Gentle Swell Drone`, `Pentatonic Harmonic Fifths`, `Low-Frequency Restorative Hum`) and revised all menstrual health articles to use general wellness comfort phrasing with ACOG/WHO references and medical disclaimers.
-- **Render Configuration (`render.yaml`):** Restored `branch: release/complete-enterprise-fix` on both staging services.
+- **Render Configuration (`render.yaml`):** Reconciled both service branch declarations with the read-only observed live Render branch `module-8-to-9-implementations-and-upgrades`. Auto-deploy build execution is now schema-neutral; reviewed database migration execution is isolated behind `backend/scripts/staging-migrate-reviewed.sh` and a strict pending-migration preflight.
 
 ## 5. Important Architectural Decisions
 - **Column-Level Least-Privilege Grant on `direct_messages`:** Rather than granting broad `UPDATE` or `DELETE` on `direct_messages`, runtime database roles receive `GRANT UPDATE ("read_at", "request_status") ON TABLE public.direct_messages`, preserving immutability of message bodies and sender/recipient identities.
@@ -110,3 +110,12 @@ flutter analyze
 flutter test
 flutter build apk --debug
 ```
+
+
+## 15. Clean review candidate follow-up (2026-11-07)
+
+- The original draft PR #35 and its source branch were left untouched.
+- A separate review branch, `review/sakhi-modules8-12-clean-candidate-20261107`, was created from the reviewed PR head.
+- Render service branches were inspected read-only; no live service settings were changed.
+- Auto-deploy builds no longer execute migrations. The separate reviewed migration command is guarded by an explicit opt-in phrase, exact target, complete Module 1–7 migration ledger, and an allowlist permitting only the Modules 8–12 migration.
+- No Supabase migration or Render deployment was performed.
