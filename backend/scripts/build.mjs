@@ -36,8 +36,7 @@ function runNodeScript(scriptPath, args, env) {
 // child process in the local/offline schema-generation context so it can use
 // the placeholder datasource and never needs the staging migrator URL.
 // The parent build process and eventual Render runtime keep their original
-// environment. Database mutation remains disabled by default; only the explicit
-// staging flag above can run the single reviewed Module 6 migration.
+// environment. This build script never applies migrations or executes SQL.
 console.log(
   "Generating Prisma Client in isolated offline build context (SAKHI_ENV=dev).",
 );
