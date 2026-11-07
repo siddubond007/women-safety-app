@@ -32,6 +32,26 @@ ALTER TABLE "member_user_reports"
   DROP COLUMN IF EXISTS "updated_at",
   DROP COLUMN IF EXISTS "reported_account_id";
 
+-- The forward migration grants CRUD on the three Module 7 tables to these
+-- runtime roles. Module 1–7 baseline grants did not include these tables, and
+-- bootstrap-roles.sql explicitly disables blanket default privileges. Revoke
+-- only the privileges introduced by this migration before restoring pre-v8 RLS.
+DO $revoke_modules8_to_12_menstrual_runtime_permissions$
+DECLARE
+    role_name TEXT;
+BEGIN
+    FOREACH role_name IN ARRAY ARRAY['sakhi_dev_app', 'sakhi_test_app', 'sakhi_staging_app']
+    LOOP
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
+            EXECUTE format(
+                'REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLE public.menstrual_cycle_logs, public.menstrual_daily_logs, public.menstrual_tracker_preferences FROM %I',
+                role_name
+            );
+        END IF;
+    END LOOP;
+END
+$revoke_modules8_to_12_menstrual_runtime_permissions$;
+
 DROP POLICY IF EXISTS "menstrual_tracker_preferences_backend_runtime_access"
   ON "menstrual_tracker_preferences";
 DROP POLICY IF EXISTS "menstrual_daily_logs_backend_runtime_access"
