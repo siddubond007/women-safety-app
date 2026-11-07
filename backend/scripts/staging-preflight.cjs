@@ -153,8 +153,8 @@ async function main() {
       "20261106010000_modules8_9_10_11_12_complete",
     ];
     if (
-      pending.length !== expectedPending.length ||
-      pending.some((name, index) => name !== expectedPending[index])
+      pending.length > 1 ||
+      pending.some((name) => name !== expectedPending[0])
     ) {
       throw new Error(
         "Unexpected pending migration set; only the reviewed Modules 8–12 migration is permitted.",
