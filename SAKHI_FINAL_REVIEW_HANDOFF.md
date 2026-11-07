@@ -10,9 +10,9 @@ Base source snapshot: `main` at `d304f119e62c4be1c7624873f7ce0c5e2a53f2d5`
 
 ## Important status
 
-This is a reviewed source candidate and CI build configuration. It is **not an APK** and it is **not approved for production deployment**. No new APK could be built in the review container because it has no Flutter/Dart or Android SDK, the connected Codespace is offline, and the candidate branch is not yet published to GitHub. The previously uploaded `Sakhi_Staging_Release_APK.apk` is an older artifact and must not be treated as the Modules 8–12 build.
+This is a reviewed source candidate and CI build configuration. It is **not an APK** and it is **not approved for production deployment**. No new APK was built inside the review container because it has no Flutter/Dart or Android SDK and the connected Codespace was offline. The cleaned candidate branch is now published on GitHub. Its first complete CI/APK evidence must come from the draft validation PR for this branch. The previously uploaded `Sakhi_Staging_Release_APK.apk` is an older artifact and must not be treated as the Modules 8–12 build.
 
-No changes were pushed to GitHub, no Render service was changed, and no Supabase migration was applied during this review.
+The isolated clean candidate branch was published to GitHub. PR #35 and its source branch were left untouched. No Render service setting was changed, no Render deployment was started, and no Supabase migration was applied.
 
 ## Changes made to this candidate
 
@@ -39,7 +39,7 @@ No changes were pushed to GitHub, no Render service was changed, and no Supabase
 - Removed the hard-coded Android release keystore password and debug-signing fallback. Release builds fail closed unless an explicit keystore and matching properties are provided.
 - Kept cleartext traffic disabled in the main/release manifest and isolated the cleartext override to the debug manifest.
 - Added `.github/workflows/sakhi-modules8-9-staging-apk.yml`, which validates backend/Admin/Flutter, creates a one-run temporary staging signing key, verifies its APK signature and checksum, uploads a staging-only release APK artifact and a staging-connected debug APK artifact, then deletes temporary signing material.
-- The workflow targets `https://sakhi-staging-api.onrender.com/api/v1` and is configured to run when the intended feature branch is pushed.
+- The workflow targets `https://sakhi-staging-api.onrender.com/api/v1`; the cleaned candidate is validated through a draft pull request targeting `main`, which triggers the pull-request workflow path. Its CI/APK result is still pending.
 
 ## Validation performed here
 
@@ -85,34 +85,11 @@ These must not be represented as completed merely because Gemini's repair report
 - The Render auto-deploy build command is now schema-neutral: it compiles the backend but does not run Prisma migrations.
 - A separate `backend/scripts/staging-migrate-reviewed.sh` command requires the exact explicit approval phrase, the expected migration target, the dedicated staging migrator URL, all predecessor migrations through Module 7, and an exact pending-migration allowlist before `prisma migrate deploy` can run. This command has not been executed.
 
-## Applying this source safely in Codespaces
+## Clean candidate validation workflow
 
-The current local branch has uncommitted work and is two commits behind current `main`. Preserve it before opening a clean candidate branch:
+The cleaned source is already published on the isolated branch `review/sakhi-modules8-12-clean-candidate-20261107`. Do not extract the ZIP over an existing Codespace checkout or replay the old manual overlay instructions. Validation will be run from the draft PR associated with this exact branch. CI must pass before any staging deployment or migration is considered.
 
-```bash
-cd /workspaces/women-safety-app
-git status --short
-git stash push -u -m "pre-final-modules8-12-review"
-git branch -m module-8-to-9-implementations-and-upgrades module-8-to-9-implementations-and-upgrades-pre-review
-git fetch origin
-git switch -c module-8-to-9-implementations-and-upgrades origin/main
-```
-
-Upload `SAKHI_MODULES8-12_FINAL_REVIEWED_SOURCE_20261106.zip` into the repository root using the Codespaces Explorer, then:
-
-```bash
-cd /workspaces/women-safety-app
-unzip -o SAKHI_MODULES8-12_FINAL_REVIEWED_SOURCE_20261106.zip -d .
-git status --short
-git diff --check
-git add -A
-git commit -m "feat(sakhi): integrate reviewed modules 8-12 candidate"
-git push -u origin module-8-to-9-implementations-and-upgrades
-```
-
-The push should trigger the `Sakhi Modules 8-9 validation and staging APK` workflow. Wait for all Backend, Super Admin and Flutter steps to pass. Download the `Sakhi_Staging_Release_APK_TEST_ONLY` artifact from that run. The build uses a temporary signing key that is discarded after the workflow: a later run will produce a different signing certificate, so testers may need to uninstall the previous test APK before installing a new one. This artifact is for staging/friend testing only, not a Play Store production release.
-
-**Do not merge into `main`, switch Render's service branches, or apply the Supabase migration until CI has passed and the migration/security review is signed off.** After the branch is pushed and green, deploy that branch to the existing staging services and apply the reviewed migration to `sakhi-friend-testing`, then run backend/database/device integration tests before distributing the staging APK.
+The current branch is not configured on either live Render service. Do not change the Render service branches or apply the Supabase migration without separate approval.
 
 
 ## Clean candidate deployment and migration controls (2026-11-07)
