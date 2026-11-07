@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   BadRequestException,
   ForbiddenException,
@@ -563,5 +564,33 @@ describe("Sakhi Modules 8–12 Repair & Hardening Regression Suite", () => {
     await expect(
       adminService.deleteWellnessResource("missing-resource-id", REVIEWER_TOKEN),
     ).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe("Modules 8–12 migration rollback contract", () => {
+  it("revokes only the migration-added menstrual runtime grants and restores Module 7 RLS state", () => {
+    const rollback = readFileSync(
+      new URL(
+        "../prisma/migrations/20261106010000_modules8_9_10_11_12_complete/rollback.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+
+    expect(rollback).toContain(
+      "REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLE public.menstrual_cycle_logs, public.menstrual_daily_logs, public.menstrual_tracker_preferences",
+    );
+    expect(rollback).toContain(
+      "ARRAY['sakhi_dev_app', 'sakhi_test_app', 'sakhi_staging_app']",
+    );
+    expect(rollback).toContain(
+      'ALTER TABLE "menstrual_cycle_logs" DISABLE ROW LEVEL SECURITY;',
+    );
+    expect(rollback).toContain(
+      'ALTER TABLE "menstrual_daily_logs" DISABLE ROW LEVEL SECURITY;',
+    );
+    expect(rollback).toContain(
+      'ALTER TABLE "menstrual_tracker_preferences" DISABLE ROW LEVEL SECURITY;',
+    );
   });
 });
