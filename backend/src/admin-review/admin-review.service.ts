@@ -2000,7 +2000,7 @@ export class AdminReviewService {
             deletedAt: new Date(),
           },
         })
-        .catch(() => undefined);
+        ;
     } else if (actionType === "RESTORE_CONTENT" && report.postId) {
       await this.prisma.communityPost
         .update({
@@ -2011,7 +2011,7 @@ export class AdminReviewService {
             deletedAt: null,
           },
         })
-        .catch(() => undefined);
+        ;
     }
 
     if (
@@ -2026,7 +2026,7 @@ export class AdminReviewService {
             deletedAt: new Date(),
           },
         })
-        .catch(() => undefined);
+        ;
     }
 
     if (
@@ -2050,7 +2050,7 @@ export class AdminReviewService {
               ],
             },
           })
-          .catch(() => null);
+          ;
         if (targetProf?.accountId && typeof anyPrisma.memberAccount?.update === "function") {
           const nextAccountStatus =
             actionType === "RESTRICT_MEMBER" ? "RESTRICTED" : "SUSPENDED";
@@ -2059,7 +2059,7 @@ export class AdminReviewService {
               where: { id: targetProf.accountId },
               data: { status: nextAccountStatus },
             })
-            .catch(() => undefined);
+            ;
           if (
             nextAccountStatus === "SUSPENDED" &&
             typeof anyPrisma.authSession?.updateMany === "function"
@@ -2069,7 +2069,7 @@ export class AdminReviewService {
                 where: { accountId: targetProf.accountId, revokedAt: null },
                 data: { revokedAt: new Date() },
               })
-              .catch(() => undefined);
+              ;
           }
         }
       }
@@ -2088,7 +2088,7 @@ export class AdminReviewService {
             reviewerLabel,
           },
         })
-        .catch(() => undefined);
+        ;
     }
     await this.prisma.auditEvent.create({
       data: {
@@ -2470,7 +2470,7 @@ export class AdminReviewService {
           where: { postId },
           data: { status: restore ? "ATTACHED" : "QUARANTINED" },
         })
-        .catch(() => undefined);
+        ;
     }
     await this.prisma.auditEvent.create({
       data: {
@@ -3055,7 +3055,7 @@ export class AdminReviewService {
             OR: [{ stationCode }, { id: stationCode }],
           },
         })
-        .catch(() => undefined);
+        ;
     }
     await this.prisma.auditEvent.create({
       data: {
