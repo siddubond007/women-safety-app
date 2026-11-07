@@ -1,8 +1,8 @@
 services:
   - type: web
     name: sakhi-staging-api
-    branch: release/complete-enterprise-fix
-    autoDeployTrigger: commit
+    branch: module-8-to-9-implementations-and-upgrades
+    autoDeployTrigger: checksPass
     runtime: node
     plan: free
     region: singapore
@@ -87,8 +87,8 @@ services:
 
   - type: web
     name: sakhi-staging-admin
-    branch: release/complete-enterprise-fix
-    autoDeployTrigger: commit
+    branch: module-8-to-9-implementations-and-upgrades
+    autoDeployTrigger: checksPass
     runtime: static
     rootDir: super-admin
     buildCommand: npm ci && npm run build
