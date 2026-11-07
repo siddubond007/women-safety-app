@@ -6,6 +6,8 @@ const SUPABASE_ROOT_CA = path.join(__dirname, "..", "prod-ca-2021.crt");
 
 const EXPECTED_HOST = "aws-0-ap-south-1.pooler.supabase.com";
 const PROJECT_REF = "wmlpokholjfadyohdlgo";
+const EXPECTED_MIGRATION = "20261106010000_modules8_9_10_11_12_complete";
+const APPROVAL_PHRASE = "YES_APPLY_20261106010000_MODULES8_12";
 const EXPECTED_USER = `sakhi_staging_migrator.${PROJECT_REF}`;
 const BASELINE_MIGRATIONS = [
   "20261015163000_stage1_foundation",
@@ -35,6 +37,15 @@ async function main() {
   const mode = process.argv[2] ?? "bootstrap";
   if (mode !== "bootstrap" && mode !== "migrations") {
     throw new Error("Unsupported staging preflight mode.");
+  }
+
+  if (mode === "migrations") {
+    if (process.env.SAKHI_MIGRATION_TARGET !== EXPECTED_MIGRATION) {
+      throw new Error("The exact reviewed staging migration target was not selected.");
+    }
+    if (process.env.SAKHI_ALLOW_STAGING_MIGRATIONS !== APPROVAL_PHRASE) {
+      throw new Error("Explicit staging migration approval was not supplied.");
+    }
   }
 
   const rawUrl = process.env.SAKHI_MIGRATOR_DATABASE_URL;
