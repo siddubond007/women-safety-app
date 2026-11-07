@@ -55,6 +55,8 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - name: Install locked dependencies
         run: npm ci
+      - name: Audit fresh staging baseline against Module 1–7 migrations
+        run: node scripts/audit-staging-baseline.cjs
       - name: Validate Prisma schema
         run: npm run prisma:validate
       - name: Type-check source and tests
