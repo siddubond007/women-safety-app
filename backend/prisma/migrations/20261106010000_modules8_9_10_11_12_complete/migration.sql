@@ -115,7 +115,44 @@ ALTER TABLE "member_privacy_preferences"
 ALTER TABLE "menstrual_tracker_preferences"
   ADD COLUMN IF NOT EXISTS "use_custom_cycle_length" BOOLEAN NOT NULL DEFAULT false;
 
--- 6. Module 9 & 12: Composite indexes matching exact Prisma schema definitions
+-- 6. Module 7: Keep private cycle tables accessible only to Sakhi API runtime roles.
+-- RLS is a database-login boundary here. The NestJS services enforce accountId
+-- ownership on every query; no browser role receives these grants or policies.
+ALTER TABLE "menstrual_cycle_logs" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "menstrual_daily_logs" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "menstrual_tracker_preferences" ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "menstrual_cycle_logs_backend_runtime_access"
+  ON "menstrual_cycle_logs";
+CREATE POLICY "menstrual_cycle_logs_backend_runtime_access"
+  ON "menstrual_cycle_logs"
+  AS PERMISSIVE
+  FOR ALL
+  TO PUBLIC
+  USING (current_user IN ('sakhi_dev_app', 'sakhi_test_app', 'sakhi_staging_app'))
+  WITH CHECK (current_user IN ('sakhi_dev_app', 'sakhi_test_app', 'sakhi_staging_app'));
+
+DROP POLICY IF EXISTS "menstrual_daily_logs_backend_runtime_access"
+  ON "menstrual_daily_logs";
+CREATE POLICY "menstrual_daily_logs_backend_runtime_access"
+  ON "menstrual_daily_logs"
+  AS PERMISSIVE
+  FOR ALL
+  TO PUBLIC
+  USING (current_user IN ('sakhi_dev_app', 'sakhi_test_app', 'sakhi_staging_app'))
+  WITH CHECK (current_user IN ('sakhi_dev_app', 'sakhi_test_app', 'sakhi_staging_app'));
+
+DROP POLICY IF EXISTS "menstrual_tracker_preferences_backend_runtime_access"
+  ON "menstrual_tracker_preferences";
+CREATE POLICY "menstrual_tracker_preferences_backend_runtime_access"
+  ON "menstrual_tracker_preferences"
+  AS PERMISSIVE
+  FOR ALL
+  TO PUBLIC
+  USING (current_user IN ('sakhi_dev_app', 'sakhi_test_app', 'sakhi_staging_app'))
+  WITH CHECK (current_user IN ('sakhi_dev_app', 'sakhi_test_app', 'sakhi_staging_app'));
+
+-- 7. Module 9 & 12: Composite indexes matching exact Prisma schema definitions
 CREATE INDEX IF NOT EXISTS "community_posts_username_status_created_idx"
   ON "community_posts"("author_username", "status", "created_at");
 
@@ -136,6 +173,18 @@ BEGIN
             );
             EXECUTE format(
                 'GRANT UPDATE ("read_at", "request_status") ON TABLE public.direct_messages TO %I',
+                role_name
+            );
+            EXECUTE format(
+                'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.menstrual_cycle_logs TO %I',
+                role_name
+            );
+            EXECUTE format(
+                'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.menstrual_daily_logs TO %I',
+                role_name
+            );
+            EXECUTE format(
+                'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.menstrual_tracker_preferences TO %I',
                 role_name
             );
         END IF;

@@ -32,6 +32,13 @@ ALTER TABLE "member_user_reports"
   DROP COLUMN IF EXISTS "updated_at",
   DROP COLUMN IF EXISTS "reported_account_id";
 
+DROP POLICY IF EXISTS "menstrual_tracker_preferences_backend_runtime_access"
+  ON "menstrual_tracker_preferences";
+DROP POLICY IF EXISTS "menstrual_daily_logs_backend_runtime_access"
+  ON "menstrual_daily_logs";
+DROP POLICY IF EXISTS "menstrual_cycle_logs_backend_runtime_access"
+  ON "menstrual_cycle_logs";
+
 DROP TABLE IF EXISTS "member_notifications";
 
 DROP INDEX IF EXISTS "direct_messages_sender_client_msg_idx";

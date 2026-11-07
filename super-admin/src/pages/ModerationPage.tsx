@@ -185,29 +185,20 @@ function AuthorizedMediaPreview({
   alt: string;
   style?: React.CSSProperties;
 }) {
-  const [objectUrl, setObjectUrl] = useState<string>("");
-  const [contentType, setContentType] = useState<string>("image/jpeg");
-  const [failed, setFailed] = useState<boolean>(false);
+  const { endpointUrl, requiresAdminAuthHeader } =
+    resolveAuthorizedMediaEndpoint(rawUrl);
+  const [preview, setPreview] = useState<{
+    rawUrl: string;
+    objectUrl: string;
+    contentType: string;
+    failed: boolean;
+  } | null>(null);
 
   useEffect(() => {
+    if (!endpointUrl || !requiresAdminAuthHeader) return;
+
     let active = true;
     let revokeUrl: string | null = null;
-
-    const { endpointUrl, requiresAdminAuthHeader } =
-      resolveAuthorizedMediaEndpoint(rawUrl);
-    if (!endpointUrl) {
-      setObjectUrl("");
-      return;
-    }
-
-    if (!requiresAdminAuthHeader) {
-      setObjectUrl(endpointUrl);
-      if (endpointUrl.toLowerCase().endsWith(".mp4")) {
-        setContentType("video/mp4");
-      }
-      return;
-    }
-
     const token = adminAuthService.getToken() ?? "";
     const headers: Record<string, string> = {};
     if (token) {
@@ -221,27 +212,61 @@ function AuthorizedMediaPreview({
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
         }
-        const ct = res.headers.get("content-type") || "image/jpeg";
+        const contentType = res.headers.get("content-type") || "image/jpeg";
         const blob = await res.blob();
         if (!active) return;
         revokeUrl = URL.createObjectURL(blob);
-        setContentType(ct);
-        setObjectUrl(revokeUrl);
+        setPreview({
+          rawUrl,
+          objectUrl: revokeUrl,
+          contentType,
+          failed: false,
+        });
       })
       .catch(() => {
         if (active) {
-          setFailed(true);
-          setObjectUrl("");
+          setPreview({
+            rawUrl,
+            objectUrl: "",
+            contentType: "",
+            failed: true,
+          });
         }
       });
 
     return () => {
       active = false;
-      if (revokeUrl) {
-        URL.revokeObjectURL(revokeUrl);
-      }
+      if (revokeUrl) URL.revokeObjectURL(revokeUrl);
     };
-  }, [rawUrl]);
+  }, [rawUrl, endpointUrl, requiresAdminAuthHeader]);
+
+  const currentPreview = preview?.rawUrl === rawUrl ? preview : null;
+  const objectUrl = requiresAdminAuthHeader
+    ? currentPreview?.objectUrl ?? ""
+    : endpointUrl;
+  const contentType = requiresAdminAuthHeader
+    ? currentPreview?.contentType ?? "image/jpeg"
+    : endpointUrl.toLowerCase().endsWith(".mp4")
+      ? "video/mp4"
+      : "image/jpeg";
+  const failed = currentPreview?.failed === true;
+
+  if (!endpointUrl) {
+    return (
+      <div
+        style={{
+          padding: "8px 10px",
+          borderRadius: 8,
+          background: "#F9FAFB",
+          border: "1px solid #E5E7EB",
+          color: "#6B7280",
+          fontSize: 11.5,
+        }}
+      >
+        No evidence file was supplied.
+      </div>
+    );
+  }
 
   if (failed) {
     return (

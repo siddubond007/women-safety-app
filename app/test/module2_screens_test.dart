@@ -81,7 +81,7 @@ void main() {
       // Wellness contains a looping animation; pump a bounded frame instead of settling.
       await tester.pump(const Duration(milliseconds: 500));
       expect(find.textContaining('Your Wellbeing'), findsOneWidget);
-      expect(find.text('Guided Meditation'), findsOneWidget);
+      expect(find.text('Open Full Guided Meditation & Breathing Hub'), findsOneWidget);
 
       // Screen 5: Safety & SOS
       await tester.pumpWidget(const MaterialApp(home: SafetyScreen()));
