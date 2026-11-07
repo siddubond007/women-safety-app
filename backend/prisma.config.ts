@@ -1,4 +1,6 @@
 import { defineConfig } from "prisma/config";
+import { spawnSync } from "node:child_process";
+import path from "node:path";
 import {
   assertSakhiDatabaseTarget,
   parseSakhiEnvironment,
@@ -34,6 +36,22 @@ function getMigrationDatasourceUrl(): string {
         throw new Error(
           "Staging migrate deploy requires the exact reviewed migration target and explicit approval phrase.",
         );
+      }
+      if (
+        commandGroup === "migrate" &&
+        commandAction === "deploy" &&
+        migrationApproved
+      ) {
+        const preflight = spawnSync(
+          process.execPath,
+          [path.join(process.cwd(), "scripts", "staging-preflight.cjs"), "migrations"],
+          { cwd: process.cwd(), env: process.env, encoding: "utf8" },
+        );
+        if (preflight.status !== 0) {
+          throw new Error(
+            "Staging migration preflight failed; Prisma migrate deploy is blocked.",
+          );
+        }
       }
       if (
         commandGroup === "migrate" &&
