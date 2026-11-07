@@ -1,0 +1,14 @@
+# Keep repository text files stable across Windows, Linux and macOS checkouts.
+* text=auto eol=lf
+
+# Binary assets and packaged archives must never be line-ending normalized.
+*.zip binary
+*.jks binary
+*.keystore binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.mp4 binary
+*.pdf binary
