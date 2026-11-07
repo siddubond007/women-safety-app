@@ -88,34 +88,17 @@
 - Did **not** deploy or synchronize `render.yaml` on Render.
 - Did **not** commit or push to GitHub.
 
-## 16. Exact Steps to Install, Validate & Run Safely in GitHub Codespaces
-```bash
-cd /workspaces/women-safety-app
-# 1. Extract the repaired archive at the repository root
-unzip -o SAKHI_MODULES8-12_REPAIRED_COMPLETE_SOURCE_20261106.zip
+## 16. Current validation handoff (supersedes the historical manual extraction instructions)
 
-# 2. Validate Prisma schema and run backend unit tests
-cd /workspaces/women-safety-app/backend
-npx prisma validate
-npm test
+Do not extract an older Gemini ZIP over an existing Codespace checkout or replay the previous manual overlay commands. The reviewed source candidate is already published on the isolated branch `review/sakhi-modules8-12-clean-candidate-20261107`. Run the validation workflows against that branch first. Do not merge into `main`, change Render service branches, or apply the Supabase migration without separate approval.
 
-# 3. Validate Super-Admin build
-cd /workspaces/women-safety-app/super-admin
-npm run build
+## 17. Clean review candidate follow-up (2026-11-07)
 
-# 4. Run Flutter analyzer, tests, and debug APK build
-cd /workspaces/women-safety-app/app
-flutter pub get
-flutter analyze
-flutter test
-flutter build apk --debug
-```
-
-
-## 15. Clean review candidate follow-up (2026-11-07)
-
-- The original draft PR #35 and its source branch were left untouched.
-- A separate review branch, `review/sakhi-modules8-12-clean-candidate-20261107`, was created from the reviewed PR head.
+- The original draft PR #35 and its source branch remain untouched.
+- The isolated clean candidate is published as `review/sakhi-modules8-12-clean-candidate-20261107`.
+- The candidate cleanup removed line-ending-only churn while preserving genuine source changes; the latest diff is 55 files, 13,059 additions and 2,310 deletions at the time of this report revision.
 - Render service branches were inspected read-only; no live service settings were changed.
-- Auto-deploy builds no longer execute migrations. The separate reviewed migration command is guarded by an explicit opt-in phrase, exact target, complete Module 1–7 migration ledger, and an allowlist permitting only the Modules 8–12 migration.
-- No Supabase migration or Render deployment was performed.
+- Render auto-deploy builds are schema-neutral. `backend/prisma.config.ts` blocks staging schema mutations unless an explicitly approved bootstrap or reviewed migration operation is supplied.
+- The reviewed migration wrapper requires the exact Modules 8–12 migration target, a typed approval phrase, a dedicated staging migrator URL, and a preflight proving the full Module 1–7 predecessor chain and pending-migration allowlist.
+- Fresh staging bootstrap has a separate explicit approval phrase and records the complete Module 1–7 baseline only.
+- No Supabase migration or Render deployment was performed. Full CI for the cleaned candidate is pending the draft validation PR.
