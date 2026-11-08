@@ -79,6 +79,11 @@ function verifyStagingSession(
         "The staging staff admin session is invalid or expired. Sign in again.",
       );
     }
+    if (requiredScope === "full-admin" && staff.role !== "SUPER_ADMIN") {
+      throw new ForbiddenException(
+        "Full staging-admin access is restricted to Super Admin staff.",
+      );
+    }
     const principal = SakhiAdminRbacRegistry.principalFromStaff(staff);
     return {
       scope: "full-admin",
@@ -296,7 +301,12 @@ export class StagingTestAdminService {
   static resolvePrincipalFromSessionToken(
     sessionToken?: string,
   ): AuthenticatedAdminPrincipal {
-    const verified = verifyStagingSession(sessionToken, "full-admin");
+    // Staff sessions retain their assigned role for role-scoped routes.
+    // The full-admin-only assertion enforces Super Admin separately; shared
+    // test-access tokens remain rejected by the non-staff branch.
+    const verified = sessionToken?.startsWith("staff-admin.")
+      ? verifyStagingSession(sessionToken)
+      : verifyStagingSession(sessionToken, "full-admin");
     return (
       verified.principal ??
       SakhiAdminRbacRegistry.getSuperAdminPrincipal(verified.reviewerLabel)
