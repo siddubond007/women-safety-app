@@ -483,6 +483,35 @@ describe("AdminReviewService reviewer-token boundary", () => {
       SakhiAdminRbacRegistry.resetForTesting();
     }
   });
+  it("limits the shared staging reviewer session to the verification domain", async () => {
+    configureStagingReviewer();
+    delete process.env.SAKHI_STAGING_FULL_ADMIN_ENABLED;
+    delete process.env.SAKHI_STAGING_FULL_ADMIN_TOKEN;
+    const service = new AdminReviewService({} as PrismaService);
+    await expect(service.safetyConsoleOverview(reviewerToken)).rejects.toThrow(ForbiddenException);
+  });
+
+  it("does not allow the shared staging reviewer session to read member 360 data", async () => {
+    configureStagingReviewer();
+    delete process.env.SAKHI_STAGING_FULL_ADMIN_ENABLED;
+    delete process.env.SAKHI_STAGING_FULL_ADMIN_TOKEN;
+    const service = new AdminReviewService({} as PrismaService);
+    await expect(service.getMember360Detail("0891332c-2add-45f6-8ed1-cab2325606e7", reviewerToken)).rejects.toThrow(ForbiddenException);
+  });
+
+  it("denies shared staging reviewer access to direct-message reports", async () => {
+    configureStagingReviewer();
+    const prisma = {
+      adminStaffAccount: { findMany: vi.fn().mockResolvedValue([]) },
+      businessDirectoryListing: { findMany: vi.fn().mockResolvedValue([]) },
+      platformConfigSetting: { findUnique: vi.fn().mockResolvedValue(null) },
+      auditEvent: { findMany: vi.fn().mockResolvedValue([]) },
+      memberUserReport: { findUnique: vi.fn().mockResolvedValue({ id: "report-1", targetType: "DIRECT_MESSAGE", messageId: "message-1" }) },
+    } as unknown as PrismaService;
+    const service = new AdminReviewService(prisma);
+    await expect(service.getReportDetail("report-1", reviewerToken)).rejects.toThrow(ForbiddenException);
+  });
+
   it("does not treat profile-only business names as approved directory listings", async () => {
     configureLocalReviewer();
     SakhiAdminRbacRegistry.resetForTesting();

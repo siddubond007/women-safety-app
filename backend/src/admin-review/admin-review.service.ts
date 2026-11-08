@@ -23,6 +23,7 @@ import {
   SakhiAdminRbacRegistry,
   type AuthenticatedAdminPrincipal,
   type GranularRolePermissions,
+  type SakhiAdminRole,
 } from "./admin-rbac.helper.js";
 import type { ManualEligibilityDecisionDto } from "./admin-review.dto.js";
 import type { DevelopmentMemberStateDto } from "./admin-member-state.dto.js";
@@ -167,6 +168,38 @@ export class AdminReviewService {
       return principal.fullName;
     }
     return principal.reviewerLabel;
+  }
+
+  private async assertAdminRole(provided: string | undefined, allowedRoles: readonly SakhiAdminRole[], scope: string): Promise<string> {
+    await SakhiAdminRbacRegistry.ensureHydrated(this.prisma);
+    const principal = this.resolveAdminPrincipal(provided);
+    const sharedStagingReviewer =
+      process.env.NODE_ENV === "production" && process.env.SAKHI_ENV === "staging" &&
+      this.stagingAdminReviewEnabled() && principal.staffId === "SUPER-ADMIN-MASTER" &&
+      !provided?.startsWith("full-admin.");
+    const effectiveRole: SakhiAdminRole = sharedStagingReviewer ? "VERIFICATION_ADMIN" : principal.role;
+    if (effectiveRole !== "SUPER_ADMIN" && !allowedRoles.includes(effectiveRole)) {
+      throw new ForbiddenException(`Access denied: ${scope} requires ${allowedRoles.length ? allowedRoles.join(" or ") + " or " : ""}SUPER_ADMIN.`);
+    }
+    return principal.reviewerLabel;
+  }
+
+  private async assertReportAccess(report: Record<string, any>, provided: string | undefined, actionType?: string): Promise<string> {
+    const targetType = String(report.targetType ?? "POST").trim().toUpperCase();
+    const allowedRoles: readonly SakhiAdminRole[] =
+      targetType === "POST" || targetType === "COMMENT" ? ["CONTENT_MODERATOR"] :
+      targetType === "MEMBER" || targetType === "USER" ? ["VERIFICATION_ADMIN"] :
+      targetType === "BUSINESS" ? ["BUSINESS_ADMIN"] : [];
+    const action = (actionType ?? "").trim().toUpperCase();
+    const neutral = ["", "DISMISS_REPORT", "NO_VIOLATION", "ESCALATE", "MARK_UNDER_REVIEW"];
+    if (action && !neutral.includes(action)) {
+      const compatible =
+        (targetType === "POST" && ["REMOVE_POST", "REMOVE_CONTENT", "RESTORE_CONTENT"].includes(action)) ||
+        (targetType === "COMMENT" && ["REMOVE_COMMENT", "REMOVE_CONTENT", "RESTORE_CONTENT"].includes(action)) ||
+        ((targetType === "MEMBER" || targetType === "USER") && ["RESTRICT_MEMBER", "SUSPEND_MEMBER", "TEMP_SUSPEND_USER", "BAN_MEMBER", "PERMANENT_BAN_USER"].includes(action));
+      if (!compatible) throw new ForbiddenException("The requested moderation action is not permitted for this report target type.");
+    }
+    return this.assertAdminRole(provided, allowedRoles, `${targetType} report review`);
   }
 
   async session(token?: string) {
@@ -367,7 +400,7 @@ export class AdminReviewService {
   }
 
   async getRegistrationPolicy(token?: string) {
-    this.assertReviewer(token);
+    await this.assertAdminRole(token, [], "global registration policy");
     return this.resolvePersistedRegistrationPolicy();
   }
 
@@ -375,7 +408,7 @@ export class AdminReviewService {
     body: Record<string, unknown>,
     token?: string,
   ) {
-    const reviewerLabel = this.assertReviewer(token);
+    const reviewerLabel = await this.assertAdminRole(token, [], "global registration policy");
     const parsedAge = parseValidAge(body.minimumAgeYears);
     if (parsedAge === null) {
       throw new BadRequestException(
@@ -470,7 +503,7 @@ export class AdminReviewService {
   }
 
   async queue(token?: string) {
-    this.assertReviewer(token);
+    await this.assertAdminRole(token, ["VERIFICATION_ADMIN"], "eligibility queue");
     const submissions = await this.prisma.eligibilitySubmission.findMany({
       where: { status: "PENDING_MANUAL_REVIEW" },
       include: {
@@ -531,7 +564,7 @@ export class AdminReviewService {
   }
 
   async history(token?: string) {
-    this.assertReviewer(token);
+    await this.assertAdminRole(token, ["VERIFICATION_ADMIN"], "eligibility history");
     const events = await this.prisma.auditEvent.findMany({
       where: {
         action: {
@@ -582,27 +615,14 @@ export class AdminReviewService {
   }
 
   private assertFullAdminMemberControl(token?: string): string {
-    const reviewerLabel = this.assertReviewer(token);
-    if (
-      process.env.NODE_ENV === "production" &&
-      process.env.SAKHI_ENV === "staging"
-    ) {
-      if (this.stagingFullAdminEnabled()) {
-        try {
-          return StagingTestAdminService.assertFullAdminSessionToken(token);
-        } catch {
-          // Fall back to authenticated staging admin / staff principal
-        }
-      }
-      if (this.stagingAdminReviewEnabled()) {
-        return reviewerLabel;
-      }
-      throw new ForbiddenException(
-        "Member PII visibility and eligibility overrides require an explicitly enabled staging admin session.",
-      );
+    if (process.env.NODE_ENV === "production" && process.env.SAKHI_ENV === "staging") {
+      if (!this.stagingFullAdminEnabled()) throw new ForbiddenException("Member 360 and eligibility overrides require the separately enabled full-admin staging session.");
+      return StagingTestAdminService.assertFullAdminSessionToken(token);
     }
+    const principal = this.resolveAdminPrincipal(token);
+    if (principal.role !== "SUPER_ADMIN") throw new ForbiddenException("Member 360 and eligibility overrides require SUPER_ADMIN.");
     this.assertDevelopmentMemberOverrides();
-    return reviewerLabel;
+    return principal.reviewerLabel;
   }
 
   private canRevealFullMemberPii(token?: string): boolean {
@@ -665,7 +685,7 @@ export class AdminReviewService {
     accountStatusRaw?: string,
     verificationStatusRaw?: string,
   ) {
-    this.assertReviewer(token);
+    await this.assertAdminRole(token, ["VERIFICATION_ADMIN"], "member directory");
     this.assertMemberDirectoryAccess();
     const pageValue = Number.parseInt(pageRaw ?? "1", 10);
     const sizeValue = Number.parseInt(pageSizeRaw ?? "50", 10);
@@ -926,7 +946,7 @@ export class AdminReviewService {
     dto: ManualEligibilityDecisionDto,
     token?: string,
   ) {
-    const reviewerLabel = this.assertReviewer(token);
+    const reviewerLabel = await this.assertAdminRole(token, ["VERIFICATION_ADMIN"], "eligibility decisions");
     const reason = dto.reason?.trim();
     if (!dto.reviewedEvidence) {
       throw new ConflictException(
@@ -1205,7 +1225,7 @@ export class AdminReviewService {
   }
 
   async communityOverview(token?: string) {
-    this.assertReviewer(token);
+    await this.assertAdminRole(token, ["CONTENT_MODERATOR"], "community moderation console");
     const defaultCategories = [
       {
         slug: "following",
@@ -1349,7 +1369,7 @@ export class AdminReviewService {
   }
 
   async createAdminPost(body: Record<string, unknown>, token?: string) {
-    const reviewerLabel = this.assertReviewer(token);
+    const reviewerLabel = await this.assertAdminRole(token, ["CONTENT_MODERATOR"], "community post creation");
     const content = typeof body.content === "string" ? body.content.trim() : "";
     if (!content) {
       throw new BadRequestException("Post content cannot be empty.");
@@ -1469,7 +1489,7 @@ export class AdminReviewService {
   }
 
   async deleteAdminPost(postId: string, token?: string) {
-    const reviewerLabel = this.assertReviewer(token);
+    const reviewerLabel = await this.assertAdminRole(token, ["CONTENT_MODERATOR"], "community post deletion");
     await this.prisma.communityPost.delete({
       where: { id: postId },
     });
@@ -1741,7 +1761,7 @@ export class AdminReviewService {
   }
 
   async operationsOverview(token?: string) {
-    this.assertReviewer(token);
+    await this.assertAdminRole(token, [], "cross-domain operations overview");
     const [
       reports,
       blocks,
@@ -1869,7 +1889,7 @@ export class AdminReviewService {
     body: Record<string, unknown>,
     token?: string,
   ) {
-    const reviewerLabel = this.assertReviewer(token);
+    const reviewerLabel = await this.assertAdminRole(token, ["CONTENT_MODERATOR"], "feed category configuration");
     const normalizedSlug = slug.trim().toLowerCase();
     const updated = await this.prisma.feedCategoryConfig.upsert({
       where: { slug: normalizedSlug },
@@ -1934,7 +1954,6 @@ export class AdminReviewService {
     body: Record<string, unknown>,
     token?: string,
   ) {
-    const reviewerLabel = this.assertReviewer(token);
     const actionType =
       typeof body.actionType === "string"
         ? body.actionType.trim().toUpperCase()
@@ -1949,6 +1968,7 @@ export class AdminReviewService {
     if (!report) {
       throw new NotFoundException("Report was not found.");
     }
+    const reviewerLabel = await this.assertReportAccess(report as unknown as Record<string, any>, token, actionType);
 
     const nextStatus =
       actionType === "DISMISS_REPORT" || actionType === "NO_VIOLATION"
@@ -2109,13 +2129,13 @@ export class AdminReviewService {
     body: Record<string, unknown>,
     token?: string,
   ) {
-    const reviewerLabel = this.assertReviewer(token);
     const report = (await this.prisma.memberUserReport.findUnique({
       where: { id: reportId },
     })) as Record<string, any> | null;
     if (!report) {
       throw new NotFoundException("Report was not found.");
     }
+    const reviewerLabel = await this.assertReportAccess(report, token);
 
     const nextPriority =
       typeof body.priority === "string" && body.priority.trim()
@@ -2215,13 +2235,13 @@ export class AdminReviewService {
   }
 
   async getReportDetail(reportId: string, token?: string) {
-    this.assertReviewer(token);
     const report = await this.prisma.memberUserReport.findUnique({
       where: { id: reportId },
     });
     if (!report) {
       throw new NotFoundException("Report was not found.");
     }
+    await this.assertReportAccess(report as unknown as Record<string, any>, token);
     const auditEvents = await this.prisma.auditEvent
       .findMany({
         where: { targetId: reportId },
@@ -2247,7 +2267,6 @@ export class AdminReviewService {
   }
 
   async previewReportedMedia(uploadId: string, token?: string) {
-    const reviewerLabel = this.assertReviewer(token);
     const cleanId = (uploadId ?? "")
       .trim()
       .replace(/^.*\/media\/object\//, "");
@@ -2281,10 +2300,21 @@ export class AdminReviewService {
     ]);
 
     if (!asset && !event) {
-      throw new NotFoundException(
-        "Submitted evidence media record was not found.",
-      );
+      throw new NotFoundException("Submitted evidence media record was not found.");
     }
+    if (typeof anyPrisma.memberUserReport?.findMany !== "function") {
+      throw new ForbiddenException("Media preview requires a report-to-media authorization binding.");
+    }
+    const candidates = await anyPrisma.memberUserReport.findMany({
+      take: 500,
+      select: { id: true, targetType: true, postId: true, commentId: true, evidenceUrls: true },
+    });
+    const boundReport = candidates.find((candidate: Record<string, any>) => {
+      const evidence = Array.isArray(candidate.evidenceUrls) ? candidate.evidenceUrls : [];
+      return Boolean((asset?.postId && candidate.postId === asset.postId) || evidence.some((item: unknown) => typeof item === "string" && (item === cleanId || item.includes(cleanId))));
+    });
+    if (!boundReport) throw new ForbiddenException("This media asset is not linked to an authorized moderation report.");
+    const reviewerLabel = await this.assertReportAccess(boundReport, token);
 
     if (typeof anyPrisma.auditEvent?.create === "function") {
       await anyPrisma.auditEvent
@@ -2349,7 +2379,7 @@ export class AdminReviewService {
   }
 
   async listWellnessResources(token?: string) {
-    this.assertReviewer(token);
+    await this.assertAdminRole(token, ["CONTENT_MODERATOR"], "wellness resource listing");
     const items = await this.prisma.wellnessResource.findMany({
       orderBy: { createdAt: "asc" },
     });
@@ -2357,7 +2387,7 @@ export class AdminReviewService {
   }
 
   async upsertWellnessResource(body: Record<string, unknown>, token?: string) {
-    const reviewerLabel = this.assertReviewer(token);
+    const reviewerLabel = await this.assertAdminRole(token, ["CONTENT_MODERATOR"], "wellness resource management");
     const slug = String(
       body.slug ??
         String(body.title ?? "wellness-guide")
@@ -2414,7 +2444,7 @@ export class AdminReviewService {
   }
 
   async deleteWellnessResource(resourceId: string, token?: string) {
-    const reviewerLabel = this.assertReviewer(token);
+    const reviewerLabel = await this.assertAdminRole(token, ["CONTENT_MODERATOR"], "wellness resource deletion");
     const cleanId = (resourceId ?? "").trim();
     if (!cleanId) {
       throw new BadRequestException("Provide a wellness resource ID.");
@@ -2449,7 +2479,7 @@ export class AdminReviewService {
     body: Record<string, unknown>,
     token?: string,
   ) {
-    const reviewerLabel = this.assertReviewer(token);
+    const reviewerLabel = await this.assertAdminRole(token, ["CONTENT_MODERATOR"], "post moderation");
     const actionType =
       typeof body.actionType === "string"
         ? body.actionType.trim().toUpperCase()
@@ -2494,7 +2524,7 @@ export class AdminReviewService {
     body: Record<string, unknown>,
     token?: string,
   ) {
-    const reviewerLabel = this.assertReviewer(token);
+    const reviewerLabel = await this.assertAdminRole(token, ["CONTENT_MODERATOR"], "comment moderation");
     const actionType =
       typeof body.actionType === "string"
         ? body.actionType.trim().toUpperCase()
@@ -2534,7 +2564,7 @@ export class AdminReviewService {
   }
 
   async safetyConsoleOverview(token?: string) {
-    const reviewerLabel = this.assertReviewer(token);
+    const reviewerLabel = await this.assertAdminRole(token, ["SOS_SAFETY_ADMIN"], "SOS safety console");
     const anyPrisma = this.prisma as Record<string, any>;
     const [rawSosEvents, contactsCount, stations, helplines, auditEvents] =
       await Promise.all([
@@ -2784,7 +2814,7 @@ export class AdminReviewService {
   }
 
   async upsertPoliceStation(body: Record<string, unknown>, token?: string) {
-    const reviewerLabel = this.assertReviewer(token);
+    const reviewerLabel = await this.assertAdminRole(token, ["SOS_SAFETY_ADMIN"], "police station directory");
     const name = String(body.name ?? "").trim();
     const address = String(body.address ?? "").trim();
     const phoneNumber = String(body.phoneNumber ?? "+91 80-2294-2548").trim();
@@ -2859,7 +2889,7 @@ export class AdminReviewService {
     body: Record<string, unknown>,
     token?: string,
   ) {
-    const reviewerLabel = this.assertReviewer(token);
+    const reviewerLabel = await this.assertAdminRole(token, ["SOS_SAFETY_ADMIN"], "police station synchronization");
     const city = String(body.city ?? "Bengaluru").trim();
     const latitude = Number(body.latitude ?? 12.9716);
     const longitude = Number(body.longitude ?? 77.5946);
@@ -3049,7 +3079,7 @@ export class AdminReviewService {
   }
 
   async deletePoliceStation(stationCode: string, token?: string) {
-    const reviewerLabel = this.assertReviewer(token);
+    const reviewerLabel = await this.assertAdminRole(token, ["SOS_SAFETY_ADMIN"], "police station deletion");
     const anyPrisma = this.prisma as Record<string, any>;
     if (anyPrisma.verifiedPoliceStation?.deleteMany) {
       await anyPrisma.verifiedPoliceStation
@@ -3079,7 +3109,7 @@ export class AdminReviewService {
     body: Record<string, unknown>,
     token?: string,
   ) {
-    const reviewerLabel = this.assertReviewer(token);
+    const reviewerLabel = await this.assertAdminRole(token, ["SOS_SAFETY_ADMIN"], "SOS event review");
     const classification = String(body.classification ?? "RESOLVED_VERIFIED")
       .trim()
       .toUpperCase();
@@ -3150,14 +3180,12 @@ export class AdminReviewService {
         : []),
     ];
 
-    const anyPrisma = this.prisma as Record<string, any>;
     const [
       commentsCount,
       emergencyContacts,
       sosEvents,
       reportsAgainstMember,
       reportsByMember,
-      complaintsAgainstMember,
       auditEvents,
     ] = await Promise.all([
       this.prisma.communityPostComment
@@ -3199,17 +3227,6 @@ export class AdminReviewService {
               where: { reporterAccountId: accountId },
               orderBy: { createdAt: "desc" },
               take: 30,
-            })
-            .catch(() => [])
-        : Promise.resolve([]),
-      anyPrisma.discreetComplaint?.findMany
-        ? anyPrisma.discreetComplaint
-            .findMany({
-              where: {
-                accusedHandle: { in: handleVariants },
-              },
-              orderBy: { createdAt: "desc" },
-              take: 20,
             })
             .catch(() => [])
         : Promise.resolve([]),
@@ -3293,8 +3310,7 @@ export class AdminReviewService {
         commentsCount,
         emergencyContactsCount: contactsCount,
         sosEventsCount: sosCount,
-        reportsAgainstCount:
-          reportsAgainstMember.length + complaintsAgainstMember.length,
+        reportsAgainstCount: reportsAgainstMember.length,
         reportsSubmittedCount: reportsByMember.length,
       },
       posts: memberPosts.map((p: Record<string, any>) => ({
@@ -3325,22 +3341,7 @@ export class AdminReviewService {
               ? r.createdAt.toISOString()
               : String(r.createdAt),
         })),
-        ...complaintsAgainstMember.map((c: Record<string, any>) => ({
-          id: c.id,
-          source: "DISCREET_COMPLAINT",
-          targetHandle: c.accusedHandle ?? memberUsername ?? accountId,
-          postId: null,
-          reason: `${c.category ?? "Complaint"}: ${c.description ?? ""}`.slice(
-            0,
-            240,
-          ),
-          status: c.status ?? "SUBMITTED",
-          reviewerNotes: c.resolutionSummary ?? null,
-          createdAt:
-            c.createdAt instanceof Date
-              ? c.createdAt.toISOString()
-              : String(c.createdAt),
-        })),
+
       ],
       reportsByMember: reportsByMember.map((r: Record<string, any>) => ({
         id: r.id,
@@ -3682,8 +3683,8 @@ export class AdminReviewService {
   }
 
   async getPlatformConfig(token?: string) {
+    await this.assertAdminRole(token, [], "global platform configuration");
     await SakhiAdminRbacRegistry.ensureHydrated(this.prisma);
-    this.resolveAdminPrincipal(token);
     const config = await SakhiAdminRbacRegistry.getPlatformConfig(this.prisma);
     return {
       config,
