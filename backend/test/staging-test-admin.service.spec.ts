@@ -3,6 +3,7 @@ import "reflect-metadata";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PrismaService } from "../src/database/prisma.service.js";
 import { StagingTestAdminService } from "../src/staging-test-admin/staging-test-admin.service.js";
+import { SakhiAdminRbacRegistry } from "../src/admin-review/admin-rbac.helper.js";
 
 const ENV_KEYS = [
   "SAKHI_ENV",
@@ -48,6 +49,7 @@ function makeService() {
 
 describe("StagingTestAdminService", () => {
   beforeEach(() => {
+    SakhiAdminRbacRegistry.resetForTesting();
     process.env.SAKHI_ENV = "staging";
     process.env.NODE_ENV = "production";
     process.env.SAKHI_STAGING_TEST_ADMIN_ENABLED = "true";
@@ -60,12 +62,67 @@ describe("StagingTestAdminService", () => {
   });
 
   afterEach(() => {
+    SakhiAdminRbacRegistry.resetForTesting();
     for (const key of ENV_KEYS) {
       const value = ORIGINAL_ENV[key];
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
     vi.restoreAllMocks();
+  });
+
+  async function createStaffSession(role: string): Promise<string> {
+    const prisma = {
+      adminStaffAccount: {
+        findMany: vi.fn().mockResolvedValue([]),
+        upsert: vi.fn().mockResolvedValue({}),
+      },
+      businessDirectoryListing: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      platformConfigSetting: {
+        findUnique: vi.fn().mockResolvedValue(null),
+      },
+      auditEvent: {
+        findMany: vi.fn().mockResolvedValue([]),
+        create: vi.fn().mockResolvedValue({ id: "staff-audit-id" }),
+      },
+    } as unknown as PrismaService;
+    const { staff } = await SakhiAdminRbacRegistry.createStaffAccount(
+      prisma,
+      {
+        fullName: `Synthetic ${role}`,
+        email: `${role.toLowerCase()}@example.test`,
+        role,
+      },
+      "Synthetic test fixture",
+    );
+    return SakhiAdminRbacRegistry.createSignedStaffSessionToken(
+      staff,
+      process.env.SAKHI_STAGING_FULL_ADMIN_TOKEN!,
+    ).value;
+  }
+
+  it("preserves staff role identity but denies non-Super-Admin full-admin access", async () => {
+    const token = await createStaffSession("VERIFICATION_ADMIN");
+
+    expect(
+      StagingTestAdminService.resolvePrincipalFromSessionToken(token),
+    ).toMatchObject({ role: "VERIFICATION_ADMIN" });
+    expect(() =>
+      StagingTestAdminService.assertFullAdminSessionToken(token),
+    ).toThrow(/restricted to Super Admin staff/i);
+  });
+
+  it("allows a signed Super Admin staff session through the full-admin gate", async () => {
+    const token = await createStaffSession("SUPER_ADMIN");
+
+    expect(
+      StagingTestAdminService.resolvePrincipalFromSessionToken(token),
+    ).toMatchObject({ role: "SUPER_ADMIN" });
+    expect(
+      StagingTestAdminService.assertFullAdminSessionToken(token),
+    ).toContain("Synthetic SUPER_ADMIN");
   });
 
   it("requires the separate staging reviewer token and rejects the local token", () => {
