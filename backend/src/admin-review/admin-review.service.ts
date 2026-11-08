@@ -181,7 +181,9 @@ export class AdminReviewService {
     if (effectiveRole !== "SUPER_ADMIN" && !allowedRoles.includes(effectiveRole)) {
       throw new ForbiddenException(`Access denied: ${scope} requires ${allowedRoles.length ? allowedRoles.join(" or ") + " or " : ""}SUPER_ADMIN.`);
     }
-    return principal.reviewerLabel;
+    return principal.role === "SUPER_ADMIN" && principal.staffId === "SUPER-ADMIN-MASTER"
+      ? principal.fullName
+      : principal.reviewerLabel;
   }
 
   private async assertReportAccess(report: Record<string, any>, provided: string | undefined, actionType?: string): Promise<string> {
@@ -2305,15 +2307,20 @@ export class AdminReviewService {
     if (typeof anyPrisma.memberUserReport?.findMany !== "function") {
       throw new ForbiddenException("Media preview requires a report-to-media authorization binding.");
     }
-    const candidates = await anyPrisma.memberUserReport.findMany({
-      take: 500,
-      select: { id: true, targetType: true, postId: true, commentId: true, evidenceUrls: true },
+    const evidenceReport = await anyPrisma.memberUserReport.findFirst({
+      where: { evidenceUrls: { array_contains: [cleanId] } },
+      select: { id: true, targetType: true, postId: true, commentId: true },
     });
-    const boundReport = candidates.find((candidate: Record<string, any>) => {
-      const evidence = Array.isArray(candidate.evidenceUrls) ? candidate.evidenceUrls : [];
-      return Boolean((asset?.postId && candidate.postId === asset.postId) || evidence.some((item: unknown) => typeof item === "string" && (item === cleanId || item.includes(cleanId))));
-    });
-    if (!boundReport) throw new ForbiddenException("This media asset is not linked to an authorized moderation report.");
+    const postReport = !evidenceReport && asset?.postId
+      ? await anyPrisma.memberUserReport.findFirst({
+          where: { postId: asset.postId },
+          select: { id: true, targetType: true, postId: true, commentId: true },
+        })
+      : null;
+    const boundReport = evidenceReport ?? postReport;
+    if (!boundReport) {
+      throw new ForbiddenException("This media asset is not linked to an authorized moderation report.");
+    }
     const reviewerLabel = await this.assertReportAccess(boundReport, token);
 
     if (typeof anyPrisma.auditEvent?.create === "function") {
