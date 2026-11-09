@@ -1,4 +1,4 @@
--- Least-privilege runtime grants for Sakhi Modules 1-3.
+-- Least-privilege runtime grants for Sakhi Modules 1-12.
 -- Run as sakhi_staging_migrator after baseline setup.
 GRANT USAGE ON SCHEMA public TO sakhi_staging_app;
 
@@ -15,8 +15,9 @@ TO sakhi_staging_app;
 GRANT SELECT ON TABLE public.policy_document_versions TO sakhi_staging_app;
 GRANT INSERT, SELECT ON TABLE public.audit_events TO sakhi_staging_app;
 
--- Module 2 dedicated DM persistence. No general UPDATE or DELETE access.
+-- Module 2 & 8 dedicated DM persistence. Column-level UPDATE only on read_at and request_status; no DELETE access.
 GRANT SELECT, INSERT ON TABLE public.direct_messages TO sakhi_staging_app;
+GRANT UPDATE ("read_at", "request_status") ON TABLE public.direct_messages TO sakhi_staging_app;
 
 -- Explicit eligibility/manual-review request records; no raw evidence tables exist.
 GRANT SELECT, INSERT, UPDATE ON TABLE
@@ -29,7 +30,7 @@ GRANT SELECT, INSERT ON TABLE
   public.eligibility_provider_callback_events
 TO sakhi_staging_app;
 
--- Module 2 profile, social preferences, wellness, and safety domain.
+-- Module 2 & 8 profile, social preferences, notifications, wellness, and safety domain.
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   public.community_posts,
   public.community_post_likes,
@@ -40,6 +41,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   public.member_follows,
   public.member_privacy_preferences,
   public.member_notification_preferences,
+  public.member_notifications,
   public.safety_emergency_contacts,
   public.safety_sos_events,
   public.safety_location_shares,

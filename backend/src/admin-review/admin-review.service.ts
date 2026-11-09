@@ -4,9 +4,11 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
   UnauthorizedException,
 } from "@nestjs/common";
+import { GoogleDriveStorageService } from "../module2/google-drive-storage.service.js";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { PrismaService } from "../database/prisma.service.js";
 import type { Prisma } from "../generated/prisma/client.js";
@@ -46,7 +48,10 @@ function parseValidAge(value: unknown): number | null {
 
 @Injectable()
 export class AdminReviewService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly googleDrive?: GoogleDriveStorageService,
+  ) {}
 
   private stagingAdminReviewEnabled(): boolean {
     const token = process.env.SAKHI_ADMIN_REVIEW_TOKEN?.trim() ?? "";
@@ -1482,6 +1487,259 @@ export class AdminReviewService {
     return { deletedPostId: postId, status: "deleted" as const };
   }
 
+  private async enrichReportsWithEvidence(
+    rawReports: Array<Record<string, any>>,
+    auditEvents: Array<Record<string, any>>,
+  ) {
+    const anyPrisma = this.prisma as Record<string, any>;
+    const postIds = Array.from(
+      new Set(
+        rawReports
+          .map((r) => (typeof r.postId === "string" ? r.postId.trim() : ""))
+          .filter(Boolean),
+      ),
+    );
+    const commentIds = Array.from(
+      new Set(
+        rawReports
+          .map((r) => (typeof r.commentId === "string" ? r.commentId.trim() : ""))
+          .filter(Boolean),
+      ),
+    );
+    const targetHandles = Array.from(
+      new Set(
+        rawReports
+          .map((r) => (typeof r.targetHandle === "string" ? r.targetHandle.trim() : ""))
+          .filter(Boolean),
+      ),
+    );
+    const handleVariants = Array.from(
+      new Set(
+        targetHandles.flatMap((h) => {
+          const clean = h.replace(/^@+/, "");
+          return [h, clean, `@${clean}`, clean.toLowerCase(), `@${clean.toLowerCase()}`];
+        }),
+      ),
+    );
+
+    const [posts, comments, profiles] = await Promise.all([
+      postIds.length > 0 && typeof anyPrisma.communityPost?.findMany === "function"
+        ? anyPrisma.communityPost
+            .findMany({
+              where: { id: { in: postIds } },
+            })
+            .catch(() => [])
+        : Promise.resolve([]),
+      commentIds.length > 0 &&
+      typeof anyPrisma.communityPostComment?.findMany === "function"
+        ? anyPrisma.communityPostComment
+            .findMany({
+              where: { id: { in: commentIds } },
+            })
+            .catch(() => [])
+        : Promise.resolve([]),
+      handleVariants.length > 0 &&
+      typeof anyPrisma.memberProfile?.findMany === "function"
+        ? anyPrisma.memberProfile
+            .findMany({
+              where: { username: { in: handleVariants } },
+              include: { account: true },
+            })
+            .catch(() => [])
+        : Promise.resolve([]),
+    ]);
+
+    const postById = new Map<string, Record<string, any>>();
+    for (const p of posts as Array<Record<string, any>>) {
+      if (p?.id) postById.set(String(p.id), p);
+    }
+    const commentById = new Map<string, Record<string, any>>();
+    for (const c of comments as Array<Record<string, any>>) {
+      if (c?.id) commentById.set(String(c.id), c);
+    }
+    const profileByNormHandle = new Map<string, Record<string, any>>();
+    for (const mp of profiles as Array<Record<string, any>>) {
+      const h = String(mp?.username ?? "")
+        .trim()
+        .replace(/^@+/, "")
+        .toLowerCase();
+      if (h) profileByNormHandle.set(h, mp);
+    }
+
+    const reportAuditByReportId = new Map<string, Record<string, any>>();
+    for (const ev of auditEvents) {
+      if (
+        ev.action === "module2.moderation.reported" &&
+        ev.targetId &&
+        ev.redactedMetadata &&
+        typeof ev.redactedMetadata === "object"
+      ) {
+        reportAuditByReportId.set(
+          String(ev.targetId),
+          ev.redactedMetadata as Record<string, any>,
+        );
+      }
+    }
+
+    const countByNormTarget = new Map<string, number>();
+    for (const r of rawReports) {
+      const norm = String(r.targetHandle ?? "")
+        .trim()
+        .replace(/^@+/, "")
+        .toLowerCase();
+      if (norm) {
+        countByNormTarget.set(norm, (countByNormTarget.get(norm) ?? 0) + 1);
+      }
+    }
+
+    return rawReports.map((r) => {
+      const reportId = String(r.id);
+      const auditSnap = reportAuditByReportId.get(reportId) ?? {};
+      const dbSnap =
+        r.targetSnapshot && typeof r.targetSnapshot === "object" && !Array.isArray(r.targetSnapshot)
+          ? (r.targetSnapshot as Record<string, any>)
+          : null;
+      const normHandle = String(r.targetHandle ?? "")
+        .trim()
+        .replace(/^@+/, "")
+        .toLowerCase();
+
+      const livePost = r.postId ? postById.get(String(r.postId)) : null;
+      const snapPost =
+        (dbSnap?.post && typeof dbSnap.post === "object"
+          ? (dbSnap.post as Record<string, any>)
+          : dbSnap?.content !== undefined
+            ? dbSnap
+            : null) ??
+        (auditSnap.targetPostSnapshot &&
+        typeof auditSnap.targetPostSnapshot === "object"
+          ? (auditSnap.targetPostSnapshot as Record<string, any>)
+          : null);
+      const resolvedPost = livePost
+        ? {
+            id: livePost.id,
+            authorAccountId: livePost.authorAccountId ?? "",
+            authorName: livePost.authorName,
+            authorUsername: livePost.authorUsername,
+            content: livePost.content,
+            imageAsset: livePost.imageAsset ?? null,
+            categoryBadge: livePost.categoryBadge ?? "Community",
+            status: livePost.status ?? "PUBLISHED",
+            createdAt:
+              livePost.createdAt instanceof Date
+                ? livePost.createdAt.toISOString()
+                : String(livePost.createdAt ?? ""),
+          }
+        : snapPost
+          ? {
+              id: snapPost.id ?? r.postId,
+              authorAccountId: snapPost.authorAccountId ?? "",
+              authorName: snapPost.authorName ?? r.targetHandle,
+              authorUsername: snapPost.authorUsername ?? r.targetHandle,
+              content: snapPost.content ?? "",
+              imageAsset: snapPost.imageAsset ?? null,
+              categoryBadge: snapPost.categoryBadge ?? "Community",
+              status: "SNAPSHOT",
+              createdAt: snapPost.createdAt ?? "",
+            }
+          : null;
+
+      const liveComment = r.commentId
+        ? commentById.get(String(r.commentId))
+        : null;
+      const snapComment =
+        (dbSnap?.comment && typeof dbSnap.comment === "object"
+          ? (dbSnap.comment as Record<string, any>)
+          : null) ??
+        (auditSnap.targetCommentSnapshot &&
+        typeof auditSnap.targetCommentSnapshot === "object"
+          ? (auditSnap.targetCommentSnapshot as Record<string, any>)
+          : null);
+      const resolvedComment = liveComment
+        ? {
+            id: liveComment.id,
+            postId: liveComment.postId,
+            authorName: liveComment.authorName,
+            content: liveComment.content,
+            isRemovedByModerator: Boolean(liveComment.isRemovedByModerator),
+          }
+        : snapComment
+          ? {
+              id: snapComment.id ?? r.commentId,
+              postId: snapComment.postId ?? r.postId,
+              authorName: snapComment.authorName ?? r.targetHandle,
+              content: snapComment.content ?? "",
+              isRemovedByModerator: false,
+            }
+          : null;
+
+      const mp = profileByNormHandle.get(normHandle);
+      const resolvedProfile = mp
+        ? {
+            accountId: mp.accountId,
+            displayName: mp.displayName,
+            username: mp.username,
+            avatarAsset: mp.avatarAsset,
+            bio: mp.bio,
+            location: mp.location,
+            accountStatus: mp.account?.status ?? "ACTIVE",
+            verificationStatus: mp.account?.verificationStatus ?? "VERIFIED",
+          }
+        : null;
+
+      const catUpper = String(r.category ?? "SAFETY_CONCERN").toUpperCase();
+      const defaultPriority =
+        catUpper.includes("SAFETY") ||
+        catUpper.includes("HARASSMENT") ||
+        catUpper.includes("THREAT") ||
+        catUpper.includes("IMPERSONATION")
+          ? "P1_HIGH"
+          : "P2_NORMAL";
+      const defaultSeverity =
+        catUpper.includes("SAFETY") || catUpper.includes("THREAT")
+          ? "S1_CRITICAL"
+          : catUpper.includes("HARASSMENT")
+            ? "S2_HIGH"
+            : "S2_MEDIUM";
+
+      const evidenceUrls: string[] = [];
+      if (resolvedPost?.imageAsset) {
+        evidenceUrls.push(String(resolvedPost.imageAsset));
+      }
+      if (Array.isArray(r.evidenceUrls)) {
+        for (const u of r.evidenceUrls) {
+          if (typeof u === "string" && !evidenceUrls.includes(u)) {
+            evidenceUrls.push(u);
+          }
+        }
+      }
+      if (Array.isArray(auditSnap.evidenceUrls)) {
+        for (const u of auditSnap.evidenceUrls) {
+          if (typeof u === "string" && !evidenceUrls.includes(u)) {
+            evidenceUrls.push(u);
+          }
+        }
+      }
+
+      return {
+        ...r,
+        status: r.status ?? "SUBMITTED",
+        priority: r.priority ?? defaultPriority,
+        severity: r.severity ?? defaultSeverity,
+        assignedReviewerId: r.assignedReviewerId ?? null,
+        assignedReviewerName: r.assignedReviewerName ?? null,
+        appealStatus: r.appealStatus ?? null,
+        appealReason: r.appealReason ?? null,
+        internalNotes: Array.isArray(r.internalNotes) ? r.internalNotes : [],
+        repeatOffenderCount: countByNormTarget.get(normHandle) ?? 1,
+        targetPost: resolvedPost,
+        targetComment: resolvedComment,
+        targetProfile: resolvedProfile,
+        evidenceUrls,
+      };
+    });
+  }
+
   async operationsOverview(token?: string) {
     this.assertReviewer(token);
     const [
@@ -1499,11 +1757,11 @@ export class AdminReviewService {
     ] = await Promise.all([
       this.prisma.memberUserReport.findMany({
         orderBy: { createdAt: "desc" },
-        take: 30,
+        take: 100,
       }),
       this.prisma.memberModerationBlock.findMany({
         orderBy: { createdAt: "desc" },
-        take: 30,
+        take: 50,
       }),
       this.prisma.safetySosEvent.findMany({
         orderBy: { createdAt: "desc" },
@@ -1523,11 +1781,11 @@ export class AdminReviewService {
           },
         },
         orderBy: { createdAt: "desc" },
-        take: 30,
+        take: 40,
       }),
       this.prisma.auditEvent.findMany({
         orderBy: { createdAt: "desc" },
-        take: 40,
+        take: 80,
       }),
       this.prisma.communityPost.count(),
       this.prisma.communityGroup.count(),
@@ -1535,12 +1793,17 @@ export class AdminReviewService {
       this.resolvePersistedRegistrationPolicy(),
     ]);
 
+    const enrichedReports = await this.enrichReportsWithEvidence(
+      reports as Array<Record<string, any>>,
+      auditEvents as Array<Record<string, any>>,
+    );
+
     return {
       counts: {
         totalAccounts,
         totalPosts,
         totalGroups,
-        totalReports: reports.length,
+        totalReports: enrichedReports.length,
         totalBlocks: blocks.length,
         totalSosEvents: sosEvents.length,
         totalMediaUploads: mediaEvents.length,
@@ -1562,7 +1825,7 @@ export class AdminReviewService {
         policyNote:
           "SRS 9.4 & 12.2: Menstrual and reproductive health records are strictly owner-isolated and inaccessible to administrators.",
       },
-      reports,
+      reports: enrichedReports,
       blocks,
       sosEvents,
       emergencyContacts,
@@ -1686,16 +1949,48 @@ export class AdminReviewService {
     if (!report) {
       throw new NotFoundException("Report was not found.");
     }
-    const updatedReport = await this.prisma.memberUserReport.update({
-      where: { id: reportId },
-      data: {
-        status: actionType === "DISMISS_REPORT" ? "DISMISSED" : "ACTION_TAKEN",
-        reviewerNotes: reason,
-        reviewedBy: reviewerLabel,
-        reviewedAt: new Date(),
-      },
-    });
-    if (actionType === "REMOVE_POST" && report.postId) {
+
+    const nextStatus =
+      actionType === "DISMISS_REPORT" || actionType === "NO_VIOLATION"
+        ? "DISMISSED"
+        : actionType === "ESCALATE"
+          ? "ESCALATED"
+          : actionType === "MARK_UNDER_REVIEW"
+            ? "UNDER_REVIEW"
+            : "ACTION_TAKEN";
+
+    const updateData: Record<string, any> = {
+      status: nextStatus,
+      reviewerNotes: reason,
+      reviewedBy: reviewerLabel,
+      reviewedAt: new Date(),
+      ...(actionType === "ESCALATE"
+        ? { priority: "P0_CRITICAL", severity: "S1_CRITICAL" }
+        : {}),
+    };
+
+    let updatedReport: Record<string, any>;
+    try {
+      updatedReport = await this.prisma.memberUserReport.update({
+        where: { id: reportId },
+        data: updateData as any,
+      });
+    } catch {
+      updatedReport = await this.prisma.memberUserReport.update({
+        where: { id: reportId },
+        data: {
+          status: nextStatus,
+          reviewerNotes: reason,
+          reviewedBy: reviewerLabel,
+          reviewedAt: new Date(),
+        },
+      });
+    }
+
+    if (
+      (actionType === "REMOVE_POST" || actionType === "REMOVE_CONTENT") &&
+      report.postId
+    ) {
       await this.prisma.communityPost
         .update({
           where: { id: report.postId },
@@ -1706,7 +2001,80 @@ export class AdminReviewService {
           },
         })
         .catch(() => undefined);
+    } else if (actionType === "RESTORE_CONTENT" && report.postId) {
+      await this.prisma.communityPost
+        .update({
+          where: { id: report.postId },
+          data: {
+            status: "PUBLISHED",
+            moderationReason: null,
+            deletedAt: null,
+          },
+        })
+        .catch(() => undefined);
     }
+
+    if (
+      (actionType === "REMOVE_COMMENT" || actionType === "REMOVE_CONTENT") &&
+      report.commentId
+    ) {
+      await this.prisma.communityPostComment
+        .update({
+          where: { id: report.commentId },
+          data: {
+            isRemovedByModerator: true,
+            deletedAt: new Date(),
+          },
+        })
+        .catch(() => undefined);
+    }
+
+    if (
+      actionType === "RESTRICT_MEMBER" ||
+      actionType === "SUSPEND_MEMBER" ||
+      actionType === "TEMP_SUSPEND_USER" ||
+      actionType === "BAN_MEMBER" ||
+      actionType === "PERMANENT_BAN_USER"
+    ) {
+      const cleanHandle = String(report.targetHandle ?? "")
+        .trim()
+        .replace(/^@+/, "");
+      const anyPrisma = this.prisma as Record<string, any>;
+      if (cleanHandle && typeof anyPrisma.memberProfile?.findFirst === "function") {
+        const targetProf = await anyPrisma.memberProfile
+          .findFirst({
+            where: {
+              OR: [
+                { username: { equals: cleanHandle, mode: "insensitive" } },
+                { username: { equals: `@${cleanHandle}`, mode: "insensitive" } },
+              ],
+            },
+          })
+          .catch(() => null);
+        if (targetProf?.accountId && typeof anyPrisma.memberAccount?.update === "function") {
+          const nextAccountStatus =
+            actionType === "RESTRICT_MEMBER" ? "RESTRICTED" : "SUSPENDED";
+          await anyPrisma.memberAccount
+            .update({
+              where: { id: targetProf.accountId },
+              data: { status: nextAccountStatus },
+            })
+            .catch(() => undefined);
+          if (
+            nextAccountStatus === "SUSPENDED" &&
+            typeof anyPrisma.authSession?.updateMany === "function"
+          ) {
+            await anyPrisma.authSession
+              .updateMany({
+                where: { accountId: targetProf.accountId, revokedAt: null },
+                data: { revokedAt: new Date() },
+              })
+              .catch(() => undefined);
+          }
+        }
+      }
+    }
+
     if (this.prisma.moderationDecision?.create) {
       await this.prisma.moderationDecision
         .create({
@@ -1730,10 +2098,350 @@ export class AdminReviewService {
         targetId: reportId,
         outcome: actionType,
         requestId: randomUUID(),
-        redactedMetadata: { reviewerLabel, actionType, reason },
+        redactedMetadata: { reviewerLabel, actionType, reason, status: nextStatus },
       },
     });
     return updatedReport;
+  }
+
+  async triageReport(
+    reportId: string,
+    body: Record<string, unknown>,
+    token?: string,
+  ) {
+    const reviewerLabel = this.assertReviewer(token);
+    const report = (await this.prisma.memberUserReport.findUnique({
+      where: { id: reportId },
+    })) as Record<string, any> | null;
+    if (!report) {
+      throw new NotFoundException("Report was not found.");
+    }
+
+    const nextPriority =
+      typeof body.priority === "string" && body.priority.trim()
+        ? body.priority.trim().toUpperCase().slice(0, 24)
+        : (report.priority ?? "P2_NORMAL");
+    const nextSeverity =
+      typeof body.severity === "string" && body.severity.trim()
+        ? body.severity.trim().toUpperCase().slice(0, 24)
+        : (report.severity ?? "S2_MEDIUM");
+    const nextStatus =
+      typeof body.status === "string" && body.status.trim()
+        ? body.status.trim().toUpperCase().slice(0, 32)
+        : (report.status ?? "SUBMITTED");
+    const assignedReviewerId =
+      body.assignedReviewerId !== undefined
+        ? body.assignedReviewerId
+          ? String(body.assignedReviewerId).trim().slice(0, 64)
+          : null
+        : (report.assignedReviewerId ?? null);
+    const assignedReviewerName =
+      body.assignedReviewerName !== undefined
+        ? body.assignedReviewerName
+          ? String(body.assignedReviewerName).trim().slice(0, 120)
+          : null
+        : (report.assignedReviewerName ?? null);
+    const appealStatus =
+      body.appealStatus !== undefined
+        ? body.appealStatus
+          ? String(body.appealStatus).trim().toUpperCase().slice(0, 32)
+          : null
+        : (report.appealStatus ?? null);
+    const appealReason =
+      body.appealReason !== undefined
+        ? body.appealReason
+          ? String(body.appealReason).trim().slice(0, 500)
+          : null
+        : (report.appealReason ?? null);
+
+    const existingNotes = Array.isArray(report.internalNotes)
+      ? [...report.internalNotes]
+      : [];
+    if (typeof body.internalNote === "string" && body.internalNote.trim()) {
+      existingNotes.push({
+        id: randomUUID(),
+        author: reviewerLabel,
+        note: body.internalNote.trim(),
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    const updated = await this.prisma.memberUserReport.update({
+      where: { id: reportId },
+      data: {
+        status: nextStatus,
+        priority: nextPriority,
+        severity: nextSeverity,
+        assignedReviewerId,
+        assignedReviewerName,
+        appealStatus,
+        appealReason,
+        internalNotes: existingNotes,
+        ...(typeof body.reviewerNotes === "string"
+          ? { reviewerNotes: body.reviewerNotes.trim().slice(0, 1000) }
+          : {}),
+      } as any,
+    });
+
+    await this.prisma.auditEvent.create({
+      data: {
+        actorType: "ADMIN",
+        action: "admin.report.triaged",
+        targetType: "member_user_report",
+        targetId: reportId,
+        outcome: nextStatus ?? "TRIAGED",
+        requestId: randomUUID(),
+        redactedMetadata: {
+          reviewerLabel,
+          priority: nextPriority,
+          severity: nextSeverity,
+          assignedReviewerName,
+          status: nextStatus,
+          notesCount: existingNotes.length,
+        },
+      },
+    });
+
+    return {
+      ...updated,
+      priority: nextPriority,
+      severity: nextSeverity,
+      assignedReviewerId,
+      assignedReviewerName,
+      appealStatus,
+      appealReason,
+      internalNotes: existingNotes,
+    };
+  }
+
+  async getReportDetail(reportId: string, token?: string) {
+    this.assertReviewer(token);
+    const report = await this.prisma.memberUserReport.findUnique({
+      where: { id: reportId },
+    });
+    if (!report) {
+      throw new NotFoundException("Report was not found.");
+    }
+    const auditEvents = await this.prisma.auditEvent
+      .findMany({
+        where: { targetId: reportId },
+        orderBy: { createdAt: "desc" },
+        take: 30,
+      })
+      .catch(() => []);
+    const [enriched] = await this.enrichReportsWithEvidence(
+      [report as unknown as Record<string, any>],
+      auditEvents as Array<Record<string, any>>,
+    );
+    return {
+      report: enriched,
+      auditHistory: auditEvents.map((ev) => ({
+        id: ev.id,
+        actorType: ev.actorType,
+        action: ev.action,
+        outcome: ev.outcome,
+        metadata: ev.redactedMetadata,
+        createdAt: ev.createdAt.toISOString(),
+      })),
+    };
+  }
+
+  async previewReportedMedia(uploadId: string, token?: string) {
+    const reviewerLabel = this.assertReviewer(token);
+    const cleanId = (uploadId ?? "")
+      .trim()
+      .replace(/^.*\/media\/object\//, "");
+    if (!cleanId) {
+      throw new BadRequestException("Provide a valid media upload ID.");
+    }
+
+    const anyPrisma = this.prisma as Record<string, any>;
+    const [asset, event] = await Promise.all([
+      typeof anyPrisma.mediaAsset?.findUnique === "function"
+        ? anyPrisma.mediaAsset
+            .findUnique({ where: { id: cleanId } })
+            .catch(() => null)
+        : Promise.resolve(null),
+      typeof anyPrisma.auditEvent?.findFirst === "function"
+        ? anyPrisma.auditEvent
+            .findFirst({
+              where: {
+                targetId: cleanId,
+                action: {
+                  in: [
+                    "module2.media.uploaded",
+                    "module2.media.upload_requested",
+                  ],
+                },
+              },
+              orderBy: { createdAt: "desc" },
+            })
+            .catch(() => null)
+        : Promise.resolve(null),
+    ]);
+
+    if (!asset && !event) {
+      throw new NotFoundException(
+        "Submitted evidence media record was not found.",
+      );
+    }
+
+    if (typeof anyPrisma.auditEvent?.create === "function") {
+      await anyPrisma.auditEvent
+        .create({
+          data: {
+            actorType: "ADMIN",
+            action: "admin.moderation.media_previewed",
+            targetType: "media_asset",
+            targetId: cleanId,
+            outcome: "authorized",
+            requestId: randomUUID(),
+            redactedMetadata: { reviewerLabel, uploadId: cleanId },
+          },
+        })
+        .catch(() => undefined);
+    }
+
+    const meta =
+      event?.redactedMetadata &&
+      typeof event.redactedMetadata === "object" &&
+      !Array.isArray(event.redactedMetadata)
+        ? (event.redactedMetadata as Record<string, unknown>)
+        : {};
+    const recordedContentType =
+      (typeof asset?.contentType === "string" ? asset.contentType : null) ??
+      (typeof meta.contentType === "string" ? meta.contentType : null) ??
+      "image/jpeg";
+    const driveFileId =
+      asset?.driveFileId ??
+      (typeof meta.driveFileId === "string" ? meta.driveFileId : null);
+
+    if (
+      driveFileId &&
+      !driveFileId.startsWith("inline-db-") &&
+      this.googleDrive &&
+      typeof this.googleDrive.downloadFile === "function"
+    ) {
+      try {
+        const downloaded = await this.googleDrive.downloadFile(driveFileId);
+        return {
+          contentType: downloaded.contentType || recordedContentType,
+          buffer: downloaded.buffer,
+        };
+      } catch {
+        // Fall through to inlineBase64 check if Google Drive download fails
+      }
+    }
+
+    if (
+      typeof meta.inlineBase64 === "string" &&
+      meta.inlineBase64.length > 0
+    ) {
+      return {
+        contentType: recordedContentType,
+        buffer: Buffer.from(meta.inlineBase64, "base64"),
+      };
+    }
+
+    throw new NotFoundException(
+      "Submitted evidence binary is not available in storage or has been purged.",
+    );
+  }
+
+  async listWellnessResources(token?: string) {
+    this.assertReviewer(token);
+    const items = await this.prisma.wellnessResource.findMany({
+      orderBy: { createdAt: "asc" },
+    });
+    return { items };
+  }
+
+  async upsertWellnessResource(body: Record<string, unknown>, token?: string) {
+    const reviewerLabel = this.assertReviewer(token);
+    const slug = String(
+      body.slug ??
+        String(body.title ?? "wellness-guide")
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-"),
+    )
+      .trim()
+      .slice(0, 64);
+    const title = String(body.title ?? "Sakhi Wellness Guide").trim();
+    const category = String(body.category ?? "Period Pain Help").trim();
+    const subtitle = String(
+      body.subtitle ??
+        body.summary ??
+        "General women's health and mindfulness guidance.",
+    ).trim();
+    const durationLabel =
+      typeof body.durationLabel === "string"
+        ? body.durationLabel.trim()
+        : "4 min read";
+
+    const saved = await this.prisma.wellnessResource.upsert({
+      where: { slug },
+      create: {
+        slug,
+        category,
+        title,
+        subtitle,
+        durationLabel,
+        thumbAsset:
+          typeof body.thumbAsset === "string" ? body.thumbAsset.trim() : null,
+      },
+      update: {
+        category,
+        title,
+        subtitle,
+        durationLabel,
+        ...(typeof body.thumbAsset === "string"
+            ? { thumbAsset: body.thumbAsset.trim() }
+            : {}),
+      },
+    });
+    await this.prisma.auditEvent.create({
+      data: {
+        actorType: "ADMIN",
+        action: "admin.wellness_resource.upserted",
+        targetType: "wellness_resource",
+        targetId: saved.id,
+        outcome: "saved",
+        requestId: randomUUID(),
+        redactedMetadata: { reviewerLabel, slug, title, category },
+      },
+    });
+    return { saved: true, resource: saved };
+  }
+
+  async deleteWellnessResource(resourceId: string, token?: string) {
+    const reviewerLabel = this.assertReviewer(token);
+    const cleanId = (resourceId ?? "").trim();
+    if (!cleanId) {
+      throw new BadRequestException("Provide a wellness resource ID.");
+    }
+    const existing = await this.prisma.wellnessResource.findFirst({
+      where: {
+        OR: [{ id: cleanId }, { slug: cleanId }],
+      },
+    });
+    if (!existing) {
+      throw new NotFoundException("Wellness resource was not found.");
+    }
+    await this.prisma.wellnessResource.delete({
+      where: { id: existing.id },
+    });
+    await this.prisma.auditEvent.create({
+      data: {
+        actorType: "ADMIN",
+        action: "admin.wellness_resource.deleted",
+        targetType: "wellness_resource",
+        targetId: existing.id,
+        outcome: "deleted",
+        requestId: randomUUID(),
+        redactedMetadata: { reviewerLabel, resourceId: existing.id, slug: existing.slug },
+      },
+    });
+    return { deleted: true, resourceId: existing.id };
   }
 
   async moderatePost(

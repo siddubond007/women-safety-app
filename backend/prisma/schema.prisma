@@ -79,6 +79,7 @@ model MemberAccount {
   follows                 MemberFollow[]
   privacyPreference       MemberPrivacyPreference?
   notificationPreference  MemberNotificationPreference?
+  notifications           MemberNotification[]
   emergencyContacts       SafetyEmergencyContact[]
   locationShares          SafetyLocationShare[]
   sosEvents               SafetySosEvent[]
@@ -114,6 +115,8 @@ model MemberProfile {
   updatedAt            DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
   account              MemberAccount @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
+  @@index([displayName], map: "member_profiles_display_name_idx")
+  @@index([location], map: "member_profiles_location_idx")
   @@map("member_profiles")
 }
 
@@ -256,6 +259,7 @@ model CommunityPost {
   @@index([feedSection, createdAt], map: "community_posts_section_created_idx")
   @@index([authorAccountId, createdAt], map: "community_posts_author_created_idx")
   @@index([categorySlug, status, createdAt], map: "community_posts_category_status_created_idx")
+  @@index([authorUsername, status, createdAt], map: "community_posts_username_status_created_idx")
   @@map("community_posts")
 }
 
@@ -351,6 +355,9 @@ model MemberPrivacyPreference {
   showLocation      String        @default("General location only") @map("show_location") @db.VarChar(64)
   searchResults     String        @default("Yes") @map("search_results") @db.VarChar(32)
   businessEnquiries String        @default("Yes") @map("business_enquiries") @db.VarChar(64)
+  mutedHandles      Json          @default("[]") @map("muted_handles") @db.JsonB
+  restrictedHandles Json          @default("[]") @map("restricted_handles") @db.JsonB
+  hiddenPostIds     Json          @default("[]") @map("hidden_post_ids") @db.JsonB
   updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
   account           MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
@@ -370,6 +377,31 @@ model MemberNotificationPreference {
   account           MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@map("member_notification_preferences")
+}
+
+model MemberNotification {
+  id             String        @id @default(uuid()) @db.Uuid
+  accountId      String        @map("account_id") @db.Uuid
+  category       String        @default("COMMUNITY_ANNOUNCEMENT") @db.VarChar(48)
+  title          String        @db.VarChar(160)
+  body           String        @db.VarChar(500)
+  discreetTitle  String?       @map("discreet_title") @db.VarChar(160)
+  discreetBody   String?       @map("discreet_body") @db.VarChar(500)
+  deepLink       String?       @map("deep_link") @db.VarChar(255)
+  actorHandle    String?       @map("actor_handle") @db.VarChar(80)
+  actorName      String?       @map("actor_name") @db.VarChar(100)
+  actorAvatar    String?       @map("actor_avatar") @db.VarChar(255)
+  metadata       Json          @default("{}") @db.JsonB
+  isRead         Boolean       @default(false) @map("is_read")
+  readAt         DateTime?     @map("read_at") @db.Timestamptz(6)
+  idempotencyKey String?       @unique(map: "member_notifications_idempotency_key") @map("idempotency_key") @db.VarChar(128)
+  deliveryStatus String        @default("DELIVERED") @map("delivery_status") @db.VarChar(24)
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  account        MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "member_notifications_account_id_fkey")
+
+  @@index([accountId, isRead, createdAt], map: "member_notifications_account_read_created_idx")
+  @@index([accountId, category, createdAt], map: "member_notifications_account_category_created_idx")
+  @@map("member_notifications")
 }
 
 model SafetyEmergencyContact {
@@ -488,27 +520,44 @@ model MemberModerationBlock {
 
   @@unique([accountId, blockedUsername], map: "member_moderation_blocks_account_username_key")
   @@index([accountId], map: "member_moderation_blocks_account_idx")
+  @@index([blockedUsername], map: "member_moderation_blocks_blocked_username_idx")
   @@map("member_moderation_blocks")
 }
 
 model MemberUserReport {
-  id                String        @id @default(uuid()) @db.Uuid
-  reporterAccountId String        @map("reporter_account_id") @db.Uuid
-  targetHandle      String        @map("target_handle") @db.VarChar(100)
-  reason            String        @db.VarChar(500)
-  status            String        @default("SUBMITTED") @db.VarChar(32)
-  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  targetType        String        @default("POST") @map("target_type") @db.VarChar(32)
-  postId            String?       @map("post_id") @db.Uuid
-  commentId         String?       @map("comment_id") @db.Uuid
-  category          String        @default("SAFETY_CONCERN") @db.VarChar(64)
-  details           String?       @db.VarChar(1000)
-  reviewerNotes     String?       @map("reviewer_notes") @db.VarChar(1000)
-  reviewedBy        String?       @map("reviewed_by") @db.VarChar(120)
-  reviewedAt        DateTime?     @map("reviewed_at") @db.Timestamptz(6)
-  reporterAccount   MemberAccount @relation(fields: [reporterAccountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  id                   String        @id @default(uuid()) @db.Uuid
+  reporterAccountId    String        @map("reporter_account_id") @db.Uuid
+  reportedAccountId    String?       @map("reported_account_id") @db.Uuid
+  targetHandle         String        @map("target_handle") @db.VarChar(100)
+  reason               String        @db.VarChar(500)
+  status               String        @default("SUBMITTED") @db.VarChar(32)
+  createdAt            DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  targetType           String        @default("POST") @map("target_type") @db.VarChar(32)
+  postId               String?       @map("post_id") @db.Uuid
+  commentId            String?       @map("comment_id") @db.Uuid
+  businessId           String?       @map("business_id") @db.Uuid
+  messageId            String?       @map("message_id") @db.Uuid
+  category             String        @default("SAFETY_CONCERN") @db.VarChar(64)
+  details              String?       @db.VarChar(1000)
+  evidenceUrls         Json          @default("[]") @map("evidence_urls") @db.JsonB
+  targetSnapshot       Json?         @map("target_snapshot") @db.JsonB
+  priority             String        @default("P2_NORMAL") @db.VarChar(24)
+  severity             String        @default("S2_MEDIUM") @db.VarChar(24)
+  assignedReviewerId   String?       @map("assigned_reviewer_id") @db.VarChar(64)
+  assignedReviewerName String?       @map("assigned_reviewer_name") @db.VarChar(120)
+  internalNotes        Json          @default("[]") @map("internal_notes") @db.JsonB
+  appealStatus         String?       @map("appeal_status") @db.VarChar(32)
+  appealReason         String?       @map("appeal_reason") @db.VarChar(500)
+  reviewerNotes        String?       @map("reviewer_notes") @db.VarChar(1000)
+  reviewedBy           String?       @map("reviewed_by") @db.VarChar(120)
+  reviewedAt           DateTime?     @map("reviewed_at") @db.Timestamptz(6)
+  reporterAccount      MemberAccount @relation(fields: [reporterAccountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@index([reporterAccountId, createdAt], map: "member_user_reports_reporter_created_idx")
+  @@index([status, priority, createdAt], map: "member_user_reports_status_priority_created_idx")
+  @@index([targetHandle, createdAt], map: "member_user_reports_target_handle_created_idx")
+  @@index([postId], map: "member_user_reports_post_id_idx")
   @@map("member_user_reports")
 }
 
@@ -543,6 +592,12 @@ model DirectMessage {
   recipientName               String        @map("recipient_name") @db.VarChar(100)
   recipientHandle             String        @map("recipient_handle") @db.VarChar(50)
   body                        String        @db.Text
+  attachmentUrl               String?       @map("attachment_url") @db.Text
+  attachmentType              String?       @map("attachment_type") @db.VarChar(40)
+  mediaUploadId               String?       @map("media_upload_id") @db.VarChar(128)
+  requestStatus               String        @default("ACCEPTED") @map("request_status") @db.VarChar(24)
+  readAt                      DateTime?     @map("read_at") @db.Timestamptz(6)
+  clientMessageId             String?       @map("client_message_id") @db.VarChar(80)
   sourceAuditEventId          String?       @unique(map: "direct_messages_source_audit_event_key") @map("source_audit_event_id") @db.Uuid
   createdAt                   DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   senderAccount               MemberAccount @relation("DirectMessageSender", fields: [senderAccountId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "direct_messages_sender_account_fkey")
@@ -553,6 +608,10 @@ model DirectMessage {
   @@index([recipientAccountId, senderAccountId, createdAt], map: "direct_messages_recipient_sender_created_idx")
   @@index([senderAccountId, createdAt], map: "direct_messages_sender_created_idx")
   @@index([recipientAccountId, createdAt], map: "direct_messages_recipient_created_idx")
+  @@unique([senderAccountId, clientMessageId], map: "direct_messages_sender_client_msg_key")
+  @@unique([mediaUploadId], map: "direct_messages_media_upload_id_key")
+  @@index([recipientAccountId, readAt], map: "direct_messages_recipient_read_idx")
+  @@index([senderAccountId, clientMessageId], map: "direct_messages_sender_client_msg_idx")
   @@map("direct_messages")
 }
 
@@ -806,6 +865,7 @@ model BusinessDirectoryListing {
   @@index([approvalStatus, createdAt], map: "business_directory_listings_status_created_idx")
   @@index([category, approvalStatus], map: "business_directory_listings_category_status_idx")
   @@index([ownerAccountId], map: "business_directory_listings_owner_idx")
+  @@index([city, approvalStatus], map: "business_directory_listings_city_status_idx")
   @@map("business_directory_listings")
 }
 
@@ -913,6 +973,7 @@ model MenstrualTrackerPreference {
   accountId                   String        @id @map("account_id") @db.Uuid
   defaultCycleLength          Int           @default(28) @map("default_cycle_length")
   defaultPeriodDuration       Int           @default(5) @map("default_period_duration")
+  useCustomCycleLength        Boolean       @default(false) @map("use_custom_cycle_length")
   discreetNotifications       Boolean       @default(true) @map("discreet_notifications")
   periodReminderEnabled       Boolean       @default(true) @map("period_reminder_enabled")
   periodReminderDaysBefore    Int           @default(2) @map("period_reminder_days_before")

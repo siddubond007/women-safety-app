@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../auth/backend_api_client.dart';
@@ -142,6 +143,7 @@ class MenstrualTrackerPreferences {
   final bool fertilityTrackingEnabled;
   final bool pmsTrackingEnabled;
   final bool shareWithCommunity; // Strictly false by default (SRS 9.4)
+  final bool useCustomCycleLength;
 
   const MenstrualTrackerPreferences({
     this.averageCycleLength = 28,
@@ -154,40 +156,54 @@ class MenstrualTrackerPreferences {
     this.fertilityTrackingEnabled = true,
     this.pmsTrackingEnabled = true,
     this.shareWithCommunity = false,
+    this.useCustomCycleLength = false,
   });
 
   factory MenstrualTrackerPreferences.fromJson(Map<String, dynamic> json) {
+    final rawCycleLen = json['averageCycleLength'] ?? json['defaultCycleLength'];
+    final rawPeriodLen =
+        json['averagePeriodDuration'] ?? json['defaultPeriodDuration'];
+    final rawNotifEnabled =
+        json['notificationsEnabled'] ?? json['periodReminderEnabled'];
+    final rawFertility =
+        json['fertilityTrackingEnabled'] ?? json['showFertilityEstimates'];
     return MenstrualTrackerPreferences(
-      averageCycleLength: json['averageCycleLength'] is num
-          ? (json['averageCycleLength'] as num).toInt().clamp(18, 45)
+      averageCycleLength: rawCycleLen is num
+          ? rawCycleLen.toInt().clamp(21, 40)
           : 28,
-      averagePeriodDuration: json['averagePeriodDuration'] is num
-          ? (json['averagePeriodDuration'] as num).toInt().clamp(2, 12)
+      averagePeriodDuration: rawPeriodLen is num
+          ? rawPeriodLen.toInt().clamp(2, 10)
           : 5,
-      notificationsEnabled: json['notificationsEnabled'] != false,
+      notificationsEnabled: rawNotifEnabled != false,
       discreetNotifications: json['discreetNotifications'] != false,
       periodReminderDaysBefore: json['periodReminderDaysBefore'] is num
           ? (json['periodReminderDaysBefore'] as num).toInt().clamp(1, 7)
           : 2,
       ovulationReminderEnabled: json['ovulationReminderEnabled'] == true,
       hydrationReminderEnabled: json['hydrationReminderEnabled'] != false,
-      fertilityTrackingEnabled: json['fertilityTrackingEnabled'] != false,
+      fertilityTrackingEnabled: rawFertility != false,
       pmsTrackingEnabled: json['pmsTrackingEnabled'] != false,
       shareWithCommunity: json['shareWithCommunity'] == true,
+      useCustomCycleLength: json['useCustomCycleLength'] == true,
     );
   }
 
   Map<String, dynamic> toJson() => {
     'averageCycleLength': averageCycleLength,
+    'defaultCycleLength': averageCycleLength,
     'averagePeriodDuration': averagePeriodDuration,
+    'defaultPeriodDuration': averagePeriodDuration,
     'notificationsEnabled': notificationsEnabled,
+    'periodReminderEnabled': notificationsEnabled,
     'discreetNotifications': discreetNotifications,
     'periodReminderDaysBefore': periodReminderDaysBefore,
     'ovulationReminderEnabled': ovulationReminderEnabled,
     'hydrationReminderEnabled': hydrationReminderEnabled,
     'fertilityTrackingEnabled': fertilityTrackingEnabled,
+    'showFertilityEstimates': fertilityTrackingEnabled,
     'pmsTrackingEnabled': pmsTrackingEnabled,
     'shareWithCommunity': shareWithCommunity,
+    'useCustomCycleLength': useCustomCycleLength,
   };
 
   MenstrualTrackerPreferences copyWith({
@@ -201,6 +217,7 @@ class MenstrualTrackerPreferences {
     bool? fertilityTrackingEnabled,
     bool? pmsTrackingEnabled,
     bool? shareWithCommunity,
+    bool? useCustomCycleLength,
   }) {
     return MenstrualTrackerPreferences(
       averageCycleLength: averageCycleLength ?? this.averageCycleLength,
@@ -219,6 +236,7 @@ class MenstrualTrackerPreferences {
           fertilityTrackingEnabled ?? this.fertilityTrackingEnabled,
       pmsTrackingEnabled: pmsTrackingEnabled ?? this.pmsTrackingEnabled,
       shareWithCommunity: shareWithCommunity ?? this.shareWithCommunity,
+      useCustomCycleLength: useCustomCycleLength ?? this.useCustomCycleLength,
     );
   }
 }
@@ -242,6 +260,8 @@ class CyclePredictionSummary {
   final bool hasIrregularity;
   final String? irregularityReason;
   final String regularityStatus; // Regular, Variable, Irregular, Building History
+  final bool isCustomMode;
+  final String predictionBasisLabel;
   final String discreetNotificationPreview;
   final List<String> personalizedSuggestions;
 
@@ -264,6 +284,8 @@ class CyclePredictionSummary {
     this.hasIrregularity = false,
     this.irregularityReason,
     required this.regularityStatus,
+    this.isCustomMode = false,
+    this.predictionBasisLabel = 'Automatic (History-Based)',
     required this.discreetNotificationPreview,
     required this.personalizedSuggestions,
   });
@@ -303,6 +325,7 @@ class CyclePredictionEngine {
   static CyclePredictionSummary compute({
     required List<MenstrualCycleEntry> cycles,
     required MenstrualTrackerPreferences prefs,
+    DateTime? referenceDate,
   }) {
     final sortedAsc = List<MenstrualCycleEntry>.from(cycles)
       ..sort((a, b) => a.startDate.compareTo(b.startDate));
@@ -331,10 +354,16 @@ class CyclePredictionEngine {
       }
     }
 
-    final avgCycleLength = observedLengths.isNotEmpty
-        ? (observedLengths.reduce((a, b) => a + b) / observedLengths.length)
-              .round()
-        : prefs.averageCycleLength.clamp(20, 45);
+    final avgCycleLength =
+        (prefs.useCustomCycleLength || observedLengths.isEmpty)
+        ? prefs.averageCycleLength.clamp(21, 40)
+        : (observedLengths.reduce((a, b) => a + b) / observedLengths.length)
+              .round();
+    final predictionBasisLabel = prefs.useCustomCycleLength
+        ? 'Custom Mode • Manual $avgCycleLength-day cycle length'
+        : observedLengths.isNotEmpty
+        ? 'Automatic Mode • Rolling average of ${observedLengths.length} logged cycle interval(s) ($avgCycleLength days)'
+        : 'Automatic Mode • Baseline $avgCycleLength-day fallback (log 2+ period start dates for history averaging)';
 
     final avgPeriodDuration = observedDurations.isNotEmpty
         ? (observedDurations.reduce((a, b) => a + b) / observedDurations.length)
@@ -373,7 +402,7 @@ class CyclePredictionEngine {
         : 'Variable';
 
     final latest = sortedAsc.isNotEmpty ? sortedAsc.last : null;
-    final todayIso = formatIsoDate(DateTime.now());
+    final todayIso = formatIsoDate(referenceDate ?? DateTime.now());
 
     String? nextPeriodStart;
     String? nextPeriodEnd;
@@ -472,6 +501,8 @@ class CyclePredictionEngine {
       hasIrregularity: hasIrregularity,
       irregularityReason: irregularityReason,
       regularityStatus: regularityStatus,
+      isCustomMode: prefs.useCustomCycleLength,
+      predictionBasisLabel: predictionBasisLabel,
       discreetNotificationPreview: discreetPreview,
       personalizedSuggestions: suggestions,
     );
@@ -507,61 +538,91 @@ class MenstrualHealthFaq {
 
 const List<MenstrualHealthArticle> sakhiMenstrualHealthArticles = [
   MenstrualHealthArticle(
+    id: 'period-pain-heat-therapy',
+    title: 'Warm Compress & Comfort Care for Period Cramps',
+    category: 'Period Pain Help',
+    readTime: '3 min read • Reviewed Nov 2026',
+    summary:
+        'General wellness suggestions for applying gentle external warmth to relax abdominal and lower-back muscle tension during menstruation (Reference: ACOG Patient Education on Dysmenorrhea).',
+    keyTakeaways: [
+      'Place a warm water bottle or heating pad wrapped in a soft cloth over the lower abdomen or lower back for 15–20 minute intervals.',
+      'A warm shower or bath offers general relaxation and comfort before rest.',
+      'Wellness Notice: External warmth is a supportive comfort measure, not a medical treatment. Consult a qualified clinician if cramps are severe or disrupt daily life.',
+    ],
+    clinicalNote:
+        'Always place a protective cloth layer between a warm compress and your skin to avoid thermal irritation.',
+  ),
+  MenstrualHealthArticle(
+    id: 'period-pain-gentle-exercise',
+    title: 'Gentle Stretching & Restorative Movement on Period Days',
+    category: 'Period Pain Help',
+    readTime: '4 min read • Reviewed Nov 2026',
+    summary:
+        'Optional, low-impact stretches and light movement ideas for days when you feel comfortable moving (Reference: ACOG Exercise & Menstrual Comfort Overview).',
+    keyTakeaways: [
+      'Restorative postures such as Child’s Pose (Balasana) or reclining with a pillow under your knees may feel comforting for lower-back tension.',
+      'If your energy allows, a short, unhurried walk outdoors can support general circulation and mood.',
+      'Pace movement to how you feel: prioritize rest on heavy flow days and stop any activity that causes discomfort.',
+    ],
+    clinicalNote:
+        'Stop any movement that increases sharp pain or dizziness, and consult a healthcare professional for persistent pelvic pain.',
+  ),
+  MenstrualHealthArticle(
+    id: 'period-pain-hydration-rest',
+    title: 'Hydration, Warm Fluids & Balanced Meals During Menstruation',
+    category: 'Period Pain Help',
+    readTime: '4 min read • Reviewed Nov 2026',
+    summary:
+        'Everyday hydration, nutrition, and restful sleep postures to support energy and iron intake during your menstrual cycle (Reference: WHO & ICMR-NIN Dietary Guidelines).',
+    keyTakeaways: [
+      'Sipping warm water or caffeine-free herbal infusions (such as ginger or chamomile) helps maintain daily hydration.',
+      'Rest on your side with a pillow between your knees to reduce pressure on the lower back and abdomen.',
+      'Include iron-containing foods (spinach, lentils, ragi, dates) alongside Vitamin C sources (lemon, amla, orange) as part of a balanced diet.',
+    ],
+    clinicalNote:
+        'If period pain causes fainting, vomiting, fever, or soaking through a pad every hour for 2+ consecutive hours, seek medical care promptly.',
+  ),
+  MenstrualHealthArticle(
     id: 'four-phases',
     title: 'Understanding the 4 Phases of Your Menstrual Cycle',
     category: 'Cycle Science',
-    readTime: '4 min read',
+    readTime: '4 min read • Reviewed Nov 2026',
     summary:
-        'Your menstrual cycle is more than just your period. Across the Menstrual, Follicular, Ovulatory, and Luteal phases, shifting estrogen and progesterone levels influence energy, sleep, metabolism, and mood.',
+        'An educational overview of how the Menstrual, Follicular, Ovulatory, and Luteal phases progress across 21–35 day cycles (Reference: ACOG Menstrual Cycle Overview).',
     keyTakeaways: [
-      'Menstrual Phase (Days 1–5): Hormone levels dip as the uterine lining sheds. Focus on iron replenishment, warm fluids, and gentle movement.',
-      'Follicular Phase (Days 6–13): Rising estrogen boosts focus, stamina, and mood — ideal for strength workouts and creative planning.',
-      'Ovulatory Phase (~Day 14 in a 28-day cycle): Luteinizing hormone surges to release an egg. Hydration and balanced electrolytes support peak energy.',
-      'Luteal Phase (Days 15–28): Progesterone rises, increasing basal body temperature and caloric needs slightly. Magnesium and B-vitamins help ease premenstrual tension.',
+      'Menstrual Phase (Days 1–5): Uterine lining sheds over 2–7 days. Focus on hydration, balanced iron-rich meals, and extra rest.',
+      'Follicular Phase: Estrogen rises ahead of ovulation; energy often feels steadier.',
+      'Ovulatory Phase: Luteinizing hormone surges to release an egg. Remember that calendar estimates cannot pinpoint exact ovulation.',
+      'Luteal Phase: Progesterone rises after ovulation until your next period begins.',
     ],
     clinicalNote:
-        'A typical adult menstrual cycle ranges from 21 to 35 days, with bleeding lasting 2 to 7 days.',
+        'A typical adult menstrual cycle ranges from 21 to 35 days (including 24, 26, 28, or 32 days), with bleeding lasting 2 to 7 days.',
   ),
   MenstrualHealthArticle(
     id: 'irregular-cycles',
-    title: 'When Are Irregular Periods Worth a Gynecologist Visit?',
+    title: 'Warning Signs: When to Consult a Gynecologist',
     category: 'Clinical Guidance',
-    readTime: '5 min read',
+    readTime: '5 min read • Reviewed Nov 2026',
     summary:
         'Occasional cycle shifts of a few days are common during travel, exams, illness, or stress. Persistent variation greater than 7–9 days or cycles shorter than 21 days or longer than 35 days merit clinical evaluation.',
     keyTakeaways: [
-      'Common causes of cycle irregularity include PCOS, thyroid imbalances, iron-deficiency anemia, perimenopause, and high cortisol.',
-      'Track period start/end dates, flow intensity, and accompanying symptoms (such as acne, hair changes, or severe pelvic pain) for 3 cycles to share with your doctor.',
-      'Use the "Export Clinical Report" button in this tracker to generate a clean summary for your gynecologist.',
+      'Potential causes of persistent cycle irregularity include PCOS, thyroid conditions, nutritional deficiencies, perimenopause, and high stress.',
+      'Track period start/end dates, flow intensity, and symptoms for 3 cycles to share with your healthcare provider.',
+      'Use the "Export Clinical Report" button in this tracker to generate a structured summary for your gynecologist.',
     ],
     clinicalNote:
-        'Seek prompt medical care if you soak through one or more pads/tampons every hour for two consecutive hours, or experience sudden severe pelvic pain.',
-  ),
-  MenstrualHealthArticle(
-    id: 'cramps-and-pms',
-    title: 'Evidence-Based Relief for Cramps & PMS Symptoms',
-    category: 'Self-Care & Nutrition',
-    readTime: '3 min read',
-    summary:
-        'Primary dysmenorrhea (period cramps) is caused by prostaglandins triggering uterine muscle contractions. Targeted heat, anti-inflammatory nutrition, and gentle movement reduce prostaglandin discomfort.',
-    keyTakeaways: [
-      'Continuous low-level heat wraps (40°C) on the lower abdomen improve pelvic blood flow and relax contracting muscle fibers.',
-      'Omega-3 fatty acids (flaxseeds, walnuts), ginger tea, and magnesium glycinate support natural prostaglandin balance.',
-      'Reducing refined sugar and excess sodium 5 days before your period helps minimize water retention and breast tenderness.',
-    ],
-    clinicalNote:
-        'If cramps progressively worsen over time or do not respond to standard care, ask a healthcare professional to screen for endometriosis or adenomyosis.',
+        'Medical Disclaimer: Sakhi provides personal logging and educational information only and does not diagnose or treat medical conditions.',
   ),
   MenstrualHealthArticle(
     id: 'fertility-awareness-myths',
     title: 'Why Calendar Ovulation Estimates Are Not Contraception',
     category: 'Reproductive Literacy',
-    readTime: '3 min read',
+    readTime: '3 min read • Reviewed Nov 2026',
     summary:
         'Calendar-based apps estimate ovulation by counting back 14 days from your next expected period. Because ovulation timing can shift unexpectedly in any given month, calendar estimates alone cannot prevent pregnancy.',
     keyTakeaways: [
       'Sperm can survive in the reproductive tract for up to 5 days, and stress or illness can shift ovulation earlier or later without warning.',
-      'Even women with very regular 28-day cycles experience natural luteal and follicular phase variations.',
+      'Even women with regular cycles experience natural follicular and luteal phase variations.',
       'Always consult a qualified gynecologist for reliable contraceptive options tailored to your health profile.',
     ],
     clinicalNote:
@@ -712,12 +773,15 @@ class MenstrualCycleController extends ChangeNotifier {
         isoDate.compareTo(p.pmsWindowEnd!) <= 0;
   }
 
+  String? lastReminderScheduleStatus;
+
   Future<void> initialize() async {
     isLoading = true;
     notifyListeners();
     await _loadFromEncryptedLocalStorage();
     isLoading = false;
     notifyListeners();
+    await _scheduleNativeDiscreetReminderIfNeeded();
     await syncWithBackend();
   }
 
@@ -766,8 +830,9 @@ class MenstrualCycleController extends ChangeNotifier {
         'module2/cycle-tracker/overview',
         authenticated: true,
       );
-      if (res['cycles'] is List) {
-        cycles = (res['cycles'] as List)
+      final rawCycles = res['cycles'] ?? res['cycleLogs'];
+      if (rawCycles is List) {
+        cycles = rawCycles
             .whereType<Map<String, dynamic>>()
             .map(MenstrualCycleEntry.fromJson)
             .toList();
@@ -784,6 +849,7 @@ class MenstrualCycleController extends ChangeNotifier {
         );
       }
       await _saveToEncryptedLocalStorage();
+      await _scheduleNativeDiscreetReminderIfNeeded();
       lastSyncMessage = 'Private health vault synced';
     } catch (_) {
       lastSyncMessage = 'Protected in local encrypted vault';
@@ -843,6 +909,7 @@ class MenstrualCycleController extends ChangeNotifier {
     cycles.sort((a, b) => b.startDate.compareTo(a.startDate));
     await _saveToEncryptedLocalStorage();
     notifyListeners();
+    await _scheduleNativeDiscreetReminderIfNeeded();
 
     try {
       await _client.post(
@@ -866,6 +933,7 @@ class MenstrualCycleController extends ChangeNotifier {
     cycles.removeWhere((c) => c.id == cycleId);
     await _saveToEncryptedLocalStorage();
     notifyListeners();
+    await _scheduleNativeDiscreetReminderIfNeeded();
     if (!cycleId.startsWith('local_')) {
       try {
         await _client.delete(
@@ -953,10 +1021,57 @@ class MenstrualCycleController extends ChangeNotifier {
     return true;
   }
 
+  static const MethodChannel _wellnessChannel =
+      MethodChannel('sakhi/safety_hardware');
+
+  Future<bool> _scheduleNativeDiscreetReminderIfNeeded() async {
+    try {
+      final p = predictions;
+      if (!preferences.notificationsEnabled ||
+          p.nextPeriodStart == null ||
+          p.nextPeriodStart!.isEmpty) {
+        await _wellnessChannel.invokeMethod('cancelDiscreetWellnessReminder');
+        lastReminderScheduleStatus = 'Reminders disabled or no cycle logged';
+        return true;
+      }
+      final title = preferences.discreetNotifications
+          ? 'Wellness Check-In'
+          : 'Upcoming Period Reminder';
+      final body = p.discreetNotificationPreview;
+      final dynamic rawRes = await _wellnessChannel.invokeMethod(
+        'scheduleDiscreetWellnessReminder',
+        {
+          'title': title,
+          'body': body,
+          'daysBefore': preferences.periodReminderDaysBefore,
+          'nextPeriodStart': p.nextPeriodStart!,
+          'discreet': preferences.discreetNotifications,
+        },
+      );
+      if (rawRes is Map) {
+        final scheduled = rawRes['scheduled'] == true;
+        lastReminderScheduleStatus = scheduled
+            ? 'Scheduled for ${preferences.periodReminderDaysBefore}d before ${p.nextPeriodStart}'
+            : (rawRes['reason']?.toString() ?? 'Not scheduled');
+        return scheduled;
+      }
+      lastReminderScheduleStatus = 'Scheduled';
+      return true;
+    } on PlatformException catch (e) {
+      lastReminderScheduleStatus =
+          'Reminder scheduling failed: ${e.message ?? e.code}';
+      return false;
+    } catch (_) {
+      lastReminderScheduleStatus = 'Reminder scheduling unavailable on platform';
+      return false;
+    }
+  }
+
   Future<void> updatePreferences(MenstrualTrackerPreferences updated) async {
     preferences = updated;
     await _saveToEncryptedLocalStorage();
     notifyListeners();
+    await _scheduleNativeDiscreetReminderIfNeeded();
     try {
       await _client.patch(
         'module2/cycle-tracker/preferences',
@@ -977,6 +1092,7 @@ class MenstrualCycleController extends ChangeNotifier {
       ..writeln('====================================================')
       ..writeln('')
       ..writeln('1. CYCLE SUMMARY & ROLLING AVERAGES')
+      ..writeln('• Prediction Mode: ${p.predictionBasisLabel}')
       ..writeln('• Average Cycle Length: ${p.averageCycleLength} days')
       ..writeln('• Average Period Duration: ${p.averagePeriodDuration} days')
       ..writeln('• Regularity Status: ${p.regularityStatus}')
@@ -1023,19 +1139,31 @@ class MenstrualCycleController extends ChangeNotifier {
   }
 
   Future<bool> deleteAllPersonalTrackingData() async {
+    final token = await _client.readAccessToken().catchError((Object _) => null);
+    if (token != null && token.isNotEmpty) {
+      try {
+        final res = await _client.delete(
+          'module2/cycle-tracker/data',
+          authenticated: true,
+        );
+        if (res['deleted'] != true) {
+          return false;
+        }
+      } catch (_) {
+        return false;
+      }
+    }
+
     cycles.clear();
     dailyLogs.clear();
     preferences = const MenstrualTrackerPreferences();
     try {
       await _secureStorage.delete(key: _storageKey);
     } catch (_) {}
-    notifyListeners();
     try {
-      await _client.delete(
-        'module2/cycle-tracker/data',
-        authenticated: true,
-      );
+      await _wellnessChannel.invokeMethod('cancelDiscreetWellnessReminder');
     } catch (_) {}
+    notifyListeners();
     return true;
   }
 }

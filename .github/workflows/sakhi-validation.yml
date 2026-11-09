@@ -11,6 +11,7 @@ on:
       - gemini-module-2
       - module-proper-continuation
       - feat/admin-eligibility-review-backend
+      - module-8-to-9-implementations-and-upgrades
     paths:
       - "backend/**"
       - "super-admin/**"
@@ -25,6 +26,7 @@ on:
       - gemini-module-2
       - module-proper-continuation
       - feat/admin-eligibility-review-backend
+      - module-8-to-9-implementations-and-upgrades
     paths:
       - "backend/**"
       - "super-admin/**"
@@ -88,7 +90,7 @@ jobs:
         run: npm run build
 
   flutter:
-    name: Flutter analysis, tests and Signed Release APK build
+    name: Flutter analysis, tests and staging-connected debug APK
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -114,11 +116,16 @@ jobs:
         run: flutter analyze
       - name: Run Flutter tests
         run: flutter test
-      - name: Build Signed Production Release APK
-        run: flutter build apk --release
-      - name: Upload Signed Release APK Artifact
+      - name: Build staging-connected debug APK
+        run: >-
+          flutter build apk --debug
+          --dart-define=SAKHI_BACKEND_ENABLED=true
+          --dart-define=SAKHI_STAGING_TEST_MODE=true
+          --dart-define=SAKHI_API_BASE_URL=https://sakhi-staging-api.onrender.com/api/v1
+      - name: Upload staging-connected debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Sakhi_Production_Signed_V3_APK
-          path: app/build/app/outputs/flutter-apk/app-release.apk
-          retention-days: 30
+          name: Sakhi_Staging_Connected_Debug_APK
+          path: app/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7

@@ -45,8 +45,12 @@ async function main() {
     password.includes("[YOUR-PASSWORD]") ||
     url.searchParams.get("schema") !== "public" ||
     url.searchParams.get("sslmode") !== "verify-full" ||
-    !((url.searchParams.get("sslcert") ?? "").replace(/\\/g, "/").endsWith("/prod-ca-2021.crt") ||
-      url.searchParams.get("sslcert") === "prod-ca-2021.crt")
+    !(
+      (url.searchParams.get("sslrootcert") ?? url.searchParams.get("sslcert") ?? "")
+        .replace(/\\/g, "/")
+        .endsWith("/prod-ca-2021.crt") ||
+      (url.searchParams.get("sslrootcert") ?? url.searchParams.get("sslcert")) === "prod-ca-2021.crt"
+    )
   ) {
     throw new Error("Staging connection target rejected; details are redacted.");
   }
@@ -57,6 +61,7 @@ async function main() {
   const clientUrl = new URL(rawUrl);
   clientUrl.searchParams.delete("sslmode");
   clientUrl.searchParams.delete("sslcert");
+  clientUrl.searchParams.delete("sslrootcert");
   const rootCa = fs.readFileSync(SUPABASE_ROOT_CA, "utf8");
   const client = new Client({
     connectionString: clientUrl.toString(),

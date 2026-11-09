@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../../../core/constants/mock_data.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -12,6 +14,7 @@ import '../module2_scope.dart';
 import '../module2_state.dart';
 import '../widgets/module2_feature_widgets.dart';
 import '../../followers/screens/followers_following_screen.dart';
+import '../../notifications/screens/messages_and_notifications_inbox_screens.dart';
 
 /// Read-only public profile detail for another verified Sakhi member.
 /// Private contact data, phone numbers and dates of birth are never shown.
@@ -61,7 +64,11 @@ class _MemberProfileScreenState extends State<MemberProfileScreen> {
     setState(() => _followingAction = false);
     if (!success) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(state.errorMessage ?? 'Follow status could not be updated.')),
+        SnackBar(
+          content: Text(
+            state.errorMessage ?? 'Follow status could not be updated.',
+          ),
+        ),
       );
     }
   }
@@ -69,8 +76,9 @@ class _MemberProfileScreenState extends State<MemberProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final state = _state ?? Module2Scope.of(context).state;
+    final protoState = SakhiPrototypeState.instance;
     return AnimatedBuilder(
-      animation: state,
+      animation: Listenable.merge([state, protoState]),
       builder: (context, _) {
         final profile = state.memberProfileAccountId == widget.accountId
             ? state.memberProfile
@@ -86,10 +94,15 @@ class _MemberProfileScreenState extends State<MemberProfileScreen> {
               message: state.errorMessage ??
                   'This member is unavailable or their profile is not visible to your account.',
               actionLabel: 'Retry',
-              onAction: () => unawaited(state.loadMemberProfile(widget.accountId)),
+              onAction: () =>
+                  unawaited(state.loadMemberProfile(widget.accountId)),
             ),
           );
         }
+
+        final derivedHandle =
+            '@${profile.displayName.toLowerCase().replaceAll(" ", "_")}';
+        final isBlocked = protoState.isUsernameBlocked(derivedHandle);
 
         return Module2PageBody(
           child: Column(
@@ -106,7 +119,11 @@ class _MemberProfileScreenState extends State<MemberProfileScreen> {
                 child: Column(
                   children: [
                     SakhiAvatar(
-                      imageAsset: profile.profilePhotoRef?.startsWith('https://') == true ? profile.profilePhotoRef! : '',
+                      imageAsset:
+                          profile.profilePhotoRef?.startsWith('https://') ==
+                                  true
+                              ? profile.profilePhotoRef!
+                              : '',
                       size: 98,
                       fallbackLabel: profile.displayName,
                     ),
@@ -116,29 +133,151 @@ class _MemberProfileScreenState extends State<MemberProfileScreen> {
                       textAlign: TextAlign.center,
                       style: AppTypography.heroTitle.copyWith(fontSize: 22),
                     ),
+                    const SizedBox(height: 4),
+                    Text(derivedHandle, style: AppTypography.subtitle),
                     const SizedBox(height: 7),
                     const Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.verified_rounded, color: AppColors.verifiedGreenText, size: 16),
+                        Icon(
+                          Icons.verified_rounded,
+                          color: AppColors.verifiedGreenText,
+                          size: 16,
+                        ),
                         SizedBox(width: 5),
-                        Text('Verified Sakhi member', style: AppTypography.subtitle),
+                        Text(
+                          'Verified Sakhi member',
+                          style: AppTypography.subtitle,
+                        ),
                       ],
                     ),
                     const SizedBox(height: 13),
-                    SizedBox(
-                      width: double.infinity,
-                      child: profile.isFollowing
-                          ? OutlinedButton.icon(
-                              onPressed: _followingAction ? null : () => _toggleFollow(state),
-                              icon: const Icon(Icons.person_remove_alt_1_rounded),
-                              label: Text(_followingAction ? 'Updating…' : 'Following · Unfollow'),
-                            )
-                          : FilledButton.icon(
-                              onPressed: _followingAction ? null : () => _toggleFollow(state),
-                              icon: const Icon(Icons.person_add_alt_1_rounded),
-                              label: Text(_followingAction ? 'Updating…' : 'Follow'),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: profile.isFollowing
+                              ? OutlinedButton.icon(
+                                  onPressed: _followingAction
+                                      ? null
+                                      : () => _toggleFollow(state),
+                                  icon: const Icon(
+                                    Icons.person_remove_alt_1_rounded,
+                                  ),
+                                  label: Text(
+                                    _followingAction
+                                        ? 'Updating…'
+                                        : 'Following · Unfollow',
+                                  ),
+                                )
+                              : FilledButton.icon(
+                                  onPressed: _followingAction || isBlocked
+                                      ? null
+                                      : () => _toggleFollow(state),
+                                  icon: const Icon(
+                                    Icons.person_add_alt_1_rounded,
+                                  ),
+                                  label: Text(
+                                    _followingAction ? 'Updating…' : 'Follow',
+                                  ),
+                                ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: isBlocked
+                                ? null
+                                : () {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) =>
+                                            SakhiDirectConversationScreen(
+                                          peerId: profile.accountId,
+                                          peerName: profile.displayName,
+                                          peerUsername: derivedHandle,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                            icon: const Icon(
+                              Icons.chat_bubble_outline_rounded,
+                              size: 16,
                             ),
+                            label: const Text('Message'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        TextButton.icon(
+                          onPressed: () {
+                            Clipboard.setData(
+                              ClipboardData(
+                                text:
+                                    'https://sakhi.app/u/${derivedHandle.replaceFirst("@", "")}',
+                              ),
+                            );
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Copied profile link for $derivedHandle',
+                                ),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.share_outlined, size: 15),
+                          label: const Text('Share'),
+                        ),
+                        TextButton.icon(
+                          onPressed: () async {
+                            await protoState.reportUserOrPost(
+                              targetHandle: derivedHandle,
+                              targetType: 'MEMBER',
+                              reason: 'Reported member profile',
+                              authorDisplayName: profile.displayName,
+                            );
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Submitted confidential report for $derivedHandle.',
+                                ),
+                              ),
+                            );
+                          },
+                          icon: const Icon(
+                            Icons.flag_outlined,
+                            size: 15,
+                            color: AppColors.sosRed,
+                          ),
+                          label: const Text(
+                            'Report',
+                            style: TextStyle(color: AppColors.sosRed),
+                          ),
+                        ),
+                        TextButton.icon(
+                          onPressed: () async {
+                            await protoState.toggleBlockedUser(
+                              username: derivedHandle,
+                              displayName: profile.displayName,
+                              accountId: profile.accountId,
+                            );
+                          },
+                          icon: Icon(
+                            isBlocked
+                                ? Icons.lock_open_rounded
+                                : Icons.block_rounded,
+                            size: 15,
+                            color: AppColors.sosRed,
+                          ),
+                          label: Text(
+                            isBlocked ? 'Unblock' : 'Block',
+                            style: const TextStyle(color: AppColors.sosRed),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -156,7 +295,7 @@ class _MemberProfileScreenState extends State<MemberProfileScreen> {
                           initialFollowing: false,
                           targetMemberId: profile.accountId,
                           targetMemberName: profile.displayName,
-                          targetMemberUsername: '@${profile.displayName.toLowerCase().replaceAll(" ", "_")}',
+                          targetMemberUsername: derivedHandle,
                           initialFollowersCount: profile.followersCount,
                           initialFollowingCount: profile.followingCount,
                         ),
@@ -172,7 +311,7 @@ class _MemberProfileScreenState extends State<MemberProfileScreen> {
                           initialFollowing: true,
                           targetMemberId: profile.accountId,
                           targetMemberName: profile.displayName,
-                          targetMemberUsername: '@${profile.displayName.toLowerCase().replaceAll(" ", "_")}',
+                          targetMemberUsername: derivedHandle,
                           initialFollowersCount: profile.followersCount,
                           initialFollowingCount: profile.followingCount,
                         ),
@@ -185,16 +324,25 @@ class _MemberProfileScreenState extends State<MemberProfileScreen> {
               const SakhiSectionHeader(title: 'About'),
               const SizedBox(height: 7),
               Text(
-                (profile.bio ?? '').trim().isEmpty
-                    ? 'This member has not added a bio.'
-                    : profile.bio!,
-                style: AppTypography.bodyRegular.copyWith(color: AppColors.textPrimary),
+                isBlocked
+                    ? 'You have blocked this member.'
+                    : (profile.bio ?? '').trim().isEmpty
+                        ? 'This member has not added a bio.'
+                        : profile.bio!,
+                style: AppTypography.bodyRegular.copyWith(
+                  color: AppColors.textPrimary,
+                ),
               ),
-              if ((profile.locationCity ?? '').trim().isNotEmpty) ...[
+              if (!isBlocked &&
+                  (profile.locationCity ?? '').trim().isNotEmpty) ...[
                 const SizedBox(height: 9),
                 Row(
                   children: [
-                    const Icon(Icons.location_on_outlined, color: AppColors.primaryPurple, size: 17),
+                    const Icon(
+                      Icons.location_on_outlined,
+                      color: AppColors.primaryPurple,
+                      size: 17,
+                    ),
                     const SizedBox(width: 4),
                     Text(profile.locationCity!, style: AppTypography.subtitle),
                   ],
@@ -203,13 +351,18 @@ class _MemberProfileScreenState extends State<MemberProfileScreen> {
               const SizedBox(height: 15),
               const SakhiSectionHeader(title: 'Interests'),
               const SizedBox(height: 7),
-              if (profile.interests.isEmpty)
-                const Text('No interests have been added yet.', style: AppTypography.subtitle)
+              if (isBlocked || profile.interests.isEmpty)
+                const Text(
+                  'No interests have been added yet.',
+                  style: AppTypography.subtitle,
+                )
               else
                 Wrap(
                   spacing: 7,
                   runSpacing: 7,
-                  children: profile.interests.map((interest) => SakhiChip(label: interest)).toList(),
+                  children: profile.interests
+                      .map((interest) => SakhiChip(label: interest))
+                      .toList(),
                 ),
               const SizedBox(height: 14),
               const Text(
@@ -218,7 +371,10 @@ class _MemberProfileScreenState extends State<MemberProfileScreen> {
               ),
               if (state.errorMessage != null) ...[
                 const SizedBox(height: 10),
-                Text(state.errorMessage!, style: const TextStyle(color: AppColors.sosRed, fontSize: 12)),
+                Text(
+                  state.errorMessage!,
+                  style: const TextStyle(color: AppColors.sosRed, fontSize: 12),
+                ),
               ],
             ],
           ),
@@ -244,7 +400,10 @@ class _ProfileCount extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 4),
         child: Column(
           children: [
-            Text(value.toString(), style: AppTypography.cardTitle.copyWith(fontSize: 18)),
+            Text(
+              value.toString(),
+              style: AppTypography.cardTitle.copyWith(fontSize: 18),
+            ),
             const SizedBox(height: 3),
             Text(label, style: AppTypography.subtitle),
           ],
