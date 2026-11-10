@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import { json, urlencoded } from "express";
+import type { NextFunction, Request, Response } from "express";
 import helmet from "helmet";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
@@ -7,6 +8,7 @@ import { Logger } from "nestjs-pino";
 import { AppModule } from "./app.module.js";
 import { createGlobalValidationPipe } from "./common/validation/create-validation-pipe.js";
 import { ApiExceptionFilter } from "./common/filters/api-exception.filter.js";
+import { AnonymousEvidenceUploadRateLimitMiddleware } from "./common/middleware/anonymous-evidence-upload-rate-limit.middleware.js";
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, {
@@ -15,6 +17,9 @@ async function bootstrap(): Promise<void> {
   });
 
   app.useLogger(app.get(Logger));
+  // Render terminates TLS at one trusted proxy; use the client address supplied
+  // by that proxy for the narrowly scoped anonymous upload limiter.
+  app.getHttpAdapter().getInstance().set("trust proxy", 1);
   // Swagger is enabled only for the local development/test foundation; production
   // startup is rejected by environment validation.
   app.use(helmet({ contentSecurityPolicy: false }));
@@ -63,6 +68,19 @@ async function bootstrap(): Promise<void> {
     credentials: false,
     maxAge: 600,
   });
+  const evidenceUploadLimiter = new AnonymousEvidenceUploadRateLimitMiddleware();
+  app.use((request: Request, response: Response, next: NextFunction) => {
+    const path = request.path.endsWith("/") ? request.path.slice(0, -1) : request.path;
+    if (
+      request.method === "POST" &&
+      ["/api/v1/complaints/evidence-upload", "/api/v1/module2/complaints/evidence-upload"].includes(path)
+    ) {
+      evidenceUploadLimiter.use(request, response, next);
+      return;
+    }
+    next();
+  });
+
   app.use(
     json({
       limit: "64kb",
