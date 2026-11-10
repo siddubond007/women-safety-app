@@ -7069,6 +7069,7 @@ export class Module2Service {
     } = {},
   ) {
     const session = await this.auth.authenticateAuthorization(authorization);
+    const identity = await this.auth.authenticateMemberIdentity(authorization);
     const anyPrisma = this.prisma as Record<string, any>;
     if (typeof anyPrisma.memberNotification?.findMany !== "function") {
       throw new ServiceUnavailableException(
@@ -7092,8 +7093,10 @@ export class Module2Service {
               .catch(() => null)
           : Promise.resolve(null),
         typeof anyPrisma.menstrualTrackerPreference?.findUnique === "function"
-          ? anyPrisma.menstrualTrackerPreference
-              .findUnique({ where: { accountId: session.accountId } })
+          ? this.prisma
+              .withMemberIdentity(identity, async (tx) =>
+                tx.menstrualTrackerPreference.findUnique({ where: { accountId: session.accountId } }),
+              )
               .catch(() => null)
           : Promise.resolve(null),
         typeof anyPrisma.directMessage?.findMany === "function"
@@ -11560,8 +11563,8 @@ export class Module2Service {
     };
   }
 
-  private async recalculateUserCycleHistory(accountId: string): Promise<void> {
-    const anyPrisma = this.prisma as Record<string, any>;
+  private async recalculateUserCycleHistory(accountId: string, tx: unknown): Promise<void> {
+    const anyPrisma = tx as Record<string, any>;
     if (typeof anyPrisma.menstrualCycleLog?.findMany !== "function") return;
     try {
       const logs = (await anyPrisma.menstrualCycleLog.findMany({
@@ -11615,39 +11618,49 @@ export class Module2Service {
   }
 
   async getMenstrualCycleTracker(authorization: string | undefined) {
-    const session = await this.auth.authenticateAuthorization(authorization);
-    const anyPrisma = this.prisma as Record<string, any>;
+    const identity = await this.auth.authenticateMemberIdentity(authorization);
 
     let rawCycles: Array<Record<string, any>> = [];
     let rawDailyLogs: Array<Record<string, any>> = [];
     let rawPref: Record<string, any> | null = null;
 
-    if (typeof anyPrisma.menstrualCycleLog?.findMany === "function") {
-      const [cRows, dRows, pRow] = await Promise.all([
-        anyPrisma.menstrualCycleLog
+    const scopedRows = await this.prisma.withMemberIdentity(identity, async (tx) => {
+      const scopedPrisma = tx as unknown as Record<string, any>;
+      if (typeof scopedPrisma.menstrualCycleLog?.findMany !== "function") {
+        return {
+          cycles: [] as Array<Record<string, any>>,
+          dailyLogs: [] as Array<Record<string, any>>,
+          preferences: null as Record<string, any> | null,
+        };
+      }
+
+      const [cycles, dailyLogs, preferences] = await Promise.all([
+        scopedPrisma.menstrualCycleLog
           .findMany({
-            where: { accountId: session.accountId },
+            where: { accountId: identity.accountId },
             orderBy: { startDate: "desc" },
             take: 36,
           })
           .catch(() => []),
-        anyPrisma.menstrualDailyLog
+        scopedPrisma.menstrualDailyLog
           ?.findMany({
-            where: { accountId: session.accountId },
+            where: { accountId: identity.accountId },
             orderBy: { logDate: "desc" },
             take: 90,
           })
           .catch(() => []) ?? Promise.resolve([]),
-        anyPrisma.menstrualTrackerPreference
+        scopedPrisma.menstrualTrackerPreference
           ?.findUnique({
-            where: { accountId: session.accountId },
+            where: { accountId: identity.accountId },
           })
           .catch(() => null) ?? Promise.resolve(null),
       ]);
-      rawCycles = cRows as Array<Record<string, any>>;
-      rawDailyLogs = dRows as Array<Record<string, any>>;
-      rawPref = pRow as Record<string, any> | null;
-    }
+      return { cycles, dailyLogs, preferences };
+    });
+
+    rawCycles = scopedRows.cycles as Array<Record<string, any>>;
+    rawDailyLogs = scopedRows.dailyLogs as Array<Record<string, any>>;
+    rawPref = scopedRows.preferences as Record<string, any> | null;
 
     const preferences = {
       defaultCycleLength: Number(rawPref?.defaultCycleLength ?? 28),
@@ -11776,7 +11789,7 @@ export class Module2Service {
     return {
       source: "postgresql_live" as const,
       privacyIsolation: {
-        ownerAccountId: session.accountId,
+        ownerAccountId: identity.accountId,
         hiddenFromPublicProfile: true,
         hiddenFromSocialWall: true,
         adminAccessBlocked: true,
@@ -11799,7 +11812,7 @@ export class Module2Service {
     dto: Record<string, unknown>,
     cycleId?: string,
   ) {
-    const session = await this.auth.authenticateAuthorization(authorization);
+    const identity = await this.auth.authenticateMemberIdentity(authorization);
     const startDate = this.parseDateOnlyUtc(dto.startDate);
     const endDate =
       typeof dto.endDate === "string" && dto.endDate.trim().length > 0
@@ -11860,46 +11873,33 @@ export class Module2Service {
       );
     }
 
-    if (cycleId && cycleId.trim().length > 0) {
-      const existing = await anyPrisma.menstrualCycleLog.findFirst({
-        where: { id: cycleId.trim(), accountId: session.accountId },
-      });
-      if (!existing) {
-        throw new NotFoundException("Cycle record was not found in your account.");
+    await this.prisma.withMemberIdentity(identity, async (tx) => {
+      const scoped = tx as unknown as Record<string, any>;
+      if (cycleId && cycleId.trim().length > 0) {
+        const existing = await scoped.menstrualCycleLog.findFirst({
+          where: { id: cycleId.trim(), accountId: identity.accountId },
+        });
+        if (!existing) {
+          throw new NotFoundException("Cycle record was not found in your account.");
+        }
+        await scoped.menstrualCycleLog.update({
+          where: { id: existing.id },
+          data: {
+            startDate, endDate, periodDurationDays, flowIntensity,
+            crampsSeverity, symptoms, mood, energyLevel, notesEncrypted,
+          },
+        });
+      } else {
+        await scoped.menstrualCycleLog.create({
+          data: {
+            id: randomUUID(), accountId: identity.accountId, startDate, endDate,
+            periodDurationDays, flowIntensity, crampsSeverity, symptoms, mood,
+            energyLevel, notesEncrypted,
+          },
+        });
       }
-      await anyPrisma.menstrualCycleLog.update({
-        where: { id: existing.id },
-        data: {
-          startDate,
-          endDate,
-          periodDurationDays,
-          flowIntensity,
-          crampsSeverity,
-          symptoms,
-          mood,
-          energyLevel,
-          notesEncrypted,
-        },
-      });
-    } else {
-      await anyPrisma.menstrualCycleLog.create({
-        data: {
-          id: randomUUID(),
-          accountId: session.accountId,
-          startDate,
-          endDate,
-          periodDurationDays,
-          flowIntensity,
-          crampsSeverity,
-          symptoms,
-          mood,
-          energyLevel,
-          notesEncrypted,
-        },
-      });
-    }
-
-    await this.recalculateUserCycleHistory(session.accountId);
+      await this.recalculateUserCycleHistory(identity.accountId, tx);
+    });
     return this.getMenstrualCycleTracker(authorization);
   }
 
@@ -11907,14 +11907,16 @@ export class Module2Service {
     authorization: string | undefined,
     cycleId: string,
   ) {
-    const session = await this.auth.authenticateAuthorization(authorization);
-    const anyPrisma = this.prisma as Record<string, any>;
-    if (typeof anyPrisma.menstrualCycleLog?.deleteMany === "function") {
-      await anyPrisma.menstrualCycleLog.deleteMany({
-        where: { id: cycleId.trim(), accountId: session.accountId },
-      });
-      await this.recalculateUserCycleHistory(session.accountId);
-    }
+    const identity = await this.auth.authenticateMemberIdentity(authorization);
+    await this.prisma.withMemberIdentity(identity, async (tx) => {
+      const scoped = tx as unknown as Record<string, any>;
+      if (typeof scoped.menstrualCycleLog?.deleteMany === "function") {
+        await scoped.menstrualCycleLog.deleteMany({
+          where: { id: cycleId.trim(), accountId: identity.accountId },
+        });
+        await this.recalculateUserCycleHistory(identity.accountId, tx);
+      }
+    });
     return this.getMenstrualCycleTracker(authorization);
   }
 
@@ -11922,7 +11924,7 @@ export class Module2Service {
     authorization: string | undefined,
     dto: Record<string, unknown>,
   ) {
-    const session = await this.auth.authenticateAuthorization(authorization);
+    const identity = await this.auth.authenticateMemberIdentity(authorization);
     const logDate = this.parseDateOnlyUtc(
       dto.logDate ?? new Date().toISOString().slice(0, 10),
     );
@@ -11971,18 +11973,19 @@ export class Module2Service {
         ? notesText.trim().slice(0, 1000)
         : null;
 
-    const anyPrisma = this.prisma as Record<string, any>;
-    if (typeof anyPrisma.menstrualDailyLog?.upsert === "function") {
-      await anyPrisma.menstrualDailyLog.upsert({
+    await this.prisma.withMemberIdentity(identity, async (tx) => {
+      const scoped = tx as unknown as Record<string, any>;
+      if (typeof scoped.menstrualDailyLog?.upsert === "function") {
+      await scoped.menstrualDailyLog.upsert({
         where: {
           accountId_logDate: {
-            accountId: session.accountId,
+            accountId: identity.accountId,
             logDate,
           },
         },
         create: {
           id: randomUUID(),
-          accountId: session.accountId,
+          accountId: identity.accountId,
           logDate,
           flowIntensity,
           crampsSeverity,
@@ -12004,7 +12007,8 @@ export class Module2Service {
           notesEncrypted,
         },
       });
-    }
+      }
+    });
 
     return this.getMenstrualCycleTracker(authorization);
   }
@@ -12013,13 +12017,15 @@ export class Module2Service {
     authorization: string | undefined,
     logId: string,
   ) {
-    const session = await this.auth.authenticateAuthorization(authorization);
-    const anyPrisma = this.prisma as Record<string, any>;
-    if (typeof anyPrisma.menstrualDailyLog?.deleteMany === "function") {
-      await anyPrisma.menstrualDailyLog.deleteMany({
-        where: { id: logId.trim(), accountId: session.accountId },
-      });
-    }
+    const identity = await this.auth.authenticateMemberIdentity(authorization);
+    await this.prisma.withMemberIdentity(identity, async (tx) => {
+      const scoped = tx as unknown as Record<string, any>;
+      if (typeof scoped.menstrualDailyLog?.deleteMany === "function") {
+        await scoped.menstrualDailyLog.deleteMany({
+          where: { id: logId.trim(), accountId: identity.accountId },
+        });
+      }
+    });
     return this.getMenstrualCycleTracker(authorization);
   }
 
@@ -12027,8 +12033,7 @@ export class Module2Service {
     authorization: string | undefined,
     dto: Record<string, unknown>,
   ) {
-    const session = await this.auth.authenticateAuthorization(authorization);
-    const anyPrisma = this.prisma as Record<string, any>;
+    const identity = await this.auth.authenticateMemberIdentity(authorization);
 
     const rawCycleLen = dto.defaultCycleLength ?? dto.averageCycleLength;
     const defaultCycleLength =
@@ -12053,9 +12058,11 @@ export class Module2Service {
         ? dto.useCustomCycleLength
         : undefined;
 
-    if (typeof anyPrisma.menstrualTrackerPreference?.upsert === "function") {
+    await this.prisma.withMemberIdentity(identity, async (tx) => {
+      const scoped = tx as unknown as Record<string, any>;
+      if (typeof scoped.menstrualTrackerPreference?.upsert === "function") {
       const baseCreate: Record<string, any> = {
-        accountId: session.accountId,
+        accountId: identity.accountId,
         defaultCycleLength: defaultCycleLength ?? 28,
         defaultPeriodDuration: defaultPeriodDuration ?? 5,
         discreetNotifications:
@@ -12126,8 +12133,8 @@ export class Module2Service {
       };
 
       try {
-        await anyPrisma.menstrualTrackerPreference.upsert({
-          where: { accountId: session.accountId },
+        await scoped.menstrualTrackerPreference.upsert({
+          where: { accountId: identity.accountId },
           create: {
             ...baseCreate,
             useCustomCycleLength: useCustomCycleLength ?? false,
@@ -12140,13 +12147,14 @@ export class Module2Service {
           },
         });
       } catch {
-        await anyPrisma.menstrualTrackerPreference.upsert({
-          where: { accountId: session.accountId },
+        await scoped.menstrualTrackerPreference.upsert({
+          where: { accountId: identity.accountId },
           create: baseCreate,
           update: baseUpdate,
         });
       }
-    }
+      }
+    });
 
     return this.getMenstrualCycleTracker(authorization);
   }
@@ -12208,12 +12216,11 @@ export class Module2Service {
   }
 
   async deleteAllMenstrualTrackerData(authorization: string | undefined) {
-    const session = await this.auth.authenticateAuthorization(authorization);
-    const anyPrisma = this.prisma as Record<string, any>;
+    const identity = await this.auth.authenticateMemberIdentity(authorization);
     if (
-      typeof anyPrisma.menstrualCycleLog?.deleteMany !== "function" ||
-      typeof anyPrisma.menstrualDailyLog?.deleteMany !== "function" ||
-      typeof anyPrisma.menstrualTrackerPreference?.deleteMany !== "function"
+      typeof (this.prisma as any).menstrualCycleLog?.deleteMany !== "function" ||
+      typeof (this.prisma as any).menstrualDailyLog?.deleteMany !== "function" ||
+      typeof (this.prisma as any).menstrualTrackerPreference?.deleteMany !== "function"
     ) {
       throw new ServiceUnavailableException(
         "Menstrual tracker database tables are not initialized.",
@@ -12224,37 +12231,23 @@ export class Module2Service {
     let deletedDailyLogs = 0;
     let deletedPreferences = 0;
 
-    if (typeof anyPrisma.$transaction === "function") {
-      const [cRes, dRes, pRes] = await anyPrisma.$transaction([
-        anyPrisma.menstrualCycleLog.deleteMany({
-          where: { accountId: session.accountId },
-        }),
-        anyPrisma.menstrualDailyLog.deleteMany({
-          where: { accountId: session.accountId },
-        }),
-        anyPrisma.menstrualTrackerPreference.deleteMany({
-          where: { accountId: session.accountId },
-        }),
-      ]);
-      deletedCycles = Number(cRes?.count ?? 0);
-      deletedDailyLogs = Number(dRes?.count ?? 0);
-      deletedPreferences = Number(pRes?.count ?? 0);
-    } else {
+    await this.prisma.withMemberIdentity(identity, async (tx) => {
+      const scoped = tx as unknown as Record<string, any>;
       const [cRes, dRes, pRes] = await Promise.all([
-        anyPrisma.menstrualCycleLog.deleteMany({
-          where: { accountId: session.accountId },
+        scoped.menstrualCycleLog.deleteMany({
+          where: { accountId: identity.accountId },
         }),
-        anyPrisma.menstrualDailyLog.deleteMany({
-          where: { accountId: session.accountId },
+        scoped.menstrualDailyLog.deleteMany({
+          where: { accountId: identity.accountId },
         }),
-        anyPrisma.menstrualTrackerPreference.deleteMany({
-          where: { accountId: session.accountId },
+        scoped.menstrualTrackerPreference.deleteMany({
+          where: { accountId: identity.accountId },
         }),
       ]);
       deletedCycles = Number(cRes?.count ?? 0);
       deletedDailyLogs = Number(dRes?.count ?? 0);
       deletedPreferences = Number(pRes?.count ?? 0);
-    }
+    });
 
     return {
       deleted: true,

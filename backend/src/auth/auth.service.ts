@@ -16,6 +16,10 @@ import {
 } from "node:crypto";
 import type { Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../database/prisma.service.js";
+import {
+  createAuthenticatedMemberIdentity,
+  type AuthenticatedMemberIdentity,
+} from "./member-identity.js";
 import type {
   CreateProfileDto,
   RequestOtpDto,
@@ -1012,6 +1016,17 @@ export class AuthenticationService {
       session.accountId,
     );
     return { ...session, testAccessApproved };
+  }
+
+  /** Resolve the database identity exclusively from a validated persisted session. */
+  async authenticateMemberIdentity(
+    authorization?: string,
+  ): Promise<AuthenticatedMemberIdentity> {
+    const session = await this.authenticateAuthorization(authorization);
+    return createAuthenticatedMemberIdentity({
+      accountId: session.accountId,
+      sessionId: session.id,
+    });
   }
 
   async createProfile(
