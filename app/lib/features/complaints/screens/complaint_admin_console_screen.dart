@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -32,7 +33,7 @@ class _ComplaintAdminConsoleScreenState
   int _activeWorkspaceTab =
       0; // 0: Queue & Case Detail, 1: Audit Trail, 2: Categories & DPDP Retention
 
-  final Map<String, String> _unblurredEvidenceWatermarks = <String, String>{};
+  final Map<String, Map<String, dynamic>> _unblurredEvidenceWatermarks = <String, Map<String, dynamic>>{};
   String? _consoleNotice;
   String? _consoleError;
 
@@ -984,7 +985,7 @@ class _ComplaintAdminConsoleScreenState
                                           return;
                                         }
                                         try {
-                                          final stamp = await _controller
+                                          final evidenceResult = await _controller
                                               .adminAccessEvidenceOnServer(
                                                 referenceNumber:
                                                     selected.referenceNumber,
@@ -997,7 +998,7 @@ class _ComplaintAdminConsoleScreenState
                                           setState(() {
                                             _unblurredEvidenceWatermarks[ev
                                                     .id] =
-                                                stamp;
+                                                evidenceResult;
                                           });
                                         } on BackendApiException catch (err) {
                                           if (!mounted) return;
@@ -1030,10 +1031,17 @@ class _ComplaintAdminConsoleScreenState
                                 SizedBox(
                                   height: 90,
                                   width: double.infinity,
-                                  child: Image.asset(
-                                    AppAssets.m5EvidenceVaultExif,
-                                    fit: BoxFit.cover,
-                                  ),
+                                  child: isUnblurred &&
+                                          (wm?['contentType'] as String? ?? '').startsWith('image/')
+                                      ? Image.memory(
+                                          base64Decode(wm!['evidenceBase64'] as String),
+                                          fit: BoxFit.contain,
+                                          errorBuilder: (_, __, ___) => const Center(child: Text('Evidence preview unavailable.')),
+                                        )
+                                      : Image.asset(
+                                          AppAssets.m5EvidenceVaultExif,
+                                          fit: BoxFit.cover,
+                                        ),
                                 ),
                                 if (!isUnblurred)
                                   Positioned.fill(
@@ -1063,7 +1071,7 @@ class _ComplaintAdminConsoleScreenState
                                     padding: const EdgeInsets.all(6),
                                     color: Colors.black54,
                                     child: Text(
-                                      wm,
+                                      (wm?['watermarkOverlayText'] as String? ?? 'WATERMARKED').trim(),
                                       style: const TextStyle(
                                         color: Colors.white,
                                         fontSize: 10,

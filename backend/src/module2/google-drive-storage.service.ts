@@ -42,7 +42,7 @@ export class GoogleDriveStorageService {
       provider: "google_drive",
       configured: Boolean(
         process.env.SAKHI_GOOGLE_DRIVE_CLIENT_ID?.trim() &&
-          process.env.SAKHI_GOOGLE_DRIVE_CLIENT_SECRET?.trim(),
+        process.env.SAKHI_GOOGLE_DRIVE_CLIENT_SECRET?.trim(),
       ),
       connected: Boolean(process.env.SAKHI_GOOGLE_DRIVE_REFRESH_TOKEN?.trim()),
       scope: DRIVE_SCOPE,
@@ -75,13 +75,20 @@ export class GoogleDriveStorageService {
         rootFolderId: null,
         verifiedAt: new Date().toISOString(),
         errorMessage:
-          error instanceof Error ? error.message : "Google Drive verification failed.",
+          error instanceof Error
+            ? error.message
+            : "Google Drive verification failed.",
       };
     }
   }
 
   buildMediaHierarchySegments(options: {
-    purpose: "avatar" | "post" | "PROFILE_PHOTO" | "COMMUNITY_POST_IMAGE" | "COMMUNITY_POST_VIDEO";
+    purpose:
+      | "avatar"
+      | "post"
+      | "PROFILE_PHOTO"
+      | "COMMUNITY_POST_IMAGE"
+      | "COMMUNITY_POST_VIDEO";
     accountId: string;
     categorySlug?: string | null;
     postId?: string | null;
@@ -95,8 +102,14 @@ export class GoogleDriveStorageService {
         displayPath: [rootName, ...segments].join("/"),
       };
     }
-    const safeCategory = this.sanitizeSegment(options.categorySlug || "community", "community");
-    const safePostSegment = this.sanitizeSegment(options.postId || "staging", "staging");
+    const safeCategory = this.sanitizeSegment(
+      options.categorySlug || "community",
+      "community",
+    );
+    const safePostSegment = this.sanitizeSegment(
+      options.postId || "staging",
+      "staging",
+    );
     const segments = ["feeds", safeCategory, safeUserId, safePostSegment];
     return {
       segments,
@@ -149,7 +162,9 @@ export class GoogleDriveStorageService {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: form,
     });
-    const token = (await response.json().catch(() => ({}))) as GoogleTokenResponse;
+    const token = (await response
+      .json()
+      .catch(() => ({}))) as GoogleTokenResponse;
     if (!response.ok || !token.refresh_token) {
       throw new ServiceUnavailableException(
         "Google did not return an offline refresh token. Reconnect and approve the requested Drive access.",
@@ -212,7 +227,9 @@ export class GoogleDriveStorageService {
     size: number;
   }> {
     if (input.buffer.length === 0) {
-      throw new ServiceUnavailableException("The selected media file is empty.");
+      throw new ServiceUnavailableException(
+        "The selected media file is empty.",
+      );
     }
     const accessToken = await this.getAccessToken();
     const hierarchy = this.buildMediaHierarchySegments({
@@ -221,7 +238,10 @@ export class GoogleDriveStorageService {
       categorySlug: input.categorySlug,
       postId: input.postId,
     });
-    const parentId = await this.ensureFolderHierarchy(accessToken, hierarchy.segments);
+    const parentId = await this.ensureFolderHierarchy(
+      accessToken,
+      hierarchy.segments,
+    );
     const safeFileName = this.safeFileName(input.fileName);
     const storedName = `${input.purpose}_${input.accountId.slice(0, 8)}_${input.uploadId}_${safeFileName}`;
     const metadata = {
@@ -270,6 +290,148 @@ export class GoogleDriveStorageService {
     };
   }
 
+  /** Stores complaint evidence in a segregated, non-public hierarchy. */
+  async uploadComplaintEvidence(input: {
+    evidenceId: string;
+    fileName: string;
+    contentType: string;
+    buffer: Buffer;
+  }): Promise<{ driveFileId: string; driveFolderId: string; size: number }> {
+    if (
+      !/^[A-Za-z0-9_-]{12,100}$/.test(input.evidenceId) ||
+      input.buffer.length === 0
+    ) {
+      throw new ServiceUnavailableException(
+        "Complaint evidence upload metadata is invalid.",
+      );
+    }
+    const accessToken = await this.getAccessToken();
+    const parentId = await this.ensureFolderHierarchy(accessToken, [
+      "complaint-evidence",
+      input.evidenceId,
+    ]);
+    const storedName = `evidence_${input.evidenceId}`;
+    const metadata = {
+      name: storedName,
+      mimeType: input.contentType,
+      parents: [parentId],
+      appProperties: {
+        sakhiEvidenceId: input.evidenceId,
+        sakhiClassification: "CONFIDENTIAL_COMPLAINT_EVIDENCE",
+      },
+    };
+    const boundary = `sakhi_evidence_${randomBytes(18).toString("hex")}`;
+    const body = Buffer.concat([
+      Buffer.from(
+        `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: ${input.contentType}\r\n\r\n`,
+        "utf8",
+      ),
+      input.buffer,
+      Buffer.from(`\r\n--${boundary}--`, "utf8"),
+    ]);
+    const response = await fetch(
+      `${DRIVE_UPLOAD_API}?uploadType=multipart&fields=id,size`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": `multipart/related; boundary=${boundary}`,
+        },
+        body,
+      },
+    );
+    const file = (await response.json().catch(() => ({}))) as GoogleDriveFile;
+    if (!response.ok || !file.id)
+      throw new ServiceUnavailableException(
+        "Google Drive could not persist complaint evidence.",
+      );
+    return {
+      driveFileId: file.id,
+      driveFolderId: parentId,
+      size: Number(file.size ?? input.buffer.length),
+    };
+  }
+
+  async verifyComplaintEvidenceFile(
+    driveFileId: string,
+    evidenceId: string,
+  ): Promise<boolean> {
+    if (
+      !/^[A-Za-z0-9_-]{10,200}$/.test(driveFileId) ||
+      !/^[A-Za-z0-9_-]{12,100}$/.test(evidenceId)
+    )
+      return false;
+    const accessToken = await this.getAccessToken();
+    const response = await fetch(
+      `${DRIVE_API}/files/${encodeURIComponent(driveFileId)}?fields=id,trashed,appProperties`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    if (!response.ok) return false;
+    const file = (await response.json()) as {
+      id?: string;
+      trashed?: boolean;
+      appProperties?: Record<string, string>;
+    };
+    return (
+      file.id === driveFileId &&
+      file.trashed !== true &&
+      file.appProperties?.sakhiEvidenceId === evidenceId &&
+      file.appProperties?.sakhiClassification ===
+        "CONFIDENTIAL_COMPLAINT_EVIDENCE"
+    );
+  }
+
+  async deleteComplaintEvidence(
+    driveFileId: string,
+    evidenceId: string,
+  ): Promise<void> {
+    if (
+      !/^[A-Za-z0-9_-]{10,200}$/.test(driveFileId) ||
+      !/^[A-Za-z0-9_-]{12,100}$/.test(evidenceId)
+    ) {
+      throw new ServiceUnavailableException(
+        "Complaint evidence storage reference is invalid for deletion.",
+      );
+    }
+    const accessToken = await this.getAccessToken();
+    const metadataResponse = await fetch(
+      `${DRIVE_API}/files/${encodeURIComponent(driveFileId)}?fields=id,trashed,appProperties`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    // A prior successful delete may have completed before PostgreSQL metadata
+    // was committed. Treat a missing Drive object as an idempotent success.
+    if (metadataResponse.status === 404) return;
+    if (!metadataResponse.ok) {
+      throw new ServiceUnavailableException(
+        "Complaint evidence storage reference could not be verified for deletion.",
+      );
+    }
+    const file = (await metadataResponse.json()) as {
+      id?: string;
+      trashed?: boolean;
+      appProperties?: Record<string, string>;
+    };
+    if (
+      file.id !== driveFileId ||
+      file.trashed === true ||
+      file.appProperties?.sakhiEvidenceId !== evidenceId ||
+      file.appProperties?.sakhiClassification !==
+        "CONFIDENTIAL_COMPLAINT_EVIDENCE"
+    ) {
+      throw new ServiceUnavailableException(
+        "Complaint evidence storage reference could not be verified for deletion.",
+      );
+    }
+    const response = await fetch(
+      `${DRIVE_API}/files/${encodeURIComponent(driveFileId)}`,
+      { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    if (!response.ok && response.status !== 404)
+      throw new ServiceUnavailableException(
+        "Google Drive could not purge complaint evidence.",
+      );
+  }
+
   async moveFileToPostFolder(options: {
     driveFileId: string;
     accountId: string;
@@ -284,11 +446,17 @@ export class GoogleDriveStorageService {
     });
     const status = this.status();
     if (!status.configured || !status.connected) {
-      return { driveFolderId: "local-folder", driveFolderPath: hierarchy.displayPath };
+      return {
+        driveFolderId: "local-folder",
+        driveFolderPath: hierarchy.displayPath,
+      };
     }
     try {
       const accessToken = await this.getAccessToken();
-      const targetFolderId = await this.ensureFolderHierarchy(accessToken, hierarchy.segments);
+      const targetFolderId = await this.ensureFolderHierarchy(
+        accessToken,
+        hierarchy.segments,
+      );
       const getRes = await fetch(
         `${DRIVE_API}/files/${encodeURIComponent(options.driveFileId)}?fields=id,parents`,
         { headers: { Authorization: `Bearer ${accessToken}` } },
@@ -296,9 +464,12 @@ export class GoogleDriveStorageService {
       if (getRes.ok) {
         const meta = (await getRes.json().catch(() => ({}))) as GoogleDriveFile;
         const removeParents = (meta.parents ?? []).join(",");
-        const patchUrl = new URL(`${DRIVE_API}/files/${encodeURIComponent(options.driveFileId)}`);
+        const patchUrl = new URL(
+          `${DRIVE_API}/files/${encodeURIComponent(options.driveFileId)}`,
+        );
         patchUrl.searchParams.set("addParents", targetFolderId);
-        if (removeParents) patchUrl.searchParams.set("removeParents", removeParents);
+        if (removeParents)
+          patchUrl.searchParams.set("removeParents", removeParents);
         await fetch(patchUrl, {
           method: "PATCH",
           headers: {
@@ -325,9 +496,13 @@ export class GoogleDriveStorageService {
     }
   }
 
-  async downloadFile(driveFileId: string): Promise<{ buffer: Buffer; contentType: string }> {
+  async downloadFile(
+    driveFileId: string,
+  ): Promise<{ buffer: Buffer; contentType: string }> {
     if (!/^[A-Za-z0-9_-]{10,200}$/.test(driveFileId)) {
-      throw new ServiceUnavailableException("The stored Google Drive file reference is invalid.");
+      throw new ServiceUnavailableException(
+        "The stored Google Drive file reference is invalid.",
+      );
     }
     const accessToken = await this.getAccessToken();
     const response = await fetch(
@@ -341,7 +516,9 @@ export class GoogleDriveStorageService {
     }
     return {
       buffer: Buffer.from(await response.arrayBuffer()),
-      contentType: response.headers.get("content-type")?.split(";")[0] ?? "application/octet-stream",
+      contentType:
+        response.headers.get("content-type")?.split(";")[0] ??
+        "application/octet-stream",
     };
   }
 
@@ -365,7 +542,9 @@ export class GoogleDriveStorageService {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: form,
     });
-    const token = (await response.json().catch(() => ({}))) as GoogleTokenResponse;
+    const token = (await response
+      .json()
+      .catch(() => ({}))) as GoogleTokenResponse;
     if (!response.ok || !token.access_token) {
       throw new ServiceUnavailableException(
         "Google Drive authorization is unavailable. Reconnect through this deployment's Google Drive connect URL, then update its refresh-token environment variable if prompted.",
@@ -394,18 +573,23 @@ export class GoogleDriveStorageService {
       return this.rootFolderId;
     }
 
-    const createResponse = await fetch(`${DRIVE_API}/files?fields=id,name,mimeType`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
+    const createResponse = await fetch(
+      `${DRIVE_API}/files?fields=id,name,mimeType`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: rootName,
+          mimeType: DRIVE_FOLDER_MIME,
+        }),
       },
-      body: JSON.stringify({
-        name: rootName,
-        mimeType: DRIVE_FOLDER_MIME,
-      }),
-    });
-    const created = (await createResponse.json().catch(() => ({}))) as GoogleDriveFile;
+    );
+    const created = (await createResponse
+      .json()
+      .catch(() => ({}))) as GoogleDriveFile;
     if (!createResponse.ok || !created.id) {
       throw new ServiceUnavailableException(
         "Sakhi could not create its private media folder in Google Drive.",
@@ -474,9 +658,13 @@ export class GoogleDriveStorageService {
         parents: [parentId],
       }),
     });
-    const created = (await createRes.json().catch(() => ({}))) as GoogleDriveFile;
+    const created = (await createRes
+      .json()
+      .catch(() => ({}))) as GoogleDriveFile;
     if (!createRes.ok || !created.id) {
-      return parentId;
+      throw new ServiceUnavailableException(
+        "Google Drive could not create the required private storage folder. Upload was stopped to avoid storing evidence in an unintended parent folder.",
+      );
     }
     return created.id;
   }

@@ -567,42 +567,16 @@ class SakhiComplaintController extends ChangeNotifier {
 
     try {
       final locallyStripped = stripClientBinaryMetadata(fileBytes);
-      Map<String, dynamic> response;
-      try {
-        response = await _apiClient.postMultipart(
-          'complaints/evidence-upload',
-          fileBytes: locallyStripped,
-          fileName: originalFileName.trim(),
-          contentType: cleanMime,
-          fields: <String, String>{
-            'visualBlurApplied': visualBlurApplied ? 'true' : 'false',
-          },
-          authenticated: false,
-        );
-      } catch (_) {
-        response = await _apiClient.post(
-          'complaints/scrub-metadata',
-          body: <String, Object?>{
-            'originalFileName': originalFileName.trim(),
-            'contentType': cleanMime,
-            'byteSize': locallyStripped.length,
-            'visualBlurApplied': visualBlurApplied,
-            'base64Data': base64Encode(locallyStripped),
-          },
-        );
-      }
-      if (response['sanitizedFile'] is! Map<String, dynamic>) {
-        response = await _apiClient.post(
-          'complaints/scrub-metadata',
-          body: <String, Object?>{
-            'originalFileName': originalFileName.trim(),
-            'contentType': cleanMime,
-            'byteSize': locallyStripped.length,
-            'visualBlurApplied': visualBlurApplied,
-            'base64Data': base64Encode(locallyStripped),
-          },
-        );
-      }
+      final response = await _apiClient.postMultipart(
+        'complaints/evidence-upload',
+        fileBytes: locallyStripped,
+        fileName: originalFileName.trim(),
+        contentType: cleanMime,
+        fields: <String, String>{
+          'visualBlurApplied': visualBlurApplied ? 'true' : 'false',
+        },
+        authenticated: false,
+      );
       final sanitizedJson = response['sanitizedFile'];
       if (sanitizedJson is! Map<String, dynamic>) {
         throw const BackendApiException(
@@ -1293,7 +1267,7 @@ class SakhiComplaintController extends ChangeNotifier {
     }
   }
 
-  Future<String> adminAccessEvidenceOnServer({
+  Future<Map<String, dynamic>> adminAccessEvidenceOnServer({
     required String referenceNumber,
     required String evidenceId,
     required String action,
@@ -1320,7 +1294,7 @@ class SakhiComplaintController extends ChangeNotifier {
         );
         _upsertLocalCache(updated);
       }
-      return (res['watermarkOverlayText'] as String? ?? 'WATERMARKED').trim();
+      return res;
     } on BackendApiException catch (err) {
       _lastError = err.message;
       rethrow;

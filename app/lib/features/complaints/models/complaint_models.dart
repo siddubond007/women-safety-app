@@ -294,6 +294,8 @@ class SanitizedEvidenceFileModel {
     required this.removedTags,
     required this.blurredByDefault,
     required this.uploadedAtIso,
+    this.driveFileId,
+    this.driveFolderId,
     this.isPurged = false,
   });
 
@@ -307,6 +309,8 @@ class SanitizedEvidenceFileModel {
   final List<String> removedTags;
   final bool blurredByDefault;
   final String uploadedAtIso;
+  final String? driveFileId;
+  final String? driveFolderId;
   final bool isPurged;
 
   String get formattedSize {
@@ -329,6 +333,8 @@ class SanitizedEvidenceFileModel {
     'visualBlurApplied': blurredByDefault,
     'scrubbedFields': removedTags,
     'uploadedAt': uploadedAtIso,
+    if (driveFileId != null) 'driveFileId': driveFileId,
+    if (driveFolderId != null) 'driveFolderId': driveFolderId,
     'isPurged': isPurged,
   };
 
@@ -375,6 +381,8 @@ class SanitizedEvidenceFileModel {
                   json['uploadedAtIso'] as String? ??
                   '')
               .trim(),
+      driveFileId: (json['driveFileId'] as String?)?.trim(),
+      driveFolderId: (json['driveFolderId'] as String?)?.trim(),
       isPurged: json['isPurged'] == true,
     );
   }

@@ -83,6 +83,21 @@ function createTestService() {
     service: new ComplaintsService(
       prisma as unknown as PrismaService,
       auth as unknown as AuthenticationService,
+      {
+        uploadComplaintEvidence: vi
+          .fn()
+          .mockImplementation(async ({ evidenceId, buffer }: any) => ({
+            driveFileId: `drive_${evidenceId}`,
+            driveFolderId: "folder_evidence",
+            size: buffer.length,
+          })),
+        verifyComplaintEvidenceFile: vi.fn().mockResolvedValue(true),
+        downloadFile: vi.fn().mockResolvedValue({
+          buffer: Buffer.from("synthetic evidence bytes"),
+          contentType: "image/png",
+        }),
+        deleteComplaintEvidence: vi.fn().mockResolvedValue(undefined),
+      } as any,
     ),
     prisma,
     persistedComplaints,
@@ -130,7 +145,7 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
     });
   });
 
-  it("strips real binary EXIF/APP1 segments from JPEG buffers and eXIf/tEXt chunks from PNG buffers", () => {
+  it("strips real binary EXIF/APP1 segments from JPEG buffers and eXIf/tEXt chunks from PNG buffers", async () => {
     const { service } = createTestService();
 
     // Construct a real JPEG buffer with SOI (FFD8), APP1 EXIF segment (FFE1, length 10), and EOI (FFD9)
@@ -164,7 +179,7 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
       stripped.scrubbedBuffer.equals(Buffer.from([0xff, 0xd8, 0xff, 0xd9])),
     ).toBe(true);
 
-    const uploadRes = service.scrubEvidenceBinaryFile({
+    const uploadRes = await service.scrubEvidenceBinaryFile({
       originalFileName: "IMG_GPS_Photo.jpg",
       contentType: "image/jpeg",
       buffer: jpegWithExif,
@@ -176,13 +191,13 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
     );
 
     // Reject unsupported executable MIME type
-    expect(() =>
+    await expect(
       service.scrubEvidenceMetadata({
         originalFileName: "malware.exe",
         contentType: "application/x-msdownload",
         byteSize: 2048,
       }),
-    ).toThrow(BadRequestException);
+    ).rejects.toThrow(BadRequestException);
   });
 
   it("validates required fields, whitespace descriptions, invalid categories, malformed URLs, future dates, and duplicate submissions", async () => {
@@ -284,6 +299,13 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
   it("enforces passkey verification, valid status transitions, RBAC masking, and full complaint lifecycle", async () => {
     const { service } = createTestService();
 
+    // Evidence must originate from the server-side scrub-and-store upload flow.
+    const uploadedEvidence = await service.scrubEvidenceBinaryFile({
+      originalFileName: "proof.png",
+      contentType: "image/png",
+      buffer: Buffer.from("synthetic evidence bytes"),
+    });
+
     // Submit a real Anonymous complaint (even if a bearer token is passed, confidentialAccountId must be null)
     const anonRes = await service.submitComplaint("Bearer valid-token", {
       reportingMode: "ANONYMOUS",
@@ -297,14 +319,7 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
       generalLocationLabel: "Tirupati 5km Coarse Zone",
       linkedTargetHandle: "@offender_handle_1",
       supportingLinks: ["sakhi://post/post_101", "https://example.com/context"],
-      evidenceFiles: [
-        {
-          id: "ev_test_01",
-          fileName: "evidence_redacted_01.png",
-          contentType: "image/png",
-          byteSize: 120000,
-        },
-      ],
+      evidenceFiles: [uploadedEvidence.sanitizedFile],
       clientRateLimitHint: "user_device_bucket_1",
     });
 
@@ -444,7 +459,7 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
         "ADMIN2026TEST",
         anonRes.referenceNumber,
         {
-          evidenceId: "ev_test_01",
+          evidenceId: uploadedEvidence.sanitizedFile.id,
           action: "REVEAL_VIEWER",
           justificationReason: "Checking screenshot evidence",
           viewerRole: "STANDARD_MODERATOR",
@@ -457,7 +472,7 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
       "ADMIN2026TEST",
       anonRes.referenceNumber,
       {
-        evidenceId: "ev_test_01",
+        evidenceId: uploadedEvidence.sanitizedFile.id,
         action: "WATERMARKED_DOWNLOAD",
         justificationReason:
           "Verifying harassment screenshot for account suspension",
@@ -497,18 +512,17 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
 describe("Module 5 & Module 10 RBAC — Real Admin Staff, Two-Way Messages & Open P1 Metrics", () => {
   it("populates authorisedReviewers from real database AdminStaffAccount rows (zero fake Meera/Kavita/Anjali) and enforces 5-role boundaries", async () => {
     const { service, prisma } = createTestService();
-    const { SakhiAdminRbacRegistry } = await import(
-      "../src/admin-review/admin-rbac.helper.js"
-    );
+    const { SakhiAdminRbacRegistry } =
+      await import("../src/admin-review/admin-rbac.helper.js");
     SakhiAdminRbacRegistry.resetForTesting();
 
     // Initially only the Master Super Admin seat exists (zero fake reviewers)
     const initialDash = await service.adminDashboardAndQueue("ADMIN2026TEST");
     expect(initialDash.authorisedReviewers).toHaveLength(1);
     expect(initialDash.authorisedReviewers[0]?.name).toContain("Super Admin");
-    expect(
-      JSON.stringify(initialDash.authorisedReviewers),
-    ).not.toContain("Meera Krishnan");
+    expect(JSON.stringify(initialDash.authorisedReviewers)).not.toContain(
+      "Meera Krishnan",
+    );
 
     // Create a Role 3 Authorised Complaint Reviewer and a Role 2 Content Moderator
     const reviewerStaff = await SakhiAdminRbacRegistry.createStaffAccount(

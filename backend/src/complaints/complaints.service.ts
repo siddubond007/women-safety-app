@@ -17,6 +17,7 @@ import { AuthenticationService } from "../auth/auth.service.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { StagingTestAdminService } from "../staging-test-admin/staging-test-admin.service.js";
 import { DEFAULT_LOCAL_DEV_ADMIN_TOKEN } from "../admin-review/admin-review.service.js";
+import { GoogleDriveStorageService } from "../module2/google-drive-storage.service.js";
 import {
   SakhiAdminRbacRegistry,
   type SakhiAdminRole,
@@ -303,6 +304,8 @@ export interface SanitizedEvidenceFile {
   visualBlurApplied: boolean;
   scrubbedFields: string[];
   uploadedAt: string;
+  driveFileId?: string;
+  driveFolderId?: string;
   isPurged?: boolean;
 }
 
@@ -498,7 +501,6 @@ export class ComplaintsService {
     { untilIso: string; reason: string }
   >();
   private readonly recentSubmissionFingerprints = new Map<string, number>();
-  private readonly scrubbedEvidenceBinaryVault = new Map<string, Buffer>();
 
   private retentionPolicy = {
     policyKey: "default",
@@ -513,6 +515,7 @@ export class ComplaintsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auth: AuthenticationService,
+    private readonly evidenceStorage: GoogleDriveStorageService = new GoogleDriveStorageService(),
   ) {
     for (const cat of DEFAULT_COMPLAINT_CATEGORIES) {
       this.categoriesMap.set(cat.slug, { ...cat });
@@ -573,7 +576,9 @@ export class ComplaintsService {
     staffCode: string;
   } {
     if (provided?.trim()) {
-      const staffMatch = SakhiAdminRbacRegistry.findStaffByToken(provided.trim());
+      const staffMatch = SakhiAdminRbacRegistry.findStaffByToken(
+        provided.trim(),
+      );
       if (staffMatch) {
         const principal = SakhiAdminRbacRegistry.principalFromStaff(staffMatch);
         if (
@@ -1033,23 +1038,23 @@ export class ComplaintsService {
           : typeof nested?.code === "string"
             ? nested.code
             : undefined;
-      const errorMessage =
-        error instanceof Error ? error.message : "";
-      const driverCode =
-        [
-          topLevel?.originalCode,
-          topLevel?.sqlState,
-          topLevel?.databaseErrorCode,
-          adapterMeta?.code,
-          adapterMeta?.sqlState,
-          adapterMeta?.originalCode,
-          adapterCause?.code,
-          adapterCause?.sqlState,
-          adapterCause?.originalCode,
-          errorMessage.match(/Database error\. Code: ([A-Z0-9]+)\. Message:/)?.[1],
-          errorMessage.match(/SQLSTATE\s*[:=]?\s*([0-9A-Z]{5})/i)?.[1],
-          errorMessage.match(/Code\s*[:=]\s*([0-9A-Z]{5})\b/)?.[1],
-        ].find((candidate) => typeof candidate === "string");
+      const errorMessage = error instanceof Error ? error.message : "";
+      const driverCode = [
+        topLevel?.originalCode,
+        topLevel?.sqlState,
+        topLevel?.databaseErrorCode,
+        adapterMeta?.code,
+        adapterMeta?.sqlState,
+        adapterMeta?.originalCode,
+        adapterCause?.code,
+        adapterCause?.sqlState,
+        adapterCause?.originalCode,
+        errorMessage.match(
+          /Database error\. Code: ([A-Z0-9]+)\. Message:/,
+        )?.[1],
+        errorMessage.match(/SQLSTATE\s*[:=]?\s*([0-9A-Z]{5})/i)?.[1],
+        errorMessage.match(/Code\s*[:=]\s*([0-9A-Z]{5})\b/)?.[1],
+      ].find((candidate) => typeof candidate === "string");
 
       // Log only a safe error classification. Never log the request body,
       // database URL, complaint description, reporter identity, or passkey.
@@ -1060,7 +1065,9 @@ export class ComplaintsService {
           databaseErrorCode: diagnosticCode ?? null,
           driverCode: driverCode ?? null,
           metadataKeys: meta ? Object.keys(meta).sort() : [],
-          adapterMetadataKeys: adapterMeta ? Object.keys(adapterMeta).sort() : [],
+          adapterMetadataKeys: adapterMeta
+            ? Object.keys(adapterMeta).sort()
+            : [],
           persistenceStep,
           transactionSupported: typeof anyPrisma.$transaction === "function",
         }),
@@ -1224,7 +1231,7 @@ export class ComplaintsService {
   // ---------------------------------------------------------------------------
   // 3. Real Binary & Base64 EXIF Metadata Scrubber (SRS 7.4)
   // ---------------------------------------------------------------------------
-  scrubEvidenceBinaryFile(params: {
+  async scrubEvidenceBinaryFile(params: {
     originalFileName: string;
     contentType: string;
     buffer: Buffer;
@@ -1253,14 +1260,21 @@ export class ComplaintsService {
     const extMatch = params.originalFileName.match(/\.[a-zA-Z0-9]+$/);
     const ext = extMatch ? extMatch[0].toLowerCase() : ".png";
     const randomShort = randomUUID().slice(0, 8);
-    const evidenceId = `ev_${randomShort}`;
+    const evidenceId = randomUUID().replace(/-/g, "");
     const sanitizedFileName = `evidence_redacted_${randomShort}${ext}`;
 
-    this.scrubbedEvidenceBinaryVault.set(evidenceId, scrubbedBuffer);
+    const stored = await this.evidenceStorage.uploadComplaintEvidence({
+      evidenceId,
+      fileName: sanitizedFileName,
+      contentType: cleanContentType,
+      buffer: scrubbedBuffer,
+    });
 
     return {
       sanitizedFile: {
         id: evidenceId,
+        driveFileId: stored.driveFileId,
+        driveFolderId: stored.driveFolderId,
         fileName: sanitizedFileName,
         originalFileNameRedacted: `[PURGED:${params.originalFileName.replace(/[^a-zA-Z0-9._-]/g, "_")}]`,
         contentType: cleanContentType,
@@ -1283,7 +1297,7 @@ export class ComplaintsService {
     };
   }
 
-  scrubEvidenceMetadata(dto: ScrubEvidenceMetadataDto) {
+  async scrubEvidenceMetadata(dto: ScrubEvidenceMetadataDto) {
     const cleanName = (dto.originalFileName ?? "").trim();
     if (!cleanName) {
       throw new BadRequestException("originalFileName is required.");
@@ -1305,7 +1319,7 @@ export class ComplaintsService {
 
     if (dto.base64Data && dto.base64Data.trim().length > 0) {
       const buf = Buffer.from(dto.base64Data.trim(), "base64");
-      return this.scrubEvidenceBinaryFile({
+      return await this.scrubEvidenceBinaryFile({
         originalFileName: cleanName,
         contentType: cleanType,
         buffer: buf,
@@ -1313,38 +1327,9 @@ export class ComplaintsService {
       });
     }
 
-    const extMatch = cleanName.match(/\.[a-zA-Z0-9]+$/);
-    const ext = extMatch ? extMatch[0].toLowerCase() : ".png";
-    const randomShort = randomUUID().slice(0, 8);
-    const sanitizedFileName = `evidence_redacted_${randomShort}${ext}`;
-    const byteSize = dto.byteSize ?? 1024;
-    const digest = this.hashString(
-      `${cleanName}:${cleanType}:${byteSize}:${randomShort}`,
+    throw new BadRequestException(
+      "Metadata-only evidence is not accepted. Upload the actual file through the secure evidence-upload endpoint so the scrubbed binary is durably stored.",
     );
-
-    return {
-      sanitizedFile: {
-        id: `ev_${randomShort}`,
-        fileName: sanitizedFileName,
-        originalFileNameRedacted: `[PURGED:${cleanName}]`,
-        contentType: cleanType,
-        byteSize,
-        sha256Digest: digest,
-        exifGpsStripped: true,
-        deviceMetadataStripped: true,
-        visualBlurApplied: Boolean(dto.visualBlurApplied ?? true),
-        scrubbedFields: [
-          "EXIF.GPSLatitude (Purged)",
-          "EXIF.GPSLongitude (Purged)",
-          `EXIF.DeviceModel (${dto.deviceModel ?? "Mobile Device"} -> Purged)`,
-          "File.OriginalName (Renamed to random token)",
-          "EXIF.OriginalTimestamp (Normalized)",
-        ],
-        uploadedAt: new Date().toISOString(),
-      },
-      safetyNotice:
-        "All technical EXIF GPS and device tags have been stripped. Please ensure no self-identifying reflections or own-side chat avatars remain visible inside the image.",
-    };
   }
 
   private normalizeCategorySlug(raw: string): string {
@@ -1572,8 +1557,8 @@ export class ComplaintsService {
     const passkeyPlain = `${word}-${randomInt(100, 999)}-SAFE`;
     const disguisedBackupSerial = `SKH-WELLNESS-2026-${numSuffix}::${passkeyPlain}`;
 
-    const sanitizedEvidence: SanitizedEvidenceFile[] = rawEvidence.map(
-      (f, idx) => {
+    const sanitizedEvidence: SanitizedEvidenceFile[] = await Promise.all(
+      rawEvidence.map(async (f, idx) => {
         const contentType = String(f.contentType ?? f.mimeType ?? "image/png")
           .trim()
           .toLowerCase();
@@ -1592,8 +1577,26 @@ export class ComplaintsService {
             "Evidence attachment byteSize must be between 1 byte and 15 MB.",
           );
         }
+        const evidenceId = String(f.id ?? "");
+        const driveFileId = String(f.driveFileId ?? "");
+        if (
+          !evidenceId ||
+          !driveFileId ||
+          !/^([0-9a-f]{32})$/.test(evidenceId) ||
+          !(await this.evidenceStorage.verifyComplaintEvidenceFile(
+            driveFileId,
+            evidenceId,
+          ))
+        ) {
+          throw new BadRequestException(
+            "Evidence attachment is not a verified Sakhi-stored upload. Upload it again before submitting the complaint.",
+          );
+        }
         return {
-          id: String(f.id ?? `ev_${numSuffix}_${idx + 1}`),
+          id: evidenceId,
+          driveFileId,
+          driveFolderId:
+            typeof f.driveFolderId === "string" ? f.driveFolderId : undefined,
           fileName: String(
             f.fileName ??
               f.sanitizedFileName ??
@@ -1615,7 +1618,7 @@ export class ComplaintsService {
           scrubbedFields: ["EXIF.GPS", "EXIF.DeviceModel", "OriginalFilename"],
           uploadedAt: new Date().toISOString(),
         };
-      },
+      }),
     );
 
     // Duplicate & Repeat-Offender Cluster Detection (SRS 7.6)
@@ -2065,7 +2068,12 @@ export class ComplaintsService {
 
     const nowIso = new Date().toISOString();
     for (const ev of record.evidenceFiles) {
-      this.scrubbedEvidenceBinaryVault.delete(ev.id);
+      if (!ev.isPurged && ev.driveFileId) {
+        await this.evidenceStorage.deleteComplaintEvidence(
+          ev.driveFileId,
+          ev.id,
+        );
+      }
     }
     record.evidenceFiles = record.evidenceFiles.map((ev) => ({
       ...ev,
@@ -2664,10 +2672,34 @@ export class ComplaintsService {
       "ADMIN",
       dto.action,
     );
+    if (
+      !ev.driveFileId ||
+      !(await this.evidenceStorage.verifyComplaintEvidenceFile(
+        ev.driveFileId,
+        ev.id,
+      ))
+    ) {
+      throw new ServiceUnavailableException(
+        "The complaint evidence storage reference is missing or could not be verified.",
+      );
+    }
+    const evidenceBinary = await this.evidenceStorage.downloadFile(
+      ev.driveFileId,
+    );
+    if (
+      createHash("sha256").update(evidenceBinary.buffer).digest("hex") !==
+      ev.sha256Digest
+    ) {
+      throw new ServiceUnavailableException(
+        "Stored complaint evidence failed its SHA-256 integrity check.",
+      );
+    }
     return {
       authorized: true,
       evidenceId: ev.id,
       fileName: ev.fileName,
+      contentType: evidenceBinary.contentType,
+      evidenceBase64: evidenceBinary.buffer.toString("base64"),
       sha256Digest: ev.sha256Digest,
       action: dto.action,
       watermarkOverlayText: watermarkStamp,
