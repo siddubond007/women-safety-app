@@ -90,8 +90,25 @@ model MemberAccount {
   menstrualCycleLogs      MenstrualCycleLog[]
   menstrualDailyLogs      MenstrualDailyLog[]
   menstrualPreference     MenstrualTrackerPreference?
+  accountDeletionRequests AccountDeletionRequest[]
 
   @@map("member_accounts")
+}
+
+
+/// Durable record of a member-initiated account deletion request. The account row
+/// is retained as a tombstone so historical foreign keys remain valid.
+model AccountDeletionRequest {
+  id            String        @id @default(uuid()) @db.Uuid
+  accountId     String        @map("account_id") @db.Uuid
+  status        String        @default("REQUESTED") @db.VarChar(24)
+  requestReason String?       @map("request_reason") @db.VarChar(500)
+  requestedAt   DateTime      @default(now()) @map("requested_at") @db.Timestamptz(6)
+  processedAt   DateTime?     @map("processed_at") @db.Timestamptz(6)
+  account       MemberAccount @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([accountId, status], map: "account_deletion_requests_account_status_idx")
+  @@map("account_deletion_requests")
 }
 
 model MemberProfile {

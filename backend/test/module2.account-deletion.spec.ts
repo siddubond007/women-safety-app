@@ -39,6 +39,7 @@ describe("Module2Service account deletion request", () => {
       memberPrivacySettings: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
       memberNotificationPreferences: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
       memberCommunicationPreference: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      discreetComplaint: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
       authSession: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
       auditEvent: { createMany: vi.fn().mockResolvedValue({ count: 1 }) },
     };
@@ -87,8 +88,16 @@ describe("Module2Service account deletion request", () => {
         displayName: "Deleted member",
         email: null,
         profilePhotoRef: null,
-        bio: null,
-        locationCity: null,
+        username: null,
+        bio: "",
+        location: "",
+        avatarAsset: "assets/images/profile/default_avatar.webp",
+        businessProfileUrl: null,
+        businessProfileName: null,
+        businessCategory: null,
+        dateOfBirth: new Date("1970-01-01T00:00:00.000Z"),
+        twoFactorEnabled: false,
+        securityPinUpdatedAt: null,
         interests: [],
       }),
     });
@@ -114,16 +123,22 @@ describe("Module2Service account deletion request", () => {
     expect(tx.memberPrivacySettings.deleteMany).toHaveBeenCalled();
     expect(tx.memberNotificationPreferences.deleteMany).toHaveBeenCalled();
     expect(tx.memberCommunicationPreference.deleteMany).toHaveBeenCalled();
+    expect(tx.discreetComplaint.updateMany).toHaveBeenCalledWith({
+      where: { confidentialAccountId: accountId },
+      data: { confidentialAccountId: null },
+    });
     expect(tx.authSession.updateMany).toHaveBeenCalledWith({
       where: { accountId, revokedAt: null },
       data: { revokedAt: expect.any(Date) },
     });
     expect(tx.auditEvent.createMany).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        actorId: accountId,
+        actorType: "SYSTEM",
+        actorId: null,
         action: "module2.account.deletion_requested",
         targetId: requestId,
         outcome: "requested",
+        redactedMetadata: { accountErasure: true },
       }),
     });
   });

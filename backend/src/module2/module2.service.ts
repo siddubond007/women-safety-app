@@ -9658,63 +9658,68 @@ export class Module2Service {
     const anyPrisma = this.prisma as Record<string, any>;
     const now = new Date();
     return anyPrisma.$transaction(async (tx: Record<string, any>) => {
-      const existingReq = tx.accountDeletionRequest?.findFirst
-        ? await tx.accountDeletionRequest.findFirst({
-            where: {
-              accountId: session.accountId,
-              status: { in: ["REQUESTED", "PROCESSING"] },
-            },
-          })
-        : null;
+      // These delegates enforce the deletion contract. Missing delegates must
+      // abort the transaction rather than silently report a partial erasure.
+      const requiredOperations: Array<[string, string]> = [
+        ["accountDeletionRequest", "create"],
+        ["memberAccount", "update"],
+        ["memberProfile", "update"],
+        ["discreetComplaint", "updateMany"],
+        ["authSession", "updateMany"],
+        ["auditEvent", "createMany"],
+      ];
+      for (const [delegate, operation] of requiredOperations) {
+        if (typeof tx[delegate]?.[operation] !== "function") {
+          throw new InternalServerErrorException(
+            `Account deletion cannot proceed: ${delegate}.${operation} is unavailable.`,
+          );
+        }
+      }
+      const existingReq = await tx.accountDeletionRequest.findFirst({
+        where: {
+          accountId: session.accountId,
+          status: { in: ["REQUESTED", "PROCESSING"] },
+        },
+      });
       const createdReq =
         existingReq ??
-        (tx.accountDeletionRequest?.create
-          ? await tx.accountDeletionRequest.create({
-              data: {
-                accountId: session.accountId,
-                status: "REQUESTED",
-                requestReason: dto.reason ?? null,
-              },
-            })
-          : { id: randomUUID(), status: "REQUESTED", requestedAt: now });
+        (await tx.accountDeletionRequest.create({
+          data: {
+            accountId: session.accountId,
+            status: "REQUESTED",
+            requestReason: null,
+          },
+        }));
 
-      if (tx.memberAccount?.update) {
-        await tx.memberAccount.update({
+      await tx.memberAccount.update({
           where: { id: session.accountId },
-          data: { status: "DELETED", phoneVerifiedAt: null },
+          data: {
+            status: "DELETED",
+            phoneE164: `+999${session.accountId.replace(/-/g, "").slice(0, 12)}`,
+            phoneVerifiedAt: null,
+            verificationStatus: "REJECTED",
+          },
         });
-      }
-      if (tx.memberProfile?.update) {
-        await tx.memberProfile
-          .update({
+      await tx.memberProfile.update({
             where: { accountId: session.accountId },
             data: {
               displayName: "Deleted member",
+              username: null,
               email: null,
               profilePhotoRef: null,
-              bio: null,
-              locationCity: null,
+              avatarMediaAssetId: null,
+              avatarAsset: "assets/images/profile/default_avatar.webp",
+              bio: "",
+              location: "",
               interests: [],
+              businessProfileUrl: null,
+              businessProfileName: null,
+              businessCategory: null,
+              dateOfBirth: new Date("1970-01-01T00:00:00.000Z"),
+              twoFactorEnabled: false,
+              securityPinUpdatedAt: null,
             },
-          })
-          .catch(async () => {
-            await tx.memberProfile.update({
-              where: { accountId: session.accountId },
-              data: {
-                displayName: "Deleted member",
-                username: null,
-                email: null,
-                profilePhotoRef: null,
-                bio: "",
-                location: "",
-                interests: [],
-                businessProfileUrl: null,
-                businessProfileName: null,
-                businessCategory: null,
-              },
-            });
           });
-      }
       if (tx.communityPost?.updateMany) {
         await tx.communityPost
           .updateMany({
@@ -9724,50 +9729,43 @@ export class Module2Service {
               imageAsset: null,
               moderationStatus: "REMOVED",
             },
-          })
-          .catch(() => undefined);
+          });
       }
       if (tx.communityPostComment?.deleteMany) {
         await tx.communityPostComment
           .deleteMany({
             where: { accountId: session.accountId },
-          })
-          .catch(() => undefined);
+          });
       }
       if (tx.communityPostLike?.deleteMany) {
         await tx.communityPostLike
           .deleteMany({
             where: { accountId: session.accountId },
-          })
-          .catch(() => undefined);
+          });
       }
       if (tx.communityPostSave?.deleteMany) {
         await tx.communityPostSave
           .deleteMany({
             where: { accountId: session.accountId },
-          })
-          .catch(() => undefined);
+          });
       }
       if (tx.memberFollow?.deleteMany) {
         await tx.memberFollow
           .deleteMany({
             where: { accountId: session.accountId },
-          })
-          .catch(() => undefined);
+          });
       }
       if (tx.memberPrivacyPreference?.deleteMany) {
         await tx.memberPrivacyPreference
           .deleteMany({
             where: { accountId: session.accountId },
-          })
-          .catch(() => undefined);
+          });
       }
       if (tx.memberNotificationPreference?.deleteMany) {
         await tx.memberNotificationPreference
           .deleteMany({
             where: { accountId: session.accountId },
-          })
-          .catch(() => undefined);
+          });
       }
       if (tx.memberPost?.updateMany) {
         await tx.memberPost.updateMany({
@@ -9872,25 +9870,26 @@ export class Module2Service {
           where: { accountId: session.accountId },
         });
       }
-      if (tx.authSession?.updateMany) {
-        await tx.authSession.updateMany({
-          where: { accountId: session.accountId, revokedAt: null },
-          data: { revokedAt: now },
-        });
-      }
-      if (tx.auditEvent?.createMany) {
-        await tx.auditEvent.createMany({
-          data: {
-            actorType: "MEMBER",
-            actorId: session.accountId,
+      await tx.discreetComplaint.updateMany({
+        where: { confidentialAccountId: session.accountId },
+        data: { confidentialAccountId: null },
+      });
+      await tx.authSession.updateMany({
+        where: { accountId: session.accountId, revokedAt: null },
+        data: { revokedAt: now },
+      });
+      await tx.auditEvent.createMany({
+        data: {
+            actorType: "SYSTEM",
+            actorId: null,
             action: "module2.account.deletion_requested",
             targetType: "account_deletion_request",
             targetId: createdReq.id,
             outcome: "requested",
             requestId: randomUUID(),
-          },
-        });
-      }
+          redactedMetadata: { accountErasure: true },
+        },
+      });
       return {
         requestId: createdReq.id,
         status: createdReq.status,
