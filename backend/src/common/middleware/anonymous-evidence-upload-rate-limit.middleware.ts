@@ -24,7 +24,11 @@ export class AnonymousEvidenceUploadRateLimitMiddleware {
       this.lastPruneAt = now;
     }
 
-    const clientKey = request.ip || request.socket.remoteAddress || "unknown";
+    // Render is fronted by Cloudflare. Prefer its edge-populated client IP
+    // header; Express request.ip remains the fallback for local/test runtimes.
+    const edgeClientIp = request.get?.("cf-connecting-ip")?.trim();
+    const clientKey =
+      edgeClientIp || request.ip || request.socket.remoteAddress || "unknown";
     let bucket = this.buckets.get(clientKey);
     if (!bucket || bucket.resetAt <= now) {
       if (this.buckets.size >= MAX_TRACKED_CLIENTS) {
@@ -43,7 +47,8 @@ export class AnonymousEvidenceUploadRateLimitMiddleware {
       response.setHeader("Retry-After", String(retryAfterSeconds));
       response.status(429).json({
         statusCode: 429,
-        message: "Evidence upload limit reached. Please retry after the stated interval.",
+        message:
+          "Evidence upload limit reached. Please retry after the stated interval.",
       });
       return;
     }

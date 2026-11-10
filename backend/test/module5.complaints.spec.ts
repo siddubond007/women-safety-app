@@ -353,6 +353,7 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
     );
     expect(tracked.found).toBe(true);
     expect(tracked.complaint.status).toBe("SUBMITTED");
+    expect(tracked.complaint.retentionExpiresAt).toBeNull();
 
     // Tracking via Disguised Wellness Quote Serial also succeeds
     const trackedBySerial = await service.trackByReference(
@@ -481,7 +482,7 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
     expect(evAccess.authorized).toBe(true);
     expect(evAccess.watermarkOverlayText).toContain(anonRes.referenceNumber);
 
-    // Admin transitions to REJECTED_WITH_REASON -> Complainant appeals -> ESCALATED
+    // Rejection starts the configured evidence retention clock.
     await service.adminUpdateStatusAndEscalate(
       "ADMIN2026TEST",
       anonRes.referenceNumber,
@@ -491,6 +492,13 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
         publicMessageToComplainant: "Closing pending additional proof.",
       },
     );
+    const rejected = await service.trackByReference(
+      anonRes.referenceNumber,
+      anonRes.passkey,
+    );
+    expect(rejected.complaint.retentionExpiresAt).toBeTruthy();
+
+    // An appeal reopens the case and cancels the pending retention deadline.
     const appealed = await service.submitAppeal(anonRes.referenceNumber, {
       passkey: anonRes.passkey,
       appealReasonCategory: "New Evidence",
@@ -498,6 +506,7 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
         "Providing full chat transcript and witness confirmation.",
     });
     expect(appealed.complaint.status).toBe("ESCALATED");
+    expect(appealed.complaint.retentionExpiresAt).toBeNull();
 
     // Complainant purges media with valid passkey
     const purged = await service.purgeComplainantMedia(

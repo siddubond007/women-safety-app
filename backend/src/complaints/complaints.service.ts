@@ -386,7 +386,7 @@ export interface DiscreetComplaintRecord {
   internalNotes: InternalReviewerNoteItem[];
   auditHistory: ComplaintAuditEntry[];
   mediaPurgedAt: string | null;
-  retentionExpiresAt: string;
+  retentionExpiresAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -762,7 +762,7 @@ export class ComplaintsService {
         : null,
       retentionExpiresAt: r.retentionExpiresAt
         ? new Date(r.retentionExpiresAt).toISOString()
-        : new Date(Date.now() + 90 * 86_400_000).toISOString(),
+        : null,
       createdAt: r.createdAt
         ? new Date(r.createdAt).toISOString()
         : new Date().toISOString(),
@@ -921,6 +921,9 @@ export class ComplaintsService {
           mediaPurgedAt: record.mediaPurgedAt
             ? new Date(record.mediaPurgedAt)
             : null,
+          retentionExpiresAt: record.retentionExpiresAt
+            ? new Date(record.retentionExpiresAt)
+            : null,
           updatedAt: new Date(record.updatedAt),
         },
         create: {
@@ -966,7 +969,9 @@ export class ComplaintsService {
           complainantMessages: record.complainantMessages,
           internalNotes: record.internalNotes,
           auditHistory: record.auditHistory,
-          retentionExpiresAt: new Date(record.retentionExpiresAt),
+          retentionExpiresAt: record.retentionExpiresAt
+            ? new Date(record.retentionExpiresAt)
+            : null,
           createdAt: new Date(record.createdAt),
           updatedAt: new Date(record.updatedAt),
         },
@@ -1726,10 +1731,9 @@ export class ComplaintsService {
         },
       ],
       mediaPurgedAt: null,
-      retentionExpiresAt: new Date(
-        Date.now() +
-          this.retentionPolicy.closedEvidenceRetentionDays * 86_400_000,
-      ).toISOString(),
+      // Evidence is retained while a complaint is open. The retention clock
+      // starts only when a reviewer closes or rejects the report.
+      retentionExpiresAt: null,
       createdAt: nowIso,
       updatedAt: nowIso,
     };
@@ -2018,6 +2022,7 @@ export class ComplaintsService {
           (r.role === "SUPER_ADMIN" || r.role === "COMPLAINT_REVIEWER"),
       ) ?? reviewers[0]!;
     record.status = "ESCALATED";
+    record.retentionExpiresAt = null;
     record.priority = "P1_URGENT";
     record.assignedReviewerId = escalationReviewer.id;
     record.assignedReviewerName = escalationReviewer.name;
@@ -2465,6 +2470,21 @@ export class ComplaintsService {
     }
 
     record.status = normalizedStatus;
+    const statusChangedAt = new Date();
+    if (normalizedStatus === "CLOSED") {
+      record.retentionExpiresAt = new Date(
+        statusChangedAt.getTime() +
+          this.retentionPolicy.closedEvidenceRetentionDays * 86_400_000,
+      ).toISOString();
+    } else if (normalizedStatus === "REJECTED_WITH_REASON") {
+      record.retentionExpiresAt = new Date(
+        statusChangedAt.getTime() +
+          this.retentionPolicy.rejectedReportRetentionDays * 86_400_000,
+      ).toISOString();
+    } else {
+      // Reopened or active complaints must not be purged by an old expiry.
+      record.retentionExpiresAt = null;
+    }
     if (dto.rejectionReasonCode?.trim()) {
       record.rejectionReasonCode = dto.rejectionReasonCode.trim();
     }
@@ -2752,6 +2772,10 @@ export class ComplaintsService {
       dup.duplicateClusterId = clusterId;
       dup.mergedIntoReference = primaryNorm;
       dup.status = "CLOSED";
+      dup.retentionExpiresAt = new Date(
+        Date.now() +
+          this.retentionPolicy.closedEvidenceRetentionDays * 86_400_000,
+      ).toISOString();
       dup.publicResolutionSummary = `Merged into primary investigation ${primaryNorm} under Repeat-Offender Cluster #${clusterId}.`;
       dup.updatedAt = nowIso;
       mergedRefs.push(dupNorm);
@@ -2810,6 +2834,10 @@ export class ComplaintsService {
     record.isFlaggedMaliciousAbuse = true;
     record.maliciousAbuseReason = dto.reason.trim();
     record.status = "REJECTED_WITH_REASON";
+    record.retentionExpiresAt = new Date(
+      Date.now() +
+        this.retentionPolicy.rejectedReportRetentionDays * 86_400_000,
+    ).toISOString();
     record.rejectionReasonCode = "#MALICIOUS-OR-BAD-FAITH-REPORT";
     record.publicResolutionSummary =
       "Report closed under Sakhi Anti-Abuse & Malicious Report Safeguards (SRS 7.6).";
@@ -2972,7 +3000,7 @@ export class ComplaintsService {
     }
     await this.ensureHydrated();
 
-    this.retentionPolicy = {
+    const nextPolicy = {
       policyKey: "default",
       closedEvidenceRetentionDays: dto.closedEvidenceRetentionDays,
       rejectedReportRetentionDays: dto.rejectedReportRetentionDays,
@@ -2980,44 +3008,52 @@ export class ComplaintsService {
       updatedBy: reviewer.reviewerLabel,
       updatedAt: new Date().toISOString(),
     };
-
     const anyPrisma = this.prisma as unknown as Record<string, any>;
-    if (anyPrisma.complaintRetentionPolicy?.upsert) {
-      await anyPrisma.complaintRetentionPolicy
-        .upsert({
-          where: { policyKey: "default" },
-          update: {
-            closedEvidenceRetentionDays: dto.closedEvidenceRetentionDays,
-            rejectedReportRetentionDays: dto.rejectedReportRetentionDays,
-            technicalRateLimitLogDays: dto.technicalRateLimitLogDays,
-            updatedBy: reviewer.reviewerLabel,
-          },
-          create: {
-            policyKey: "default",
-            closedEvidenceRetentionDays: dto.closedEvidenceRetentionDays,
-            rejectedReportRetentionDays: dto.rejectedReportRetentionDays,
-            technicalRateLimitLogDays: dto.technicalRateLimitLogDays,
-            updatedBy: reviewer.reviewerLabel,
-          },
-        })
-        .catch(() => null);
+    const persist = async (tx: Record<string, any>) => {
+      if (typeof tx.complaintRetentionPolicy?.upsert !== "function") {
+        throw new ServiceUnavailableException(
+          "Retention policy cannot be updated because durable policy storage is unavailable.",
+        );
+      }
+      if (typeof tx.auditEvent?.create !== "function") {
+        throw new ServiceUnavailableException(
+          "Retention policy cannot be updated because audit persistence is unavailable.",
+        );
+      }
+      await tx.complaintRetentionPolicy.upsert({
+        where: { policyKey: "default" },
+        update: {
+          closedEvidenceRetentionDays: dto.closedEvidenceRetentionDays,
+          rejectedReportRetentionDays: dto.rejectedReportRetentionDays,
+          technicalRateLimitLogDays: dto.technicalRateLimitLogDays,
+          updatedBy: reviewer.reviewerLabel,
+        },
+        create: {
+          policyKey: "default",
+          closedEvidenceRetentionDays: dto.closedEvidenceRetentionDays,
+          rejectedReportRetentionDays: dto.rejectedReportRetentionDays,
+          technicalRateLimitLogDays: dto.technicalRateLimitLogDays,
+          updatedBy: reviewer.reviewerLabel,
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          actorType: "ADMIN",
+          action: "admin.complaint_retention.updated",
+          targetType: "complaint_retention_policy",
+          targetId: "default",
+          outcome: "UPDATED",
+          requestId: randomUUID(),
+          redactedMetadata: nextPolicy,
+        },
+      });
+    };
+    if (typeof anyPrisma.$transaction === "function") {
+      await anyPrisma.$transaction((tx: Record<string, any>) => persist(tx));
+    } else {
+      await persist(anyPrisma);
     }
-
-    if (this.prisma.auditEvent?.create) {
-      await this.prisma.auditEvent
-        .create({
-          data: {
-            actorType: "ADMIN",
-            action: "admin.complaint_retention.updated",
-            targetType: "complaint_retention_policy",
-            targetId: "default",
-            outcome: "UPDATED",
-            requestId: randomUUID(),
-            redactedMetadata: this.retentionPolicy,
-          },
-        })
-        .catch(() => null);
-    }
+    this.retentionPolicy = nextPolicy;
 
     return {
       updated: true,
