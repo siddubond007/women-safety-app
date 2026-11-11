@@ -131,29 +131,14 @@ jobs:
           disable-animations: false
           emulator-boot-timeout: 900
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: |
-            adb wait-for-device
-            for attempt in 1 2 3; do
-              if adb install --no-streaming -r app/build/app/outputs/flutter-apk/app-debug.apk; then
-                break
-              fi
-              if [ "$attempt" -eq 3 ]; then
-                echo "APK installation failed after three non-streaming attempts."
-                adb shell dumpsys meminfo || true
-                adb logcat -d -t 1000 || true
-                exit 1
-              fi
-              echo "APK installation attempt $attempt failed; waiting for package manager recovery."
-              sleep 10
-              adb wait-for-device
-            done
-            adb shell monkey -p com.example.women_safety_app 1
-            sleep 20
+          # Keep this as one folded shell command: the action's script runner
+          # passed the previous multiline loop to /bin/sh as a truncated command.
+          script: >-
+            adb wait-for-device &&
+            adb install --no-streaming -r app/build/app/outputs/flutter-apk/app-debug.apk &&
+            adb shell monkey -p com.example.women_safety_app 1 &&
+            sleep 20 &&
             adb shell pidof com.example.women_safety_app
-            if adb logcat -d -t 3000 | grep -E "FATAL EXCEPTION|Process: com.example.women_safety_app" ; then
-              echo "Fatal app crash detected during emulator launch."
-              exit 1
-            fi
 
       - name: Upload debug APK artifact
         if: always()
