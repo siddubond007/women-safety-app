@@ -217,3 +217,59 @@ Stop after Stage C and request approval before proceeding to another stage.
 ## Next required decision
 
 **Await explicit approval to begin Stage C.** Until approval is received, do not modify source code or begin Stage C remediation.
+
+---
+
+## Read-only hosted readiness audit — 2026-11-11 (Render + Supabase)
+
+This checkpoint records a read-only inspection authorized by the user. No Render settings, environment variables, deployments, database schema, rows, or Git branches were changed.
+
+### Render workspace and service deployment state — VERIFIED
+
+Workspace: CHAKRAVARTHI CHANDRA SIDDHARTH's workspace (tea-dbc5ku0n74is73ffj1n0).
+
+- sakhi-staging-api (srv-dbc5s4dg1s2s7395oed0): active, not suspended, Render Free plan, Singapore, one instance, automatic deploy enabled with checks-pass trigger. Live branch is feat/stage3e-account-deletion-complaint-evidence-20261110. Latest live deployment is dep-dbptt4p5efls73921jg0, commit a104946b8a57189e421e0f4211cb269f87f7063a (ci(stage3e): test backend and gate staging deploy), succeeded 2026-11-11 03:20 UTC.
+- sakhi-staging-admin (srv-dbc8upqfngtc739e8u0g): active static site, automatic deploy enabled with checks-pass trigger. Live branch is module-8-to-9-implementations-and-upgrades. Latest live deployment is dep-dbn9983rjlhs73841pmg, commit 72270e0d37a096ee3e3fbdb843c600cfc6afb3ae (chore(render): target reviewed staging branch after CI checks), succeeded 2026-11-07 03:03 UTC.
+- Neither live service deploys the current integration branch integration/sakhi-complete-gemini-stage3e-stage4-20261111. API and Admin are on different source branches/commits.
+- API health endpoint /api/v1/health/ready and liveness endpoint returned HTTP 200. Readiness response reported database ok.
+- Admin root and /login returned HTTP 200, but hosted HTML metadata describes the product as Private Sakhi administration console — demo UI only. Static site returned a page; this is not proof of full live Admin/backend integration.
+- Recent API logs primarily show successful Render health-check requests. No recent Admin logs were returned in the inspected window.
+- Render service detail responses did not expose protected environment-variable values or a complete variable-presence inventory. Secret/configuration readiness therefore remains NOT VERIFIED. No secret values were requested or displayed.
+- Repository render.yaml in this integration worktree declares the older Modules 8–9 branch for both services, while live Render currently has API on Stage 3E and Admin on Modules 8–9. This source-vs-live configuration drift must be reconciled deliberately before a deployment change.
+
+### Supabase live database — VERIFIED
+
+Project: sakhi-friend-testing (wmlpokholjfadyohdlgo), region ap-south-1, PostgreSQL 17.11, status ACTIVE_HEALTHY.
+
+- Live database accepts queries; API readiness endpoint also confirms its database dependency is reachable.
+- Public schema has 50 ordinary tables. Only 4 have RLS enabled; 46 do not.
+- RLS-enabled tables are member_notifications and the three menstrual tracker tables (menstrual_cycle_logs, menstrual_daily_logs, menstrual_tracker_preferences). The three menstrual tracker tables have forced RLS. Most other member-owned/sensitive tables remain without RLS, including member_accounts, member_profiles, direct_messages, discreet_complaints, emergency/safety tables, eligibility tables, admin accounts and audit events.
+- The live migration ledger contains six entries: Stage 3D member-level menstrual RLS, Stage 3E account deletion, Stage 3E runtime grants/migration reconciliation, transfer of deletion-request table to migrator, synthetic evidence-retention test fixture, and enabling pg_cron/HTTP for Stage 3E. It does not show the current integration worktree's later broad member-owned-data RLS migration as applied.
+- Supabase Storage currently has no buckets and no storage policies. This does not rule out external Google Drive storage, but Supabase Storage is not configured for Sakhi media in this project.
+- Security advisor had returned no lints in the earlier inspection, but this does not override direct table-level RLS findings.
+
+### Scheduler and retention — VERIFIED
+
+- One active pg_cron job exists, scheduled every five minutes. Its command calls only https://sakhi-staging-api.onrender.com/api/v1/health/ready.
+- The latest recorded cron runs succeeded. This is a health-check/keep-warm job, not the complaint-evidence retention worker.
+- No live database cron job for complaint retention was found. Actual GitHub Actions retention execution and required secret configuration remain NOT VERIFIED.
+- The current source contains a retention workflow and protected endpoint, but source presence is not proof of hosted scheduling or actual evidence deletion.
+
+### Release-readiness decision
+
+NOT PRODUCTION READY / NOT READY FOR REAL MEMBER DATA. The backend and database are reachable, but these are service-availability checks, not end-to-end acceptance.
+
+Confirmed blockers/gaps:
+1. Member-data RLS is absent from 46 of 50 public tables. Do not apply the pending broad RLS migration blindly: prior Stage B audit found that it conflicts with cross-member discovery/profile reads and must be redesigned and integration-tested first.
+2. The Admin Panel deployment is stale (Nov 7) and runs from a different branch than the API. Its hosted HTML identifies itself as demo UI only. Full admin login, MFA session, RBAC, page data and API integration are NOT VERIFIED.
+3. Current integration branch is not deployed to either Render service.
+4. Durable evidence-retention scheduling is not configured in the observed Supabase cron; the existing job only checks API health.
+5. Google Drive credentials/configuration and real upload/retrieve/checksum/delete lifecycle are NOT VERIFIED from protected host configuration or a live synthetic end-to-end test.
+6. Render protected environment-variable presence/values could not be verified via the read-only service metadata response. Do not infer missing secrets solely from this limitation.
+7. Supabase Storage has no configured buckets; external Google Drive may be the intended storage path and needs separate live verification.
+
+### Safety and execution
+
+- Inspection was read-only. No database mutation, migration, deployment, environment update, secret disclosure, Git checkout, commit, push, or merge was performed.
+- Existing dirty/staged/untracked integration work remains preserved.
+- Next work must be separately approved and staged: (1) source-level security/feature remediation; (2) integration and PostgreSQL RLS tests; (3) reconcile deployment branch/configuration; (4) verify protected environment configuration without exposing secrets; (5) synthetic hosted end-to-end Admin, member, Drive and retention tests; (6) only then request deployment/migration approval.
