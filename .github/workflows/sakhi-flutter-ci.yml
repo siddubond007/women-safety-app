@@ -54,3 +54,52 @@ jobs:
 
       - name: Run Flutter unit and widget tests
         run: flutter test --reporter expanded
+
+  android-emulator-smoke:
+    name: Android APK build and emulator launch smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter 3.47.7
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.7"
+          channel: stable
+          cache: true
+
+      - name: Resolve Flutter dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Build debug APK
+        working-directory: app
+        run: flutter build apk --debug
+
+      - name: Install and launch APK on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          script: |
+            adb install -r app/build/app/outputs/flutter-apk/app-debug.apk
+            adb shell monkey -p com.example.women_safety_app 1
+            sleep 20
+            adb shell pidof com.example.women_safety_app
+            if adb logcat -d -t 3000 | grep -E "FATAL EXCEPTION|Process: com.example.women_safety_app" ; then
+              echo "Fatal app crash detected during emulator launch."
+              exit 1
+            fi
+
+      - name: Upload debug APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sakhi-stage3e-debug-apk
+          path: app/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
