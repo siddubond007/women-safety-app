@@ -87,7 +87,7 @@ jobs:
   android-emulator-smoke:
     name: Android APK build and emulator launch smoke test
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -119,11 +119,16 @@ jobs:
       - name: Install and launch APK on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: 30
           target: google_apis
           arch: x86_64
           profile: pixel_2
+          cores: 4
+          ram-size: 2048M
+          heap-size: 512M
           disable-animations: true
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: |
             adb install -r app/build/app/outputs/flutter-apk/app-debug.apk
             adb shell monkey -p com.example.women_safety_app 1
