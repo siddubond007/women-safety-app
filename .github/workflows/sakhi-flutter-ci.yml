@@ -105,10 +105,16 @@ jobs:
 
       - name: Build debug APK
         working-directory: app
-        run: >-
-          flutter build apk --debug
-          --dart-define=SAKHI_BACKEND_ENABLED=true
-          --dart-define=SAKHI_API_BASE_URL=https://sakhi-staging-api.onrender.com/api/v1
+        run: flutter build apk --debug --dart-define=SAKHI_BACKEND_ENABLED=true --dart-define=SAKHI_API_BASE_URL=https://sakhi-staging-api.onrender.com/api/v1
+
+      - name: Verify staging APK output
+        shell: bash
+        run: |
+          APK="app/build/app/outputs/flutter-apk/app-debug.apk"
+          test -s "$APK"
+          printf 'SAKHI_BACKEND_ENABLED=true\nSAKHI_API_BASE_URL=https://sakhi-staging-api.onrender.com/api/v1\n' > app/build/app/outputs/flutter-apk/sakhi-build-config.txt
+          sha256sum "$APK"
+          ls -lh "$APK"
 
       - name: Free build-only SDK space before emulator setup
         shell: bash
@@ -147,7 +153,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sakhi-stage3e-debug-apk
-          path: app/build/app/outputs/flutter-apk/app-debug.apk
+          name: sakhi-stage3e-staging-debug-apk
+          path: |
+            app/build/app/outputs/flutter-apk/app-debug.apk
+            app/build/app/outputs/flutter-apk/sakhi-build-config.txt
           if-no-files-found: error
           retention-days: 7
