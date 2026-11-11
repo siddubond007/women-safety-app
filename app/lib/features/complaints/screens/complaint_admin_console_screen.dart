@@ -1032,11 +1032,11 @@ class _ComplaintAdminConsoleScreenState
                                   height: 90,
                                   width: double.infinity,
                                   child: isUnblurred &&
-                                          (wm?['contentType'] as String? ?? '').startsWith('image/')
+                                          (wm['contentType'] as String? ?? '').startsWith('image/')
                                       ? Image.memory(
-                                          base64Decode(wm!['evidenceBase64'] as String),
+                                          base64Decode(wm['evidenceBase64'] as String),
                                           fit: BoxFit.contain,
-                                          errorBuilder: (_, __, ___) => const Center(child: Text('Evidence preview unavailable.')),
+                                          errorBuilder: (_, _, _) => const Center(child: Text('Evidence preview unavailable.')),
                                         )
                                       : Image.asset(
                                           AppAssets.m5EvidenceVaultExif,
@@ -1071,7 +1071,7 @@ class _ComplaintAdminConsoleScreenState
                                     padding: const EdgeInsets.all(6),
                                     color: Colors.black54,
                                     child: Text(
-                                      (wm?['watermarkOverlayText'] as String? ?? 'WATERMARKED').trim(),
+                                      (wm['watermarkOverlayText'] as String? ?? 'WATERMARKED').trim(),
                                       style: const TextStyle(
                                         color: Colors.white,
                                         fontSize: 10,
