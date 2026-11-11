@@ -12,3 +12,15 @@ CREATE TABLE IF NOT EXISTS "account_deletion_requests" (
 CREATE INDEX IF NOT EXISTS "account_deletion_requests_account_status_idx" ON "account_deletion_requests"("account_id", "status");
 
 -- Complaint/evidence rows are preserved; only confidential identity linkage is removed.
+
+-- The runtime API needs durable request access, but not ownership or DDL rights.
+DO $stage3e_runtime_grants$
+DECLARE runtime_role TEXT;
+BEGIN
+  FOREACH runtime_role IN ARRAY ARRAY['sakhi_dev_app', 'sakhi_test_app', 'sakhi_staging_app'] LOOP
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = runtime_role) THEN
+      EXECUTE format('GRANT SELECT, INSERT, UPDATE ON TABLE public.account_deletion_requests TO %I', runtime_role);
+    END IF;
+  END LOOP;
+END
+$stage3e_runtime_grants$;
