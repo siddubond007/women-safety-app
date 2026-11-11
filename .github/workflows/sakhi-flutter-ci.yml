@@ -107,6 +107,15 @@ jobs:
         working-directory: app
         run: flutter build apk --debug
 
+      - name: Free build-only SDK space before emulator setup
+        shell: bash
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          rm -rf "$SDK_ROOT/ndk" "$SDK_ROOT/cmake"
+          rm -rf "$HOME/.gradle/caches" "$HOME/.gradle/daemon" "$HOME/.gradle/wrapper/dists"
+          rm -rf "$HOME/.pub-cache" "$FLUTTER_ROOT"
+          df -h "$SDK_ROOT"
+
       - name: Install and launch APK on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -126,6 +135,7 @@ jobs:
             fi
 
       - name: Upload debug APK artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: sakhi-stage3e-debug-apk
