@@ -42,8 +42,14 @@ export class ComplaintEvidenceRetentionWorker
     ) {
       return;
     }
-    void this.runOnce();
-    this.timer = setInterval(() => void this.runOnce(), 15 * 60 * 1000);
+    this.logger.log(
+      "Staging complaint-evidence retention worker enabled; running initial sweep and 15-minute interval.",
+    );
+    void this.runOnce().catch(() => undefined);
+    this.timer = setInterval(
+      () => void this.runOnce().catch(() => undefined),
+      15 * 60 * 1000,
+    );
     this.timer.unref();
   }
 
@@ -137,6 +143,9 @@ export class ComplaintEvidenceRetentionWorker
         });
         purged += 1;
       }
+      this.logger.log(
+        `Complaint evidence retention sweep completed: examined=${examined}, purged=${purged}.`,
+      );
       return { examined, purged };
     } catch (error) {
       this.logger.error(
