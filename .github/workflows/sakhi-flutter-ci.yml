@@ -1,0 +1,56 @@
+name: Sakhi Flutter CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/stage3e-account-deletion-complaint-evidence-20261110
+    paths:
+      - "app/**"
+      - ".github/workflows/sakhi-flutter-ci.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - ".github/workflows/sakhi-flutter-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sakhi-flutter-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flutter:
+    name: Flutter analysis and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter 3.47.7
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.7"
+          channel: stable
+          cache: true
+
+      - name: Show toolchain versions
+        run: |
+          flutter --version
+          dart --version
+
+      - name: Resolve locked dependencies
+        run: flutter pub get
+
+      - name: Analyze Dart and Flutter source
+        run: flutter analyze
+
+      - name: Run Flutter unit and widget tests
+        run: flutter test --reporter expanded
