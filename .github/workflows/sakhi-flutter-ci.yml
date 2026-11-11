@@ -7,22 +7,51 @@ on:
       - feat/stage3e-account-deletion-complaint-evidence-20261110
     paths:
       - "app/**"
+      - "backend/**"
       - ".github/workflows/sakhi-flutter-ci.yml"
   pull_request:
     branches:
       - main
     paths:
       - "app/**"
+      - "backend/**"
       - ".github/workflows/sakhi-flutter-ci.yml"
 
 permissions:
   contents: read
 
 concurrency:
-  group: sakhi-flutter-ci-${{ github.ref }}
+  group: sakhi-stage3e-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  backend:
+    name: Backend tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci
+
+      - name: Run backend unit tests
+        run: npm test -- --reporter=dot
+
+      - name: Build backend
+        run: npm run build
+
   flutter:
     name: Flutter analysis and tests
     runs-on: ubuntu-latest
