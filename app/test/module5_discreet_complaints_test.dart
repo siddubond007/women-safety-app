@@ -23,6 +23,47 @@ class _FakeComplaintBackendApiClient extends BackendApiClient {
       <String, Map<String, dynamic>>{};
 
   @override
+  Future<Map<String, dynamic>> postMultipart(
+    String path, {
+    required List<int> fileBytes,
+    required String fileName,
+    required String contentType,
+    required Map<String, String> fields,
+    bool authenticated = true,
+  }) async {
+    if (shouldFail) {
+      throw const BackendApiException(
+        statusCode: 503,
+        code: 'network_unavailable',
+        message: 'Simulated backend offline error.',
+      );
+    }
+    if (path != 'complaints/evidence-upload') {
+      throw BackendApiException(
+        statusCode: 404,
+        code: 'not_found',
+        message: 'Unexpected multipart test route: $path',
+      );
+    }
+    return <String, dynamic>{
+      'sanitizedFile': <String, dynamic>{
+        'id': 'ev_test_01',
+        'fileName': 'evidence_redacted_01.png',
+        'originalFileNameRedacted': '[PURGED]',
+        'contentType': contentType,
+        'byteSize': fileBytes.length,
+        'sha256Digest':
+            '8f4c2b910e4a71239c5812b74a0f12e9b814c6a2039481726354819203a4e92a',
+        'exifGpsStripped': true,
+        'deviceMetadataStripped': true,
+        'visualBlurApplied': fields['visualBlurApplied'] == 'true',
+        'scrubbedFields': <String>['EXIF.GPSLatitude', 'EXIF.DeviceModel'],
+        'uploadedAt': '2026-10-26T10:00:00Z',
+      },
+    };
+  }
+
+  @override
   Future<Map<String, dynamic>> get(
     String path, {
     bool authenticated = false,
