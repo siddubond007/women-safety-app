@@ -126,7 +126,9 @@ jobs:
           cores: 2
           ram-size: 3072M
           heap-size: 768M
-          disable-animations: true
+          # Avoid extra adb settings writes that caused a broken-pipe failure
+          # after the emulator had already booted on the hosted runner.
+          disable-animations: false
           emulator-boot-timeout: 900
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: |
