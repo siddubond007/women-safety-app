@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:women_safety_app/features/wellness/models/menstrual_cycle_models.dart';
@@ -197,7 +199,7 @@ void main() {
         expect(lower.contains('theta'), isFalse);
       }
     });
-  }
+
     test('Exposes the 5 approved neural women voices (V22, V24, V26, V30, V01) and verifies SHA-256 digest', () {
       final voices = GuidedMeditationSessionController.approvedVoiceOptions;
       expect(voices.map((v) => v.voiceId).toList(), ['V22', 'V24', 'V26', 'V30', 'V01']);

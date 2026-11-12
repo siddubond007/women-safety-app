@@ -260,37 +260,37 @@ void main() {
   group('Section 5: Two-Stage Hardware Volume-Key SOS State Machine', () {
     test('Single or double volume presses never arm or trigger SOS', () {
       final sm = SakhiTwoStageSosVolumeStateMachine();
-      expect(sm.onVolumeUpDownEvent(nowMs: 1000), 'NONE');
-      expect(sm.onVolumeUpDownEvent(nowMs: 1500), 'NONE');
-      expect(sm.state, SosVolumeStageState.idle);
+      expect(sm.recordShortTap('VOLUME_UP', 1000), isNull);
+      expect(sm.recordShortTap('VOLUME_UP', 1500), isNull);
+      expect(sm.stage, SosVolumeShortcutStage.idle);
     });
 
     test('3x Volume Up within 2.5s arms confirmation window, and 3x Volume Down within 8s confirms SOS', () {
       final sm = SakhiTwoStageSosVolumeStateMachine();
-      expect(sm.onVolumeUpDownEvent(nowMs: 1000), 'NONE');
-      expect(sm.onVolumeUpDownEvent(nowMs: 1600), 'NONE');
-      expect(sm.onVolumeUpDownEvent(nowMs: 2200), 'SOS_VOLUME_ARMED');
-      expect(sm.state, SosVolumeStageState.armedWaitingConfirmation);
+      expect(sm.recordShortTap('VOLUME_UP', 1000), isNull);
+      expect(sm.recordShortTap('VOLUME_UP', 1600), isNull);
+      expect(sm.recordShortTap('VOLUME_UP', 2200), 'ARMED');
+      expect(sm.stage, SosVolumeShortcutStage.armedAwaitingVolumeDown);
 
       // Now 3x Volume Down within the 8-second window confirms SOS
-      expect(sm.onVolumeDownDownEvent(nowMs: 3000), 'NONE');
-      expect(sm.onVolumeDownDownEvent(nowMs: 3600), 'NONE');
-      expect(sm.onVolumeDownDownEvent(nowMs: 4200), 'SOS_VOLUME_CONFIRMED');
-      expect(sm.state, SosVolumeStageState.cooldown);
+      expect(sm.recordShortTap('VOLUME_DOWN', 3000), isNull);
+      expect(sm.recordShortTap('VOLUME_DOWN', 3600), isNull);
+      expect(sm.recordShortTap('VOLUME_DOWN', 4200), 'CONFIRMED');
+      expect(sm.stage, SosVolumeShortcutStage.idle);
 
       // Duplicate presses during cooldown are ignored
-      expect(sm.onVolumeUpDownEvent(nowMs: 5000), 'NONE');
+      expect(sm.recordShortTap('VOLUME_UP', 5000), isNull);
     });
 
     test('Armed confirmation window expires cleanly after 8 seconds without triggering SOS', () {
       final sm = SakhiTwoStageSosVolumeStateMachine();
-      sm.onVolumeUpDownEvent(nowMs: 1000);
-      sm.onVolumeUpDownEvent(nowMs: 1500);
-      expect(sm.onVolumeUpDownEvent(nowMs: 2000), 'SOS_VOLUME_ARMED');
+      sm.recordShortTap('VOLUME_UP', 1000);
+      sm.recordShortTap('VOLUME_UP', 1500);
+      expect(sm.recordShortTap('VOLUME_UP', 2000), 'ARMED');
 
       // 9 seconds later (past the 8s window), Volume Down does not trigger SOS
-      expect(sm.onVolumeDownDownEvent(nowMs: 11500), 'NONE');
-      expect(sm.state, SosVolumeStageState.idle);
+      expect(sm.recordShortTap('VOLUME_DOWN', 11500), 'CANCELLED');
+      expect(sm.stage, SosVolumeShortcutStage.idle);
     });
   });
 }

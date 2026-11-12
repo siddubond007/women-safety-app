@@ -53,10 +53,10 @@ BEGIN
     END IF;
   END LOOP;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sakhi_dev_app') OR
-     NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sakhi_test_app') OR
-     NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sakhi_staging_app') THEN
-    RAISE EXCEPTION 'Stage 5 requires the three dedicated Sakhi runtime roles';
+  -- Hosted staging intentionally provisions only its own runtime role.
+  -- Dev/test roles are local-environment conveniences and are not required here.
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sakhi_staging_app') THEN
+    RAISE EXCEPTION 'Stage 5 requires the dedicated sakhi_staging_app runtime role';
   END IF;
 
   IF EXISTS (

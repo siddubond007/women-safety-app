@@ -66,7 +66,7 @@ class _SakhiJoinCircleButtonState extends State<SakhiJoinCircleButton> {
           description: 'Verified Sakhi community support & discussion circle.',
           category: 'Community Circle',
           membersCount: 18,
-          isJoined: true,
+          newPostsToday: 0,
         ),
       );
       await Navigator.of(context).push(
@@ -91,7 +91,7 @@ class _SakhiJoinCircleButtonState extends State<SakhiJoinCircleButton> {
           description: 'Verified Sakhi community support & discussion circle.',
           category: 'Community Circle',
           membersCount: 19,
-          isJoined: true,
+          newPostsToday: 0,
         ),
       );
       if (!mounted) return;

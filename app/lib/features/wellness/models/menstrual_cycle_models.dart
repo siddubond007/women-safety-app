@@ -1168,7 +1168,7 @@ class MenstrualCycleController extends ChangeNotifier {
   }) {
     final p = predictions;
     final lines = <String>[
-      'SAKHI WOMEN'S MENSTRUAL HEALTH & CYCLE SUMMARY (PDF)',
+      "SAKHI WOMEN'S MENSTRUAL HEALTH & CYCLE SUMMARY (PDF)",
       'Generated: ${DateTime.now().toIso8601String().substring(0, 19).replaceFirst('T', ' ')}',
       'Privacy Classification: Strictly Owner-Isolated & Encrypted Health Vault',
       '------------------------------------------------------------------------',
@@ -1269,13 +1269,10 @@ class MenstrualCycleController extends ChangeNotifier {
       '5 0 obj\n<< /Length ${contentStream.length} >>\nstream\n$contentStream\nendstream\nendobj\n',
     ];
 
-    final pdf = StringBuffer('%PDF-1.4
-');
+    final pdf = StringBuffer('%PDF-1.4\n');
     final offsets = <int>[0];
     for (final obj in objects) {
-      final normalizedObj = obj.replaceAll(r'
-', '
-');
+      final normalizedObj = obj.replaceAll(r'\n', '\n');
       offsets.add(pdf.length);
       pdf.write(normalizedObj);
     }
