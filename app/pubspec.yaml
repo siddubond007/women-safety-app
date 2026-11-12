@@ -61,3 +61,6 @@ flutter:
     - assets/module4/components_png/
     - assets/module4/components_svg/
     - assets/module5/illustrations/
+
+  shaders:
+    - shaders/home_hair_flow.frag

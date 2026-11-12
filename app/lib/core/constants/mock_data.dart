@@ -1907,10 +1907,33 @@ class SakhiPrototypeState extends ChangeNotifier {
       lastSyncError = null;
       lastSyncSource = 'PostgreSQL Live DB';
       unawaited(_persistLocalCache());
-    } catch (_) {
+    } on BackendApiException catch (error) {
       if (syncEpoch == _accountStateEpoch) {
         _isBackendSynced = false;
-        lastSyncError = 'Live Sakhi data could not be loaded. Check the connection and retry.';
+        if (error.statusCode == 401 || error.code == 'session_missing') {
+          try {
+            await _client.clearAccessToken();
+          } catch (_) {
+            // Still clear the in-memory account view if secure storage fails.
+          }
+          if (syncEpoch == _accountStateEpoch) {
+            await clearAccountScopedData();
+            lastSyncError =
+                'Your Sakhi session has expired. Please sign in again to load live Community data.';
+            lastSyncSource = 'Authentication required';
+            notifyListeners();
+          }
+        } else {
+          lastSyncError =
+              'Sakhi server error (${error.statusCode}): ${error.message}';
+          lastSyncSource = 'Backend request failed';
+        }
+      }
+    } catch (error) {
+      if (syncEpoch == _accountStateEpoch) {
+        _isBackendSynced = false;
+        lastSyncError =
+            'Could not load live Sakhi data (${error.runtimeType}). Check the connection and retry.';
         lastSyncSource = 'Backend unavailable';
       }
     } finally {

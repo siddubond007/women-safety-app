@@ -1,6 +1,9 @@
 import 'dart:math' as math;
 
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../theme/app_colors.dart';
 
@@ -269,8 +272,9 @@ class _SakhiGentleWomanPainter extends CustomPainter {
   }
 }
 
-/// Home hero: retain the original Sakhi portrait artwork and animate only
-/// loose hair strands. The face, body, clothing and portrait remain stationary.
+/// Animated original Sakhi portrait. A GPU displacement shader moves the
+/// portrait's actual hair pixels through a feathered hair-only mask; the face,
+/// eyes, jewellery, clothing and background remain fixed.
 class SakhiAnimatedHomeHeroWoman extends StatefulWidget {
   final double width;
   final double height;
@@ -289,116 +293,119 @@ class SakhiAnimatedHomeHeroWoman extends StatefulWidget {
 class _SakhiAnimatedHomeHeroWomanState extends State<SakhiAnimatedHomeHeroWoman>
     with SingleTickerProviderStateMixin {
   late final AnimationController _breezeController;
+  ui.Image? _portrait;
+  ui.Image? _hairMask;
+  ui.FragmentShader? _shader;
 
   @override
   void initState() {
     super.initState();
     _breezeController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 3600),
+      duration: const Duration(milliseconds: 7600),
     )..repeat();
+    _loadPortraitShader();
+  }
+
+  Future<ui.Image> _decodeImage(String asset) async {
+    final data = await rootBundle.load(asset);
+    final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
+    try {
+      final frame = await codec.getNextFrame();
+      return frame.image;
+    } finally {
+      codec.dispose();
+    }
+  }
+
+  Future<void> _loadPortraitShader() async {
+    try {
+      final values = await Future.wait<Object>([
+        _decodeImage('assets/images/home/greeting_hero_illustration.webp'),
+        _decodeImage('assets/images/home/greeting_hero_hair_mask.png'),
+        ui.FragmentProgram.fromAsset('shaders/home_hair_flow.frag'),
+      ]);
+      if (!mounted) {
+        (values[0] as ui.Image).dispose();
+        (values[1] as ui.Image).dispose();
+        return;
+      }
+      _portrait = values[0] as ui.Image;
+      _hairMask = values[1] as ui.Image;
+      _shader = (values[2] as ui.FragmentProgram).fragmentShader();
+      _shader!
+        ..setImageSampler(0, _portrait!)
+        ..setImageSampler(1, _hairMask!);
+      setState(() {});
+    } catch (_) {
+      if (mounted) setState(() {});
+    }
   }
 
   @override
   void dispose() {
     _breezeController.dispose();
+    _shader?.dispose();
+    _portrait?.dispose();
+    _hairMask?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final reduceMotion = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    if (_shader == null || _portrait == null || _hairMask == null) {
+      return SizedBox(
+        width: widget.width,
+        height: widget.height,
+        child: Image.asset(
+          'assets/images/home/greeting_hero_illustration.webp',
+          fit: BoxFit.cover,
+          alignment: Alignment.center,
+          filterQuality: FilterQuality.high,
+          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+        ),
+      );
+    }
     return RepaintBoundary(
       child: SizedBox(
         width: widget.width,
         height: widget.height,
-        child: ClipRect(
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              Image.asset(
-                'assets/images/home/greeting_hero_illustration.webp',
-                fit: BoxFit.cover,
-                alignment: Alignment.center,
-                filterQuality: FilterQuality.high,
+        child: AnimatedBuilder(
+          animation: _breezeController,
+          builder: (context, _) {
+            final phase = reduceMotion ? 0.0 : _breezeController.value;
+            return CustomPaint(
+              painter: _SakhiHairFlowPainter(
+                shader: _shader!,
+                phase: phase,
               ),
-              if (!reduceMotion)
-                AnimatedBuilder(
-                  animation: _breezeController,
-                  builder: (context, _) => CustomPaint(
-                    painter: _SakhiPortraitHairBreezePainter(
-                      phase: _breezeController.value,
-                    ),
-                  ),
-                ),
-            ],
-          ),
+              isComplex: true,
+              willChange: !reduceMotion,
+            );
+          },
         ),
       ),
     );
   }
 }
 
-/// Fine, low-contrast flyaway strands move independently over the original
-/// painted hair, creating a visible breeze without moving the woman's face/body.
-class _SakhiPortraitHairBreezePainter extends CustomPainter {
+class _SakhiHairFlowPainter extends CustomPainter {
+  final ui.FragmentShader shader;
   final double phase;
 
-  const _SakhiPortraitHairBreezePainter({required this.phase});
+  const _SakhiHairFlowPainter({required this.shader, required this.phase});
 
   @override
   void paint(Canvas canvas, Size size) {
-    final w = size.width;
-    final h = size.height;
-    final sway = math.sin(phase * math.pi * 2) * w * 0.035;
-    final secondary = math.sin(phase * math.pi * 2 + 0.9) * w * 0.018;
-    final strand = Paint()
-      ..color = const Color(0xFF1D1023).withValues(alpha: 0.88)
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeWidth = 1.45;
-    final highlight = Paint()
-      ..color = const Color(0xFF9A789B).withValues(alpha: 0.58)
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeWidth = 0.85;
-
-    // Loose strands on the viewer's right side of her long hair.
-    for (var i = 0; i < 4; i++) {
-      final y = h * (0.36 + i * 0.105);
-      final offset = sway * (0.55 + i * 0.16) + secondary;
-      final path = Path()
-        ..moveTo(w * (0.79 + i * 0.012), y - h * 0.11)
-        ..cubicTo(
-          w * 0.94 + offset * 0.25,
-          y - h * 0.015,
-          w * 0.91 + offset,
-          y + h * 0.10,
-          w * 0.84 + offset * 1.25,
-          y + h * 0.17,
-        );
-      canvas.drawPath(path, strand);
-      canvas.drawPath(path.shift(Offset(-1.2, 0)), highlight);
-    }
-
-    // A few finer flyaways on the left edge; they lag slightly behind the breeze.
-    for (var i = 0; i < 2; i++) {
-      final y = h * (0.43 + i * 0.16);
-      final path = Path()
-        ..moveTo(w * 0.23, y - h * 0.12)
-        ..cubicTo(
-          w * 0.08 - secondary,
-          y - h * 0.01,
-          w * 0.09 - sway * 0.7,
-          y + h * 0.08,
-          w * 0.17 - sway,
-          y + h * 0.15,
-        );
-      canvas.drawPath(path, strand);
-    }
+    shader
+      ..setFloat(0, phase)
+      ..setFloat(1, size.width)
+      ..setFloat(2, size.height);
+    canvas.drawRect(Offset.zero & size, Paint()..shader = shader);
   }
 
   @override
-  bool shouldRepaint(covariant _SakhiPortraitHairBreezePainter oldDelegate) =>
-      (oldDelegate.phase - phase).abs() > 0.002;
+  bool shouldRepaint(covariant _SakhiHairFlowPainter oldDelegate) =>
+      oldDelegate.shader != shader || oldDelegate.phase != phase;
 }
