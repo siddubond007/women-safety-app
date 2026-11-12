@@ -865,40 +865,44 @@ class _SakhiDirectConversationScreenState
       builder: (ctx) => StatefulBuilder(
         builder: (dCtx, setDialogState) => AlertDialog(
           title: Text('Report ${widget.peerName}'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Select a reason for reporting this conversation to Sakhi Safety Moderation:',
-                style: AppTypography.caption,
-              ),
-              const SizedBox(height: 8),
-              for (final reason in const [
-                'Harassment or Unwanted Contact',
-                'Spam, Scam or Solicitations',
-                'Impersonation or Fake Profile',
-                'Safety Threat or Abuse',
-              ])
-                RadioListTile<String>(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(reason, style: const TextStyle(fontSize: 12.5)),
-                  value: reason,
-                  groupValue: selectedReason,
-                  onChanged: (v) {
-                    if (v != null) setDialogState(() => selectedReason = v);
-                  },
+          content: RadioGroup<String>(
+            groupValue: selectedReason,
+            onChanged: (value) {
+              if (value != null) {
+                setDialogState(() => selectedReason = value);
+              }
+            },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Select a reason for reporting this conversation to Sakhi Safety Moderation:',
+                  style: AppTypography.caption,
                 ),
-              const SizedBox(height: 6),
-              TextField(
-                controller: detailsCtrl,
-                maxLines: 2,
-                decoration: const InputDecoration(
-                  labelText: 'Additional context (optional)',
+                const SizedBox(height: 8),
+                for (final reason in const [
+                  'Harassment or Unwanted Contact',
+                  'Spam, Scam or Solicitations',
+                  'Impersonation or Fake Profile',
+                  'Safety Threat or Abuse',
+                ])
+                  RadioListTile<String>(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(reason, style: const TextStyle(fontSize: 12.5)),
+                    value: reason,
+                  ),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: detailsCtrl,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'Additional context (optional)',
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           actions: [
             TextButton(

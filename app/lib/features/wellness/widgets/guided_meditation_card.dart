@@ -204,6 +204,18 @@ class GuidedMeditationSessionController extends ChangeNotifier {
   static const String _prefsStorageKey = 'sakhi.wellness.preferences.v1';
   static const String _cacheIndexStorageKey = 'sakhi.wellness.audio_cache.v1';
 
+  Future<void> _startNativeAudio(String? localFilePath) async {
+    final arguments = <String, dynamic>{
+      'durationMinutes': selectedMinutes,
+      'volume': volume,
+      'trackIndex': selectedTrackIndex,
+    };
+    if (localFilePath != null) {
+      arguments['localFilePath'] = localFilePath;
+    }
+    await _nativeChannel.invokeMethod<void>('startMeditationAudio', arguments);
+  }
+
   // Bounded LRU Cache limits (Section 4.3)
   static const int maxCachedTracks = 6;
   static const int maxCacheBytes = 15 * 1024 * 1024; // 15 MB
@@ -1028,12 +1040,7 @@ class GuidedMeditationSessionController extends ChangeNotifier {
 
     if (ambientMusicEnabled) {
       try {
-        await _nativeChannel.invokeMethod('startMeditationAudio', {
-          'durationMinutes': selectedMinutes,
-          'volume': volume,
-          'trackIndex': selectedTrackIndex,
-          if (localFilePath != null) 'localFilePath': localFilePath,
-        });
+        await _startNativeAudio(localFilePath);
       } catch (_) {}
     }
 
@@ -1091,12 +1098,7 @@ class GuidedMeditationSessionController extends ChangeNotifier {
     if (isPlaying && ambientMusicEnabled) {
       final localPath = await _prepareSessionTrackBeforePlayback();
       try {
-        await _nativeChannel.invokeMethod('startMeditationAudio', {
-          'durationMinutes': selectedMinutes,
-          'volume': volume,
-          'trackIndex': selectedTrackIndex,
-          if (localPath != null) 'localFilePath': localPath,
-        });
+        await _startNativeAudio(localPath);
       } catch (_) {}
     }
   }
@@ -1114,12 +1116,7 @@ class GuidedMeditationSessionController extends ChangeNotifier {
     if (isPlaying && ambientMusicEnabled) {
       final localPath = await _prepareSessionTrackBeforePlayback();
       try {
-        await _nativeChannel.invokeMethod('startMeditationAudio', {
-          'durationMinutes': selectedMinutes,
-          'volume': volume,
-          'trackIndex': selectedTrackIndex,
-          if (localPath != null) 'localFilePath': localPath,
-        });
+        await _startNativeAudio(localPath);
       } catch (_) {}
     }
   }
@@ -1157,12 +1154,7 @@ class GuidedMeditationSessionController extends ChangeNotifier {
     } else if (isPlaying) {
       final localPath = await _prepareSessionTrackBeforePlayback();
       try {
-        await _nativeChannel.invokeMethod('startMeditationAudio', {
-          'durationMinutes': selectedMinutes,
-          'volume': volume,
-          'trackIndex': selectedTrackIndex,
-          if (localPath != null) 'localFilePath': localPath,
-        });
+        await _startNativeAudio(localPath);
       } catch (_) {}
     }
   }
@@ -1484,23 +1476,29 @@ class _SakhiWellnessOnboardingWizardSheetState
               style: AppTypography.bodyMedium,
             ),
             const SizedBox(height: 8),
-            for (final entry
-                in GuidedMeditationSessionController.musicCategories.entries)
-              RadioListTile<String>(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: Text(entry.value, style: const TextStyle(fontSize: 13)),
-                value: entry.key,
-                groupValue: _category,
-                onChanged: (val) {
-                  if (val != null) {
-                    setState(() {
-                      _category = val;
-                      _musicMode = val == 'ALL' ? 'CHOOSE_FOR_ME' : 'CATEGORY';
-                    });
-                  }
-                },
+            RadioGroup<String>(
+              groupValue: _category,
+              onChanged: (value) {
+                if (value != null) {
+                  setState(() {
+                    _category = value;
+                    _musicMode = value == 'ALL' ? 'CHOOSE_FOR_ME' : 'CATEGORY';
+                  });
+                }
+              },
+              child: Column(
+                children: [
+                  for (final entry
+                      in GuidedMeditationSessionController.musicCategories.entries)
+                    RadioListTile<String>(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(entry.value, style: const TextStyle(fontSize: 13)),
+                      value: entry.key,
+                    ),
+                ],
               ),
+            ),
           ],
           if (_musicMode == 'EXPLICIT_TRACK') ...[
             const Text(
@@ -1508,26 +1506,32 @@ class _SakhiWellnessOnboardingWizardSheetState
               style: AppTypography.bodyMedium,
             ),
             const SizedBox(height: 8),
-            for (final t in GuidedMeditationSessionController.remoteTrackCatalog)
-              RadioListTile<String>(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: Text(
-                  '${t.trackId} • ${t.title}',
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-                ),
-                subtitle: Text(
-                  t.requiresHeadphonesNote
-                      ? '${t.categoryLabel} • Stereo headphones optional'
-                      : t.categoryLabel,
-                  style: const TextStyle(fontSize: 11.5),
-                ),
-                value: t.trackId,
-                groupValue: _trackId,
-                onChanged: (val) {
-                  if (val != null) setState(() => _trackId = val);
-                },
+            RadioGroup<String>(
+              groupValue: _trackId,
+              onChanged: (value) {
+                if (value != null) setState(() => _trackId = value);
+              },
+              child: Column(
+                children: [
+                  for (final t in GuidedMeditationSessionController.remoteTrackCatalog)
+                    RadioListTile<String>(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        '${t.trackId} • ${t.title}',
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                      ),
+                      subtitle: Text(
+                        t.requiresHeadphonesNote
+                            ? '${t.categoryLabel} • Stereo headphones optional'
+                            : t.categoryLabel,
+                        style: const TextStyle(fontSize: 11.5),
+                      ),
+                      value: t.trackId,
+                    ),
+                ],
               ),
+            ),
           ],
         ],
       );
