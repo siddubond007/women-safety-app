@@ -15,7 +15,8 @@ void main() {
     'AppNavigationShell switches across Home, Explore, Community, and Profile (Screens 1, 2, 3, 6)',
     (WidgetTester tester) async {
       await tester.pumpWidget(const MaterialApp(home: AppNavigationShell()));
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump();
 
       // Screen 1: Home Dashboard
       expect(find.text('Sakhi'), findsOneWidget);
@@ -31,7 +32,8 @@ void main() {
       expect(verificationCard, findsOneWidget);
       await tester.ensureVisible(verificationCard);
       await tester.tap(verificationCard);
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump();
       expect(
         find.text('Step 1 — Initiate Decentro DigiLocker Session'),
         findsOneWidget,
@@ -46,17 +48,20 @@ void main() {
         await tester.pump();
       }
       Navigator.of(tester.element(initiateButton)).pop();
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump();
 
       // Tap Explore tab (Screen 2)
       await tester.tap(find.text('Explore').last);
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump();
       expect(find.text('Explore topics'), findsOneWidget);
       expect(find.text('Kavya Nair'), findsNothing);
 
       // Tap Community tab (Screen 3)
       await tester.tap(find.text('Community').last);
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump();
       expect(
         find.text('Sign in to load your live Social Wall and profile.'),
         findsOneWidget,
@@ -65,7 +70,8 @@ void main() {
 
       // Tap Profile tab (Screen 6)
       await tester.tap(find.text('Profile').last);
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump();
       expect(find.text('Sakhi Member'), findsOneWidget);
       expect(find.text('@siddhu'), findsNothing);
       expect(find.text('Edit Profile'), findsOneWidget);

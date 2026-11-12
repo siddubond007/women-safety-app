@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:women_safety_app/features/wellness/screens/wellness_screen.dart';
+import 'package:women_safety_app/features/wellness/widgets/guided_meditation_card.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -11,6 +12,8 @@ void main() {
   final spokenPhrases = <String>[];
 
   setUp(() {
+    // Bypass the first-use modal so tests can interact with the underlying studio.
+    GuidedMeditationSessionController.instance.onboardingCompleted = true;
     spokenPhrases.clear();
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -54,7 +57,7 @@ void main() {
       expect(find.byTooltip('Turn voice guidance off'), findsOneWidget);
       expect(find.byTooltip('Mute peaceful soundscape'), findsOneWidget);
 
-      await tester.tap(find.byTooltip('Turn voice guidance off'));
+      await tester.tap(find.byIcon(Icons.record_voice_over_rounded));
       await tester.pump();
 
       expect(find.byTooltip('Turn voice guidance on'), findsOneWidget);
