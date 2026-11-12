@@ -272,9 +272,9 @@ class _SakhiGentleWomanPainter extends CustomPainter {
   }
 }
 
-/// Animated original Sakhi portrait. A GPU displacement shader moves the
-/// portrait's actual hair pixels through a feathered hair-only mask; the face,
-/// eyes, jewellery, clothing and background remain fixed.
+/// Animated original Sakhi portrait. A GPU displacement shader applies a
+/// subtle, mask-gated texture flow to hair pixels in the original artwork.
+/// The original portrait remains the sole color source; facial features stay fixed.
 class SakhiAnimatedHomeHeroWoman extends StatefulWidget {
   final double width;
   final double height;
@@ -320,6 +320,9 @@ class _SakhiAnimatedHomeHeroWomanState extends State<SakhiAnimatedHomeHeroWoman>
 
   Future<void> _loadPortraitShader() async {
     try {
+      // Keep the original portrait as the sole color source. The refined
+      // grayscale mask gates a very small texture-flow displacement to dark
+      // hair pixels only; face, bindi, skin and clothing remain source pixels.
       final values = await Future.wait<Object>([
         _decodeImage('assets/images/home/greeting_hero_illustration.webp'),
         _decodeImage('assets/images/home/greeting_hero_hair_mask.png'),
