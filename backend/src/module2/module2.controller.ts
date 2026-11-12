@@ -1093,4 +1093,144 @@ export class Module2Controller {
   ) {
     return this.service.deleteAllMenstrualTrackerData(authorization);
   }
+
+  // ===========================================================================
+  // SECTION 4: WELLNESS STUDIO — VOICES, 42-TRACK CATALOGUE & PREFERENCES
+  // ===========================================================================
+
+  @Get("wellness/audio-catalog")
+  getWellnessAudioCatalog() {
+    return this.service.getWellnessAudioCatalog();
+  }
+
+  @Get("wellness/preferences")
+  getWellnessPreferences(@Headers("authorization") authorization?: string) {
+    return this.service.getWellnessPreferences(authorization);
+  }
+
+  @Put("wellness/preferences")
+  updateWellnessPreferences(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: Record<string, unknown>,
+  ) {
+    return this.service.updateWellnessPreferences(authorization, dto);
+  }
+
+  @Patch("wellness/preferences")
+  patchWellnessPreferences(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: Record<string, unknown>,
+  ) {
+    return this.service.updateWellnessPreferences(authorization, dto);
+  }
+
+  @Post("wellness/prepare-session")
+  @HttpCode(200)
+  prepareWellnessSession(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.service.prepareWellnessSession(authorization, body as any);
+  }
+
+  @Get("wellness/audio-tracks/:trackId/stream")
+  async streamWellnessAudioTrack(
+    @Param("trackId") trackId: string,
+    @Res() response: Response,
+  ) {
+    const audio = await this.service.streamWellnessAudioTrack(trackId);
+    response.setHeader("Content-Type", audio.contentType);
+    response.setHeader("Content-Length", String(audio.byteLength));
+    response.setHeader("X-Sakhi-Track-Sha256", audio.sha256Checksum);
+    response.setHeader("ETag", `"${audio.sha256Checksum}"`);
+    response.setHeader("X-Sakhi-Audio-Cache", audio.cacheStatus);
+    response.setHeader("Cache-Control", "public, max-age=86400, immutable");
+    return response.status(200).send(audio.buffer);
+  }
+
+  // ===========================================================================
+  // SECTION 7.2 & 7.3: PUSH TOKENS & MODERATED ACTIVE CIRCLES
+  // ===========================================================================
+
+  @Put("notifications/quiet-hours")
+  updateQuietHoursPreference(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: Record<string, unknown>,
+  ) {
+    return this.service.updateQuietHoursPreference(authorization, dto as any);
+  }
+
+  @Post("notifications/push-tokens")
+  @HttpCode(200)
+  registerPushToken(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: Record<string, unknown>,
+  ) {
+    return this.service.registerPushToken(authorization, dto as any);
+  }
+
+  @Delete("notifications/push-tokens/:tokenOrDigest")
+  unregisterPushToken(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("tokenOrDigest") tokenOrDigest: string,
+  ) {
+    return this.service.unregisterPushToken(authorization, tokenOrDigest);
+  }
+
+  @Get("circles/:circleId")
+  getCommunityCircleDetail(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("circleId") circleId: string,
+  ) {
+    return this.service.getCommunityCircleDetail(authorization, circleId);
+  }
+
+  @Post("circles")
+  @HttpCode(201)
+  createCommunityCircle(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: Record<string, unknown>,
+  ) {
+    return this.service.createCommunityCircle(authorization, dto as any);
+  }
+
+  @Post("circles/:circleId/leave")
+  @HttpCode(200)
+  leaveCommunityCircle(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("circleId") circleId: string,
+  ) {
+    return this.service.leaveCommunityCircle(authorization, circleId);
+  }
+
+  @Post("circles/:circleId/posts")
+  @HttpCode(201)
+  createCommunityCirclePost(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("circleId") circleId: string,
+    @Body() dto: Record<string, unknown>,
+  ) {
+    return this.service.createCommunityCirclePost(
+      authorization,
+      circleId,
+      dto as any,
+    );
+  }
+
+  @Post("circles/:circleId/posts/:postId/moderate")
+  @HttpCode(200)
+  moderateCommunityCirclePost(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("circleId") circleId: string,
+    @Param("postId") postId: string,
+    @Body() dto: Record<string, unknown>,
+  ) {
+    return this.service.moderateCommunityCirclePost(
+      authorization,
+      circleId,
+      postId,
+      dto as any,
+    );
+  }
+
 }

@@ -1,0 +1,38 @@
+name: Sakhi Staging Retention Scheduler
+
+on:
+  schedule:
+    - cron: "37 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sakhi-staging-retention
+  cancel-in-progress: false
+
+jobs:
+  retention-sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Trigger staging retention sweep
+        env:
+          API_BASE_URL: ${{ secrets.SAKHI_STAGING_API_BASE_URL }}
+          RETENTION_TOKEN: ${{ secrets.SAKHI_EVIDENCE_RETENTION_CRON_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${API_BASE_URL}" || -z "${RETENTION_TOKEN}" ]]; then
+            echo "Required GitHub Actions secrets SAKHI_STAGING_API_BASE_URL and SAKHI_EVIDENCE_RETENTION_CRON_TOKEN are missing." >&2
+            exit 1
+          fi
+          API_BASE_URL="${API_BASE_URL%/}"
+          curl --fail --show-error --silent \
+            --retry 8 --retry-all-errors --retry-delay 20 \
+            --connect-timeout 15 --max-time 120 \
+            -X POST \
+            -H "Authorization: Bearer ${RETENTION_TOKEN}" \
+            -H "Accept: application/json" \
+            "${API_BASE_URL}/internal/retention/run"

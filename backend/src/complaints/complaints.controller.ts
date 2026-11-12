@@ -12,6 +12,7 @@ import {
   Put,
   Query,
   UploadedFile,
+  UseGuards,
   UseInterceptors,
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
@@ -34,18 +35,10 @@ import {
   UpsertComplaintCategoryConfigDto,
 } from "./complaints.dto.js";
 import { ComplaintsService } from "./complaints.service.js";
+import { AdminStaffSessionGuard } from "../admin-security/admin-staff-session.guard.js";
 
-function pickAdminToken(
-  primary?: string,
-  fallback?: string,
-  stagingSession?: string,
-): string | undefined {
-  return (
-    primary?.trim() ||
-    fallback?.trim() ||
-    stagingSession?.trim() ||
-    undefined
-  );
+function pickAdminToken(stagingSession?: string): string | undefined {
+  return stagingSession?.trim() || undefined;
 }
 
 @Controller()
@@ -127,17 +120,6 @@ export class ComplaintsController {
     return this.service.trackByReference(dto.referenceNumber, dto.passkey);
   }
 
-  @Get([
-    "complaints/track/:referenceNumber",
-    "module2/complaints/track/:referenceNumber",
-  ])
-  trackByReference(
-    @Param("referenceNumber") referenceNumber: string,
-    @Query("passkey") passkey?: string,
-  ) {
-    return this.service.trackByReference(referenceNumber, passkey);
-  }
-
   @Post([
     "complaints/track/:referenceNumber/reply",
     "module2/complaints/track/:referenceNumber/reply",
@@ -169,12 +151,11 @@ export class ComplaintsController {
   @HttpCode(200)
   purgeMedia(
     @Param("referenceNumber") referenceNumber: string,
-    @Query("passkey") queryPasskey?: string,
     @Body() body?: Partial<PurgeComplainantMediaDto>,
   ) {
     return this.service.purgeComplainantMedia(
       referenceNumber,
-      body?.passkey ?? queryPasskey,
+      body?.passkey,
     );
   }
 
@@ -194,10 +175,9 @@ export class ComplaintsController {
   // Admin Complaint Management Endpoints (/api/v1/admin-review/complaints*)
   // ===========================================================================
 
+  @UseGuards(AdminStaffSessionGuard)
   @Get(["admin-review/complaints", "complaints/admin/queue"])
   adminDashboardAndQueue(
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
     @Query("status") status?: string,
     @Query("priority") priority?: string,
@@ -210,7 +190,7 @@ export class ComplaintsController {
     @Query("viewerRole") viewerRole?: string,
   ) {
     return this.service.adminDashboardAndQueue(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
       {
         status,
         priority,
@@ -225,24 +205,24 @@ export class ComplaintsController {
     );
   }
 
+  @UseGuards(AdminStaffSessionGuard)
   @Get([
     "admin-review/complaints/:referenceNumber",
     "complaints/admin/:referenceNumber",
   ])
   adminGetComplaintDetail(
     @Param("referenceNumber") referenceNumber: string,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
     @Query("viewerRole") viewerRole?: string,
   ) {
     return this.service.adminGetComplaintDetail(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
       referenceNumber,
       viewerRole,
     );
   }
 
+  @UseGuards(AdminStaffSessionGuard)
   @Patch([
     "admin-review/complaints/:referenceNumber/assign",
     "complaints/admin/:referenceNumber/assign",
@@ -250,17 +230,16 @@ export class ComplaintsController {
   adminAssignAndClassify(
     @Param("referenceNumber") referenceNumber: string,
     @Body() dto: AssignAndClassifyComplaintDto,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.service.adminAssignAndClassify(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
       referenceNumber,
       dto,
     );
   }
 
+  @UseGuards(AdminStaffSessionGuard)
   @Post([
     "admin-review/complaints/:referenceNumber/status",
     "complaints/admin/:referenceNumber/status",
@@ -269,17 +248,16 @@ export class ComplaintsController {
   adminUpdateStatus(
     @Param("referenceNumber") referenceNumber: string,
     @Body() dto: UpdateComplaintStatusDto,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.service.adminUpdateStatusAndEscalate(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
       referenceNumber,
       dto,
     );
   }
 
+  @UseGuards(AdminStaffSessionGuard)
   @Patch([
     "admin-review/complaints/:referenceNumber/status",
     "complaints/admin/:referenceNumber/status",
@@ -287,17 +265,16 @@ export class ComplaintsController {
   adminPatchStatus(
     @Param("referenceNumber") referenceNumber: string,
     @Body() dto: UpdateComplaintStatusDto,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.service.adminUpdateStatusAndEscalate(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
       referenceNumber,
       dto,
     );
   }
 
+  @UseGuards(AdminStaffSessionGuard)
   @Post([
     "admin-review/complaints/:referenceNumber/messages",
     "complaints/admin/:referenceNumber/messages",
@@ -306,17 +283,16 @@ export class ComplaintsController {
   adminSendMessageToComplainant(
     @Param("referenceNumber") referenceNumber: string,
     @Body() dto: SendAdminMessageToComplainantDto,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.service.adminSendMessageToComplainant(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
       referenceNumber,
       dto,
     );
   }
 
+  @UseGuards(AdminStaffSessionGuard)
   @Post([
     "admin-review/complaints/:referenceNumber/internal-notes",
     "complaints/admin/:referenceNumber/internal-notes",
@@ -325,17 +301,16 @@ export class ComplaintsController {
   adminAddInternalNote(
     @Param("referenceNumber") referenceNumber: string,
     @Body() dto: AddComplaintInternalNoteDto,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.service.adminAddInternalNote(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
       referenceNumber,
       dto,
     );
   }
 
+  @UseGuards(AdminStaffSessionGuard)
   @Post([
     "admin-review/complaints/:referenceNumber/evidence-access",
     "complaints/admin/:referenceNumber/evidence-access",
@@ -344,17 +319,16 @@ export class ComplaintsController {
   adminAccessEvidence(
     @Param("referenceNumber") referenceNumber: string,
     @Body() dto: AccessComplaintEvidenceDto,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.service.adminAccessControlledEvidence(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
       referenceNumber,
       dto,
     );
   }
 
+  @UseGuards(AdminStaffSessionGuard)
   @Post([
     "admin-review/complaints/merge-duplicates",
     "complaints/admin/merge-duplicates",
@@ -362,16 +336,15 @@ export class ComplaintsController {
   @HttpCode(200)
   adminMergeDuplicates(
     @Body() dto: MergeDuplicateComplaintsDto,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.service.adminMergeDuplicateComplaints(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
       dto,
     );
   }
 
+  @UseGuards(AdminStaffSessionGuard)
   @Post([
     "admin-review/complaints/:referenceNumber/malicious-guard",
     "complaints/admin/:referenceNumber/malicious-guard",
@@ -380,17 +353,16 @@ export class ComplaintsController {
   adminHandleMalicious(
     @Param("referenceNumber") referenceNumber: string,
     @Body() dto: HandleMaliciousComplaintDto,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.service.adminHandleMaliciousReport(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
       referenceNumber,
       dto,
     );
   }
 
+  @UseGuards(AdminStaffSessionGuard)
   @Put([
     "admin-review/complaints/categories",
     "admin-review/complaints/config/categories",
@@ -398,16 +370,15 @@ export class ComplaintsController {
   ])
   adminUpsertCategory(
     @Body() dto: UpsertComplaintCategoryConfigDto,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.service.adminUpsertCategory(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
       dto,
     );
   }
 
+  @UseGuards(AdminStaffSessionGuard)
   @Put([
     "admin-review/complaints/retention-policy",
     "admin-review/complaints/config/retention",
@@ -415,12 +386,10 @@ export class ComplaintsController {
   ])
   adminUpdateRetentionPolicy(
     @Body() dto: UpdateComplaintRetentionPolicyDto,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.service.adminUpdateRetentionPolicy(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
       dto,
     );
   }

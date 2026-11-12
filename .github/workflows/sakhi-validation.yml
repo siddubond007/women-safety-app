@@ -12,6 +12,8 @@ on:
       - module-proper-continuation
       - feat/admin-eligibility-review-backend
       - module-8-to-9-implementations-and-upgrades
+      - gemini/sakhi-comprehensive-fixes-20261107
+      - integration/sakhi-gemini-first-implementation-20261111
     paths:
       - "backend/**"
       - "super-admin/**"
@@ -27,6 +29,8 @@ on:
       - module-proper-continuation
       - feat/admin-eligibility-review-backend
       - module-8-to-9-implementations-and-upgrades
+      - gemini/sakhi-comprehensive-fixes-20261107
+      - integration/sakhi-gemini-first-implementation-20261111
     paths:
       - "backend/**"
       - "super-admin/**"

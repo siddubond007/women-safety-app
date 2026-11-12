@@ -56,21 +56,51 @@ class _SakhiJoinCircleButtonState extends State<SakhiJoinCircleButton> {
 
   Future<void> _toggleJoin() async {
     if (_busy) return;
-    setState(() => _busy = true);
     final state = SakhiPrototypeState.instance;
+    if (state.isCircleJoined(widget.circleName)) {
+      final group = state.groups.firstWhere(
+        (g) => g.name.toLowerCase() == widget.circleName.toLowerCase(),
+        orElse: () => CommunityGroupModel(
+          id: 'circle_${widget.circleName.hashCode.abs()}',
+          name: widget.circleName,
+          description: 'Verified Sakhi community support & discussion circle.',
+          category: 'Community Circle',
+          membersCount: 18,
+          isJoined: true,
+        ),
+      );
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SakhiCommunityCircleChannelScreen(circle: group),
+        ),
+      );
+      if (mounted) setState(() {});
+      return;
+    }
+    setState(() => _busy = true);
     await state.joinOrCreateCommunityCircle(widget.circleName);
     if (!mounted) return;
     setState(() => _busy = false);
     final isJoined = state.isCircleJoined(widget.circleName);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          isJoined
-              ? 'You joined ${widget.circleName}!'
-              : 'You left ${widget.circleName}.',
+    if (isJoined) {
+      final group = state.groups.firstWhere(
+        (g) => g.name.toLowerCase() == widget.circleName.toLowerCase(),
+        orElse: () => CommunityGroupModel(
+          id: 'circle_${widget.circleName.hashCode.abs()}',
+          name: widget.circleName,
+          description: 'Verified Sakhi community support & discussion circle.',
+          category: 'Community Circle',
+          membersCount: 19,
+          isJoined: true,
         ),
-      ),
-    );
+      );
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SakhiCommunityCircleChannelScreen(circle: group),
+        ),
+      );
+    }
   }
 
   @override
@@ -100,7 +130,7 @@ class _SakhiJoinCircleButtonState extends State<SakhiJoinCircleButton> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : Text(
-                  joined ? 'Joined ✓' : 'Join',
+                  joined ? 'Open Circle →' : 'Join Circle',
                   style: const TextStyle(
                     fontSize: 12.5,
                     fontWeight: FontWeight.w800,
@@ -311,6 +341,13 @@ class _CategoryDestinationScreenState extends State<CategoryDestinationScreen> {
                     (group) => Padding(
                       padding: const EdgeInsets.only(bottom: 10),
                       child: SakhiCard(
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => SakhiCommunityCircleChannelScreen(
+                              circle: group,
+                            ),
+                          ),
+                        ),
                         child: Row(
                           children: [
                             Container(
@@ -1456,10 +1493,45 @@ class _SearchResultMemberProfileScreenState
               child: Column(
                 children: [
                   const SizedBox(height: 8),
-                  SakhiAvatar(
-                    imageAsset: member.avatarAsset,
-                    fallbackLabel: member.name,
-                    size: 100,
+                  GestureDetector(
+                    onTap: () => showDialog<void>(
+                      context: context,
+                      builder: (dCtx) => Dialog(
+                        backgroundColor: Colors.black87,
+                        insetPadding: const EdgeInsets.all(16),
+                        child: Stack(
+                          alignment: Alignment.topRight,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: InteractiveViewer(
+                                minScale: 1.0,
+                                maxScale: 4.0,
+                                child: Center(
+                                  child: SakhiAvatar(
+                                    imageAsset: member.avatarAsset,
+                                    fallbackLabel: member.name,
+                                    size: 240,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: () => Navigator.pop(dCtx),
+                              icon: const Icon(
+                                Icons.close_rounded,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    child: SakhiAvatar(
+                      imageAsset: member.avatarAsset,
+                      fallbackLabel: member.name,
+                      size: 100,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -2174,6 +2246,13 @@ class _NearbyCirclesScreenState extends State<NearbyCirclesScreen> {
                 (group) => Padding(
                   padding: const EdgeInsets.only(bottom: 10),
                   child: SakhiCard(
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => SakhiCommunityCircleChannelScreen(
+                          circle: group,
+                        ),
+                      ),
+                    ),
                     child: Row(
                       children: [
                         Container(
@@ -2287,6 +2366,465 @@ class _InlineEmptyResult extends StatelessWidget {
         border: Border.all(color: AppColors.borderSubtle),
       ),
       child: Text(text, style: AppTypography.subtitle),
+    );
+  }
+}
+
+
+/// Post-Join Community Circle Channel Screen (Section 7.3)
+/// Provides circle purpose, rules, Owner/Moderator/Member role badges,
+/// pinned announcements, member discussion feed, post composer, and moderation.
+class SakhiCommunityCircleChannelScreen extends StatefulWidget {
+  const SakhiCommunityCircleChannelScreen({
+    super.key,
+    required this.circle,
+  });
+
+  final CommunityGroupModel circle;
+
+  @override
+  State<SakhiCommunityCircleChannelScreen> createState() =>
+      _SakhiCommunityCircleChannelScreenState();
+}
+
+class _SakhiCommunityCircleChannelScreenState
+    extends State<SakhiCommunityCircleChannelScreen> {
+  final SakhiPrototypeState _state = SakhiPrototypeState.instance;
+  final TextEditingController _postCtrl = TextEditingController();
+  bool _postAsAnnouncement = false;
+  bool _showRules = false;
+  late String _myRole;
+  late List<Map<String, dynamic>> _channelPosts;
+
+  @override
+  void initState() {
+    super.initState();
+    final isCreator = widget.circle.name.toLowerCase().contains('local') ||
+        widget.circle.id.startsWith('local_');
+    _myRole = isCreator ? 'OWNER' : 'MEMBER';
+    _channelPosts = <Map<String, dynamic>>[
+      <String, dynamic>{
+        'id': 'cpost_welcome_${widget.circle.id}',
+        'authorName': 'Circle Moderator Team',
+        'authorHandle': '@sakhi_circle_host',
+        'authorRole': 'OWNER',
+        'isAnnouncement': true,
+        'isPinned': true,
+        'body':
+            'Welcome to ${widget.circle.name}! Please keep all conversations supportive, respectful, and privacy-safe. Never share another member’s phone number or live location.',
+        'timestamp': 'Pinned Announcement',
+        'likesCount': 14,
+      },
+      <String, dynamic>{
+        'id': 'cpost_intro_${widget.circle.id}',
+        'authorName': 'Ananya Rao',
+        'authorHandle': '@ananya_wellness',
+        'authorRole': 'MODERATOR',
+        'isAnnouncement': false,
+        'isPinned': false,
+        'body':
+            'Glad to have everyone here in ${widget.circle.name}. Feel free to introduce yourself, share helpful resources, or ask questions below!',
+        'timestamp': '2h ago',
+        'likesCount': 9,
+      },
+    ];
+  }
+
+  @override
+  void dispose() {
+    _postCtrl.dispose();
+    super.dispose();
+  }
+
+  bool get _canModerate => _myRole == 'OWNER' || _myRole == 'MODERATOR';
+
+  void _submitCirclePost() {
+    final text = _postCtrl.text.trim();
+    if (text.length < 2) return;
+    final user = _state.currentUser;
+    setState(() {
+      _channelPosts.insert(
+        _postAsAnnouncement ? 0 : 1,
+        <String, dynamic>{
+          'id': 'cpost_${DateTime.now().millisecondsSinceEpoch}',
+          'authorName': user.displayName.isNotEmpty
+              ? user.displayName
+              : 'Sakhi Member',
+          'authorHandle': user.username.isNotEmpty ? user.username : '@member',
+          'authorRole': _myRole,
+          'isAnnouncement': _postAsAnnouncement && _canModerate,
+          'isPinned': _postAsAnnouncement && _canModerate,
+          'body': text,
+          'timestamp': 'Just now',
+          'likesCount': 1,
+        },
+      );
+      _postCtrl.clear();
+      _postAsAnnouncement = false;
+    });
+  }
+
+  Future<void> _leaveCircle() async {
+    await _state.joinOrCreateCommunityCircle(widget.circle.name);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('You left ${widget.circle.name}.')),
+    );
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isJoined = _state.isCircleJoined(widget.circle.name);
+    return Scaffold(
+      backgroundColor: AppColors.scaffoldBackground,
+      appBar: AppBar(
+        title: Text(
+          widget.circle.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        actions: [
+          PopupMenuButton<String>(
+            tooltip: 'Circle Options',
+            onSelected: (value) {
+              if (value == 'TOGGLE_ROLE') {
+                setState(() {
+                  _myRole = _myRole == 'MEMBER' ? 'MODERATOR' : 'MEMBER';
+                });
+              } else if (value == 'LEAVE') {
+                _leaveCircle();
+              }
+            },
+            itemBuilder: (_) => [
+              PopupMenuItem<String>(
+                value: 'TOGGLE_ROLE',
+                child: Text(
+                  _canModerate
+                      ? 'Preview as Member Role'
+                      : 'Preview Moderator Controls',
+                ),
+              ),
+              if (isJoined)
+                const PopupMenuItem<String>(
+                  value: 'LEAVE',
+                  child: Text(
+                    'Leave Circle',
+                    style: TextStyle(color: AppColors.sosRed),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.screenPaddingH,
+                10,
+                AppSpacing.screenPaddingH,
+                28,
+              ),
+              children: [
+                // Circle Header & Governance Card
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: AppColors.heroBannerGradient,
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(color: AppColors.borderSubtle),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.primaryPurple,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              'ROLE: $_myRole',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              '${widget.circle.membersCount} Verified Members',
+                              style: const TextStyle(
+                                color: AppColors.primaryPurple,
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          const Spacer(),
+                          if (!isJoined)
+                            FilledButton(
+                              onPressed: () async {
+                                await _state.joinOrCreateCommunityCircle(
+                                  widget.circle.name,
+                                );
+                                if (mounted) setState(() {});
+                              },
+                              child: const Text('Join Circle'),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        widget.circle.name,
+                        style: AppTypography.sectionTitle,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        widget.circle.description,
+                        style: AppTypography.bodyRegular,
+                      ),
+                      const SizedBox(height: 10),
+                      InkWell(
+                        onTap: () => setState(() => _showRules = !_showRules),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.verified_user_outlined,
+                              size: 16,
+                              color: AppColors.primaryPurple,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              _showRules
+                                  ? 'Hide Circle Safety & Community Rules'
+                                  : 'View Circle Safety & Community Rules',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.primaryPurple,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (_showRules) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.9),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: const Text(
+                            '1. Respect member privacy — never share personal phone numbers, addresses, or screenshots outside Sakhi.\n'
+                            '2. Keep discussions supportive, constructive, and free from harassment or spam.\n'
+                            '3. Health & wellness posts are peer experiences, not medical advice.',
+                            style: TextStyle(fontSize: 12, height: 1.4),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const SakhiSectionHeader(
+                  title: 'Circle Channel & Announcements',
+                ),
+                const SizedBox(height: 10),
+                ..._channelPosts.map((post) {
+                  final isAnnouncement = post['isAnnouncement'] == true;
+                  final isPinned = post['isPinned'] == true;
+                  final role = (post['authorRole'] ?? 'MEMBER').toString();
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: SakhiCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              SakhiAvatar(
+                                imageAsset: '',
+                                fallbackLabel:
+                                    (post['authorName'] ?? 'M').toString(),
+                                size: 36,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Flexible(
+                                          child: Text(
+                                            (post['authorName'] ?? '')
+                                                .toString(),
+                                            style: AppTypography.cardTitle,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: role == 'OWNER'
+                                                ? const Color(0xFFFFD6E7)
+                                                : AppColors.pastelLavender,
+                                            borderRadius:
+                                                BorderRadius.circular(999),
+                                          ),
+                                          child: Text(
+                                            role,
+                                            style: const TextStyle(
+                                              fontSize: 9.5,
+                                              fontWeight: FontWeight.w900,
+                                              color: AppColors.primaryPurple,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    Text(
+                                      '${post['authorHandle']} • ${post['timestamp']}',
+                                      style: AppTypography.caption,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (isPinned || isAnnouncement)
+                                const Icon(
+                                  Icons.push_pin_rounded,
+                                  size: 16,
+                                  color: Color(0xFFD63E85),
+                                ),
+                              if (_canModerate)
+                                PopupMenuButton<String>(
+                                  icon: const Icon(Icons.more_vert_rounded, size: 18),
+                                  onSelected: (action) {
+                                    setState(() {
+                                      if (action == 'PIN') {
+                                        post['isPinned'] = !(post['isPinned'] == true);
+                                      } else if (action == 'REMOVE') {
+                                        _channelPosts.remove(post);
+                                      }
+                                    });
+                                  },
+                                  itemBuilder: (_) => [
+                                    PopupMenuItem<String>(
+                                      value: 'PIN',
+                                      child: Text(
+                                        isPinned ? 'Unpin Post' : 'Pin Post',
+                                      ),
+                                    ),
+                                    const PopupMenuItem<String>(
+                                      value: 'REMOVE',
+                                      child: Text(
+                                        'Remove Post (Moderator)',
+                                        style: TextStyle(color: AppColors.sosRed),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            (post['body'] ?? '').toString(),
+                            style: AppTypography.bodyRegular.copyWith(
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+          // Channel Post Composer
+          SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(top: BorderSide(color: AppColors.borderSubtle)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_canModerate)
+                    Row(
+                      children: [
+                        Checkbox(
+                          visualDensity: VisualDensity.compact,
+                          value: _postAsAnnouncement,
+                          onChanged: (v) => setState(
+                            () => _postAsAnnouncement = v == true,
+                          ),
+                        ),
+                        const Text(
+                          'Post as Pinned Circle Announcement (Owner/Moderator)',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.primaryPurple,
+                          ),
+                        ),
+                      ],
+                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _postCtrl,
+                          decoration: InputDecoration(
+                            hintText:
+                                'Share an update or question in ${widget.circle.name}…',
+                            border: InputBorder.none,
+                          ),
+                          onSubmitted: (_) => _submitCirclePost(),
+                        ),
+                      ),
+                      FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.primaryPurple,
+                        ),
+                        onPressed: _submitCirclePost,
+                        icon: const Icon(Icons.send_rounded, size: 16),
+                        label: const Text('Post'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

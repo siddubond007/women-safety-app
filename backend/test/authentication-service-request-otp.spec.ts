@@ -64,6 +64,9 @@ function createService(account: { id: string; status?: string } | null) {
     authSession: {
       findUnique: vi.fn(),
     },
+    memberAccount: {
+      findUnique: vi.fn().mockResolvedValue(account),
+    },
     memberProfile: {
       findUnique: vi.fn().mockResolvedValue(null),
     },
@@ -303,6 +306,7 @@ describe("AuthenticationService.requestOtp account checks", () => {
       expiresAt: new Date(Date.now() + 60_000),
       account,
     });
+    prisma.memberAccount.findUnique.mockResolvedValue(account);
     tx.policyDocumentVersion.findFirst.mockImplementation(
       async (args: { where: { documentType: string } }) => ({
         id: args.where.documentType === "TERMS" ? "terms-id" : "privacy-id",
@@ -367,6 +371,12 @@ describe("AuthenticationService.requestOtp account checks", () => {
         verificationStatus: "UNVERIFIED",
         phoneE164: "+919876543210",
       },
+    });
+    prisma.memberAccount.findUnique.mockResolvedValue({
+      id: "staging-account-2",
+      status: "PENDING_VERIFICATION",
+      verificationStatus: "UNVERIFIED",
+      phoneE164: "+919876543210",
     });
     prisma.auditEvent.findFirst.mockResolvedValue({
       createdAt: new Date("2026-10-22T08:00:00.000Z"),

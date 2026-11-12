@@ -1,5 +1,5 @@
 import { Injectable, ServiceUnavailableException } from "@nestjs/common";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 
@@ -225,6 +225,7 @@ export class GoogleDriveStorageService {
     driveFolderPath: string;
     storedName: string;
     size: number;
+    sha256Checksum: string;
   }> {
     if (input.buffer.length === 0) {
       throw new ServiceUnavailableException(
@@ -253,6 +254,8 @@ export class GoogleDriveStorageService {
         sakhiPurpose: input.purpose,
         sakhiAccountId: input.accountId,
         sakhiCategorySlug: input.categorySlug || "community",
+        sakhiSha256: createHash("sha256").update(input.buffer).digest("hex"),
+        sakhiByteSize: String(input.buffer.length),
       },
     };
     const boundary = `sakhi_${randomBytes(18).toString("hex")}`;
@@ -287,6 +290,7 @@ export class GoogleDriveStorageService {
       driveFolderPath: hierarchy.displayPath,
       storedName: file.name ?? storedName,
       size: Number(file.size ?? input.buffer.length),
+      sha256Checksum: createHash("sha256").update(input.buffer).digest("hex"),
     };
   }
 
@@ -296,7 +300,7 @@ export class GoogleDriveStorageService {
     fileName: string;
     contentType: string;
     buffer: Buffer;
-  }): Promise<{ driveFileId: string; driveFolderId: string; size: number }> {
+  }): Promise<{ driveFileId: string; driveFolderId: string; size: number; sha256Checksum: string }> {
     if (
       !/^[A-Za-z0-9_-]{12,100}$/.test(input.evidenceId) ||
       input.buffer.length === 0
@@ -318,6 +322,8 @@ export class GoogleDriveStorageService {
       appProperties: {
         sakhiEvidenceId: input.evidenceId,
         sakhiClassification: "CONFIDENTIAL_COMPLAINT_EVIDENCE",
+        sakhiSha256: createHash("sha256").update(input.buffer).digest("hex"),
+        sakhiByteSize: String(input.buffer.length),
       },
     };
     const boundary = `sakhi_evidence_${randomBytes(18).toString("hex")}`;
@@ -349,45 +355,65 @@ export class GoogleDriveStorageService {
       driveFileId: file.id,
       driveFolderId: parentId,
       size: Number(file.size ?? input.buffer.length),
+      sha256Checksum: createHash("sha256").update(input.buffer).digest("hex"),
     };
   }
 
   async verifyComplaintEvidenceFile(
     driveFileId: string,
     evidenceId: string,
+    expectedSha256: string,
+    expectedByteSize: number,
   ): Promise<boolean> {
     if (
       !/^[A-Za-z0-9_-]{10,200}$/.test(driveFileId) ||
-      !/^[A-Za-z0-9_-]{12,100}$/.test(evidenceId)
-    )
-      return false;
+      !/^[A-Za-z0-9_-]{12,100}$/.test(evidenceId) ||
+      !/^[a-f0-9]{64}$/i.test(expectedSha256) ||
+      !Number.isSafeInteger(expectedByteSize) || expectedByteSize <= 0
+    ) return false;
     const accessToken = await this.getAccessToken();
-    const response = await fetch(
-      `${DRIVE_API}/files/${encodeURIComponent(driveFileId)}?fields=id,trashed,appProperties`,
+    const metadataResponse = await fetch(
+      `${DRIVE_API}/files/${encodeURIComponent(driveFileId)}?fields=id,trashed,size,mimeType,appProperties`,
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
-    if (!response.ok) return false;
-    const file = (await response.json()) as {
-      id?: string;
-      trashed?: boolean;
+    if (!metadataResponse.ok) return false;
+    const file = (await metadataResponse.json()) as {
+      id?: string; trashed?: boolean; size?: string;
       appProperties?: Record<string, string>;
     };
-    return (
-      file.id === driveFileId &&
-      file.trashed !== true &&
-      file.appProperties?.sakhiEvidenceId === evidenceId &&
-      file.appProperties?.sakhiClassification ===
-        "CONFIDENTIAL_COMPLAINT_EVIDENCE"
+    if (
+      file.id !== driveFileId || file.trashed === true ||
+      file.appProperties?.sakhiEvidenceId !== evidenceId ||
+      file.appProperties?.sakhiClassification !== "CONFIDENTIAL_COMPLAINT_EVIDENCE" ||
+      file.appProperties?.sakhiSha256?.toLowerCase() !== expectedSha256.toLowerCase() ||
+      Number(file.appProperties?.sakhiByteSize) !== expectedByteSize ||
+      Number(file.size) !== expectedByteSize
+    ) return false;
+
+    const contentResponse = await fetch(
+      `${DRIVE_API}/files/${encodeURIComponent(driveFileId)}?alt=media`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
     );
+    if (!contentResponse.ok) return false;
+    const content = Buffer.from(await contentResponse.arrayBuffer());
+    const actualDigest = createHash("sha256").update(content).digest();
+    const expectedDigest = Buffer.from(expectedSha256, "hex");
+    return content.length === expectedByteSize &&
+      actualDigest.length === expectedDigest.length &&
+      timingSafeEqual(actualDigest, expectedDigest);
   }
 
   async deleteComplaintEvidence(
     driveFileId: string,
     evidenceId: string,
+    expectedSha256: string,
+    expectedByteSize: number,
   ): Promise<void> {
     if (
       !/^[A-Za-z0-9_-]{10,200}$/.test(driveFileId) ||
-      !/^[A-Za-z0-9_-]{12,100}$/.test(evidenceId)
+      !/^[A-Za-z0-9_-]{12,100}$/.test(evidenceId) ||
+      !/^[a-f0-9]{64}$/i.test(expectedSha256) ||
+      !Number.isSafeInteger(expectedByteSize) || expectedByteSize <= 0
     ) {
       throw new ServiceUnavailableException(
         "Complaint evidence storage reference is invalid for deletion.",
@@ -395,7 +421,7 @@ export class GoogleDriveStorageService {
     }
     const accessToken = await this.getAccessToken();
     const metadataResponse = await fetch(
-      `${DRIVE_API}/files/${encodeURIComponent(driveFileId)}?fields=id,trashed,appProperties`,
+      `${DRIVE_API}/files/${encodeURIComponent(driveFileId)}?fields=id,trashed,size,appProperties`,
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
     // A prior successful delete may have completed before PostgreSQL metadata
@@ -409,6 +435,7 @@ export class GoogleDriveStorageService {
     const file = (await metadataResponse.json()) as {
       id?: string;
       trashed?: boolean;
+      size?: string;
       appProperties?: Record<string, string>;
     };
     if (
@@ -416,7 +443,10 @@ export class GoogleDriveStorageService {
       file.trashed === true ||
       file.appProperties?.sakhiEvidenceId !== evidenceId ||
       file.appProperties?.sakhiClassification !==
-        "CONFIDENTIAL_COMPLAINT_EVIDENCE"
+        "CONFIDENTIAL_COMPLAINT_EVIDENCE" ||
+      file.appProperties?.sakhiSha256?.toLowerCase() !== expectedSha256.toLowerCase() ||
+      Number(file.appProperties?.sakhiByteSize) !== expectedByteSize ||
+      Number(file.size) !== expectedByteSize
     ) {
       throw new ServiceUnavailableException(
         "Complaint evidence storage reference could not be verified for deletion.",
@@ -494,6 +524,76 @@ export class GoogleDriveStorageService {
         driveFolderPath: hierarchy.displayPath,
       };
     }
+  }
+
+  async verifyMemberMediaFile(
+    driveFileId: string,
+    ownerAccountId: string,
+    expectedSha256: string,
+    expectedByteSize: number,
+  ): Promise<boolean> {
+    if (
+      !/^[A-Za-z0-9_-]{10,200}$/.test(driveFileId) ||
+      !/^[0-9a-f-]{36}$/i.test(ownerAccountId) ||
+      !/^[a-f0-9]{64}$/i.test(expectedSha256) ||
+      !Number.isSafeInteger(expectedByteSize) || expectedByteSize <= 0
+    ) return false;
+    const accessToken = await this.getAccessToken();
+    const metadataResponse = await fetch(
+      `${DRIVE_API}/files/${encodeURIComponent(driveFileId)}?fields=id,trashed,size,appProperties`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    if (!metadataResponse.ok) return false;
+    const file = (await metadataResponse.json()) as {
+      id?: string; trashed?: boolean; size?: string; appProperties?: Record<string, string>;
+    };
+    if (
+      file.id !== driveFileId || file.trashed === true ||
+      file.appProperties?.sakhiAccountId !== ownerAccountId ||
+      !["avatar", "post"].includes(file.appProperties?.sakhiPurpose ?? "") ||
+      file.appProperties?.sakhiSha256?.toLowerCase() !== expectedSha256.toLowerCase() ||
+      Number(file.appProperties?.sakhiByteSize) !== expectedByteSize ||
+      Number(file.size) !== expectedByteSize
+    ) return false;
+    const contentResponse = await fetch(
+      `${DRIVE_API}/files/${encodeURIComponent(driveFileId)}?alt=media`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    if (!contentResponse.ok) return false;
+    const content = Buffer.from(await contentResponse.arrayBuffer());
+    const actual = createHash("sha256").update(content).digest();
+    const expected = Buffer.from(expectedSha256, "hex");
+    return content.length === expectedByteSize && actual.length === expected.length && timingSafeEqual(actual, expected);
+  }
+
+  async downloadMemberMediaFile(input: {
+    driveFileId: string; ownerAccountId: string; expectedSha256: string; expectedByteSize: number;
+  }): Promise<{ buffer: Buffer; contentType: string }> {
+    if (!(await this.verifyMemberMediaFile(input.driveFileId, input.ownerAccountId, input.expectedSha256, input.expectedByteSize))) {
+      throw new ServiceUnavailableException("The Google Drive media object failed owner, size or SHA-256 verification.");
+    }
+    return this.downloadFile(input.driveFileId);
+  }
+
+  async deleteMemberMediaFile(driveFileId: string, ownerAccountId: string): Promise<void> {
+    if (!/^[A-Za-z0-9_-]{10,200}$/.test(driveFileId) || !/^[0-9a-f-]{36}$/i.test(ownerAccountId)) {
+      throw new ServiceUnavailableException("The member media storage reference is invalid for deletion.");
+    }
+    const accessToken = await this.getAccessToken();
+    const metadataResponse = await fetch(
+      `${DRIVE_API}/files/${encodeURIComponent(driveFileId)}?fields=id,trashed,appProperties`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    if (metadataResponse.status === 404) return;
+    if (!metadataResponse.ok) throw new ServiceUnavailableException("The member media object could not be verified before deletion.");
+    const file = (await metadataResponse.json()) as { id?: string; trashed?: boolean; appProperties?: Record<string, string> };
+    if (file.id !== driveFileId || file.trashed === true || file.appProperties?.sakhiAccountId !== ownerAccountId || !["avatar", "post"].includes(file.appProperties?.sakhiPurpose ?? "")) {
+      throw new ServiceUnavailableException("The Google Drive object does not belong to the account being erased.");
+    }
+    const response = await fetch(`${DRIVE_API}/files/${encodeURIComponent(driveFileId)}`, {
+      method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!response.ok && response.status !== 404) throw new ServiceUnavailableException("Google Drive could not delete the member media object.");
   }
 
   async downloadFile(

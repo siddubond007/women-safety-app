@@ -628,6 +628,19 @@ class _SakhiGuidedMeditationStudioScreenState
     extends State<SakhiGuidedMeditationStudioScreen> {
   final _session = GuidedMeditationSessionController.instance;
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_session.onboardingCompleted) {
+        SakhiWellnessOnboardingWizardSheet.show(
+          context,
+          isFirstUseWizard: true,
+        );
+      }
+    });
+  }
+
   String _formatMmSs(int seconds) {
     final clamped = seconds.clamp(0, 99999);
     final m = (clamped ~/ 60).toString().padLeft(2, '0');
@@ -651,6 +664,17 @@ class _SakhiGuidedMeditationStudioScreenState
           appBar: AppBar(
             title: const Text('Guided Meditation Studio'),
             actions: [
+              IconButton(
+                tooltip: 'Voice & Soundscape Settings',
+                onPressed: () => SakhiWellnessOnboardingWizardSheet.show(
+                  context,
+                  isFirstUseWizard: false,
+                ),
+                icon: const Icon(
+                  Icons.tune_rounded,
+                  color: AppColors.primaryPurple,
+                ),
+              ),
               IconButton(
                 tooltip: _session.voiceGuidanceEnabled
                     ? 'Mute spoken guide'
@@ -1535,6 +1559,14 @@ class _SakhiAiMentalWellnessStudioScreenState
   void initState() {
     super.initState();
     _voiceInitialization = _configureVoiceGuidance();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !GuidedMeditationSessionController.instance.onboardingCompleted) {
+        SakhiWellnessOnboardingWizardSheet.show(
+          context,
+          isFirstUseWizard: true,
+        );
+      }
+    });
   }
 
   Future<void> _configureVoiceGuidance() async {
@@ -1588,9 +1620,11 @@ class _SakhiAiMentalWellnessStudioScreenState
     } catch (_) {}
 
     try {
-      await _voiceEngine.setSpeechRate(0.39);
-      await _voiceEngine.setPitch(0.96);
-      await _voiceEngine.setVolume(0.92);
+      final profile = GuidedMeditationSessionController.instance.currentVoiceProfile;
+      await _voiceEngine.setLanguage(profile.locale);
+      await _voiceEngine.setSpeechRate(profile.speechRate);
+      await _voiceEngine.setPitch(profile.pitch);
+      await _voiceEngine.setVolume(GuidedMeditationSessionController.instance.voiceVolume);
     } catch (_) {}
   }
 
@@ -1800,6 +1834,21 @@ class _SakhiAiMentalWellnessStudioScreenState
       appBar: AppBar(
         title: const Text('Guided Breathing Studio'),
         actions: [
+          IconButton(
+            tooltip: 'Voice & Soundscape Settings',
+            onPressed: () async {
+              await SakhiWellnessOnboardingWizardSheet.show(
+                context,
+                isFirstUseWizard: false,
+              );
+              await _configureVoiceGuidance();
+              if (mounted) setState(() {});
+            },
+            icon: const Icon(
+              Icons.tune_rounded,
+              color: AppColors.primaryPurple,
+            ),
+          ),
           IconButton(
             tooltip: _voiceGuidanceEnabled
                 ? 'Turn voice guidance off'

@@ -27,6 +27,7 @@ export class ComplaintEvidenceRetentionWorker
   private readonly logger = new Logger(ComplaintEvidenceRetentionWorker.name);
   private timer: NodeJS.Timeout | undefined;
   private running = false;
+  private deletionRunning = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -42,14 +43,21 @@ export class ComplaintEvidenceRetentionWorker
     ) {
       return;
     }
+    if (process.env.NODE_ENV === "production") {
+      this.logger.log(
+        "Staging retention worker is in external-scheduler mode; no in-process timer is started.",
+      );
+      return;
+    }
     this.logger.log(
-      "Staging complaint-evidence retention worker enabled; running initial sweep and 15-minute interval.",
+      "Local staging retention worker enabled; running an initial sweep and 15-minute development interval.",
     );
     void this.runOnce().catch(() => undefined);
-    this.timer = setInterval(
-      () => void this.runOnce().catch(() => undefined),
-      15 * 60 * 1000,
-    );
+    void this.runAccountDeletionOnce().catch(() => undefined);
+    this.timer = setInterval(() => {
+      void this.runOnce().catch(() => undefined);
+      void this.runAccountDeletionOnce().catch(() => undefined);
+    }, 15 * 60 * 1000);
     this.timer.unref();
   }
 
@@ -100,7 +108,10 @@ export class ComplaintEvidenceRetentionWorker
               "An expired complaint has an incomplete evidence reference; purge was stopped safely.",
             );
           }
-          await this.storage.deleteComplaintEvidence(item.driveFileId, item.id);
+          if (typeof item.sha256Digest !== "string" || !/^[a-f0-9]{64}$/i.test(item.sha256Digest) || !Number.isSafeInteger(item.byteSize) || Number(item.byteSize) <= 0) {
+            throw new Error("An expired complaint evidence record has no valid SHA-256/byte-size receipt; purge was stopped safely.");
+          }
+          await this.storage.deleteComplaintEvidence(item.driveFileId, item.id, item.sha256Digest, Number(item.byteSize));
           nextEvidence.push({
             ...item,
             isPurged: true,
@@ -156,4 +167,143 @@ export class ComplaintEvidenceRetentionWorker
       this.running = false;
     }
   }
+
+  /**
+   * Completes account erasure after the member-facing request has immediately
+   * deactivated the account and scrubbed its relational data. Drive deletion is
+   * owner-verified and idempotent; failed objects remain queued for the next run.
+   */
+  async runAccountDeletionOnce(syntheticFixtureId?: string): Promise<{ examined: number; completed: number }> {
+    if (this.deletionRunning) return { examined: 0, completed: 0 };
+    this.deletionRunning = true;
+    let examined = 0;
+    let completed = 0;
+    try {
+      let syntheticAccountId: string | undefined;
+      if (syntheticFixtureId !== undefined) {
+        if (!/^[0-9a-f-]{36}$/i.test(syntheticFixtureId)) {
+          throw new Error("A valid synthetic fixture ID is required.");
+        }
+        const fixtureEvent = await this.prisma.withSystemAdminIdentity((tx) =>
+          tx.auditEvent.findFirst({
+            where: {
+              action: "staging.synthetic_member.created",
+              targetType: "synthetic_member_fixture",
+              targetId: syntheticFixtureId,
+              outcome: "created",
+            },
+            select: { redactedMetadata: true },
+          }),
+        );
+        const metadata =
+          fixtureEvent?.redactedMetadata &&
+          typeof fixtureEvent.redactedMetadata === "object" &&
+          !Array.isArray(fixtureEvent.redactedMetadata)
+            ? (fixtureEvent.redactedMetadata as Record<string, unknown>)
+            : {};
+        const candidateAccountId = metadata.accountId;
+        if (
+          metadata.testOnly !== true ||
+          metadata.syntheticFixture !== true ||
+          metadata.fixtureId !== syntheticFixtureId ||
+          typeof metadata.expiresAt !== "string" ||
+          !Number.isFinite(Date.parse(metadata.expiresAt)) ||
+          Date.parse(metadata.expiresAt) <= Date.now() ||
+          typeof candidateAccountId !== "string" ||
+          !/^[0-9a-f-]{36}$/i.test(candidateAccountId)
+        ) {
+          throw new Error("The requested synthetic fixture is not registered or its marker is invalid.");
+        }
+        const fixtureAccount = await this.prisma.withSystemAdminIdentity((tx) =>
+          tx.memberAccount.findUnique({
+            where: { id: candidateAccountId },
+            select: { id: true, status: true },
+          }),
+        );
+        if (!fixtureAccount || fixtureAccount.status !== "DELETED") {
+          throw new Error("The synthetic fixture account must complete the member deletion request before retention can run.");
+        }
+        syntheticAccountId = candidateAccountId;
+      }
+
+      const due = await this.prisma.withSystemAdminIdentity((tx) =>
+        tx.accountDeletionRequest.findMany({
+          where: {
+            ...(syntheticAccountId ? { accountId: syntheticAccountId } : {}),
+            status: { in: ["REQUESTED", "PROCESSING"] },
+          },
+          orderBy: { requestedAt: "asc" },
+          take: 10,
+        }),
+      );
+      for (const request of due) {
+        examined += 1;
+        await this.prisma.withSystemAdminIdentity((tx) =>
+          tx.accountDeletionRequest.updateMany({
+            where: { id: request.id, status: { in: ["REQUESTED", "PROCESSING"] } },
+            data: { status: "PROCESSING" },
+          }),
+        );
+        try {
+          const assets = await this.prisma.withSystemAdminIdentity((tx) =>
+            tx.mediaAsset.findMany({
+              where: { ownerAccountId: request.accountId, status: "PENDING_PURGE" },
+              select: { id: true, ownerAccountId: true, storageProvider: true, driveFileId: true },
+            }),
+          );
+          for (const asset of assets) {
+            if (asset.storageProvider !== "GOOGLE_DRIVE" || !asset.driveFileId) {
+              throw new Error("A pending member-media record has no verifiable Google Drive reference.");
+            }
+            await this.storage.deleteMemberMediaFile(asset.driveFileId, asset.ownerAccountId);
+          }
+          const processedAt = new Date();
+          await this.prisma.withSystemAdminIdentity(async (tx) => {
+            await tx.mediaAsset.updateMany({
+              where: { ownerAccountId: request.accountId, status: "PENDING_PURGE" },
+              data: {
+                status: "PURGED",
+                driveFileId: null,
+                driveFolderId: null,
+                localAssetPath: null,
+                originalFileName: "[PURGED_BY_ACCOUNT_DELETION]",
+                contentType: "application/octet-stream",
+                byteSize: 0,
+                sha256Checksum: null,
+              },
+            });
+            const updated = await tx.accountDeletionRequest.updateMany({
+              where: { id: request.id, status: "PROCESSING" },
+              data: { status: "COMPLETED", processedAt },
+            });
+            if (updated.count === 1) {
+              await tx.auditEvent.create({
+                data: {
+                  actorType: "SYSTEM",
+                  actorId: null,
+                  action: "module2.account.deletion_completed",
+                  targetType: "account_deletion_request",
+                  targetId: request.id,
+                  outcome: "completed",
+                  requestId: randomUUID(),
+                  redactedMetadata: { externalMediaPurged: true, mediaAssetCount: assets.length },
+                },
+              });
+            }
+          });
+          completed += 1;
+        } catch (error) {
+          this.logger.error(
+            `Account deletion media purge remains queued for request ${request.id}: ${error instanceof Error ? error.message : "unknown error"}`,
+          );
+          // Keep PROCESSING so the next scheduled invocation retries idempotently.
+        }
+      }
+      this.logger.log(`Account deletion purge sweep completed: examined=${examined}, completed=${completed}.`);
+      return { examined, completed };
+    } finally {
+      this.deletionRunning = false;
+    }
+  }
+
 }

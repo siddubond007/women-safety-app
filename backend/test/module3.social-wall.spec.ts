@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { BadRequestException, ForbiddenException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import { AuthenticationService } from "../src/auth/auth.service.js";
@@ -345,12 +346,14 @@ it("restricts a direct-message attachment to its two participants and requires r
         driveFileId: "private-dm-drive-file",
         contentType: "image/jpeg",
         storageProvider: "GOOGLE_DRIVE",
+        sha256Checksum: createHash("sha256").update(Buffer.from([0xff, 0xd8, 0xff])).digest("hex"),
+        byteSize: 3,
       }),
     },
     directMessage: { findFirst: vi.fn().mockResolvedValue(directMessage) },
   };
   const drive = {
-    downloadFile: vi.fn().mockResolvedValue({
+    downloadMemberMediaFile: vi.fn().mockResolvedValue({
       contentType: "image/jpeg",
       buffer: Buffer.from([0xff, 0xd8, 0xff]),
     }),
@@ -368,7 +371,7 @@ it("restricts a direct-message attachment to its two participants and requires r
   await expect(
     service.resolveMediaObject("Bearer stranger-token", uploadId),
   ).rejects.toBeInstanceOf(ForbiddenException);
-  expect(drive.downloadFile).toHaveBeenCalledOnce();
+  expect(drive.downloadMemberMediaFile).toHaveBeenCalledOnce();
 
   viewerId = "recipient-1";
   (prisma.directMessage.findFirst as any).mockResolvedValueOnce({

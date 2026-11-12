@@ -9,6 +9,7 @@ import { AppModule } from "./app.module.js";
 import { createGlobalValidationPipe } from "./common/validation/create-validation-pipe.js";
 import { ApiExceptionFilter } from "./common/filters/api-exception.filter.js";
 import { AnonymousEvidenceUploadRateLimitMiddleware } from "./common/middleware/anonymous-evidence-upload-rate-limit.middleware.js";
+import { runWithDatabaseRequestIdentity } from "./database/database-request-identity.context.js";
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, {
@@ -20,6 +21,12 @@ async function bootstrap(): Promise<void> {
   // Render terminates TLS at one trusted proxy; use the client address supplied
   // by that proxy for the narrowly scoped anonymous upload limiter.
   app.getHttpAdapter().getInstance().set("trust proxy", 1);
+  app.use((request: Request, _response: Response, next: NextFunction) => {
+    const path = String(request.originalUrl ?? request.url ?? "").split("?")[0] ?? "";
+    const authLookup = request.method === "POST" && /\/auth\/otp\/(request|resend|verify)$/.test(path);
+    const usernameLookup = request.method === "GET" && /\/auth\/username-availability$/.test(path);
+    runWithDatabaseRequestIdentity(next, { authLookup, usernameLookup });
+  });
   // Swagger is enabled only for the local development/test foundation; production
   // startup is rejected by environment validation.
   app.use(helmet({ contentSecurityPolicy: false }));
@@ -61,11 +68,10 @@ async function bootstrap(): Promise<void> {
     allowedHeaders: [
       "Content-Type",
       "Authorization",
-      "X-Sakhi-Admin-Token",
-      "x-sakhi-admin-review-token",
       "X-Sakhi-Staging-Admin-Session",
+      "X-Sakhi-CSRF",
     ],
-    credentials: false,
+    credentials: true,
     maxAge: 600,
   });
   const evidenceUploadLimiter = new AnonymousEvidenceUploadRateLimitMiddleware();
@@ -86,7 +92,8 @@ async function bootstrap(): Promise<void> {
       limit: "64kb",
       strict: true,
       verify: (request, _response, buffer) => {
-        (request as unknown as { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
+        (request as unknown as { rawBody?: Buffer }).rawBody =
+          Buffer.from(buffer);
       },
     }),
   );

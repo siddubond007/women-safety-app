@@ -17,9 +17,10 @@ import {
 import { StatusPill } from "../components/StatusPill";
 import { SakhiQuoteLoader } from "../components/SakhiQuoteLoader";
 import { adminApi } from "../services/api/adminApi";
-import type {
-  GranularRolePermissions,
-  SakhiAdminRole,
+import {
+  adminAuthService,
+  type GranularRolePermissions,
+  type SakhiAdminRole,
 } from "../services/auth/adminAuthService";
 
 interface AdminRoleDefinition {
@@ -132,6 +133,10 @@ const ROLE_OPTIONS: Array<{ value: SakhiAdminRole; label: string }> = [
     label: "Role 5 — Business & Marketplace Admin",
   },
   {
+    value: "READ_ONLY_AUDITOR",
+    label: "Role 6 — Read-only Security Auditor",
+  },
+  {
     value: "SUPER_ADMIN",
     label: "Super Admin — Master Governance",
   },
@@ -152,6 +157,8 @@ export function AdminRolesAndConfigPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [mfaRecoveryRequests, setMfaRecoveryRequests] = useState<Array<Record<string, unknown>>>([]);
+  const [recoveryTokenIssued, setRecoveryTokenIssued] = useState<string | null>(null);
 
   const [staffData, setStaffData] = useState<StaffListPayload | null>(null);
   const [platformConfig, setPlatformConfig] =
@@ -160,6 +167,8 @@ export function AdminRolesAndConfigPage() {
   // Create Staff Form State
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
+  const [initialPassword, setInitialPassword] = useState("");
   const [selectedRole, setSelectedRole] =
     useState<SakhiAdminRole>("COMPLAINT_REVIEWER");
   const [customToken, setCustomToken] = useState("");
@@ -254,6 +263,14 @@ export function AdminRolesAndConfigPage() {
       setError("Enter a valid official email address.");
       return;
     }
+    if (Boolean(username.trim()) !== Boolean(initialPassword)) {
+      setError("Provide both a username and initial password, or leave both blank.");
+      return;
+    }
+    if (username.trim() && initialPassword.length < 10) {
+      setError("Initial password must be at least 10 characters long.");
+      return;
+    }
     setSubmitting(true);
     setError("");
     setNotice("");
@@ -266,6 +283,8 @@ export function AdminRolesAndConfigPage() {
         body: {
           fullName: fullName.trim(),
           email: email.trim(),
+          username: username.trim() || undefined,
+          initialPassword: initialPassword || undefined,
           role: selectedRole,
           customAccessToken: customToken.trim() || undefined,
           isAuthorisedComplaintReviewer:
@@ -284,6 +303,8 @@ export function AdminRolesAndConfigPage() {
       });
       setFullName("");
       setEmail("");
+      setUsername("");
+      setInitialPassword("");
       setCustomToken("");
       setNotice(
         `Created real admin account ${res.staff.fullName} (${res.staff.staffCode}). Copy their login token below!`,
@@ -533,9 +554,53 @@ export function AdminRolesAndConfigPage() {
     }
   }
 
+  async function loadMfaRecoveryQueue() {
+    setSubmitting(true);
+    setError("");
+    try {
+      const requests = await adminAuthService.listPendingMfaRecoveryRequests();
+      setMfaRecoveryRequests(requests);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not load MFA recovery queue.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function approveMfaRecovery(requestId: string) {
+    setSubmitting(true);
+    setError("");
+    setNotice("");
+    setRecoveryTokenIssued(null);
+    try {
+      const result = await adminAuthService.approveMfaRecoveryRequest(requestId);
+      setRecoveryTokenIssued(result.recoveryToken);
+      setNotice(`Recovery approved. Deliver this one-time token to the staff member through the approved out-of-band channel. Expires at ${result.expiresAt}.`);
+      await loadMfaRecoveryQueue();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "MFA recovery approval failed.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function rotateMfaEncryptionKeys() {
+    setSubmitting(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await adminAuthService.rotateMfaEncryptionKeys();
+      setNotice(`Re-encrypted ${result.rotated} enrolled MFA secret(s) using configured key version ${result.targetVersion}.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "MFA encryption-key rotation failed.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   if (loading && !staffData) {
     return (
-      <SakhiQuoteLoader statusLabel="Loading Admin Users, 5 Normal Admin Roles & RBAC Governance..." />
+      <SakhiQuoteLoader statusLabel="Loading Admin Users, 6 Normal Admin Roles & RBAC Governance..." />
     );
   }
 
@@ -561,9 +626,9 @@ export function AdminRolesAndConfigPage() {
               PostgreSQL RBAC Staff Accounts Active
             </StatusPill>
           </div>
-          <h1>Admin Users, 5 Role Panels &amp; Platform Governance</h1>
+          <h1>Admin Users, 6 Role Panels &amp; Platform Governance</h1>
           <p>
-            Create and manage real administrator accounts across the 5
+            Create and manage real administrator accounts across the 6
             specialized Normal Admin roles, designate real Authorised Complaint
             Reviewers for Discreet Complaints, and configure global platform
             feature flags.
@@ -771,7 +836,7 @@ export function AdminRolesAndConfigPage() {
               marginTop: "8px",
             }}
           >
-            1 Super + 5 Normal{" "}
+            1 Super + 6 Normal{" "}
             <StatusPill tone="green">Least Privilege</StatusPill>
           </div>
         </article>
@@ -907,6 +972,29 @@ export function AdminRolesAndConfigPage() {
                     borderRadius: "10px",
                     border: "1px solid #dcd0e0",
                   }}
+                />
+              </label>
+
+              <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
+                Login Username (Optional)
+                <input
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="e.g., priya.moderator"
+                  autoComplete="off"
+                  style={{ width: "100%", marginTop: "4px", padding: "10px 12px", borderRadius: "10px", border: "1px solid #dcd0e0" }}
+                />
+              </label>
+
+              <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
+                Initial Password (Optional; minimum 10 characters)
+                <input
+                  type="password"
+                  value={initialPassword}
+                  onChange={(e) => setInitialPassword(e.target.value)}
+                  placeholder="Set a temporary initial password"
+                  autoComplete="new-password"
+                  style={{ width: "100%", marginTop: "4px", padding: "10px 12px", borderRadius: "10px", border: "1px solid #dcd0e0" }}
                 />
               </label>
 
@@ -1251,6 +1339,56 @@ export function AdminRolesAndConfigPage() {
       )}
 
       {/* TAB 2: 6-ROLE PERMISSION MATRIX */}
+      {activeTab === "staff" && (
+        <section style={{ background: "#fff", border: "1px solid #eee7ee", borderRadius: "18px", padding: "20px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
+            <div>
+              <h3 style={{ margin: 0, fontSize: "17px" }}>Supervised MFA Recovery</h3>
+              <p style={{ margin: "6px 0 0", color: "#665b6b", fontSize: "13px" }}>
+                Pending requests are visible only to an MFA-verified Super Admin with approve permission.
+              </p>
+            </div>
+            <button className="button button--secondary" type="button" disabled={submitting} onClick={() => void loadMfaRecoveryQueue()}>
+              <RefreshCw size={15} /> Load recovery queue
+            </button>
+          </div>
+          {mfaRecoveryRequests.length === 0 ? (
+            <p className="admin-review-help">No pending recovery requests loaded. Use “Load recovery queue” to check.</p>
+          ) : (
+            <div style={{ display: "grid", gap: "10px", marginTop: "14px" }}>
+              {mfaRecoveryRequests.map((request) => {
+                const staff = request.staff as Record<string, unknown> | undefined;
+                return (
+                  <div key={String(request.id)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", border: "1px solid #eee7ee", borderRadius: "12px", padding: "12px" }}>
+                    <div>
+                      <strong>{String(staff?.fullName ?? request.staffId ?? "Staff account")}</strong>
+                      <div style={{ fontSize: "12px", color: "#665b6b" }}>
+                        {String(staff?.staffCode ?? request.staffId)} · {String(staff?.role ?? "Unknown role")} · Expires {String(request.expiresAt)}
+                      </div>
+                    </div>
+                    <button className="button button--primary" type="button" disabled={submitting} onClick={() => void approveMfaRecovery(String(request.id))}>
+                      Approve once
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {recoveryTokenIssued && (
+            <div role="status" style={{ marginTop: "14px", padding: "12px", borderRadius: "12px", background: "#fff8e8", border: "1px solid #ead8aa" }}>
+              <strong>One-time recovery token — shown once</strong>
+              <p style={{ overflowWrap: "anywhere" }}><code>{recoveryTokenIssued}</code></p>
+              <p style={{ fontSize: "12px" }}>Deliver this token directly to the requesting staff member through your approved out-of-band process. Do not send it through complaint content, ordinary audit notes or public channels.</p>
+            </div>
+          )}
+          <div style={{ marginTop: "14px", borderTop: "1px solid #eee7ee", paddingTop: "14px" }}>
+            <button className="button button--secondary" type="button" disabled={submitting} onClick={() => void rotateMfaEncryptionKeys()}>
+              <KeyRound size={15} /> Re-encrypt stored MFA secrets to configured key version
+            </button>
+          </div>
+        </section>
+      )}
+
       {activeTab === "matrix" && (
         <div
           style={{

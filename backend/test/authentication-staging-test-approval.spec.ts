@@ -59,6 +59,9 @@ describe("AuthenticationService staging test approval", () => {
           account,
         }),
       },
+      memberAccount: {
+        findUnique: vi.fn().mockResolvedValue(account),
+      },
       auditEvent: {
         findFirst: vi.fn().mockResolvedValue({ action: "staging.test_access.approved" }),
       },
@@ -93,6 +96,14 @@ describe("AuthenticationService staging test approval", () => {
             status: "PENDING_VERIFICATION",
             verificationStatus: "UNVERIFIED",
           },
+        }),
+      },
+      memberAccount: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: "account-id",
+          phoneE164: "+919123456789",
+          status: "PENDING_VERIFICATION",
+          verificationStatus: "UNVERIFIED",
         }),
       },
       auditEvent: { findFirst: vi.fn() },

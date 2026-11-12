@@ -202,12 +202,10 @@ function AuthorizedMediaPreview({
     const token = adminAuthService.getToken() ?? "";
     const headers: Record<string, string> = {};
     if (token) {
-      headers["x-sakhi-admin-token"] = token;
-      headers["x-sakhi-admin-review-token"] = token;
-      headers["Authorization"] = `Bearer ${token}`;
+      headers["X-Sakhi-Staging-Admin-Session"] = token;
     }
 
-    fetch(endpointUrl, { method: "GET", headers })
+    fetch(endpointUrl, { method: "GET", headers, credentials: "include", cache: "no-store" })
       .then(async (res) => {
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
@@ -341,6 +339,40 @@ export function ModerationPage({ section = "moderation" }: { section?: string })
     adminAuthService.getProfile()?.reviewerLabel || "Trust & Safety Reviewer";
 
   const fetchOperations = useCallback(async () => {
+    if (adminAuthService.getProfile()?.role === "READ_ONLY_AUDITOR") {
+      const audit = await adminApi<{
+        events: Array<{
+          id: string;
+          actorType: string;
+          action: string;
+          targetType: string | null;
+          outcome: string;
+          createdAt: string;
+        }>;
+      }>("/admin-review/audit-events");
+      const ops: OperationsPayload = {
+        counts: {
+          totalAccounts: 0,
+          totalPosts: 0,
+          totalGroups: 0,
+          totalReports: 0,
+          totalBlocks: 0,
+          totalSosEvents: 0,
+          totalMediaUploads: 0,
+        },
+        reports: [],
+        sosEvents: [],
+        auditEvents: audit.events.map((event) => ({
+          id: event.id,
+          actorType: event.actorType,
+          action: event.action,
+          targetType: event.targetType ?? "",
+          outcome: event.outcome,
+          createdAt: event.createdAt,
+        })),
+      };
+      return { ops, drive: null };
+    }
     const [ops, drive] = await Promise.all([
       adminApi<OperationsPayload>("/admin-review/operations"),
       fetch(`${API_BASE_URL}/integrations/google-drive/status`)

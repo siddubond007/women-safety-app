@@ -198,6 +198,66 @@ class _SafetyScreenState extends State<SafetyScreen>
                       ),
                     ],
                   ),
+                  if (_controller.isVolumeShortcutArmed) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      key: const Key('sos-two-stage-armed-banner'),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEF2F2),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(
+                          color: SakhiModule4Colors.sosCrimson,
+                          width: 1.8,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.security_update_warning_rounded,
+                            color: SakhiModule4Colors.sosCrimson,
+                            size: 24,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'SOS Window Armed (${_controller.volumeShortcutRemainingSeconds}s remaining)',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 13.5,
+                                    color: SakhiModule4Colors.sosCrimson,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                const Text(
+                                  'Press Volume Down 3 times rapidly to confirm SOS, or tap Cancel.',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: SakhiModule4Colors.textPrimary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          TextButton(
+                            key: const Key('sos-two-stage-cancel-button'),
+                            onPressed: _controller.cancelArmedVolumeShortcut,
+                            child: const Text(
+                              'Cancel',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                color: SakhiModule4Colors.sosCrimson,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
 
                   // Hero Real Live Interactive Map Card with Clean Pulsing Vector SOS Button

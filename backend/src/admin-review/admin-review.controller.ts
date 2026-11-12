@@ -12,84 +12,88 @@ import {
   Put,
   Query,
   Res,
+  UseGuards,
+  UnauthorizedException,
 } from "@nestjs/common";
 import type { Response } from "express";
 import { DevelopmentMemberStateDto } from "./admin-member-state.dto.js";
 import { ManualEligibilityDecisionDto } from "./admin-review.dto.js";
 import { AdminReviewService } from "./admin-review.service.js";
+import { AdminStaffSessionGuard } from "../admin-security/admin-staff-session.guard.js";
 
-function extractBearerHeader(authorization?: string): string | undefined {
-  if (!authorization) return undefined;
-  const trimmed = authorization.trim();
-  if (/^Bearer\s+/i.test(trimmed)) {
-    return trimmed.replace(/^Bearer\s+/i, "").trim() || undefined;
-  }
-  return undefined;
+function pickAdminToken(stagingSession?: string): string | undefined {
+  return stagingSession?.trim() || undefined;
 }
 
-function pickAdminToken(
-  primary?: string,
-  fallback?: string,
-  stagingSession?: string,
-  authorizationHeader?: string,
-): string | undefined {
-  return (
-    primary?.trim() ||
-    fallback?.trim() ||
-    stagingSession?.trim() ||
-    extractBearerHeader(authorizationHeader) ||
-    undefined
-  );
-}
-
+@UseGuards(AdminStaffSessionGuard)
 @Controller("admin-review")
 export class AdminReviewController {
   constructor(private readonly adminReview: AdminReviewService) {}
 
+  @Post("auth/login")
+  @HttpCode(200)
+  async loginWithCredentials(
+    @Body() body: Record<string, unknown>,
+    @Headers("origin") origin: string | undefined,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    if (process.env.SAKHI_ENV === "staging" && process.env.NODE_ENV === "production") {
+      const allowedOrigins = String(process.env.SAKHI_ADMIN_CORS_ORIGIN ?? "").split(",").map((value) => value.trim()).filter(Boolean);
+      if (!origin || !allowedOrigins.includes(origin)) {
+        throw new UnauthorizedException("The admin login origin is not allowed.");
+      }
+    }
+    const result = await this.adminReview.loginWithCredentials(body as any);
+    const secure = process.env.NODE_ENV === "production";
+    const sameSite = secure ? "None; Secure" : "Lax";
+    const maxAge = Math.max(0, Math.floor((new Date(result.sessionExpiresAt).getTime() - Date.now()) / 1000));
+    response.setHeader("Set-Cookie", [
+      `sakhi_admin_session=${encodeURIComponent(result.sessionToken)}; HttpOnly; Path=/api/v1; Max-Age=${maxAge}; SameSite=${sameSite}`,
+      `sakhi_admin_csrf=${encodeURIComponent(result.csrfToken)}; Path=/api/v1; Max-Age=${maxAge}; SameSite=${sameSite}`,
+    ]);
+    const { sessionToken: _sessionToken, ...safeResult } = result;
+    return safeResult;
+  }
+
+  @Post("auth/logout")
+  @HttpCode(200)
+  async logoutAdminSession(
+    @Headers("x-sakhi-staging-admin-session") sessionToken: string | undefined,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const result = await this.adminReview.logoutAdminSession(sessionToken);
+    response.setHeader("Set-Cookie", [
+      "sakhi_admin_session=; HttpOnly; Path=/api/v1; Max-Age=0; SameSite=Lax",
+      "sakhi_admin_csrf=; Path=/api/v1; Max-Age=0; SameSite=Lax",
+    ]);
+    return result;
+  }
+
   @Get("session")
   session(
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.session(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
   @Get("rbac-profile")
   rbacProfile(
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.rbacProfile(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
-  @Post("staff-login")
-  @HttpCode(200)
-  staffLogin(
-    @Body() body: { token?: string },
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
-    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
-  ) {
-    return this.adminReview.rbacProfile(
-      body?.token?.trim() ||
-        pickAdminToken(token, altToken, stagingSessionToken),
-    );
-  }
 
   @Get("staff")
   listAdminStaff(
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.listAdminStaff(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
@@ -97,13 +101,11 @@ export class AdminReviewController {
   @HttpCode(201)
   createAdminStaff(
     @Body() body: Record<string, unknown>,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.createAdminStaff(
       body as any,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
@@ -111,62 +113,52 @@ export class AdminReviewController {
   updateAdminStaff(
     @Param("staffId") staffId: string,
     @Body() body: Record<string, unknown>,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.updateAdminStaff(
       staffId,
       body as any,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
   @Delete("staff/:staffId")
   deleteAdminStaff(
     @Param("staffId") staffId: string,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.deleteAdminStaff(
       staffId,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
   @Get("platform-config")
   getPlatformConfig(
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.getPlatformConfig(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
   @Put("platform-config")
   updatePlatformConfig(
     @Body() body: Record<string, unknown>,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.updatePlatformConfig(
       body,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
   @Get("businesses")
   listBusinesses(
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.listBusinesses(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
@@ -174,13 +166,11 @@ export class AdminReviewController {
   @HttpCode(201)
   upsertBusiness(
     @Body() body: Record<string, unknown>,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.upsertBusiness(
       body,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
@@ -188,80 +178,74 @@ export class AdminReviewController {
   reviewBusiness(
     @Param("businessId") businessId: string,
     @Body() body: Record<string, unknown>,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.reviewBusiness(
       businessId,
       body,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
   @Delete("businesses/:businessId")
   deleteBusiness(
     @Param("businessId") businessId: string,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.deleteBusiness(
       businessId,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
   @Get("registration-policy")
   getRegistrationPolicy(
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.getRegistrationPolicy(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
   @Put("registration-policy")
   updateRegistrationPolicy(
     @Body() body: Record<string, unknown>,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.updateRegistrationPolicy(
       body,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
   @Get("queue")
   queue(
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.queue(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
   @Get("history")
   history(
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.history(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
+  }
+
+  @Get("audit-events")
+  auditEvents(
+    @Headers("x-sakhi-staging-admin-session") sessionToken?: string,
+    @Query("limit") limit?: string,
+  ) {
+    return this.adminReview.listAuditEvents(sessionToken, limit);
   }
 
   @Get("members")
   members(
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
     @Query("page") page?: string,
     @Query("pageSize") pageSize?: string,
@@ -270,7 +254,7 @@ export class AdminReviewController {
     @Query("verificationStatus") verificationStatus?: string,
   ) {
     return this.adminReview.members(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
       page,
       pageSize,
       search,
@@ -283,26 +267,22 @@ export class AdminReviewController {
   @HttpCode(201)
   createMember(
     @Body() body: Record<string, unknown>,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.createMember(
       body,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
   @Get("members/:accountId")
   memberDetail(
     @Param("accountId", new ParseUUIDPipe()) accountId: string,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.getMember360Detail(
       accountId,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
@@ -310,14 +290,12 @@ export class AdminReviewController {
   updateMemberState(
     @Param("accountId", new ParseUUIDPipe()) accountId: string,
     @Body() dto: DevelopmentMemberStateDto,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.updateMemberState(
       accountId,
       dto,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
@@ -326,14 +304,12 @@ export class AdminReviewController {
   updateMemberStatePost(
     @Param("accountId", new ParseUUIDPipe()) accountId: string,
     @Body() dto: DevelopmentMemberStateDto,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.updateMemberState(
       accountId,
       dto,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
@@ -341,14 +317,12 @@ export class AdminReviewController {
   overrideMemberEligibility(
     @Param("accountId", new ParseUUIDPipe()) accountId: string,
     @Body() body: Record<string, unknown>,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.overrideMemberEligibilityAndState(
       accountId,
       body,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
@@ -357,14 +331,12 @@ export class AdminReviewController {
   overrideMemberEligibilityPost(
     @Param("accountId", new ParseUUIDPipe()) accountId: string,
     @Body() body: Record<string, unknown>,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.overrideMemberEligibilityAndState(
       accountId,
       body,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
@@ -373,37 +345,31 @@ export class AdminReviewController {
   decide(
     @Param("submissionId", new ParseUUIDPipe()) submissionId: string,
     @Body() dto: ManualEligibilityDecisionDto,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.decide(
       submissionId,
       dto,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
   @Post("seed-live")
   @HttpCode(200)
   seedLiveData(
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.seedLiveData(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
   @Get("community")
   communityOverview(
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.communityOverview(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
@@ -411,26 +377,22 @@ export class AdminReviewController {
   @HttpCode(201)
   createAdminPost(
     @Body() body: Record<string, unknown>,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.createAdminPost(
       body,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
   @Delete("community/posts/:postId")
   deleteAdminPost(
     @Param("postId") postId: string,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.deleteAdminPost(
       postId,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
@@ -438,14 +400,12 @@ export class AdminReviewController {
   updateCategoryConfig(
     @Param("slug") slug: string,
     @Body() body: Record<string, unknown>,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.updateCategoryConfig(
       slug,
       body,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
@@ -454,14 +414,12 @@ export class AdminReviewController {
   resolveReport(
     @Param("reportId") reportId: string,
     @Body() body: Record<string, unknown>,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.resolveReport(
       reportId,
       body,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
@@ -470,14 +428,12 @@ export class AdminReviewController {
   resolveReportAlias(
     @Param("reportId") reportId: string,
     @Body() body: Record<string, unknown>,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.resolveReport(
       reportId,
       body,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
@@ -485,14 +441,12 @@ export class AdminReviewController {
   triageReport(
     @Param("reportId") reportId: string,
     @Body() body: Record<string, unknown>,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.triageReport(
       reportId,
       body,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
@@ -500,27 +454,23 @@ export class AdminReviewController {
   triageReportAlias(
     @Param("reportId") reportId: string,
     @Body() body: Record<string, unknown>,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.triageReport(
       reportId,
       body,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
   @Get("moderation/reports/:reportId")
   getReportDetail(
     @Param("reportId") reportId: string,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.getReportDetail(
       reportId,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
@@ -528,17 +478,9 @@ export class AdminReviewController {
   async previewMediaForModeration(
     @Param("uploadId") uploadId: string,
     @Res() response: Response,
-    @Headers("authorization") authorizationHeader?: string,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
-    const resolvedToken = pickAdminToken(
-      token,
-      altToken,
-      stagingSessionToken,
-      authorizationHeader,
-    );
+    const resolvedToken = pickAdminToken(stagingSessionToken);
     const media = await this.adminReview.previewReportedMedia(
       uploadId,
       resolvedToken,
@@ -551,12 +493,10 @@ export class AdminReviewController {
 
   @Get("wellness-resources")
   listWellnessResources(
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.listWellnessResources(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
@@ -564,26 +504,22 @@ export class AdminReviewController {
   @HttpCode(201)
   upsertWellnessResource(
     @Body() body: Record<string, unknown>,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.upsertWellnessResource(
       body,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
   @Delete("wellness-resources/:resourceId")
   deleteWellnessResource(
     @Param("resourceId") resourceId: string,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.deleteWellnessResource(
       resourceId,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
@@ -592,14 +528,12 @@ export class AdminReviewController {
   moderatePost(
     @Param("postId") postId: string,
     @Body() body: Record<string, unknown>,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.moderatePost(
       postId,
       body,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
@@ -608,36 +542,30 @@ export class AdminReviewController {
   moderateComment(
     @Param("commentId") commentId: string,
     @Body() body: Record<string, unknown>,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.moderateComment(
       commentId,
       body,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
   @Get("operations")
   operationsOverview(
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.operationsOverview(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
   @Get("safety-console")
   safetyConsoleOverview(
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.safetyConsoleOverview(
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
@@ -645,13 +573,11 @@ export class AdminReviewController {
   @HttpCode(201)
   upsertPoliceStation(
     @Body() body: Record<string, unknown>,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.upsertPoliceStation(
       body,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
@@ -659,26 +585,22 @@ export class AdminReviewController {
   @HttpCode(200)
   syncPoliceStationsFromOsm(
     @Body() body: Record<string, unknown>,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.syncPoliceStationsFromOsm(
       body,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
   @Delete("police-stations/:stationCode")
   deletePoliceStation(
     @Param("stationCode") stationCode: string,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.deletePoliceStation(
       stationCode,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 
@@ -687,14 +609,12 @@ export class AdminReviewController {
   reviewSosEvent(
     @Param("eventId") eventId: string,
     @Body() body: Record<string, unknown>,
-    @Headers("x-sakhi-admin-token") token?: string,
-    @Headers("x-sakhi-admin-review-token") altToken?: string,
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
     return this.adminReview.reviewSosEvent(
       eventId,
       body,
-      pickAdminToken(token, altToken, stagingSessionToken),
+      pickAdminToken(stagingSessionToken),
     );
   }
 }

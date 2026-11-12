@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   BadRequestException,
   ConflictException,
@@ -5,19 +6,79 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from "@nestjs/common";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthenticationService } from "../src/auth/auth.service.js";
 import {
   ComplaintsService,
   stripBinaryMetadata,
 } from "../src/complaints/complaints.service.js";
 import { PrismaService } from "../src/database/prisma.service.js";
+import { SakhiAdminRbacRegistry } from "../src/admin-review/admin-rbac.helper.js";
+import { StagingTestAdminService } from "../src/staging-test-admin/staging-test-admin.service.js";
+
+const LOCAL_REVIEWER_TOKEN = "staff-admin.unit-test-super-admin-session";
+const COMPLAINT_REVIEWER_SESSION = "staff-admin.unit-test-complaint-reviewer-session";
+const sessionPrincipals = new Map<string, any>();
+
+const DEFAULT_TEST_SUPER_ADMIN = {
+  staffId: "00000000-0000-4000-8000-000000000001",
+  staffCode: "#SA-TEST",
+  reviewerLabel: "Unit Test Super Admin",
+  fullName: "Unit Test Super Admin",
+  email: "superadmin@example.test",
+  role: "SUPER_ADMIN",
+  roleTitle: "Super Admin",
+  badgeLabel: "Super Admin",
+  clearanceLevel: "LEVEL_4_MASTER_GOVERNANCE",
+  isAuthorisedComplaintReviewer: true,
+  permissions: { view: true, create: true, edit: true, approve: true, suspend: true, export: true, delete: true },
+  allowedRoutes: [],
+};
+const DEFAULT_TEST_COMPLAINT_REVIEWER = {
+  ...DEFAULT_TEST_SUPER_ADMIN,
+  staffId: "00000000-0000-4000-8000-000000000002",
+  staffCode: "#CR-TEST",
+  reviewerLabel: "Unit Test Complaint Reviewer",
+  fullName: "Unit Test Complaint Reviewer",
+  role: "COMPLAINT_REVIEWER",
+  roleTitle: "Complaint Reviewer",
+  badgeLabel: "Complaint Reviewer",
+  clearanceLevel: "LEVEL_3_COMPLAINT_REVIEW",
+  permissions: { view: true, create: false, edit: true, approve: true, suspend: false, export: true, delete: false },
+  allowedRoutes: ["/complaints"],
+};
+
+function sessionForIssuedStaffCredential(accessToken: string): string {
+  const staff = SakhiAdminRbacRegistry.findStaffByToken(accessToken);
+  if (!staff) throw new Error("Test staff account was not persisted in the RBAC registry.");
+  const sessionToken = "staff-admin.unit-test-" + staff.id;
+  sessionPrincipals.set(sessionToken, SakhiAdminRbacRegistry.principalFromStaff(staff));
+  return sessionToken;
+}
+
+beforeEach(() => {
+  sessionPrincipals.clear();
+  sessionPrincipals.set(COMPLAINT_REVIEWER_SESSION, DEFAULT_TEST_COMPLAINT_REVIEWER);
+  vi.spyOn(StagingTestAdminService, "resolvePrincipalFromSessionToken").mockImplementation(
+    (token?: string) => {
+      if (token === LOCAL_REVIEWER_TOKEN) return DEFAULT_TEST_SUPER_ADMIN as any;
+      const principal = token ? sessionPrincipals.get(token) : undefined;
+      if (principal) return principal;
+      throw new UnauthorizedException("Unknown test staff session.");
+    },
+  );
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  SakhiAdminRbacRegistry.resetForTesting();
+});
 
 function createTestService() {
   process.env.NODE_ENV = "development";
   process.env.SAKHI_ENV = "dev";
   process.env.HOST = "127.0.0.1";
-  process.env.SAKHI_ADMIN_REVIEW_TOKEN = "ADMIN2026TEST";
+  process.env.SAKHI_ADMIN_REVIEW_TOKEN = LOCAL_REVIEWER_TOKEN;
 
   const persistedComplaints = new Map<string, Record<string, unknown>>();
   const persistedCategories = new Map<string, Record<string, unknown>>();
@@ -50,6 +111,21 @@ function createTestService() {
           persistedComplaints.set(where.referenceNumber, merged);
           return merged;
         }),
+      findUnique: vi.fn().mockImplementation(async ({ where }: any) =>
+        Array.from(persistedComplaints.values()).find((row: any) =>
+          row.id === where.id || row.referenceNumber === where.referenceNumber
+        ) ?? null
+      ),
+      updateMany: vi.fn().mockImplementation(async ({ where, data }: any) => {
+        const row = Array.from(persistedComplaints.values()).find((item: any) => item.id === where.id) as any;
+        if (!row) return { count: 0 };
+        if (where.passkeyFailedAttempts?.lt !== undefined && row.passkeyFailedAttempts >= where.passkeyFailedAttempts.lt) return { count: 0 };
+        if (data.passkeyFailedAttempts?.increment) row.passkeyFailedAttempts += data.passkeyFailedAttempts.increment;
+        if (data.passkeyFailedAttempts === 0) row.passkeyFailedAttempts = 0;
+        if (data.passkeyLockedUntil !== undefined) row.passkeyLockedUntil = data.passkeyLockedUntil;
+        persistedComplaints.set(row.referenceNumber, row);
+        return { count: 1 };
+      }),
     },
     complaintCategoryConfig: {
       findMany: vi
@@ -79,6 +155,53 @@ function createTestService() {
     },
   };
 
+  const persistedStaff = new Map<string, Record<string, any>>();
+  const adminStaffAccount = {
+    findMany: vi
+      .fn()
+      .mockImplementation(async () => Array.from(persistedStaff.values())),
+    findUnique: vi.fn().mockImplementation(async ({ where }: any) => persistedStaff.get(where.id) ?? null),
+    create: vi.fn().mockImplementation(async ({ data }: any) => {
+      persistedStaff.set(data.id, { ...data });
+      return persistedStaff.get(data.id);
+    }),
+    updateMany: vi.fn().mockImplementation(async ({ where, data }: any) => {
+      const current = persistedStaff.get(where.id);
+      if (!current) return { count: 0 };
+      persistedStaff.set(where.id, { ...current, ...data });
+      return { count: 1 };
+    }),
+    count: vi.fn().mockImplementation(async ({ where }: any) =>
+      Array.from(persistedStaff.values()).filter((row) =>
+        (!where?.role || row.role === where.role) && (!where?.status || row.status === where.status)
+      ).length
+    ),
+    upsert: vi.fn().mockImplementation(async ({ where, create, update }: any) => {
+      const current = persistedStaff.get(where.id);
+      const saved = current ? { ...current, ...update } : { ...create };
+      persistedStaff.set(where.id, saved);
+      return saved;
+    }),
+  };
+  const adminStaffSession = {
+    updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+  };
+  const adminStaffBackupCode = {
+    updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+  };
+  const adminStaffRecoveryRequest = {
+    updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+  };
+  Object.assign(prisma, {
+    adminStaffAccount,
+    adminStaffSession,
+    adminStaffBackupCode,
+    adminStaffRecoveryRequest,
+    $transaction: vi.fn(async (callback: (tx: any) => Promise<unknown>) =>
+      callback(prisma),
+    ),
+  });
+
   return {
     service: new ComplaintsService(
       prisma as unknown as PrismaService,
@@ -90,6 +213,7 @@ function createTestService() {
             driveFileId: `drive_${evidenceId}`,
             driveFolderId: "folder_evidence",
             size: buffer.length,
+            sha256Checksum: createHash("sha256").update(buffer).digest("hex"),
           })),
         verifyComplaintEvidenceFile: vi.fn().mockResolvedValue(true),
         downloadFile: vi.fn().mockResolvedValue({
@@ -107,7 +231,7 @@ function createTestService() {
 describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Validation Suite", () => {
   it("starts with an empty complaint queue (zero fabricated or hardcoded records)", async () => {
     const { service } = createTestService();
-    const dashboard = await service.adminDashboardAndQueue("ADMIN2026TEST");
+    const dashboard = await service.adminDashboardAndQueue(LOCAL_REVIEWER_TOKEN);
     expect(dashboard.complaints).toEqual([]);
     expect(dashboard.metrics.totalComplaints).toBe(0);
     expect(dashboard.metrics.openComplaintsCount).toBe(0);
@@ -125,7 +249,7 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
     );
 
     // Disable a category via admin workflow and verify it is excluded from active list
-    await service.adminUpsertCategory("ADMIN2026TEST", {
+    await service.adminUpsertCategory(LOCAL_REVIEWER_TOKEN, {
       slug: "public_place_safety",
       name: "Public-place safety concerns",
       description: "Unsafe streets or transit",
@@ -137,7 +261,7 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
     ).toBe(false);
 
     // Re-enable it
-    await service.adminUpsertCategory("ADMIN2026TEST", {
+    await service.adminUpsertCategory(LOCAL_REVIEWER_TOKEN, {
       slug: "public_place_safety",
       name: "Public-place safety concerns",
       description: "Unsafe streets or transit",
@@ -358,6 +482,7 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
     // Tracking via Disguised Wellness Quote Serial also succeeds
     const trackedBySerial = await service.trackByReference(
       anonRes.disguisedBackupSerial,
+      anonRes.passkey,
     );
     expect(trackedBySerial.complaint.referenceNumber).toBe(
       anonRes.referenceNumber,
@@ -366,7 +491,7 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
     // Invalid status transition (SUBMITTED -> CLOSED directly) is rejected
     await expect(
       service.adminUpdateStatusAndEscalate(
-        "ADMIN2026TEST",
+        LOCAL_REVIEWER_TOKEN,
         anonRes.referenceNumber,
         { status: "CLOSED" },
       ),
@@ -374,7 +499,7 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
 
     // Valid transition: SUBMITTED -> ADDITIONAL_INFO_REQUIRED (with required question)
     await service.adminUpdateStatusAndEscalate(
-      "ADMIN2026TEST",
+      LOCAL_REVIEWER_TOKEN,
       anonRes.referenceNumber,
       {
         status: "ADDITIONAL_INFO_REQUIRED",
@@ -395,7 +520,7 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
 
     // Admin adds a private internal note and verifies complainant CANNOT see it
     await service.adminAddInternalNote(
-      "ADMIN2026TEST",
+      COMPLAINT_REVIEWER_SESSION,
       anonRes.referenceNumber,
       {
         noteText: "INTERNAL ONLY: Cross-checking device fingerprint.",
@@ -409,7 +534,7 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
     expect((afterNoteTracked.complaint as any).internalNotes).toBeUndefined();
 
     // Standard Moderator role masking check
-    const modQueue = await service.adminDashboardAndQueue("ADMIN2026TEST", {
+    const modQueue = await service.adminDashboardAndQueue(COMPLAINT_REVIEWER_SESSION, {
       viewerRole: "STANDARD_MODERATOR",
     });
     const firstModeratedComplaint = modQueue.complaints[0];
@@ -426,7 +551,7 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
 
     // A caller cannot elevate its role through the viewerRole query parameter.
     const elevationAttemptQueue = await service.adminDashboardAndQueue(
-      "ADMIN2026TEST",
+      COMPLAINT_REVIEWER_SESSION,
       { viewerRole: "SUPER_ADMIN" },
     );
     expect(elevationAttemptQueue.reviewer.effectiveRole).toBe(
@@ -440,7 +565,7 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
     );
 
     const elevationAttemptDetail = await service.adminGetComplaintDetail(
-      "ADMIN2026TEST",
+      COMPLAINT_REVIEWER_SESSION,
       anonRes.referenceNumber,
       "SUPER_ADMIN",
     );
@@ -454,23 +579,31 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
       "disguisedBackupSerial",
     );
 
-    // Standard Moderator cannot unblur evidence
+    // The server derives the role from the authenticated session; a client
+    // cannot downgrade or elevate access by supplying viewerRole.
+    const contentModeratorSession = "staff-admin.unit-test-content-moderator";
+    sessionPrincipals.set(contentModeratorSession, {
+      ...DEFAULT_TEST_COMPLAINT_REVIEWER,
+      role: "CONTENT_MODERATOR",
+      roleTitle: "Content Moderator",
+      isAuthorisedComplaintReviewer: false,
+      permissions: { ...DEFAULT_TEST_COMPLAINT_REVIEWER.permissions },
+    });
     await expect(
       service.adminAccessControlledEvidence(
-        "ADMIN2026TEST",
+        contentModeratorSession,
         anonRes.referenceNumber,
         {
           evidenceId: uploadedEvidence.sanitizedFile.id,
           action: "REVEAL_VIEWER",
           justificationReason: "Checking screenshot evidence",
-          viewerRole: "STANDARD_MODERATOR",
         },
       ),
     ).rejects.toBeInstanceOf(ForbiddenException);
 
-    // Senior Reviewer can unblur evidence with valid justification
+    // A real Complaint Reviewer can unblur evidence with valid justification.
     const evAccess = await service.adminAccessControlledEvidence(
-      "ADMIN2026TEST",
+      COMPLAINT_REVIEWER_SESSION,
       anonRes.referenceNumber,
       {
         evidenceId: uploadedEvidence.sanitizedFile.id,
@@ -484,7 +617,7 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
 
     // Rejection starts the configured evidence retention clock.
     await service.adminUpdateStatusAndEscalate(
-      "ADMIN2026TEST",
+      LOCAL_REVIEWER_TOKEN,
       anonRes.referenceNumber,
       {
         status: "REJECTED_WITH_REASON",
@@ -519,16 +652,76 @@ describe("Module 5: Discreet & Anonymous Complaint System — Real Data & Valida
 });
 
 describe("Module 5 & Module 10 RBAC — Real Admin Staff, Two-Way Messages & Open P1 Metrics", () => {
+  it("uses a high-entropy independent complaint passkey, allowlists audit metadata, and persists lockout", async () => {
+    const { service, prisma, persistedComplaints } = createTestService();
+    const created = await service.submitComplaint(undefined, {
+      reportingMode: "ANONYMOUS",
+      categorySlug: "harassment",
+      description: "Repeated threatening messages from an account after a clear refusal.",
+    });
+    expect(created.passkey).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(created.disguisedBackupSerial).not.toContain(created.passkey);
+    const stored = persistedComplaints.get(created.referenceNumber) as any;
+    expect(stored.passkeyDigest).toMatch(/^scrypt\$/);
+    const auditCall = (prisma.auditEvent.create as any).mock.calls[0][0];
+    expect(auditCall.data.redactedMetadata).not.toHaveProperty("description");
+    expect(auditCall.data.redactedMetadata).not.toHaveProperty("passkeyDigest");
+    expect(auditCall.data.redactedMetadata).not.toHaveProperty("disguisedBackupSerial");
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await expect(service.trackByReference(created.referenceNumber, "incorrect-passkey"))
+        .rejects.toBeInstanceOf(ForbiddenException);
+    }
+    expect(stored.passkeyFailedAttempts).toBe(5);
+    expect(stored.passkeyLockedUntil).toBeInstanceOf(Date);
+    await expect(service.trackByReference(created.referenceNumber, created.passkey))
+      .rejects.toThrow(/temporarily locked/i);
+  });
+
+  it("rejects shared staging admin tokens and requires a persistent staff session", () => {
+    const previous = {
+      nodeEnv: process.env.NODE_ENV,
+      sakhiEnv: process.env.SAKHI_ENV,
+      reviewerToken: process.env.SAKHI_ADMIN_REVIEW_TOKEN,
+      reviewEnabled: process.env.SAKHI_STAGING_ADMIN_REVIEW_ENABLED,
+      otpMode: process.env.SAKHI_OTP_MODE,
+    };
+    try {
+      process.env.NODE_ENV = "production";
+      process.env.SAKHI_ENV = "staging";
+      process.env.SAKHI_ADMIN_REVIEW_TOKEN = "a".repeat(64);
+      process.env.SAKHI_STAGING_ADMIN_REVIEW_ENABLED = "true";
+      process.env.SAKHI_OTP_MODE = "staging_test";
+      const service = new ComplaintsService(
+        {} as PrismaService,
+        {} as AuthenticationService,
+      );
+      expect(() => service.assertReviewer("a".repeat(64))).toThrow(
+        UnauthorizedException,
+      );
+    } finally {
+      if (previous.nodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previous.nodeEnv;
+      if (previous.sakhiEnv === undefined) delete process.env.SAKHI_ENV;
+      else process.env.SAKHI_ENV = previous.sakhiEnv;
+      if (previous.reviewerToken === undefined) delete process.env.SAKHI_ADMIN_REVIEW_TOKEN;
+      else process.env.SAKHI_ADMIN_REVIEW_TOKEN = previous.reviewerToken;
+      if (previous.reviewEnabled === undefined) delete process.env.SAKHI_STAGING_ADMIN_REVIEW_ENABLED;
+      else process.env.SAKHI_STAGING_ADMIN_REVIEW_ENABLED = previous.reviewEnabled;
+      if (previous.otpMode === undefined) delete process.env.SAKHI_OTP_MODE;
+      else process.env.SAKHI_OTP_MODE = previous.otpMode;
+    }
+  });
+
   it("populates authorisedReviewers from real database AdminStaffAccount rows (zero fake Meera/Kavita/Anjali) and enforces 5-role boundaries", async () => {
     const { service, prisma } = createTestService();
     const { SakhiAdminRbacRegistry } =
       await import("../src/admin-review/admin-rbac.helper.js");
     SakhiAdminRbacRegistry.resetForTesting();
 
-    // Initially only the Master Super Admin seat exists (zero fake reviewers)
-    const initialDash = await service.adminDashboardAndQueue("ADMIN2026TEST");
-    expect(initialDash.authorisedReviewers).toHaveLength(1);
-    expect(initialDash.authorisedReviewers[0]?.name).toContain("Super Admin");
+    // Only real persisted staff accounts may appear; no synthetic bootstrap reviewer.
+    const initialDash = await service.adminDashboardAndQueue(LOCAL_REVIEWER_TOKEN);
+    expect(initialDash.authorisedReviewers).toHaveLength(0);
     expect(JSON.stringify(initialDash.authorisedReviewers)).not.toContain(
       "Meera Krishnan",
     );
@@ -554,21 +747,22 @@ describe("Module 5 & Module 10 RBAC — Real Admin Staff, Two-Way Messages & Ope
     );
 
     // Role 2 Content Moderator is strictly blocked from accessing Discreet Complaints (SRS 7.4)
+    const moderatorSession = sessionForIssuedStaffCredential(moderatorStaff.issuedAccessToken);
+    const reviewerSession = sessionForIssuedStaffCredential(reviewerStaff.issuedAccessToken);
+
     await expect(
-      service.adminDashboardAndQueue(moderatorStaff.issuedAccessToken),
+      service.adminDashboardAndQueue(moderatorSession),
     ).rejects.toBeInstanceOf(ForbiddenException);
 
     // Role 3 Authorised Complaint Reviewer can access the queue and appears in authorisedReviewers
-    const staffDash = await service.adminDashboardAndQueue(
-      reviewerStaff.issuedAccessToken,
-    );
+    const staffDash = await service.adminDashboardAndQueue(reviewerSession);
     expect(
       staffDash.authorisedReviewers.some((r) => r.name.includes("Priya Nair")),
     ).toBe(true);
 
     // Role 3 Authorised Complaint Reviewer cannot alter global DPDP retention policy (Super Admin only)
     await expect(
-      service.adminUpdateRetentionPolicy(reviewerStaff.issuedAccessToken, {
+      service.adminUpdateRetentionPolicy(reviewerSession, {
         closedEvidenceRetentionDays: 60,
         rejectedReportRetentionDays: 20,
         technicalRateLimitLogDays: 7,
@@ -615,14 +809,14 @@ describe("Module 5 & Module 10 RBAC — Real Admin Staff, Two-Way Messages & Ope
 
     // Admin sends a direct reply to the complainant
     await service.adminSendMessageToComplainant(
-      "ADMIN2026TEST",
+      LOCAL_REVIEWER_TOKEN,
       created.referenceNumber,
       {
         message: "We have received your message and are reviewing the account.",
       },
     );
 
-    const openDash = await service.adminDashboardAndQueue("ADMIN2026TEST");
+    const openDash = await service.adminDashboardAndQueue(LOCAL_REVIEWER_TOKEN);
     expect(openDash.metrics.openComplaintsCount).toBe(1);
     expect(openDash.metrics.urgentP1Count).toBe(1);
     expect(openDash.complaints[0]?.complainantMessages).toHaveLength(2);
@@ -635,17 +829,17 @@ describe("Module 5 & Module 10 RBAC — Real Admin Staff, Two-Way Messages & Ope
 
     // Transition UNDER_REVIEW -> CLOSED and verify urgentP1Count drops to 0!
     await service.adminUpdateStatusAndEscalate(
-      "ADMIN2026TEST",
+      LOCAL_REVIEWER_TOKEN,
       created.referenceNumber,
       { status: "UNDER_REVIEW" },
     );
     await service.adminUpdateStatusAndEscalate(
-      "ADMIN2026TEST",
+      LOCAL_REVIEWER_TOKEN,
       created.referenceNumber,
       { status: "CLOSED", publicMessageToComplainant: "Resolved." },
     );
 
-    const closedDash = await service.adminDashboardAndQueue("ADMIN2026TEST");
+    const closedDash = await service.adminDashboardAndQueue(LOCAL_REVIEWER_TOKEN);
     expect(closedDash.metrics.openComplaintsCount).toBe(0);
     expect(closedDash.metrics.urgentP1Count).toBe(0);
   });

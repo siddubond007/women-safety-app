@@ -16,6 +16,7 @@ import {
 } from "node:crypto";
 import type { Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../database/prisma.service.js";
+import { setMemberDatabaseIdentity, setUsernameLookupDatabaseIdentity } from "../database/database-request-identity.context.js";
 import {
   createAuthenticatedMemberIdentity,
   type AuthenticatedMemberIdentity,
@@ -221,6 +222,7 @@ export class AuthenticationService {
       };
     }
     const normalized = `@${raw}`;
+    setUsernameLookupDatabaseIdentity();
     const anyPrisma = this.prisma as unknown as {
       memberProfile?: {
         findFirst?: (
@@ -1000,22 +1002,25 @@ export class AuthenticationService {
 
     const session = await this.prisma.authSession.findUnique({
       where: { tokenDigest: this.digestToken(token) },
-      include: { account: true },
     });
-    if (
-      !session ||
-      session.revokedAt ||
-      session.expiresAt <= new Date() ||
-      ["DELETED", "SUSPENDED", "RESTRICTED"].includes(session.account.status)
-    ) {
+    if (!session || session.revokedAt || session.expiresAt <= new Date()) {
       throw new UnauthorizedException(
         "Your session is expired or unavailable. Sign in again.",
       );
     }
-    const testAccessApproved = await this.hasActiveStagingTestApproval(
-      session.accountId,
-    );
-    return { ...session, testAccessApproved };
+    // The token-digest RLS policy allows only this session row to be read
+    // before its member identity is known. Subsequent queries are account-scoped.
+    setMemberDatabaseIdentity(session.accountId, session.id);
+    const account = await this.prisma.memberAccount.findUnique({
+      where: { id: session.accountId },
+    });
+    if (!account || ["DELETED", "SUSPENDED", "RESTRICTED"].includes(account.status)) {
+      throw new UnauthorizedException(
+        "Your session is expired or unavailable. Sign in again.",
+      );
+    }
+    const testAccessApproved = await this.hasActiveStagingTestApproval(session.accountId);
+    return { ...session, account, testAccessApproved };
   }
 
   /** Resolve the database identity exclusively from a validated persisted session. */

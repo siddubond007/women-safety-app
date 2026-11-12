@@ -270,7 +270,7 @@ export function AdminLayout({ onSignOut }: AdminLayoutProps) {
             <span className="demo-banner__icon"><AlertTriangle size={16} /></span>
             <div>
               <strong>{profile.roleTitle.toUpperCase()} ({profile.staffCode})</strong>
-              <span>{profile.role === "SUPER_ADMIN" ? "Master Super Admin governance session active. Manage the 5 Normal Admin roles in Admin users & roles." : `Role-restricted workspace active. Only modules authorized for ${profile.badgeLabel} are accessible.`}</span>
+              <span>{profile.role === "SUPER_ADMIN" ? "Master Super Admin governance session active. Manage the 6 Normal Admin roles in Admin users & roles." : `Role-restricted workspace active. Only modules authorized for ${profile.badgeLabel} are accessible.`}</span>
             </div>
             <StatusPill tone="demo">{profile.badgeLabel}</StatusPill>
           </div>

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   BadRequestException,
@@ -7,6 +7,7 @@ import {
 } from "@nestjs/common";
 import { Module2Service } from "../src/module2/module2.service.js";
 import { AdminReviewService } from "../src/admin-review/admin-review.service.js";
+import { StagingTestAdminService } from "../src/staging-test-admin/staging-test-admin.service.js";
 import type { PrismaService } from "../src/database/prisma.service.js";
 
 const VIEWER_ID = "11111111-1111-4111-8111-111111111111";
@@ -14,7 +15,7 @@ const PEER_ID = "22222222-2222-4222-8222-222222222222";
 const UPLOAD_ID = "33333333-3333-4333-8333-333333333333";
 const REPORT_ID = "44444444-4444-4444-8444-444444444444";
 const NOTIF_ID = "55555555-5555-4555-8555-555555555555";
-const REVIEWER_TOKEN = "a".repeat(64);
+const REVIEWER_TOKEN = "staff-admin.unit-test-super-admin-session";
 
 function createMockContext() {
   const blocks: Array<{
@@ -368,6 +369,24 @@ function createMockContext() {
     },
   };
 
+  // The real Prisma helper opens a transaction and sets a narrowly scoped
+  // recipient identity. This unit fixture delegates the callback to its in-memory
+  // model; the database/RLS boundary is covered by separate integration tests.
+  (prisma as any).withNotificationRecipientIdentity = vi.fn(
+    async (_recipientAccountId: string, operation: (tx: any) => Promise<unknown>) =>
+      operation(prisma),
+  );
+
+  // This callback mock exercises the transaction boundary and delegates used by
+  // triageReport. It does not emulate database rollback semantics.
+  (prisma as any).$transaction = vi.fn(
+    async (callback: (tx: any) => Promise<unknown>, _options?: unknown) =>
+      callback({
+        memberUserReport: prisma.memberUserReport,
+        auditEvent: prisma.auditEvent,
+      }),
+  );
+
   return {
     auth,
     prisma: prisma as unknown as PrismaService,
@@ -382,8 +401,30 @@ describe("Sakhi Modules 8–12 Repair & Hardening Regression Suite", () => {
   beforeEach(() => {
     process.env.SAKHI_ENV = "test";
     process.env.NODE_ENV = "test";
-    process.env.SAKHI_ADMIN_REVIEW_TOKEN = REVIEWER_TOKEN;
-    process.env.SAKHI_ADMIN_REVIEWER_LABEL = "QA Safety Reviewer";
+    const originalResolve = StagingTestAdminService.resolvePrincipalFromSessionToken;
+    vi.spyOn(StagingTestAdminService, "resolvePrincipalFromSessionToken").mockImplementation(
+      (token?: string) => {
+        if (token !== REVIEWER_TOKEN) return originalResolve(token);
+        return {
+          staffId: "00000000-0000-4000-8000-000000000001",
+          staffCode: "#SA-TEST",
+          reviewerLabel: "QA Safety Reviewer",
+          fullName: "QA Safety Reviewer",
+          email: "qa.safety@example.test",
+          role: "SUPER_ADMIN",
+          roleTitle: "Super Admin",
+          badgeLabel: "Super Admin",
+          clearanceLevel: "LEVEL_4_MASTER_GOVERNANCE",
+          isAuthorisedComplaintReviewer: true,
+          permissions: { view: true, create: true, edit: true, approve: true, suspend: true, export: true, delete: true },
+          allowedRoutes: [],
+        } as any;
+      },
+    );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("Section 4.1: respondToMessageRequest with BLOCK is strictly idempotent and never unblocks on repeated calls", async () => {
@@ -553,7 +594,29 @@ describe("Sakhi Modules 8–12 Repair & Hardening Regression Suite", () => {
     expect(triaged.assignedReviewerName).toBe("Senior Safety Lead");
     expect(triaged.internalNotes).toHaveLength(1);
     expect(ctx.reports[0]!.priority).toBe("P0_CRITICAL");
+    expect(ctx.reports[0]!.severity).toBe("S1_CRITICAL");
+    expect(ctx.reports[0]!.assignedReviewerName).toBe("Senior Safety Lead");
+    expect(ctx.reports[0]!.appealStatus).toBe("UNDER_APPEAL");
+    expect(ctx.reports[0]!.appealReason).toBe("Requested secondary review");
     expect(ctx.reports[0]!.internalNotes).toHaveLength(1);
+    expect(ctx.reports[0]!.internalNotes[0]).toEqual(
+      expect.objectContaining({
+        author: "QA Safety Reviewer",
+        note: "Escalated due to repeat harassment reports.",
+      }),
+    );
+    expect((ctx.prisma as any).$transaction).toHaveBeenCalledWith(
+      expect.any(Function),
+      { isolationLevel: "Serializable" },
+    );
+    expect((ctx.prisma as any).auditEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        actorId: "00000000-0000-4000-8000-000000000001",
+        action: "admin.report.triaged",
+        targetId: REPORT_ID,
+        redactedMetadata: expect.objectContaining({ notesCount: 1 }),
+      }),
+    });
 
     // Missing evidence must throw NotFoundException instead of returning a fake SVG
     await expect(

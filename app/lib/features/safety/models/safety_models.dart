@@ -14,6 +14,132 @@ import '../../../core/constants/mock_data.dart';
 import '../../auth/backend_api_client.dart';
 import '../services/device_location_service.dart';
 
+
+/// Deterministic Two-Stage SOS Hardware Volume-Key State Machine (Section 5).
+/// Stage 1: 3 rapid Volume Up presses arm an 8-second confirmation window only
+///          (never dispatches SOS, calls 112, or sends messages).
+/// Stage 2: Only if 3 rapid Volume Down presses occur within the active 8-second
+///          armed window does the state transition to CONFIRMED.
+enum SosVolumeShortcutStage {
+  idle,
+  armedAwaitingVolumeDown,
+  confirmed,
+}
+
+class SakhiTwoStageSosVolumeStateMachine {
+  final int minInterTapGapMs;
+  final int maxInterTapGapMs;
+  final int maxSequenceSpanMs;
+  final int armedWindowDurationMs;
+  final int cooldownDurationMs;
+
+  SosVolumeShortcutStage stage = SosVolumeShortcutStage.idle;
+  int armedAtMs = 0;
+  int armedExpiresAtMs = 0;
+  int lastConfirmedAtMs = 0;
+
+  final List<int> _volumeUpTaps = <int>[];
+  final List<int> _volumeDownTaps = <int>[];
+
+  SakhiTwoStageSosVolumeStateMachine({
+    this.minInterTapGapMs = 55,
+    this.maxInterTapGapMs = 900,
+    this.maxSequenceSpanMs = 2200,
+    this.armedWindowDurationMs = 8000,
+    this.cooldownDurationMs = 10000,
+  });
+
+  bool reset() {
+    final wasArmed = stage == SosVolumeShortcutStage.armedAwaitingVolumeDown;
+    stage = SosVolumeShortcutStage.idle;
+    armedAtMs = 0;
+    armedExpiresAtMs = 0;
+    _volumeUpTaps.clear();
+    _volumeDownTaps.clear();
+    return wasArmed;
+  }
+
+  bool checkExpired(int nowMs) {
+    if (stage == SosVolumeShortcutStage.armedAwaitingVolumeDown &&
+        nowMs > armedExpiresAtMs) {
+      reset();
+      return true;
+    }
+    return false;
+  }
+
+  int remainingArmedSeconds(int nowMs) {
+    if (stage != SosVolumeShortcutStage.armedAwaitingVolumeDown) return 0;
+    final remMs = armedExpiresAtMs - nowMs;
+    if (remMs <= 0) return 0;
+    return (remMs / 1000).ceil();
+  }
+
+  /// Records a short tap of either `'VOLUME_UP'` or `'VOLUME_DOWN'` at `nowMs`.
+  /// Returns `'ARMED'`, `'CONFIRMED'`, `'CANCELLED'`, or `null`.
+  String? recordShortTap(String key, int nowMs, {int pressDurationMs = 120}) {
+    final expired = checkExpired(nowMs);
+    if (pressDurationMs > 650) {
+      _volumeUpTaps.clear();
+      _volumeDownTaps.clear();
+      return expired ? 'CANCELLED' : null;
+    }
+    if (lastConfirmedAtMs > 0 &&
+        nowMs - lastConfirmedAtMs < cooldownDurationMs) {
+      return expired ? 'CANCELLED' : null;
+    }
+
+    if (stage == SosVolumeShortcutStage.idle) {
+      if (key == 'VOLUME_UP') {
+        _volumeDownTaps.clear();
+        if (_volumeUpTaps.isNotEmpty) {
+          final gap = nowMs - _volumeUpTaps.last;
+          if (gap < minInterTapGapMs || gap > maxInterTapGapMs) {
+            _volumeUpTaps.clear();
+          }
+        }
+        _volumeUpTaps.removeWhere((t) => nowMs - t > maxSequenceSpanMs);
+        _volumeUpTaps.add(nowMs);
+        if (_volumeUpTaps.length >= 3) {
+          _volumeUpTaps.clear();
+          stage = SosVolumeShortcutStage.armedAwaitingVolumeDown;
+          armedAtMs = nowMs;
+          armedExpiresAtMs = nowMs + armedWindowDurationMs;
+          return 'ARMED';
+        }
+      } else {
+        // Pressing Volume Down while idle never arms or triggers SOS
+        _volumeUpTaps.clear();
+        _volumeDownTaps.clear();
+      }
+      return expired ? 'CANCELLED' : null;
+    }
+
+    // Currently ARMED_AWAITING_VOLUME_DOWN
+    if (key == 'VOLUME_DOWN') {
+      if (_volumeDownTaps.isNotEmpty) {
+        final gap = nowMs - _volumeDownTaps.last;
+        if (gap < minInterTapGapMs || gap > maxInterTapGapMs) {
+          _volumeDownTaps.clear();
+        }
+      }
+      _volumeDownTaps.removeWhere((t) => nowMs - t > maxSequenceSpanMs);
+      _volumeDownTaps.add(nowMs);
+      if (_volumeDownTaps.length >= 3 && nowMs <= armedExpiresAtMs) {
+        reset();
+        lastConfirmedAtMs = nowMs;
+        return 'CONFIRMED';
+      }
+      return null;
+    } else if (key == 'VOLUME_UP') {
+      // Pressing Volume Up while armed cancels the armed window
+      reset();
+      return 'CANCELLED';
+    }
+    return null;
+  }
+}
+
 class SimCardInfo {
   final int subscriptionId;
   final int slotIndex;
@@ -490,18 +616,71 @@ class SakhiSafetyController extends ChangeNotifier {
   bool _localPersistenceLoaded = false;
   String locationStatusMessage = 'Tap to enable live device GPS.';
 
-  /// Callback invoked when hardware 3x button or shake gesture triggers SOS.
+  /// Callback invoked when 2-stage hardware volume sequence or shake gesture confirms SOS.
   void Function(String source)? onDiscreetShortcutTriggered;
+
+  /// Two-stage volume shortcut armed state (Stage 1: 3x Volume Up completed, awaiting 3x Volume Down)
+  bool isVolumeShortcutArmed = false;
+  int volumeShortcutRemainingSeconds = 0;
+  Timer? _volumeShortcutCountdownTimer;
 
   void configureApiClient(BackendApiClient client) {
     _apiClient = client;
   }
 
+  Future<void> cancelArmedVolumeShortcut() async {
+    _volumeShortcutCountdownTimer?.cancel();
+    _volumeShortcutCountdownTimer = null;
+    isVolumeShortcutArmed = false;
+    volumeShortcutRemainingSeconds = 0;
+    notifyListeners();
+    try {
+      await _nativeChannel.invokeMethod('cancelArmedSosVolumeShortcut');
+    } catch (_) {}
+  }
+
+  void _startArmedCountdown(int windowSeconds) {
+    _volumeShortcutCountdownTimer?.cancel();
+    isVolumeShortcutArmed = true;
+    volumeShortcutRemainingSeconds = windowSeconds.clamp(1, 15);
+    notifyListeners();
+    _volumeShortcutCountdownTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (timer) {
+        if (volumeShortcutRemainingSeconds <= 1) {
+          timer.cancel();
+          isVolumeShortcutArmed = false;
+          volumeShortcutRemainingSeconds = 0;
+          notifyListeners();
+        } else {
+          volumeShortcutRemainingSeconds -= 1;
+          notifyListeners();
+        }
+      },
+    );
+  }
+
   void _registerNativeHardwareHandler() {
     _nativeChannel.setMethodCallHandler((call) async {
-      if (call.method == 'onDiscreetTrigger') {
+      if (call.method == 'onSosVolumeShortcutArmed') {
         final args = call.arguments;
-        String rawSource = 'HARDWARE_SHORTCUT';
+        final secs = (args is Map && args['windowSeconds'] is num)
+            ? (args['windowSeconds'] as num).toInt()
+            : 8;
+        _startArmedCountdown(secs);
+      } else if (call.method == 'onSosVolumeShortcutCancelled') {
+        _volumeShortcutCountdownTimer?.cancel();
+        _volumeShortcutCountdownTimer = null;
+        isVolumeShortcutArmed = false;
+        volumeShortcutRemainingSeconds = 0;
+        notifyListeners();
+      } else if (call.method == 'onDiscreetTrigger') {
+        _volumeShortcutCountdownTimer?.cancel();
+        _volumeShortcutCountdownTimer = null;
+        isVolumeShortcutArmed = false;
+        volumeShortcutRemainingSeconds = 0;
+        final args = call.arguments;
+        String rawSource = 'VOLUME_UP_3X_THEN_DOWN_3X';
         if (args is Map && args['source'] != null) {
           rawSource = args['source'].toString();
         }

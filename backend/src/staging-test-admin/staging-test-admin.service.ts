@@ -6,10 +6,16 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from "@nestjs/common";
-import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
-import { PrismaService } from "../database/prisma.service.js";
 import {
-  ADMIN_ROLE_DEFINITIONS,
+  createHash,
+  randomBytes,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
+import { PrismaService } from "../database/prisma.service.js";
+import { AdminMfaService } from "../admin-security/admin-mfa.service.js";
+import { AdminSessionService } from "../admin-security/admin-session.service.js";
+import {
   SakhiAdminRbacRegistry,
   type AuthenticatedAdminPrincipal,
 } from "../admin-review/admin-rbac.helper.js";
@@ -18,26 +24,31 @@ import type { StagingTestAccessDecisionDto } from "./staging-test-admin.dto.js";
 const APPROVED_ACTION = "staging.test_access.approved";
 const REVOKED_ACTION = "staging.test_access.revoked";
 const TEST_ACCESS_ACTIONS = [APPROVED_ACTION, REVOKED_ACTION];
-const STAGING_ADMIN_SESSION_TTL_SECONDS = 8 * 60 * 60;
-
-type StagingAdminScope = "test-access" | "full-admin";
 
 function assertStagingEnvironment(): void {
-  if (process.env.SAKHI_ENV !== "staging" || process.env.NODE_ENV !== "production") {
-    throw new ServiceUnavailableException("The staging admin is not enabled in this environment.");
+  if (
+    process.env.SAKHI_ENV !== "staging" ||
+    process.env.NODE_ENV !== "production"
+  ) {
+    throw new ServiceUnavailableException(
+      "The staging admin is not enabled in this environment.",
+    );
   }
 }
 
-function requireTestAdminSecret(): string {
-  assertStagingEnvironment();
-  if (process.env.SAKHI_STAGING_TEST_ADMIN_ENABLED !== "true") {
-    throw new ServiceUnavailableException("The staging test-access admin is not enabled.");
+function assertAdminAuthEnvironment(): void {
+  const staging =
+    process.env.SAKHI_ENV === "staging" &&
+    process.env.NODE_ENV === "production";
+  const local =
+    (process.env.SAKHI_ENV === "dev" || process.env.SAKHI_ENV === "test") &&
+    process.env.NODE_ENV !== "production" &&
+    (process.env.HOST ?? "127.0.0.1") === "127.0.0.1";
+  if (!staging && !local) {
+    throw new ServiceUnavailableException(
+      "Individual staff MFA authentication is available only on the dedicated staging service or loopback development/test backend.",
+    );
   }
-  const secret = process.env.SAKHI_STAGING_TEST_ADMIN_TOKEN?.trim() ?? "";
-  if (secret.length < 32) {
-    throw new ServiceUnavailableException("Configure a random staging test-admin token of at least 32 characters.");
-  }
-  return secret;
 }
 
 export function getFullAdminSecret(): string | null {
@@ -45,139 +56,108 @@ export function getFullAdminSecret(): string | null {
     process.env.SAKHI_ENV !== "staging" ||
     process.env.NODE_ENV !== "production" ||
     process.env.SAKHI_STAGING_FULL_ADMIN_ENABLED !== "true"
-  ) return null;
+  )
+    return null;
   const secret = process.env.SAKHI_STAGING_FULL_ADMIN_TOKEN?.trim() ?? "";
   return secret.length >= 32 ? secret : null;
 }
 
-function reviewerLabelForScope(scope: StagingAdminScope): string {
-  const key = scope === "full-admin"
-    ? "SAKHI_STAGING_FULL_ADMIN_REVIEWER_LABEL"
-    : "SAKHI_STAGING_TEST_ADMIN_REVIEWER_LABEL";
-  const configured = process.env[key]?.trim();
-  if (configured && configured.length <= 80) return configured;
-  return scope === "full-admin" ? "Sakhi Staging Super Admin" : "Sakhi Staging Test Reviewer";
+function requireStaffSessionSigningKey(): string {
+  const encoded = process.env.SAKHI_ADMIN_STAFF_SESSION_SIGNING_KEY ?? "";
+  const key = Buffer.from(encoded, "base64");
+  if (key.length !== 32 || key.toString("base64") !== encoded) {
+    throw new ServiceUnavailableException(
+      "Configure SAKHI_ADMIN_STAFF_SESSION_SIGNING_KEY as a base64-encoded 32-byte random key before enabling staff sessions.",
+    );
+  }
+  return encoded;
 }
 
-function verifyStagingSession(
-  sessionToken?: string,
-  requiredScope?: StagingAdminScope,
-): {
-  scope: StagingAdminScope;
+function reviewerLabelForScope(): string {
+  const configured = process.env.SAKHI_STAGING_FULL_ADMIN_REVIEWER_LABEL?.trim();
+  return configured && configured.length <= 80
+    ? configured
+    : "Sakhi Staging Super Admin";
+}
+
+function verifyStaffSession(sessionToken?: string): {
+  scope: "full-admin";
   reviewerLabel: string;
-  principal?: AuthenticatedAdminPrincipal;
+  principal: AuthenticatedAdminPrincipal;
 } {
-  assertStagingEnvironment();
-  const fullSecret = getFullAdminSecret() ?? "sakhi-rbac-default-secret";
-  if (sessionToken?.startsWith("staff-admin.")) {
-    const staff = SakhiAdminRbacRegistry.verifySignedStaffSessionToken(
-      sessionToken,
-      fullSecret,
+  if (!sessionToken?.startsWith("staff-admin.")) {
+    throw new UnauthorizedException(
+      "Legacy shared and stateless staging admin sessions are disabled. Use an individual MFA-verified staff account.",
     );
-    if (!staff) {
-      throw new UnauthorizedException(
-        "The staging staff admin session is invalid or expired. Sign in again.",
-      );
-    }
-    const principal = SakhiAdminRbacRegistry.principalFromStaff(staff);
-    return {
-      scope: "full-admin",
-      reviewerLabel: principal.reviewerLabel,
-      principal,
-    };
   }
-
-  const parts = sessionToken?.split(".") ?? [];
-  const scope = parts[0];
-  if (
-    parts.length !== 4 ||
-    (scope !== "test-access" && scope !== "full-admin") ||
-    !(parts[1] ?? "").split("").every((character) => character >= "0" && character <= "9") ||
-    !/^[0-9a-f-]{36}$/i.test(parts[2] ?? "")
-  ) {
-    throw new UnauthorizedException("The staging admin session is invalid. Sign in again.");
+  const staff = SakhiAdminRbacRegistry.verifySignedStaffSessionToken(
+    sessionToken,
+    requireStaffSessionSigningKey(),
+  );
+  if (!staff) {
+    throw new UnauthorizedException(
+      "The staging staff admin session is invalid or expired. Sign in again.",
+    );
   }
-  if (requiredScope === "full-admin" && scope !== "full-admin") {
-    throw new UnauthorizedException("Full staging-admin access is required for this action.");
-  }
-  const expiresAt = Number(parts[1]);
-  const now = Math.floor(Date.now() / 1000);
-  if (
-    !Number.isSafeInteger(expiresAt) ||
-    expiresAt <= now ||
-    expiresAt > now + STAGING_ADMIN_SESSION_TTL_SECONDS + 60
-  ) {
-    throw new UnauthorizedException("The staging admin session has expired. Sign in again.");
-  }
-
-  const testSecret = process.env.SAKHI_STAGING_TEST_ADMIN_TOKEN?.trim() ?? "";
-  const rawFullSecret = getFullAdminSecret() ?? "";
-  const secret = scope === "test-access" ? testSecret : rawFullSecret;
-  if (
-    secret.length < 32 ||
-    (scope === "test-access" && process.env.SAKHI_STAGING_TEST_ADMIN_ENABLED !== "true") ||
-    (scope === "full-admin" && process.env.SAKHI_STAGING_FULL_ADMIN_ENABLED !== "true")
-  ) {
-    throw new UnauthorizedException("The staging admin session is invalid. Sign in again.");
-  }
-
-  const payload = `${parts[0]}.${parts[1]}.${parts[2]}`;
-  const expected = createHmac("sha256", secret)
-    .update("sakhi-staging-admin-session:" + payload)
-    .digest();
-  const supplied = Buffer.from(parts[3] ?? "", "base64url");
-  if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
-    throw new UnauthorizedException("The staging admin session is invalid. Sign in again.");
-  }
-  const label = reviewerLabelForScope(scope);
+  const principal = SakhiAdminRbacRegistry.principalFromStaff(staff);
   return {
-    scope,
-    reviewerLabel: label,
-    principal:
-      scope === "full-admin"
-        ? SakhiAdminRbacRegistry.getSuperAdminPrincipal(label)
-        : undefined,
+    scope: "full-admin",
+    reviewerLabel: principal.reviewerLabel,
+    principal,
   };
 }
 
 @Injectable()
 export class StagingTestAdminService {
-  constructor(private readonly prisma: PrismaService) {}
-
-  private assertEnabled(): string {
-    return requireTestAdminSecret();
-  }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly staffSessions: AdminSessionService,
+    private readonly staffMfa: AdminMfaService,
+  ) {}
 
   private assertMasterCredential(provided?: string): {
-    scope: StagingAdminScope;
+    scope: "full-admin";
     secret: string;
     reviewerLabel: string;
   } {
-    const testSecret = this.assertEnabled();
+    assertStagingEnvironment();
     if (!provided?.trim()) {
-      throw new UnauthorizedException("A staging admin token is required.");
-    }
-    const providedDigest = createHash("sha256").update(provided.trim()).digest();
-    const matches = (secret: string) => {
-      const expectedDigest = createHash("sha256").update(secret).digest();
-      return timingSafeEqual(expectedDigest, providedDigest);
-    };
-    if (matches(testSecret)) {
-      return { scope: "test-access", secret: testSecret, reviewerLabel: reviewerLabelForScope("test-access") };
+      throw new UnauthorizedException("A staging bootstrap credential is required.");
     }
     const fullSecret = getFullAdminSecret();
-    if (fullSecret && matches(fullSecret)) {
-      return { scope: "full-admin", secret: fullSecret, reviewerLabel: reviewerLabelForScope("full-admin") };
+    if (!fullSecret) {
+      throw new ServiceUnavailableException(
+        "The one-time staging Super Admin bootstrap credential is not configured.",
+      );
     }
-    throw new UnauthorizedException("The staging admin token is invalid.");
+    const providedDigest = createHash("sha256")
+      .update(provided.trim())
+      .digest();
+    const expectedDigest = createHash("sha256").update(fullSecret).digest();
+    if (!timingSafeEqual(expectedDigest, providedDigest)) {
+      throw new UnauthorizedException("The staging bootstrap credential is invalid.");
+    }
+    return {
+      scope: "full-admin",
+      secret: fullSecret,
+      reviewerLabel: reviewerLabelForScope(),
+    };
   }
 
   assertAdminOrigin(origin?: string): void {
-    this.assertEnabled();
-    const allowedOrigins = String(process.env.SAKHI_ADMIN_CORS_ORIGIN ?? "")
+    assertAdminAuthEnvironment();
+    const configuredOrigins = String(process.env.SAKHI_ADMIN_CORS_ORIGIN ?? "")
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean);
+    const allowedOrigins =
+      process.env.SAKHI_ENV === "staging"
+        ? configuredOrigins
+        : [
+            ...configuredOrigins,
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+          ];
     if (!origin || !allowedOrigins.includes(origin)) {
       throw new ForbiddenException(
         "The staging test-admin request must come from the configured Super Admin origin.",
@@ -185,21 +165,60 @@ export class StagingTestAdminService {
     }
   }
 
-  async loginWithToken(token?: string) {
-    await SakhiAdminRbacRegistry.ensureHydrated(this.prisma);
+  private async lookupRawStaffCredential(token?: string) {
     const clean = token?.trim() ?? "";
-    if (!clean) {
-      throw new UnauthorizedException("A staging admin or staff token is required.");
+    if (!clean || clean.startsWith("staff-admin.")) return null;
+    const digest = createHash("sha256").update(clean).digest("hex");
+    const row = await this.prisma.adminStaffAccount.findFirst({
+      where: { accessTokenDigest: digest, status: "ACTIVE", suspendedAt: null, deletedAt: null },
+    });
+    return row
+      ? SakhiAdminRbacRegistry.refreshStaffRecordFromDatabase(
+          row as unknown as Record<string, unknown>,
+        )
+      : null;
+  }
+
+  async loginWithToken(token?: string, mfaCode?: string) {
+    assertAdminAuthEnvironment();
+    const clean = token?.trim() ?? "";
+    if (!clean || clean.startsWith("staff-admin.")) {
+      throw new UnauthorizedException(
+        "A staff credential is required for MFA login.",
+      );
     }
-    const fullSecret = getFullAdminSecret() ?? "sakhi-rbac-default-secret";
-    const staffMatch = SakhiAdminRbacRegistry.findStaffByToken(clean, fullSecret);
+
+    const staffMatch = await this.lookupRawStaffCredential(clean);
     if (staffMatch) {
+      const mfa = await this.prisma.adminStaffMfa.findUnique({
+        where: { staffId: staffMatch.id },
+        select: { enrollmentVerifiedAt: true, disabledAt: true },
+      });
+      if (!mfa?.enrollmentVerifiedAt || mfa.disabledAt) {
+        return {
+          authenticated: false as const,
+          mfaEnrollmentRequired: true as const,
+          staffId: staffMatch.id,
+          staffCode: staffMatch.staffCode,
+          message:
+            "Enroll an authenticator before privileged staff access can be issued.",
+        };
+      }
+      if (!mfaCode?.trim()) {
+        return {
+          authenticated: false as const,
+          mfaRequired: true as const,
+          staffId: staffMatch.id,
+          staffCode: staffMatch.staffCode,
+          message:
+            "Enter the current six-digit authenticator code or a single-use backup code.",
+        };
+      }
+
+      await this.staffMfa.verifyLoginFactor(staffMatch.id, mfaCode);
+      const issued = await this.staffSessions.issueSession(staffMatch.id);
       staffMatch.lastLoginAt = new Date().toISOString();
       const principal = SakhiAdminRbacRegistry.principalFromStaff(staffMatch);
-      const signed = SakhiAdminRbacRegistry.createSignedStaffSessionToken(
-        staffMatch,
-        fullSecret,
-      );
       return {
         authenticated: true as const,
         reviewerLabel: principal.reviewerLabel,
@@ -215,131 +234,245 @@ export class StagingTestAdminService {
         permissions: principal.permissions,
         allowedRoutes: principal.allowedRoutes,
         mode: "staging_full_admin" as const,
-        message: `Signed in as ${principal.roleTitle} (${principal.staffCode}). Role-based workspace permissions are active.`,
-        sessionToken: signed.value,
-        sessionExpiresAt: signed.expiresAt.toISOString(),
+        message: `Signed in as ${principal.roleTitle} (${principal.staffCode}). Staff MFA and persistent session controls are active.`,
+        sessionToken: issued.value,
+        sessionExpiresAt: issued.expiresAt.toISOString(),
       };
     }
 
-    const session = this.session(clean);
-    const sessionToken = this.createSessionToken(clean);
-    const superPrincipal = SakhiAdminRbacRegistry.getSuperAdminPrincipal(
-      session.reviewerLabel,
+    throw new UnauthorizedException(
+      "A valid individual staff first-factor credential is required. Shared staging admin credentials cannot authenticate a staff session.",
     );
+  }
+
+  async bootstrapSuperAdmin(
+    bootstrapToken: string | undefined,
+    fullName: string,
+    email: string,
+  ) {
+    const credential = this.assertMasterCredential(bootstrapToken);
+    if (credential.scope !== "full-admin") {
+      throw new UnauthorizedException(
+        "The one-time Super Admin bootstrap credential is invalid.",
+      );
+    }
+    const existingSuperAdmins = await this.prisma.adminStaffAccount.findMany({
+      where: { role: "SUPER_ADMIN" },
+      select: { id: true },
+      take: 1,
+    });
+    if (existingSuperAdmins.length > 0) {
+      throw new ConflictException(
+        "A Super Admin account already exists; bootstrap is permanently closed.",
+      );
+    }
+    let created: Awaited<ReturnType<typeof SakhiAdminRbacRegistry.createStaffAccount>>;
+    try {
+      created = await SakhiAdminRbacRegistry.createStaffAccount(
+        this.prisma,
+        { fullName, email, role: "SUPER_ADMIN" },
+        "One-time protected Super Admin bootstrap",
+      );
+    } catch (error) {
+      const errorRecord =
+        error && typeof error === "object"
+          ? (error as { code?: unknown; meta?: { target?: unknown }; message?: unknown })
+          : null;
+      const uniqueTarget = Array.isArray(errorRecord?.meta?.target)
+        ? errorRecord.meta.target.join(",")
+        : String(errorRecord?.meta?.target ?? "");
+      const errorMessage = String(errorRecord?.message ?? "");
+      if (
+        errorRecord?.code === "P2002" &&
+        (uniqueTarget.includes("created_by") ||
+          errorMessage.includes("admin_staff_one_time_super_admin_bootstrap_unique"))
+      ) {
+        throw new ConflictException(
+          "The one-time Super Admin bootstrap has already been completed.",
+        );
+      }
+      throw error;
+    }
     return {
-      ...session,
-      ...(session.mode === "staging_full_admin"
-        ? {
-            staffId: superPrincipal.staffId,
-            staffCode: superPrincipal.staffCode,
-            fullName: superPrincipal.fullName,
-            email: superPrincipal.email,
-            role: superPrincipal.role,
-            roleTitle: superPrincipal.roleTitle,
-            badgeLabel: superPrincipal.badgeLabel,
-            clearanceLevel: superPrincipal.clearanceLevel,
-            isAuthorisedComplaintReviewer: true,
-            permissions: superPrincipal.permissions,
-            allowedRoutes: superPrincipal.allowedRoutes,
-          }
-        : {
-            role: "VERIFICATION_ADMIN" as const,
-            roleTitle: "Staging Test Access Reviewer",
-            badgeLabel: "Test Access Only",
-            allowedRoutes: ["/test-access"],
-            permissions: ADMIN_ROLE_DEFINITIONS.VERIFICATION_ADMIN.defaultPermissions,
-          }),
-      sessionToken: sessionToken.value,
-      sessionExpiresAt: sessionToken.expiresAt.toISOString(),
+      created: true as const,
+      staffCode: created.staff.staffCode,
+      accessToken: created.issuedAccessToken,
+      mfaEnrollmentRequired: true as const,
     };
   }
 
-  session(token?: string) {
-    const credential = this.assertMasterCredential(token);
-    const fullAdmin = credential.scope === "full-admin";
+  private async findRawStaffCredential(token?: string) {
+    const staff = await this.lookupRawStaffCredential(token);
+    if (!staff) {
+      throw new UnauthorizedException("The staff credential is invalid.");
+    }
+    return staff;
+  }
+
+  async startStaffMfaEnrollment(token?: string) {
+    assertAdminAuthEnvironment();
+    const staff = await this.findRawStaffCredential(token);
+    const enrollment = await this.staffMfa.beginEnrollment(staff.id);
+    return { staffId: staff.id, ...enrollment };
+  }
+
+  async verifyStaffMfaEnrollment(token: string | undefined, code: string) {
+    assertAdminAuthEnvironment();
+    const staff = await this.findRawStaffCredential(token);
+    return this.staffMfa.verifyEnrollment(staff.id, code);
+  }
+
+  async requestStaffMfaRecovery(token?: string) {
+    assertAdminAuthEnvironment();
+    const staff = await this.findRawStaffCredential(token);
+    return this.staffMfa.requestRecovery(staff.id);
+  }
+
+  async listStaffMfaRecoveryRequests(approverSessionToken?: string) {
+    assertAdminAuthEnvironment();
+    const { staff } = await this.staffSessions.validateSession(approverSessionToken ?? "");
+    const current = SakhiAdminRbacRegistry.refreshStaffRecordFromDatabase(
+      staff as unknown as Record<string, unknown>,
+    );
+    const principal = SakhiAdminRbacRegistry.principalFromStaff(current);
+    if (principal.role !== "SUPER_ADMIN" || !principal.permissions.approve) {
+      throw new ForbiddenException("Only an MFA-verified Super Admin with approve permission may view recovery requests.");
+    }
+    return this.staffMfa.listPendingRecoveryRequests();
+  }
+
+  async rotateStaffMfaEncryptionKeys(approverSessionToken?: string) {
+    assertAdminAuthEnvironment();
+    const { staff } = await this.staffSessions.validateSession(approverSessionToken ?? "");
+    const current = SakhiAdminRbacRegistry.refreshStaffRecordFromDatabase(
+      staff as unknown as Record<string, unknown>,
+    );
+    const principal = SakhiAdminRbacRegistry.principalFromStaff(current);
+    if (principal.role !== "SUPER_ADMIN" || !principal.permissions.approve) {
+      throw new ForbiddenException("Only an MFA-verified Super Admin with approve permission may rotate stored MFA encryption keys.");
+    }
+    return this.staffMfa.rotateStoredEncryptionKeys(staff.id);
+  }
+
+  async approveStaffMfaRecovery(
+    requestId: string,
+    approverSessionToken?: string,
+  ) {
+    assertAdminAuthEnvironment();
+    const { staff } = await this.staffSessions.validateSession(
+      approverSessionToken ?? "",
+    );
+    const principal = SakhiAdminRbacRegistry.principalFromStaff(
+      SakhiAdminRbacRegistry.refreshStaffRecordFromDatabase(
+        staff as unknown as Record<string, unknown>,
+      ),
+    );
+    if (staff.role !== "SUPER_ADMIN" || !principal.permissions.approve) {
+      throw new ForbiddenException(
+        "Only an independent MFA-verified Super Admin with approve permission may approve staff MFA recovery.",
+      );
+    }
+    return this.staffMfa.approveRecoveryRequest(requestId, staff.id);
+  }
+
+  async completeStaffMfaRecovery(
+    token: string | undefined,
+    recoveryToken: string,
+  ) {
+    assertAdminAuthEnvironment();
+    const staff = await this.findRawStaffCredential(token);
+    return this.staffMfa.completeRecovery(staff.id, recoveryToken);
+  }
+
+  async rotateStaffSession(sessionToken?: string) {
+    if (!sessionToken)
+      throw new UnauthorizedException("A staff session is required.");
+    const rotated = await this.staffSessions.rotateSession(sessionToken);
     return {
-      authenticated: true as const,
-      reviewerLabel: credential.reviewerLabel,
-      mode: fullAdmin ? ("staging_full_admin" as const) : ("staging_test_access_only" as const),
-      message: fullAdmin
-        ? "Full staging-admin session. Administrative actions affect the hosted staging environment only; test-access grants remain separate from real eligibility decisions."
-        : "This reviewer can grant app-feature access for staging tests only. It cannot certify phone ownership or real eligibility.",
+      sessionToken: rotated.value,
+      sessionExpiresAt: rotated.expiresAt.toISOString(),
     };
   }
 
-  createSessionToken(token: string) {
-    const credential = this.assertMasterCredential(token);
-    const expiresAt = Math.floor(Date.now() / 1000) + STAGING_ADMIN_SESSION_TTL_SECONDS;
-    const nonce = randomUUID();
-    const payload = `${credential.scope}.${expiresAt}.${nonce}`;
-    const signature = createHmac("sha256", credential.secret)
-      .update("sakhi-staging-admin-session:" + payload)
-      .digest("base64url");
-    return {
-      value: `${payload}.${signature}`,
-      expiresAt: new Date(expiresAt * 1000),
-      reviewerLabel: credential.reviewerLabel,
-      mode: credential.scope === "full-admin"
-        ? ("staging_full_admin" as const)
-        : ("staging_test_access_only" as const),
-    };
+  async logout(sessionToken?: string) {
+    if (sessionToken?.startsWith("staff-admin.")) {
+      const result = await this.staffSessions.revokeSession(
+        sessionToken,
+        "LOGOUT",
+      );
+      return { signedOut: true, serverSessionRevoked: result.revoked };
+    }
+    return { signedOut: true, serverSessionRevoked: false };
   }
+
 
   private assertSessionToken(sessionToken?: string) {
-    return verifyStagingSession(sessionToken);
+    return verifyStaffSession(sessionToken);
   }
 
-  static assertFullAdminSessionToken(sessionToken?: string): string {
-    return verifyStagingSession(sessionToken, "full-admin").reviewerLabel;
+  private async assertTestAccessStaff(
+    sessionToken: string | undefined,
+    permission: "view" | "approve" | "suspend",
+  ): Promise<AuthenticatedAdminPrincipal> {
+    assertStagingEnvironment();
+    const { staff } = await this.staffSessions.validateSession(sessionToken ?? "");
+    const currentStaff = SakhiAdminRbacRegistry.refreshStaffRecordFromDatabase(
+      staff as unknown as Record<string, unknown>,
+    );
+    const principal = SakhiAdminRbacRegistry.principalFromStaff(currentStaff);
+    if (!["SUPER_ADMIN", "VERIFICATION_ADMIN"].includes(principal.role)) {
+      throw new ForbiddenException(
+        "Only an MFA-verified Super Admin or Verification Admin may administer staging test access.",
+      );
+    }
+    if (!principal.permissions[permission]) {
+      throw new ForbiddenException(
+        "The " + permission + " permission is required to administer staging test access.",
+      );
+    }
+    return principal;
   }
+
 
   static resolvePrincipalFromSessionToken(
     sessionToken?: string,
   ): AuthenticatedAdminPrincipal {
-    const verified = verifyStagingSession(sessionToken, "full-admin");
-    return (
-      verified.principal ??
-      SakhiAdminRbacRegistry.getSuperAdminPrincipal(verified.reviewerLabel)
-    );
+    assertAdminAuthEnvironment();
+    const verified = verifyStaffSession(sessionToken);
+    if (!verified.principal) {
+      throw new UnauthorizedException(
+        "An individual persistent staff session is required.",
+      );
+    }
+    return verified.principal;
   }
 
   async sessionFromToken(sessionToken?: string) {
     await SakhiAdminRbacRegistry.ensureHydrated(this.prisma);
+    await this.staffSessions.validateSession(sessionToken ?? "");
     const credential = this.assertSessionToken(sessionToken);
-    const fullAdmin = credential.scope === "full-admin";
-    const principal =
-      credential.principal ??
-      SakhiAdminRbacRegistry.getSuperAdminPrincipal(credential.reviewerLabel);
+    const principal = credential.principal;
+    if (!principal) {
+      throw new UnauthorizedException(
+        "An individual persistent staff session is required.",
+      );
+    }
     return {
       authenticated: true as const,
-      reviewerLabel: credential.reviewerLabel,
-      ...(fullAdmin
-        ? {
-            staffId: principal.staffId,
-            staffCode: principal.staffCode,
-            fullName: principal.fullName,
-            email: principal.email,
-            role: principal.role,
-            roleTitle: principal.roleTitle,
-            badgeLabel: principal.badgeLabel,
-            clearanceLevel: principal.clearanceLevel,
-            isAuthorisedComplaintReviewer:
-              principal.isAuthorisedComplaintReviewer,
-            permissions: principal.permissions,
-            allowedRoutes: principal.allowedRoutes,
-          }
-        : {
-            role: "VERIFICATION_ADMIN" as const,
-            roleTitle: "Staging Test Access Reviewer",
-            badgeLabel: "Test Access Only",
-            allowedRoutes: ["/test-access"],
-            permissions:
-              ADMIN_ROLE_DEFINITIONS.VERIFICATION_ADMIN.defaultPermissions,
-          }),
-      mode: fullAdmin ? ("staging_full_admin" as const) : ("staging_test_access_only" as const),
-      message: fullAdmin
-        ? `Active ${principal.roleTitle} session.`
-        : "This reviewer can grant app-feature access for staging tests only. It cannot certify phone ownership or real eligibility.",
+      reviewerLabel: principal.reviewerLabel,
+      staffId: principal.staffId,
+      staffCode: principal.staffCode,
+      fullName: principal.fullName,
+      email: principal.email,
+      role: principal.role,
+      roleTitle: principal.roleTitle,
+      badgeLabel: principal.badgeLabel,
+      clearanceLevel: principal.clearanceLevel,
+      isAuthorisedComplaintReviewer: principal.isAuthorisedComplaintReviewer,
+      permissions: principal.permissions,
+      allowedRoutes: principal.allowedRoutes,
+      mode: "staging_full_admin" as const,
+      message: `Active ${principal.roleTitle} session.`,
     };
   }
 
@@ -357,7 +490,10 @@ export class StagingTestAdminService {
       take: 2000,
       select: { targetId: true, action: true, createdAt: true },
     });
-    const latest = new Map<string, { approved: boolean; createdAt: string | null }>();
+    const latest = new Map<
+      string,
+      { approved: boolean; createdAt: string | null }
+    >();
     for (const event of events) {
       if (!event.targetId || latest.has(event.targetId)) continue;
       latest.set(event.targetId, {
@@ -368,8 +504,103 @@ export class StagingTestAdminService {
     return latest;
   }
 
+  /**
+   * Creates a disposable, unmistakably synthetic staging member fixture.
+   * Requires an MFA-verified staff principal with approve permission.
+   */
+  async createSyntheticMemberFixture(
+    dto: StagingTestAccessDecisionDto,
+    sessionToken?: string,
+  ) {
+    const principal = await this.assertTestAccessStaff(sessionToken, "approve");
+    if (principal.role !== "SUPER_ADMIN") {
+      throw new ForbiddenException("Only an MFA-verified Super Admin may create synthetic member fixtures.");
+    }
+    const reason = this.assertDecision(dto);
+    assertStagingEnvironment();
+    if (process.env.SAKHI_SYNTHETIC_FIXTURE_ENABLED !== "true") {
+      throw new ServiceUnavailableException("Synthetic staging fixtures are disabled.");
+    }
+
+    const fixtureId = randomUUID();
+    const accountId = randomUUID();
+    const opaque = fixtureId.replace(/-/g, "").slice(0, 12);
+    const phoneE164 = "+999" + opaque;
+    const username = "@synthetic_" + opaque;
+    const email = "synthetic-" + fixtureId + "@example.invalid";
+    const accessToken = randomBytes(32).toString("base64url");
+    const now = new Date();
+    const sessionExpiresAt = new Date(now.getTime() + 60 * 60 * 1000);
+    const fixtureExpiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const tokenDigest = createHash("sha256").update(accessToken).digest("hex");
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.memberAccount.create({
+        data: {
+          id: accountId,
+          phoneE164,
+          phoneVerifiedAt: null,
+          status: "ACTIVE",
+          verificationStatus: "UNVERIFIED",
+        },
+      });
+      await tx.memberProfile.create({
+        data: {
+          accountId,
+          displayName: "Synthetic Sakhi Test " + opaque,
+          username,
+          email,
+          dateOfBirth: new Date("1990-01-01T00:00:00.000Z"),
+          bio: "Synthetic staging fixture only. No real person.",
+          location: "",
+          interests: [],
+        },
+      });
+      await tx.authSession.create({
+        data: {
+          accountId,
+          tokenDigest,
+          expiresAt: sessionExpiresAt,
+          deviceName: "Sakhi synthetic staging fixture",
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          actorType: "ADMIN",
+          actorId: principal.staffId,
+          action: "staging.synthetic_member.created",
+          targetType: "synthetic_member_fixture",
+          targetId: fixtureId,
+          outcome: "created",
+          requestId: fixtureId,
+          redactedMetadata: {
+            testOnly: true,
+            syntheticFixture: true,
+            fixtureId,
+            accountId,
+            phoneNamespace: "+999 synthetic-only; no SMS",
+            reason,
+            reviewerLabel: principal.reviewerLabel,
+            expiresAt: fixtureExpiresAt.toISOString(),
+          },
+        },
+      });
+    });
+
+    return {
+      created: true as const,
+      testOnly: true as const,
+      fixtureId,
+      accountId,
+      displayName: "Synthetic Sakhi Test " + opaque,
+      authorization: "Bearer " + accessToken,
+      sessionExpiresAt: sessionExpiresAt.toISOString(),
+      message: "Synthetic staging-only member created. Treat the returned bearer credential as a secret; never log or commit it.",
+    };
+  }
+
   async accounts(sessionToken?: string) {
-    this.assertSessionToken(sessionToken);
+    await this.assertTestAccessStaff(sessionToken, "view");
     const records = await this.prisma.memberAccount.findMany({
       include: { profile: true },
       orderBy: { createdAt: "desc" },
@@ -434,7 +665,8 @@ export class StagingTestAdminService {
     dto: StagingTestAccessDecisionDto,
     sessionToken?: string,
   ) {
-    const { reviewerLabel } = this.assertSessionToken(sessionToken);
+    const principal = await this.assertTestAccessStaff(sessionToken, "approve");
+    const reviewerLabel = principal.reviewerLabel;
     const reason = this.assertDecision(dto);
     const account = await this.prisma.memberAccount.findUnique({
       where: { id: accountId },
@@ -444,7 +676,9 @@ export class StagingTestAdminService {
       throw new NotFoundException("A registered member profile was not found.");
     }
     if (["DELETED", "SUSPENDED", "RESTRICTED"].includes(account.status)) {
-      throw new ConflictException("Test access cannot override a restricted account.");
+      throw new ConflictException(
+        "Test access cannot override a restricted account.",
+      );
     }
     if (account.verificationStatus === "REJECTED") {
       throw new ConflictException(
@@ -453,7 +687,9 @@ export class StagingTestAdminService {
     }
     const latest = await this.latestState(accountId);
     if (latest?.action === APPROVED_ACTION) {
-      throw new ConflictException("Staging test access is already enabled for this account.");
+      throw new ConflictException(
+        "Staging test access is already enabled for this account.",
+      );
     }
 
     const now = new Date();
@@ -461,6 +697,7 @@ export class StagingTestAdminService {
       await tx.auditEvent.create({
         data: {
           actorType: "ADMIN",
+          actorId: principal.staffId,
           action: APPROVED_ACTION,
           targetType: "member_account",
           targetId: accountId,
@@ -492,16 +729,20 @@ export class StagingTestAdminService {
     dto: StagingTestAccessDecisionDto,
     sessionToken?: string,
   ) {
-    const { reviewerLabel } = this.assertSessionToken(sessionToken);
+    const principal = await this.assertTestAccessStaff(sessionToken, "suspend");
+    const reviewerLabel = principal.reviewerLabel;
     const reason = this.assertDecision(dto);
     const account = await this.prisma.memberAccount.findUnique({
       where: { id: accountId },
       select: { id: true },
     });
-    if (!account) throw new NotFoundException("The member account was not found.");
+    if (!account)
+      throw new NotFoundException("The member account was not found.");
     const latest = await this.latestState(accountId);
     if (latest?.action !== APPROVED_ACTION) {
-      throw new ConflictException("Staging test access is not currently enabled.");
+      throw new ConflictException(
+        "Staging test access is not currently enabled.",
+      );
     }
 
     const now = new Date();
@@ -509,6 +750,7 @@ export class StagingTestAdminService {
       await tx.auditEvent.create({
         data: {
           actorType: "ADMIN",
+          actorId: principal.staffId,
           action: REVOKED_ACTION,
           targetType: "member_account",
           targetId: accountId,

@@ -189,6 +189,48 @@ class BackendApiClient {
     headers: headers,
   );
 
+  /// Downloads binary bytes (such as remote wellness audio tracks) with
+  /// optional byte-level progress reporting and server SHA-256 header capture.
+  Future<({Uint8List bytes, String? sha256Header, String? contentType})>
+  downloadBinary(
+    String path, {
+    bool authenticated = true,
+    void Function(int receivedBytes, int totalBytes)? onProgress,
+  }) async {
+    final request = await _httpClient
+        .getUrl(_uri(path))
+        .timeout(const Duration(seconds: 12));
+    if (authenticated) {
+      final token = await readAccessToken();
+      if (token != null && token.isNotEmpty) {
+        request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+      }
+    }
+    final response = await request.close().timeout(const Duration(seconds: 25));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw BackendApiException(
+        statusCode: response.statusCode,
+        code: 'http_${response.statusCode}',
+        message: 'Could not download wellness audio track.',
+      );
+    }
+    final totalBytes = response.contentLength > 0 ? response.contentLength : 0;
+    final builder = BytesBuilder(copy: false);
+    var received = 0;
+    await for (final chunk in response.timeout(const Duration(seconds: 30))) {
+      builder.add(chunk);
+      received += chunk.length;
+      onProgress?.call(received, totalBytes);
+    }
+    final sha256Header = response.headers.value('x-sakhi-track-sha256');
+    final contentType = response.headers.contentType?.mimeType;
+    return (
+      bytes: builder.takeBytes(),
+      sha256Header: sha256Header,
+      contentType: contentType,
+    );
+  }
+
   Future<Map<String, dynamic>> postMultipart(
     String path, {
     required List<int> fileBytes,

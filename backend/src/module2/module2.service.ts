@@ -1,5 +1,11 @@
 import { SakhiAdminRbacRegistry } from "../admin-review/admin-rbac.helper.js";
 import {
+  SAKHI_42_WELLNESS_TRACKS,
+  SAKHI_SELECTABLE_VOICES,
+  synthesizeDeterministicLoopableWav,
+  type SakhiWellnessAudioTrackMetadata,
+} from "./wellness-audio-catalog.helper.js";
+import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -9,7 +15,8 @@ import {
   Optional,
   ServiceUnavailableException,
 } from "@nestjs/common";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { Prisma } from "../generated/prisma/client.js";
 import { AuthenticationService } from "../auth/auth.service.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { GoogleDriveStorageService } from "./google-drive-storage.service.js";
@@ -250,6 +257,83 @@ export class Module2Service {
     return true;
   }
 
+  public isWithinQuietHours(
+    notifPref: Record<string, any> | null | undefined,
+    referenceDate: Date = new Date(),
+  ): boolean {
+    if (!notifPref || notifPref.quietHoursEnabled !== true) return false;
+    const startStr = String(notifPref.quietHoursStart ?? "22:00").trim();
+    const endStr = String(notifPref.quietHoursEnd ?? "07:00").trim();
+    const tz = String(notifPref.quietHoursTimezone ?? "Asia/Kolkata").trim();
+    const parseHm = (hm: string, fallback: number) => {
+      const m = /^(\d{1,2}):(\d{2})$/.exec(hm);
+      if (!m) return fallback;
+      const hh = Math.min(23, Math.max(0, Number(m[1])));
+      const mm = Math.min(59, Math.max(0, Number(m[2])));
+      return hh * 60 + mm;
+    };
+    const startMin = parseHm(startStr, 22 * 60);
+    const endMin = parseHm(endStr, 7 * 60);
+    let currentMin = referenceDate.getUTCHours() * 60 + referenceDate.getUTCMinutes();
+    try {
+      const parts = new Intl.DateTimeFormat("en-GB", {
+        timeZone: tz,
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      }).formatToParts(referenceDate);
+      const hPart = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
+      const mPart = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
+      if (Number.isFinite(hPart) && Number.isFinite(mPart)) {
+        currentMin = (hPart % 24) * 60 + mPart;
+      }
+    } catch {
+      // Fallback to IST (UTC+5:30)
+      currentMin = (currentMin + 330) % (24 * 60);
+    }
+    if (startMin === endMin) return false;
+    if (startMin < endMin) {
+      return currentMin >= startMin && currentMin < endMin;
+    }
+    return currentMin >= startMin || currentMin < endMin;
+  }
+
+  async updateQuietHoursPreference(
+    authorization: string | undefined,
+    dto: {
+      quietHoursEnabled: boolean;
+      quietHoursStart?: string;
+      quietHoursEnd?: string;
+      quietHoursTimezone?: string;
+    },
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    const start = String(dto.quietHoursStart ?? "22:00").trim();
+    const end = String(dto.quietHoursEnd ?? "07:00").trim();
+    const tz = String(dto.quietHoursTimezone ?? "Asia/Kolkata").trim();
+    if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(start) || !/^([01]?\d|2[0-3]):[0-5]\d$/.test(end)) {
+      throw new BadRequestException("Provide quietHoursStart and quietHoursEnd in HH:MM 24-hour format.");
+    }
+    const data = {
+      quietHoursEnabled: Boolean(dto.quietHoursEnabled),
+      quietHoursStart: start.padStart(5, "0"),
+      quietHoursEnd: end.padStart(5, "0"),
+      quietHoursTimezone: tz.slice(0, 64),
+    };
+    if (typeof anyPrisma.memberNotificationPreference?.upsert === "function") {
+      await anyPrisma.memberNotificationPreference.upsert({
+        where: { accountId: session.accountId },
+        create: { accountId: session.accountId, ...data },
+        update: data,
+      });
+    }
+    return {
+      updated: true,
+      ...data,
+    };
+  }
+
   async createPersistentNotification(
     accountId: string,
     notification: {
@@ -269,91 +353,66 @@ export class Module2Service {
     },
   ) {
     if (!accountId) return null;
-    const anyPrisma = this.prisma as Record<string, any>;
-    if (typeof anyPrisma.memberNotification?.create !== "function") {
-      throw new ServiceUnavailableException(
-        "Notification storage is not initialized. Run the Module 8 database migration.",
-      );
-    }
+    return this.prisma.withNotificationRecipientIdentity(accountId, async (tx) => {
+      const notifPref = await tx.memberNotificationPreference.findUnique({
+        where: { accountId },
+      });
+      if (!this.isNotificationCategoryAllowedByPreferences(notification.category, notifPref)) {
+        return null;
+      }
 
-    const notifPref =
-      typeof anyPrisma.memberNotificationPreference?.findUnique === "function"
-        ? await anyPrisma.memberNotificationPreference
-            .findUnique({ where: { accountId } })
-            .catch(() => null)
-        : null;
-    if (!this.isNotificationCategoryAllowedByPreferences(notification.category, notifPref)) {
-      return null;
-    }
+      const cleanKey = notification.idempotencyKey?.trim() || null;
+      const createdAtDate =
+        notification.createdAt instanceof Date
+          ? notification.createdAt
+          : notification.createdAt
+            ? new Date(String(notification.createdAt))
+            : new Date();
+      const payload = {
+        accountId,
+        category: notification.category.trim().slice(0, 48),
+        title: notification.title.trim().slice(0, 160),
+        body: notification.body.trim().slice(0, 500),
+        discreetTitle: notification.discreetTitle ? notification.discreetTitle.trim().slice(0, 160) : null,
+        discreetBody: notification.discreetBody ? notification.discreetBody.trim().slice(0, 500) : null,
+        deepLink: (notification.deepLink ?? "/notifications-inbox").trim().slice(0, 255),
+        actorHandle: notification.actorHandle ? notification.actorHandle.trim().slice(0, 80) : null,
+        actorName: notification.actorName ? notification.actorName.trim().slice(0, 100) : null,
+        actorAvatar: notification.actorAvatar ? notification.actorAvatar.trim().slice(0, 255) : null,
+        metadata: notification.metadata ?? {},
+        idempotencyKey: cleanKey,
+        deliveryStatus: this.isWithinQuietHours(notifPref, createdAtDate) && notification.category.toUpperCase() !== "SAFETY_ALERT"
+          ? "QUIET_HOURS_DEFERRED"
+          : "DELIVERED",
+        createdAt: createdAtDate,
+      };
 
-    const cleanKey = notification.idempotencyKey?.trim() || null;
-    const createdAtDate =
-      notification.createdAt instanceof Date
-        ? notification.createdAt
-        : notification.createdAt
-          ? new Date(String(notification.createdAt))
-          : new Date();
-
-    const payload = {
-      accountId,
-      category: notification.category.trim().slice(0, 48),
-      title: notification.title.trim().slice(0, 160),
-      body: notification.body.trim().slice(0, 500),
-      discreetTitle: notification.discreetTitle
-        ? notification.discreetTitle.trim().slice(0, 160)
-        : null,
-      discreetBody: notification.discreetBody
-        ? notification.discreetBody.trim().slice(0, 500)
-        : null,
-      deepLink: (notification.deepLink ?? "/notifications-inbox").trim().slice(0, 255),
-      actorHandle: notification.actorHandle
-        ? notification.actorHandle.trim().slice(0, 80)
-        : null,
-      actorName: notification.actorName
-        ? notification.actorName.trim().slice(0, 100)
-        : null,
-      actorAvatar: notification.actorAvatar
-        ? notification.actorAvatar.trim().slice(0, 255)
-        : null,
-      metadata: notification.metadata ?? {},
-      idempotencyKey: cleanKey,
-      deliveryStatus: "DELIVERED",
-      createdAt: createdAtDate,
-    };
-
-    if (cleanKey && typeof anyPrisma.memberNotification?.upsert === "function") {
-      return anyPrisma.memberNotification.upsert({
-        where: { idempotencyKey: cleanKey },
-        create: {
+      if (cleanKey) {
+        return tx.memberNotification.upsert({
+          where: { idempotencyKey: cleanKey },
+          create: {
+            id: notification.id && /^[0-9a-fA-F-]{36}$/.test(notification.id) ? notification.id : randomUUID(),
+            ...payload,
+            isRead: false,
+            readAt: null,
+          },
+          update: {
+            title: payload.title,
+            body: payload.body,
+            discreetTitle: payload.discreetTitle,
+            discreetBody: payload.discreetBody,
+            deepLink: payload.deepLink,
+          },
+        });
+      }
+      return tx.memberNotification.create({
+        data: {
           id: notification.id && /^[0-9a-fA-F-]{36}$/.test(notification.id) ? notification.id : randomUUID(),
           ...payload,
           isRead: false,
           readAt: null,
         },
-        update: {
-          title: payload.title,
-          body: payload.body,
-          discreetTitle: payload.discreetTitle,
-          discreetBody: payload.discreetBody,
-          deepLink: payload.deepLink,
-        },
       });
-    }
-
-    if (cleanKey && typeof anyPrisma.memberNotification?.findFirst === "function") {
-      const existing = await anyPrisma.memberNotification.findFirst({
-        where: { idempotencyKey: cleanKey },
-      });
-      if (existing) return existing;
-    }
-
-    return anyPrisma.memberNotification.create({
-      data: {
-        id: notification.id && /^[0-9a-fA-F-]{36}$/.test(notification.id) ? notification.id : randomUUID(),
-        ...payload,
-        isRead: false,
-        readAt: null,
-      },
     });
   }
 
@@ -398,11 +457,58 @@ export class Module2Service {
     }
     return ordered;
   }
+  private readonly wellnessAudioCache = new Map<string, {
+    buffer: Buffer;
+    contentType: string;
+    sha256Checksum: string;
+    cachedAt: number;
+    lastAccessedAt: number;
+  }>();
+  private static readonly WELLNESS_AUDIO_CACHE_MAX_TRACKS = 6;
+  private static readonly WELLNESS_AUDIO_CACHE_MAX_BYTES = 15 * 1024 * 1024;
+  private static readonly WELLNESS_AUDIO_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
   constructor(
     private readonly auth: AuthenticationService,
     private readonly prisma: PrismaService,
     private readonly googleDrive: GoogleDriveStorageService = new GoogleDriveStorageService(),
   ) {}
+
+  private getCachedWellnessAudio(trackId: string) {
+    const entry = this.wellnessAudioCache.get(trackId);
+    if (!entry) return null;
+    const now = Date.now();
+    if (now - entry.cachedAt >= Module2Service.WELLNESS_AUDIO_CACHE_TTL_MS) {
+      this.wellnessAudioCache.delete(trackId);
+      return null;
+    }
+    entry.lastAccessedAt = now;
+    return entry;
+  }
+
+  private cacheWellnessAudio(trackId: string, audio: {
+    buffer: Buffer;
+    contentType: string;
+    sha256Checksum: string;
+  }) {
+    if (audio.buffer.length === 0 || audio.buffer.length > Module2Service.WELLNESS_AUDIO_CACHE_MAX_BYTES) return;
+    const now = Date.now();
+    this.wellnessAudioCache.set(trackId, {
+      ...audio,
+      cachedAt: now,
+      lastAccessedAt: now,
+    });
+    const totalBytes = () => Array.from(this.wellnessAudioCache.values()).reduce((sum, item) => sum + item.buffer.length, 0);
+    while (
+      this.wellnessAudioCache.size > Module2Service.WELLNESS_AUDIO_CACHE_MAX_TRACKS ||
+      totalBytes() > Module2Service.WELLNESS_AUDIO_CACHE_MAX_BYTES
+    ) {
+      const oldest = Array.from(this.wellnessAudioCache.entries())
+        .sort((a, b) => a[1].lastAccessedAt - b[1].lastAccessedAt)[0];
+      if (!oldest) break;
+      this.wellnessAudioCache.delete(oldest[0]);
+    }
+  }
 
   private formatRelativeTime(createdAt: Date): string {
     const diffMs = Math.max(0, Date.now() - createdAt.getTime());
@@ -666,6 +772,7 @@ export class Module2Service {
 
   async bootstrap(authorization?: string) {
     const session = await this.auth.authenticateAuthorization(authorization);
+    await this.syncCommunityDirectoryProjection(session.accountId).catch(() => undefined);
     await this.purgeLegacySeededDemoData().catch(() => undefined);
     await this.ensureDefaultCatalogSeeded().catch(() => undefined);
 
@@ -1317,172 +1424,67 @@ export class Module2Service {
     const query = (rawQuery ?? "").trim().replace(/^#/, "").slice(0, 80);
     if (!query) return { source: "postgresql_live" as const, members: [] };
 
-    const viewerProfile = await this.prisma.memberProfile.findUnique({
-      where: { accountId: session.accountId },
-      select: { username: true },
-    });
-    const viewerHandle = (viewerProfile?.username ?? "").trim().toLowerCase();
     const normalizeHandle = (value: string) =>
-      value.trim().replace(/^@/, "").toLowerCase();
-
-    const viewerHandleVariants = [
-      ...new Set(
-        [
-          viewerHandle,
-          normalizeHandle(viewerHandle),
-          viewerHandle ? `@${normalizeHandle(viewerHandle)}` : "",
-        ].filter(Boolean),
-      ),
-    ];
-    const [outgoingBlocks, incomingBlocks] = await Promise.all([
+      value.trim().replace(/^@+/, "").toLowerCase();
+    const [outgoingBlocks, candidates] = await Promise.all([
       this.prisma.memberModerationBlock.findMany({
         where: { accountId: session.accountId },
         select: { blockedUsername: true },
       }),
-      viewerHandleVariants.length > 0
-        ? this.prisma.memberModerationBlock.findMany({
-            where: { blockedUsername: { in: viewerHandleVariants } },
-            select: { accountId: true },
-          })
-        : Promise.resolve([]),
+      this.prisma.communityDirectoryProfile.findMany({
+        where: {
+          accountId: { not: session.accountId },
+          searchable: true,
+          OR: [
+            { name: { contains: query, mode: "insensitive" } },
+            { username: { contains: query, mode: "insensitive" } },
+            { bio: { contains: query, mode: "insensitive" } },
+          ],
+        },
+        select: {
+          id: true,
+          accountId: true,
+          name: true,
+          username: true,
+          bio: true,
+          avatarAsset: true,
+        },
+        orderBy: { name: "asc" },
+        take: 100,
+      }),
     ]);
     const blockedHandles = new Set(
       outgoingBlocks.map((item) => normalizeHandle(item.blockedUsername)),
     );
-    const accountsWhoBlockedViewer = new Set(
-      incomingBlocks.map((item) => item.accountId),
+    const visibleCandidates = candidates.filter(
+      (profile) => !blockedHandles.has(normalizeHandle(profile.username)),
     );
-
-    // JsonB array containment handles exact interest names. The parameterized
-    // query adds substring matches such as "wellness" -> "Mental Wellness";
-    // candidate rows are still filtered by account verification and privacy below.
-    const rawPrisma = this.prisma as unknown as {
-      $queryRaw?: <T>(
-        query: TemplateStringsArray,
-        ...values: unknown[]
-      ) => Promise<T>;
-    };
-    const interestRows =
-      typeof rawPrisma.$queryRaw === "function"
-        ? await rawPrisma.$queryRaw<Array<{ accountId: string }>>`
-          SELECT mp.account_id AS "accountId"
-          FROM member_profiles AS mp
-          WHERE mp.account_id <> ${session.accountId}::uuid
-            AND EXISTS (
-              SELECT 1
-              FROM jsonb_array_elements_text(mp.interests) AS interest(value)
-              WHERE lower(interest.value) LIKE ${`%${query.toLowerCase()}%`}
-            )
-          LIMIT 100
-        `
-        : [];
-    const interestAccountIds = interestRows.map((row) => row.accountId);
-    const searchBranches: Record<string, unknown>[] = [
-      { displayName: { contains: query, mode: "insensitive" } },
-      { username: { contains: query, mode: "insensitive" } },
-      { bio: { contains: query, mode: "insensitive" } },
-      { interests: { array_contains: [query] } },
-      ...(interestAccountIds.length > 0
-        ? [{ accountId: { in: interestAccountIds } }]
-        : []),
-    ];
-
-    const candidates = await this.prisma.memberProfile.findMany({
-      where: {
-        accountId: {
-          not: session.accountId,
-          ...(accountsWhoBlockedViewer.size > 0
-            ? { notIn: [...accountsWhoBlockedViewer] }
-            : {}),
-        },
-        account: {
-          is: {
-            status: "ACTIVE",
-            verificationStatus: "VERIFIED",
-          },
-        },
-        OR: searchBranches,
-      },
-      include: {
-        account: {
-          select: {
-            status: true,
-            verificationStatus: true,
-            privacyPreference: {
-              select: { searchResults: true },
-            },
-          },
-        },
-      },
-      orderBy: { displayName: "asc" },
-      take: 100,
-    });
-
-    const visibleCandidates = candidates.filter((profile) => {
-      const searchPreference =
-        profile.account.privacyPreference?.searchResults ?? "Yes";
-      if (searchPreference.trim().toLowerCase() === "no") return false;
-      const handle = profile.username ?? "";
-      return !handle || !blockedHandles.has(normalizeHandle(handle));
-    });
-
-    const usernames = visibleCandidates
-      .map((profile) => profile.username)
-      .filter((username): username is string => Boolean(username));
-    const directoryProfiles = usernames.length
-      ? await this.prisma.communityDirectoryProfile.findMany({
-          where: { username: { in: usernames } },
-          select: { id: true, username: true },
-        })
-      : [];
-    const directoryByUsername = new Map(
-      directoryProfiles.map((profile) => [profile.username, profile]),
-    );
-    const directoryIds = directoryProfiles.map((profile) => profile.id);
-    const follows = directoryIds.length
+    const follows = visibleCandidates.length
       ? await this.prisma.memberFollow.findMany({
           where: {
             accountId: session.accountId,
-            directoryProfileId: { in: directoryIds },
+            directoryProfileId: { in: visibleCandidates.map((item) => item.id) },
             isFollowing: true,
           },
           select: { directoryProfileId: true },
         })
       : [];
-    const followedDirectoryIds = new Set(
-      follows.map((follow) => follow.directoryProfileId),
-    );
+    const followedIds = new Set(follows.map((item) => item.directoryProfileId));
 
     return {
       source: "postgresql_live" as const,
       query,
-      members: visibleCandidates.slice(0, 30).map((profile) => {
-        const directoryProfile = profile.username
-          ? directoryByUsername.get(profile.username)
-          : undefined;
-        const handle = profile.username ?? "";
-        return {
-          id: directoryProfile?.id ?? profile.accountId,
-          accountId: profile.accountId,
-          name: profile.displayName,
-          username: handle,
-          bio: profile.bio,
-          avatarAsset: this.resolveMemberAvatar(
-            profile.avatarAsset,
-            profile.avatarMediaAssetId,
-          ),
-          verificationStatus: profile.account.verificationStatus,
-          isVerified: true,
-          isFollowing: directoryProfile
-            ? followedDirectoryIds.has(directoryProfile.id)
-            : false,
-          canFollow: Boolean(directoryProfile),
-          interests: this.parseInterests(profile.interests),
-          businessProfileUrl: profile.businessProfileUrl,
-          businessProfileName: profile.businessProfileName,
-          businessCategory: profile.businessCategory,
-        };
-      }),
+      members: visibleCandidates.slice(0, 30).map((profile) => ({
+        id: profile.id,
+        accountId: profile.accountId,
+        name: profile.name,
+        username: profile.username,
+        bio: profile.bio ?? "",
+        avatarAsset: profile.avatarAsset,
+        isVerified: true,
+        isFollowing: followedIds.has(profile.id),
+        canFollow: true,
+      })),
     };
   }
 
@@ -1594,107 +1596,7 @@ export class Module2Service {
       },
     });
 
-    const effectiveHandle = this.deriveUsername(
-      updated.displayName,
-      updated.username,
-    );
-    const resolvedAvatar = this.resolveMemberAvatar(
-      updated.avatarAsset,
-      updated.avatarMediaAssetId,
-    );
-    try {
-      const existingDirectory = existing?.username
-        ? await this.prisma.communityDirectoryProfile.findUnique({
-            where: { username: existing.username },
-          })
-        : null;
-      if (existingDirectory && existingDirectory.username !== effectiveHandle) {
-        // Preserve the stable directory ID so existing follow relations survive
-        // a member's username edit.
-        await this.prisma.communityDirectoryProfile.update({
-          where: { id: existingDirectory.id },
-          data: {
-            username: effectiveHandle,
-            name: updated.displayName,
-            avatarAsset: resolvedAvatar,
-            bio: updated.bio ?? "",
-          },
-        });
-      } else {
-        await this.prisma.communityDirectoryProfile.upsert({
-          where: { username: effectiveHandle },
-          update: {
-            name: updated.displayName,
-            avatarAsset: resolvedAvatar,
-            bio: updated.bio ?? "",
-          },
-          create: {
-            username: effectiveHandle,
-            name: updated.displayName,
-            avatarAsset: resolvedAvatar,
-            bio: updated.bio ?? "",
-            defaultFollowing: false,
-          },
-        });
-      }
-    } catch {
-      // Directory synchronization is best-effort; profile saving must remain
-      // available even if an older directory row cannot be reconciled.
-    }
-
-    if (
-      typeof (this.prisma.communityPost as Record<string, any>)?.updateMany ===
-      "function"
-    ) {
-      await this.prisma.communityPost
-        .updateMany({
-          where: { authorAccountId: session.accountId },
-          data: {
-            authorName: updated.displayName,
-            authorUsername: effectiveHandle,
-            ...(resolvedAvatar ? { authorAvatar: resolvedAvatar } : {}),
-          },
-        })
-        .catch(() => undefined);
-    }
-    if (
-      typeof (this.prisma.communityPostComment as Record<string, any>)?.updateMany ===
-      "function"
-    ) {
-      await this.prisma.communityPostComment
-        .updateMany({
-          where: { accountId: session.accountId },
-          data: {
-            authorName: updated.displayName,
-          },
-        })
-        .catch(() => undefined);
-    }
-    const anyPrismaForProf = this.prisma as Record<string, any>;
-    if (typeof anyPrismaForProf.businessDirectoryListing?.updateMany === "function") {
-      await anyPrismaForProf.businessDirectoryListing
-        .updateMany({
-          where: { ownerAccountId: session.accountId },
-          data: { ownerDisplayName: updated.displayName },
-        })
-        .catch(() => undefined);
-    }
-
-    await this.prisma.auditEvent.create({
-      data: {
-        actorType: "MEMBER",
-        actorId: session.accountId,
-        action: "module2.profile.updated",
-        targetType: "member_profile",
-        targetId: session.accountId,
-        outcome: "success",
-        requestId: randomUUID(),
-        redactedMetadata: {
-          interestsCount: interests.length,
-          hadExistingProfile: Boolean(existing),
-        },
-      },
-    });
+    await this.syncCommunityDirectoryProjection(session.accountId).catch(() => undefined);
 
     return {
       displayName: updated.displayName,
@@ -2272,11 +2174,64 @@ export class Module2Service {
         [column]: dto.selectedValue.trim(),
       },
     });
+    await this.syncCommunityDirectoryProjection(session.accountId).catch(() => undefined);
 
     return {
       settingId: dto.settingId,
       selectedValue: updated[column],
     };
+  }
+
+  private async syncCommunityDirectoryProjection(accountId: string) {
+    const [profile, privacy, account] = await Promise.all([
+      this.prisma.memberProfile.findUnique({ where: { accountId } }),
+      this.prisma.memberPrivacyPreference.findUnique({ where: { accountId } }),
+      this.prisma.memberAccount.findUnique({
+        where: { id: accountId },
+        select: { status: true, verificationStatus: true },
+      }),
+    ]);
+    if (!profile?.username) return null;
+
+    const viewProfile = (privacy?.viewProfile ?? "Verified members only").trim().toLowerCase();
+    const searchResults = (privacy?.searchResults ?? "Yes").trim().toLowerCase();
+    const privateToSelf = viewProfile.includes("only me") || viewProfile.includes("no one");
+    const searchable = account?.status === "ACTIVE" &&
+      account.verificationStatus === "VERIFIED" &&
+      searchResults !== "no" && !privateToSelf;
+    const profileVisibility = !searchable
+      ? "HIDDEN"
+      : viewProfile.includes("follower")
+        ? "FOLLOWERS_ONLY"
+        : "VERIFIED_MEMBERS";
+    const username = this.deriveUsername(profile.displayName, profile.username);
+    const projection = {
+      accountId,
+      name: profile.displayName,
+      username,
+      avatarAsset: this.resolveMemberAvatar(profile.avatarAsset, profile.avatarMediaAssetId),
+      bio: profile.bio ?? "",
+      searchable,
+      profileVisibility,
+      postsVisibility: privacy?.seePosts ?? "Verified members only",
+      messageVisibility: privacy?.messageMe ?? "Verified members only",
+      defaultFollowing: false,
+    };
+    const existing = await this.prisma.communityDirectoryProfile.findUnique({
+      where: { accountId },
+      select: { id: true },
+    });
+    if (existing) {
+      return this.prisma.communityDirectoryProfile.update({
+        where: { id: existing.id },
+        data: projection,
+      });
+    }
+    return this.prisma.communityDirectoryProfile.upsert({
+      where: { username },
+      create: projection,
+      update: projection,
+    });
   }
 
   async updateNotificationPreference(
@@ -4955,12 +4910,8 @@ export class Module2Service {
       driveFolderPath: string;
       storedName: string;
       size: number;
-      inlineBase64?: string;
+      sha256Checksum: string;
     };
-    const fallbackInlineBase64 =
-      !isVideo && file.buffer.length <= 8 * 1024 * 1024
-        ? file.buffer.toString("base64")
-        : undefined;
     try {
       const driveUploaded = await this.googleDrive.uploadImage({
         uploadId,
@@ -4972,23 +4923,11 @@ export class Module2Service {
         contentType: file.mimetype as (typeof allowedTypes)[number],
         buffer: file.buffer,
       });
-      stored = {
-        ...driveUploaded,
-        ...(fallbackInlineBase64 ? { inlineBase64: fallbackInlineBase64 } : {}),
-      };
+      stored = driveUploaded;
     } catch (driveErr) {
-      if (fallbackInlineBase64) {
-        stored = {
-          driveFileId: `inline-db-${uploadId}`,
-          driveFolderId: "inline-db-folder",
-          driveFolderPath: `Sakhi Media/inline/${session.accountId}`,
-          storedName: file.originalname || `${uploadId}.jpg`,
-          size: file.buffer.length,
-          inlineBase64: fallbackInlineBase64,
-        };
-      } else {
-        throw driveErr;
-      }
+      // Fail closed: do not place private media bytes in audit JSON as an
+      // unbounded pseudo-storage fallback when Google Drive is unavailable.
+      throw driveErr;
     }
     // Store a same-origin API path. Absolute loopback URLs work on the host
     // machine but point back to the phone itself when the app runs on Android.
@@ -5015,7 +4954,6 @@ export class Module2Service {
           publicUrl,
           sizeBytes: stored.size,
           uploadedAt,
-          ...(stored.inlineBase64 ? { inlineBase64: stored.inlineBase64 } : {}),
         },
       },
     });
@@ -5048,6 +4986,7 @@ export class Module2Service {
         originalFileName: file.originalname,
         contentType: file.mimetype,
         byteSize: stored.size,
+        sha256Checksum: stored.sha256Checksum,
         cropAspectRatio,
         visibility: isDirectMessage ? "PRIVATE_SELF" : "VERIFIED_MEMBERS",
       },
@@ -5431,7 +5370,15 @@ export class Module2Service {
     }
 
     try {
-      const media = await this.googleDrive.downloadFile(driveFileId);
+      if (!asset?.ownerAccountId || !asset.sha256Checksum || !Number.isSafeInteger(asset.byteSize) || asset.byteSize <= 0) {
+        throw new ServiceUnavailableException("The media record has no trusted owner, byte-size or SHA-256 receipt. Upload the media again.");
+      }
+      const media = await this.googleDrive.downloadMemberMediaFile({
+        driveFileId,
+        ownerAccountId: asset.ownerAccountId,
+        expectedSha256: asset.sha256Checksum,
+        expectedByteSize: asset.byteSize,
+      });
       const storedContentType =
         typeof recordedContentType === "string" &&
         ["image/jpeg", "image/png", "image/webp", "video/mp4"].includes(
@@ -5449,6 +5396,13 @@ export class Module2Service {
         meta.inlineBase64.length > 0
       ) {
         const inlineBuffer = Buffer.from(meta.inlineBase64, "base64");
+        if (asset && (
+          !asset.sha256Checksum ||
+          inlineBuffer.length !== asset.byteSize ||
+          createHash("sha256").update(inlineBuffer).digest("hex") !== asset.sha256Checksum
+        )) {
+          throw new ServiceUnavailableException("The inline media fallback failed its stored byte-size or SHA-256 integrity check.");
+        }
         const inlineType =
           typeof recordedContentType === "string" &&
           ["image/jpeg", "image/png", "image/webp", "video/mp4"].includes(
@@ -5568,10 +5522,15 @@ export class Module2Service {
       };
     }
 
+    const blockedDirectory = await this.prisma.communityDirectoryProfile.findFirst({
+      where: { username: { in: variants } },
+      select: { accountId: true },
+    }).catch(() => null);
     const created = await this.prisma.memberModerationBlock.create({
       data: {
         accountId: session.accountId,
         blockedUsername: canonicalUsername,
+        blockedAccountId: blockedDirectory?.accountId ?? null,
         blockedDisplayName:
           (dto.blockedDisplayName ?? "").trim() || canonicalUsername.replace(/^@+/, ""),
       },
@@ -5648,10 +5607,15 @@ export class Module2Service {
       };
     }
 
+    const blockedDirectory = await this.prisma.communityDirectoryProfile.findFirst({
+      where: { username: { in: variants } },
+      select: { accountId: true },
+    }).catch(() => null);
     const created = await this.prisma.memberModerationBlock.create({
       data: {
         accountId: session.accountId,
         blockedUsername: canonicalUsername,
+        blockedAccountId: blockedDirectory?.accountId ?? null,
         blockedDisplayName: dto.blockedDisplayName.trim() || canonicalUsername,
       },
     });
@@ -8427,95 +8391,90 @@ export class Module2Service {
     targetAccountId: string,
   ) {
     const session = await this.auth.authenticateAuthorization(authorization);
-    const anyPrisma = this.prisma as Record<string, any>;
-    const account = await anyPrisma.memberAccount.findFirst({
-      where: {
-        id: targetAccountId,
-        status: "ACTIVE",
-        verificationStatus: "VERIFIED",
+    if (targetAccountId === session.accountId) {
+      await this.syncCommunityDirectoryProjection(session.accountId).catch(() => undefined);
+    }
+    const directoryProfile = await this.prisma.communityDirectoryProfile.findFirst({
+      where: { accountId: targetAccountId },
+      select: {
+        accountId: true,
+        name: true,
+        username: true,
+        bio: true,
+        avatarAsset: true,
       },
-      include: {
-        profile: true,
-        privacySettings: true,
-      },
-    });
-    if (!account || !account.profile) {
+    }).catch(() => null);
+    if (!directoryProfile?.accountId) {
       throw new NotFoundException("Member profile was not found.");
     }
-    const showCity =
-      account.id === session.accountId ||
-      account.privacySettings?.locationSharing === "CITY_ONLY";
     return {
-      accountId: account.id,
+      accountId: directoryProfile.accountId,
       profile: {
-        ...account.profile,
-        locationCity: showCity ? account.profile.locationCity : null,
+        displayName: directoryProfile.name,
+        username: directoryProfile.username,
+        bio: directoryProfile.bio ?? "",
+        avatarAsset: directoryProfile.avatarAsset,
+        // Precise/general location is intentionally not part of this legacy
+        // compatibility response; the public projection contains no location.
+        locationCity: null,
       },
     };
   }
 
   async getDiscover(authorization: string | undefined, search?: string) {
     const session = await this.auth.authenticateAuthorization(authorization);
-    const anyPrisma = this.prisma as Record<string, any>;
-    const where: Record<string, any> = {
-      id: { not: session.accountId },
-      status: "ACTIVE",
-      verificationStatus: "VERIFIED",
-      OR: [
-        { privacySettings: { is: null } },
-        {
-          privacySettings: {
-            is: {
-              appearInSearch: true,
-              profileVisibility: "VERIFIED_MEMBERS",
-            },
-          },
-        },
-        {
-          AND: [
-            {
-              privacySettings: {
-                is: {
-                  appearInSearch: true,
-                  profileVisibility: "FOLLOWERS_ONLY",
-                },
-              },
-            },
-            {
-              followsAsFollowing: {
-                some: { followerAccountId: session.accountId },
-              },
-            },
-          ],
-        },
-      ],
-    };
-    if (search?.trim()) {
-      const q = search.trim();
-      where.AND = [
-        {
-          OR: [
-            {
-              profile: {
-                is: { displayName: { contains: q, mode: "insensitive" } },
-              },
-            },
-            {
-              AND: [
-                { privacySettings: { is: { locationSharing: "CITY_ONLY" } } },
-                {
-                  profile: {
-                    is: { locationCity: { contains: q, mode: "insensitive" } },
-                  },
-                },
+    const query = (search ?? "").trim();
+    const candidates = await this.prisma.communityDirectoryProfile.findMany({
+      where: {
+        accountId: { not: session.accountId },
+        searchable: true,
+        ...(query
+          ? {
+              OR: [
+                { name: { contains: query, mode: "insensitive" } },
+                { username: { contains: query, mode: "insensitive" } },
+                { bio: { contains: query, mode: "insensitive" } },
               ],
-            },
-          ],
-        },
-      ];
-    }
-    const items = await anyPrisma.memberAccount.findMany({ where, take: 30 });
-    return { items };
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+        accountId: true,
+        name: true,
+        username: true,
+        avatarAsset: true,
+        bio: true,
+      },
+      orderBy: { name: "asc" },
+      take: 30,
+    });
+    const follows = candidates.length
+      ? await this.prisma.memberFollow.findMany({
+          where: {
+            accountId: session.accountId,
+            directoryProfileId: { in: candidates.map((item) => item.id) },
+            isFollowing: true,
+          },
+          select: { directoryProfileId: true },
+        })
+      : [];
+    const followedIds = new Set(follows.map((item) => item.directoryProfileId));
+    return {
+      source: "postgresql_live" as const,
+      query,
+      items: candidates.map((profile) => ({
+        id: profile.id,
+        accountId: profile.accountId,
+        name: profile.name,
+        username: profile.username,
+        bio: profile.bio ?? "",
+        avatarAsset: profile.avatarAsset,
+        isVerified: true,
+        isFollowing: followedIds.has(profile.id),
+        canFollow: true,
+      })),
+    };
   }
 
   async listGroups(authorization: string | undefined) {
@@ -8536,6 +8495,18 @@ export class Module2Service {
     mode: "followers" | "following" = "followers",
   ) {
     const session = await this.auth.authenticateAuthorization(authorization);
+    if (mode === "followers") {
+      // Cross-member follow rows are intentionally owner-scoped by RLS. Do not
+      // bypass that boundary with account/profile includes. A dedicated public
+      // relationship projection is required before follower lists are exposed.
+      return {
+        source: "postgresql_live" as const,
+        mode,
+        items: [],
+        connectionsAvailable: false,
+      };
+    }
+
     const viewerProfile = await this.prisma.memberProfile.findUnique({
       where: { accountId: session.accountId },
       select: { accountId: true, displayName: true, username: true },
@@ -8545,264 +8516,81 @@ export class Module2Service {
       viewerProfile?.username,
     );
     const normalizeHandle = (value: string) =>
-      value.trim().replace(/^@/, "").toLowerCase();
-    const viewerHandle = normalizeHandle(viewerUsername);
-
-    const [ownedDirectory, outgoingBlocks, incomingBlocks, outgoingFollows] =
-      await Promise.all([
-        this.prisma.communityDirectoryProfile.findUnique({
-          where: { username: viewerUsername },
-        }),
-        this.prisma.memberModerationBlock.findMany({
-          where: { accountId: session.accountId },
-          select: { blockedUsername: true },
-        }),
-        this.prisma.memberModerationBlock.findMany({
-          where: {
-            blockedUsername: {
-              in: [viewerUsername, viewerHandle, `@${viewerHandle}`],
-            },
-          },
-          select: { accountId: true },
-        }),
-        this.prisma.memberFollow.findMany({
-          where: { accountId: session.accountId, isFollowing: true },
-          select: { directoryProfileId: true },
-        }),
-      ]);
-
+      value.trim().replace(/^@+/, "").toLowerCase();
+    const [outgoingBlocks, outgoingFollows] = await Promise.all([
+      this.prisma.memberModerationBlock.findMany({
+        where: { accountId: session.accountId },
+        select: { blockedUsername: true },
+      }),
+      this.prisma.memberFollow.findMany({
+        where: { accountId: session.accountId, isFollowing: true },
+        include: { directoryProfile: true },
+      }),
+    ]);
     const blockedHandles = new Set(
       outgoingBlocks.map((item) => normalizeHandle(item.blockedUsername)),
     );
-    const accountsWhoBlockedViewer = new Set(
-      incomingBlocks.map((item) => item.accountId),
-    );
-    const followingDirectoryIds = new Set(
-      outgoingFollows.map((item) => item.directoryProfileId),
-    );
-
-    let rawProfiles: Array<{
-      accountId: string;
-      displayName: string;
-      username: string | null;
-      bio: string;
-      avatarAsset: string;
-      avatarMediaAssetId: string | null;
-      interests: unknown;
-      businessProfileUrl: string | null;
-      businessProfileName: string | null;
-      businessCategory: string | null;
-      account: {
-        status: string;
-        verificationStatus: string;
-        privacyPreference: {
-          viewProfile: string;
-          searchResults: string;
-        } | null;
-      };
-      directoryProfileId?: string | null;
-    }> = [];
-
-    if (mode === "following") {
-      const followedRows = await this.prisma.memberFollow.findMany({
-        where: { accountId: session.accountId, isFollowing: true },
-        include: { directoryProfile: true },
-      });
-      const candidates = followedRows
-        .map((item) => item.directoryProfile)
-        .filter((item): item is NonNullable<typeof item> => Boolean(item && item.username))
-        .filter((item) => !blockedHandles.has(normalizeHandle(item.username)));
-      const handleVariants = [
-        ...new Set(
-          candidates.flatMap((item) => {
-            const clean = item.username.replace(/^@+/, "");
-            return [item.username, clean, `@${clean}`, `@${clean.toLowerCase()}`, clean.toLowerCase()];
-          }),
-        ),
-      ];
-      if (handleVariants.length > 0) {
-        const matchedProfiles = await this.prisma.memberProfile.findMany({
-          where: {
-            username: { in: handleVariants },
-            account: {
-              is: {
-                status: "ACTIVE",
-                verificationStatus: "VERIFIED",
-              },
-            },
-          },
-          include: {
-            account: {
-              select: {
-                status: true,
-                verificationStatus: true,
-                privacyPreference: {
-                  select: { viewProfile: true, searchResults: true },
-                },
-              },
-            },
-          },
-        });
-        const profileByNormHandle = new Map(
-          matchedProfiles.map((p) => [normalizeHandle(p.username ?? ""), p]),
-        );
-        rawProfiles = candidates.map((cand) => {
-          const norm = normalizeHandle(cand.username);
-          const matched = profileByNormHandle.get(norm);
-          if (matched) {
-            return {
-              ...matched,
-              directoryProfileId: cand.id,
-            };
-          }
-          return {
-            accountId: cand.id,
-            displayName: cand.name,
-            username: cand.username.startsWith("@") ? cand.username : `@${cand.username}`,
-            bio: cand.bio ?? "",
-            avatarAsset: cand.avatarAsset ?? "",
-            avatarMediaAssetId: null,
-            interests: [],
-            businessProfileUrl: null,
-            businessProfileName: null,
-            businessCategory: null,
-            account: {
-              status: "ACTIVE",
-              verificationStatus: "VERIFIED",
-              privacyPreference: null,
-            },
-            directoryProfileId: cand.id,
-          };
-        });
-      }
-    } else if (ownedDirectory) {
-      const followerRows = await this.prisma.memberFollow.findMany({
-        where: {
-          directoryProfileId: ownedDirectory.id,
-          isFollowing: true,
-        },
-        include: {
-          account: {
-            include: { profile: true, privacyPreference: true },
-          },
-        },
-      });
-      rawProfiles = followerRows
-        .map((item) => {
-          const account = item.account;
-          const profile = account.profile;
-          if (!profile) return null;
-          const privacyPreference = account.privacyPreference;
-          return {
-            ...profile,
-            account: {
-              status: account.status,
-              verificationStatus: account.verificationStatus,
-              privacyPreference: privacyPreference
-                ? {
-                    viewProfile: privacyPreference.viewProfile,
-                    searchResults: privacyPreference.searchResults,
-                  }
-                : null,
-            },
-          };
-        })
-        .filter(
-          (profile): profile is NonNullable<typeof profile> => profile !== null,
-        )
-        .filter((profile) => !accountsWhoBlockedViewer.has(profile.accountId));
-      const candidateHandles = rawProfiles
-        .map((profile) => profile.username)
-        .filter((username): username is string => Boolean(username));
-      const directoryRows = candidateHandles.length
-        ? await this.prisma.communityDirectoryProfile.findMany({
-            where: { username: { in: candidateHandles } },
-            select: { id: true, username: true },
-          })
-        : [];
-      const directoryByHandle = new Map(
-        directoryRows.map((item) => [item.username, item.id]),
-      );
-      rawProfiles = rawProfiles.map((profile) => ({
-        ...profile,
-        directoryProfileId:
-          directoryByHandle.get(profile.username ?? "") ?? null,
+    const items = outgoingFollows
+      .map((row) => row.directoryProfile)
+      .filter((profile): profile is NonNullable<typeof profile> => Boolean(profile?.accountId))
+      .filter((profile) => !blockedHandles.has(normalizeHandle(profile.username)))
+      .map((profile) => ({
+        id: profile.id,
+        accountId: profile.accountId,
+        name: profile.name,
+        username: profile.username,
+        bio: profile.bio ?? "",
+        avatarAsset: profile.avatarAsset,
+        isVerified: true,
+        isFollowing: true,
+        canFollow: true,
       }));
+    return {
+      source: "postgresql_live" as const,
+      mode,
+      items,
+      connectionsAvailable: true,
+    };
+  }
+
+  async listMemberConnections(
+    authorization: string | undefined,
+    targetIdentifier: string,
+    mode: "followers" | "following" = "followers",
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const cleanTarget = (targetIdentifier ?? "").trim();
+    if (!cleanTarget) {
+      return { source: "postgresql_live" as const, mode, items: [], connectionsAvailable: false };
     }
-
-    const items = rawProfiles
-      .filter((profile) => profile.account.status === "ACTIVE")
-      .filter((profile) => profile.account.verificationStatus === "VERIFIED")
-      .filter(
-        (profile) =>
-          !blockedHandles.has(normalizeHandle(profile.username ?? "")),
-      )
-      .filter((profile) => {
-        const visibility = (
-          profile.account.privacyPreference?.viewProfile ??
-          "Verified members only"
-        ).toLowerCase();
-        if (
-          visibility.includes("circle") ||
-          visibility.includes("only me") ||
-          visibility.includes("no one") ||
-          visibility.includes("hidden")
-        ) {
-          return false;
-        }
-        if (visibility.includes("followers")) {
-          return followingDirectoryIds.has(profile.directoryProfileId ?? "");
-        }
-        return true;
-      })
-      .map((profile) => {
-        const username =
-          profile.username ?? this.deriveUsername(profile.displayName, null);
-        return {
-          id: profile.directoryProfileId ?? profile.accountId,
-          accountId: profile.accountId,
-          name: profile.displayName,
-          username,
-          avatarAsset: this.resolveMemberAvatar(
-            profile.avatarAsset,
-            profile.avatarMediaAssetId,
-          ),
-          bio: profile.bio,
-          isVerified: true,
-          verificationStatus: profile.account.verificationStatus,
-          isFollowing: Boolean(
-            profile.directoryProfileId &&
-            followingDirectoryIds.has(profile.directoryProfileId),
-          ),
-          followsMe: mode === "followers" ? true : false,
-          canFollow: Boolean(profile.directoryProfileId),
-          interests: this.parseInterests(profile.interests),
-          businessProfileUrl: profile.businessProfileUrl,
-          businessProfileName: profile.businessProfileName,
-          businessCategory: profile.businessCategory,
-        };
-      });
-
-    if (mode === "following" && ownedDirectory && items.length > 0) {
-      const incomingFollows = await this.prisma.memberFollow
-        .findMany({
-          where: {
-            directoryProfileId: ownedDirectory.id,
-            isFollowing: true,
-            accountId: { in: items.map((i) => i.accountId) },
-          },
-          select: { accountId: true },
-        })
-        .catch(() => []);
-      const followerAccountSet = new Set(
-        incomingFollows.map((row: Record<string, any>) => row.accountId),
-      );
-      for (const item of items) {
-        item.followsMe = followerAccountSet.has(item.accountId);
-      }
+    const normalized = cleanTarget.replace(/^@+/, "").toLowerCase();
+    const target = await this.prisma.communityDirectoryProfile.findFirst({
+      where: {
+        OR: [
+          ...(cleanTarget.length === 36
+            ? [{ id: cleanTarget }, { accountId: cleanTarget }]
+            : []),
+          { username: { equals: cleanTarget, mode: "insensitive" } },
+          { username: { equals: `@${normalized}`, mode: "insensitive" } },
+        ],
+      },
+      select: { id: true, accountId: true },
+    }).catch(() => null);
+    if (!target?.accountId) {
+      return { source: "postgresql_live" as const, mode, items: [], connectionsAvailable: false };
     }
-
-    return { source: "postgresql_live" as const, mode, items };
+    if (target.accountId === session.accountId) {
+      return this.listFollowers(authorization, mode);
+    }
+    // RLS intentionally prevents reading another member's follow rows. Until a
+    // dedicated public connection projection exists, fail closed instead of
+    // falling back to the viewer's own connection list or exposing account joins.
+    return {
+      source: "postgresql_live" as const,
+      mode,
+      items: [],
+      connectionsAvailable: false,
+    };
   }
 
   async listNearbyCircles(
@@ -8995,189 +8783,6 @@ export class Module2Service {
     };
   }
 
-  async listMemberConnections(
-    authorization: string | undefined,
-    targetIdentifier: string,
-    mode: "followers" | "following" = "followers",
-  ) {
-    const session = await this.auth.authenticateAuthorization(authorization);
-    const cleanTarget = (targetIdentifier ?? "").trim();
-    if (!cleanTarget) {
-      return { source: "postgresql_live" as const, mode, items: [] };
-    }
-    const normalizeHandle = (val: string) =>
-      val.trim().replace(/^@+/, "").toLowerCase();
-
-    let targetProfile = await this.prisma.memberProfile
-      .findFirst({
-        where: {
-          OR: [
-            ...(cleanTarget.length === 36 ? [{ accountId: cleanTarget }] : []),
-            { username: { equals: cleanTarget, mode: "insensitive" } },
-            {
-              username: {
-                equals: `@${normalizeHandle(cleanTarget)}`,
-                mode: "insensitive",
-              },
-            },
-          ],
-        },
-      })
-      .catch(() => null);
-
-    if (!targetProfile && cleanTarget.length === 36) {
-      const dirById = await this.prisma.communityDirectoryProfile
-        .findUnique({ where: { id: cleanTarget } })
-        .catch(() => null);
-      if (dirById) {
-        targetProfile = await this.prisma.memberProfile
-          .findFirst({
-            where: {
-              username: { equals: dirById.username, mode: "insensitive" },
-            },
-          })
-          .catch(() => null);
-      }
-    }
-
-    if (!targetProfile || targetProfile.accountId === session.accountId) {
-      return this.listFollowers(authorization, mode);
-    }
-
-    const targetUsername = this.deriveUsername(
-      targetProfile.displayName,
-      targetProfile.username,
-    );
-    const targetDir = await this.prisma.communityDirectoryProfile
-      .findFirst({
-        where: {
-          username: { equals: targetUsername, mode: "insensitive" },
-        },
-      })
-      .catch(() => null);
-
-    const viewerProfile = await this.prisma.memberProfile
-      .findUnique({ where: { accountId: session.accountId } })
-      .catch(() => null);
-    const viewerUsername = this.deriveUsername(
-      viewerProfile?.displayName ?? "Sakhi Member",
-      viewerProfile?.username,
-    );
-    const [viewerDir, viewerFollowingRows] = await Promise.all([
-      this.prisma.communityDirectoryProfile
-        .findFirst({
-          where: { username: { equals: viewerUsername, mode: "insensitive" } },
-        })
-        .catch(() => null),
-      this.prisma.memberFollow
-        .findMany({
-          where: { accountId: session.accountId, isFollowing: true },
-        })
-        .catch(() => []),
-    ]);
-    const viewerFollowedDirIds = new Set(
-      viewerFollowingRows.map((r) => r.directoryProfileId),
-    );
-    const viewerIncomingRows = viewerDir
-      ? await this.prisma.memberFollow
-          .findMany({
-            where: { directoryProfileId: viewerDir.id, isFollowing: true },
-          })
-          .catch(() => [])
-      : [];
-    const viewerFollowerAccountIds = new Set(
-      viewerIncomingRows.map((r) => r.accountId),
-    );
-
-    if (mode === "following") {
-      const targetFollowing = await this.prisma.memberFollow
-        .findMany({
-          where: { accountId: targetProfile.accountId, isFollowing: true },
-          include: { directoryProfile: true },
-        })
-        .catch(() => []);
-      const handles = targetFollowing
-        .map((r) => r.directoryProfile?.username)
-        .filter((u): u is string => Boolean(u));
-      const memberRows = handles.length
-        ? await this.prisma.memberProfile
-            .findMany({
-              where: { username: { in: handles } },
-            })
-            .catch(() => [])
-        : [];
-      const memberByHandle = new Map(
-        memberRows.map((m) => [normalizeHandle(m.username ?? ""), m]),
-      );
-      const items = targetFollowing
-        .map((r) => {
-          const dir = r.directoryProfile;
-          if (!dir) return null;
-          const m = memberByHandle.get(normalizeHandle(dir.username));
-          return {
-            id: dir.id,
-            accountId: m?.accountId ?? dir.id,
-            name: m?.displayName ?? dir.name,
-            username: dir.username,
-            avatarAsset: this.resolveMemberAvatar(
-              m?.avatarAsset ?? dir.avatarAsset,
-              m?.avatarMediaAssetId,
-            ),
-            bio: m?.bio ?? dir.bio,
-            isVerified: true,
-            isFollowing: viewerFollowedDirIds.has(dir.id),
-            followsMe: m ? viewerFollowerAccountIds.has(m.accountId) : false,
-            canFollow: true,
-            interests: this.parseInterests(m?.interests),
-          };
-        })
-        .filter((x): x is NonNullable<typeof x> => x !== null);
-      return { source: "postgresql_live" as const, mode, items };
-    }
-
-    if (!targetDir) {
-      return { source: "postgresql_live" as const, mode, items: [] };
-    }
-    const targetFollowers = await this.prisma.memberFollow
-      .findMany({
-        where: { directoryProfileId: targetDir.id, isFollowing: true },
-        include: { account: { include: { profile: true } } },
-      })
-      .catch(() => []);
-    const allDirs = await this.prisma.communityDirectoryProfile
-      .findMany()
-      .catch(() => []);
-    const dirByHandle = new Map(
-      allDirs.map((d) => [normalizeHandle(d.username), d]),
-    );
-    const items = targetFollowers
-      .map((row) => {
-        const p = row.account?.profile;
-        if (!p) return null;
-        const handle = this.deriveUsername(p.displayName, p.username);
-        const dir = dirByHandle.get(normalizeHandle(handle));
-        return {
-          id: dir?.id ?? p.accountId,
-          accountId: p.accountId,
-          name: p.displayName,
-          username: handle,
-          avatarAsset: this.resolveMemberAvatar(
-            p.avatarAsset,
-            p.avatarMediaAssetId,
-          ),
-          bio: p.bio,
-          isVerified: row.account.verificationStatus === "VERIFIED",
-          isFollowing: dir ? viewerFollowedDirIds.has(dir.id) : false,
-          followsMe: viewerFollowerAccountIds.has(p.accountId),
-          canFollow: Boolean(dir),
-          interests: this.parseInterests(p.interests),
-        };
-      })
-      .filter((x): x is NonNullable<typeof x> => x !== null);
-
-    return { source: "postgresql_live" as const, mode, items };
-  }
-
   async getMemberProfileOverview(
     authorization: string | undefined,
     targetIdentifier: string,
@@ -9187,40 +8792,40 @@ export class Module2Service {
     const normalizeHandle = (val: string) =>
       val.trim().replace(/^@+/, "").toLowerCase();
 
-    let targetProfile = await this.prisma.memberProfile
-      .findFirst({
-        where: {
-          OR: [
-            ...(cleanTarget.length === 36 ? [{ accountId: cleanTarget }] : []),
-            { username: { equals: cleanTarget, mode: "insensitive" } },
-            {
-              username: {
-                equals: `@${normalizeHandle(cleanTarget)}`,
-                mode: "insensitive",
-              },
-            },
-          ],
-        },
-        include: { account: true },
-      })
-      .catch(() => null);
-
-    if (!targetProfile && cleanTarget.length === 36) {
-      const dir = await this.prisma.communityDirectoryProfile
-        .findUnique({ where: { id: cleanTarget } })
-        .catch(() => null);
-      if (dir) {
-        targetProfile = await this.prisma.memberProfile
-          .findFirst({
-            where: {
-              username: { equals: dir.username, mode: "insensitive" },
-            },
-            include: { account: true },
-          })
-          .catch(() => null);
-      }
+    if (cleanTarget.length === 36 && cleanTarget === session.accountId) {
+      await this.syncCommunityDirectoryProjection(session.accountId).catch(() => undefined);
     }
-
+    const targetDir = await this.prisma.communityDirectoryProfile.findFirst({
+      where: {
+        OR: [
+          ...(cleanTarget.length === 36 ? [{ id: cleanTarget }, { accountId: cleanTarget }] : []),
+          { username: { equals: cleanTarget, mode: "insensitive" } },
+          { username: { equals: `@${normalizeHandle(cleanTarget)}`, mode: "insensitive" } },
+        ],
+      },
+    }).catch(() => null);
+    if (!targetDir?.accountId) {
+      throw new NotFoundException("Member profile was not found.");
+    }
+    const isSelfTarget = targetDir.accountId === session.accountId;
+    const targetProfile = isSelfTarget
+      ? await this.prisma.memberProfile.findUnique({
+          where: { accountId: session.accountId },
+        })
+      : {
+          accountId: targetDir.accountId,
+          displayName: targetDir.name,
+          username: targetDir.username,
+          bio: targetDir.bio ?? "",
+          avatarAsset: targetDir.avatarAsset,
+          avatarMediaAssetId: null,
+          location: "",
+          interests: [],
+          businessProfileUrl: null,
+          businessProfileName: null,
+          businessCategory: null,
+          account: { verificationStatus: "VERIFIED" },
+        };
     if (!targetProfile) {
       throw new NotFoundException("Member profile was not found.");
     }
@@ -9251,22 +8856,19 @@ export class Module2Service {
     const isMutedByViewer = modCtx.mutedHandles.has(normTargetHandle);
     const isRestrictedByViewer = modCtx.restrictedHandles.has(normTargetHandle);
 
-    const anyPrismaForPrivacy = this.prisma as Record<string, any>;
-    const targetPrivacy =
-      typeof anyPrismaForPrivacy.memberPrivacyPreference?.findUnique ===
-      "function"
-        ? await anyPrismaForPrivacy.memberPrivacyPreference
-            .findUnique({ where: { accountId: targetProfile.accountId } })
-            .catch(() => null)
-        : null;
+    const targetPrivacy = {
+      viewProfile: targetDir.profileVisibility === "FOLLOWERS_ONLY"
+        ? "Followers only"
+        : targetDir.profileVisibility === "HIDDEN"
+          ? "Only me"
+          : "Verified members only",
+      seePosts: targetDir.postsVisibility,
+      showLocation: "Hide location",
+      messageMe: targetDir.messageVisibility,
+    };
 
-    const [targetDir, posts, followingCount, userLikes, userSaves] =
+    const [posts, followingCount, userLikes, userSaves] =
       await Promise.all([
-        this.prisma.communityDirectoryProfile
-          .findFirst({
-            where: { username: { equals: handle, mode: "insensitive" } },
-          })
-          .catch(() => null),
         this.prisma.communityPost
           .findMany({
             where: {
@@ -9282,11 +8884,7 @@ export class Module2Service {
             take: 50,
           })
           .catch(() => []),
-        this.prisma.memberFollow
-          .count({
-            where: { accountId: targetProfile.accountId, isFollowing: true },
-          })
-          .catch(() => 0),
+        Promise.resolve(null),
         this.prisma.communityPostLike
           .findMany({
             where: { accountId: session.accountId },
@@ -9301,13 +8899,7 @@ export class Module2Service {
           .catch(() => []),
       ]);
 
-    const followersCount = targetDir
-      ? await this.prisma.memberFollow
-          .count({
-            where: { directoryProfileId: targetDir.id, isFollowing: true },
-          })
-          .catch(() => 0)
-      : 0;
+    const followersCount = null;
 
     const isFollowing = targetDir
       ? Boolean(
@@ -9326,34 +8918,9 @@ export class Module2Service {
         )
       : false;
 
-    const viewerProfile = await this.prisma.memberProfile
-      .findUnique({ where: { accountId: session.accountId } })
-      .catch(() => null);
-    const viewerHandle = this.deriveUsername(
-      viewerProfile?.displayName ?? "Sakhi Member",
-      viewerProfile?.username,
-    );
-    const viewerDir = await this.prisma.communityDirectoryProfile
-      .findFirst({
-        where: { username: { equals: viewerHandle, mode: "insensitive" } },
-      })
-      .catch(() => null);
-    const followsMe = viewerDir
-      ? Boolean(
-          (
-            await this.prisma.memberFollow
-              .findUnique({
-                where: {
-                  accountId_directoryProfileId: {
-                    accountId: targetProfile.accountId,
-                    directoryProfileId: viewerDir.id,
-                  },
-                },
-              })
-              .catch(() => null)
-          )?.isFollowing,
-        )
-      : false;
+    // Reverse-follow status is intentionally not queried across another
+    // member's owner-scoped follow rows. The public projection does not expose it.
+    const followsMe = null;
 
     const likedSet = new Set(userLikes.map((l) => l.postId));
     const savedSet = new Set(userSaves.map((s) => s.postId));
@@ -9439,7 +9006,7 @@ export class Module2Service {
         targetProfile.avatarAsset,
         targetProfile.avatarMediaAssetId,
       ),
-      authorVerified: targetProfile.account.verificationStatus === "VERIFIED",
+      authorVerified: true,
       timestamp: this.formatRelativeTime(post.createdAt),
       createdAt: post.createdAt.toISOString(),
       content: post.content,
@@ -9483,7 +9050,7 @@ export class Module2Service {
         targetProfile.avatarAsset,
         targetProfile.avatarMediaAssetId,
       ),
-      isVerified: targetProfile.account.verificationStatus === "VERIFIED",
+      isVerified: true,
       isFollowing: isBlockedByViewer ? false : isFollowing,
       followsMe: isBlockedByViewer ? false : followsMe,
       isBlocked: isBlockedByViewer,
@@ -9497,9 +9064,9 @@ export class Module2Service {
       followersCount,
       followingCount,
       interests:
-        isBlockedByViewer || isProfilePrivateToViewer
-          ? []
-          : this.parseInterests(targetProfile.interests),
+        isSelf || isBlockedByViewer || isProfilePrivateToViewer
+          ? this.parseInterests(targetProfile.interests)
+          : [],
       businessProfileUrl:
         isBlockedByViewer || isProfilePrivateToViewer
           ? null
@@ -9655,221 +9222,172 @@ export class Module2Service {
     if (dto.confirmation !== "DELETE") {
       throw new BadRequestException("Confirmation must be DELETE.");
     }
-    const anyPrisma = this.prisma as Record<string, any>;
+
     const now = new Date();
-    return anyPrisma.$transaction(async (tx: Record<string, any>) => {
-      // These delegates enforce the deletion contract. Missing delegates must
-      // abort the transaction rather than silently report a partial erasure.
-      const requiredOperations: Array<[string, string]> = [
-        ["accountDeletionRequest", "create"],
-        ["memberAccount", "update"],
-        ["memberProfile", "update"],
-        ["discreetComplaint", "updateMany"],
-        ["authSession", "updateMany"],
-        ["auditEvent", "createMany"],
-      ];
-      for (const [delegate, operation] of requiredOperations) {
-        if (typeof tx[delegate]?.[operation] !== "function") {
-          throw new InternalServerErrorException(
-            `Account deletion cannot proceed: ${delegate}.${operation} is unavailable.`,
-          );
-        }
-      }
+    return this.prisma.$transaction(async (tx) => {
       const existingReq = await tx.accountDeletionRequest.findFirst({
         where: {
           accountId: session.accountId,
           status: { in: ["REQUESTED", "PROCESSING"] },
         },
       });
-      const createdReq =
-        existingReq ??
-        (await tx.accountDeletionRequest.create({
-          data: {
-            accountId: session.accountId,
-            status: "REQUESTED",
-            requestReason: null,
-          },
-        }));
+      if (existingReq) {
+        return {
+          requestId: existingReq.id,
+          status: existingReq.status,
+          requestedAt: existingReq.requestedAt.toISOString(),
+        };
+      }
 
+      const createdReq = await tx.accountDeletionRequest.create({
+        data: {
+          accountId: session.accountId,
+          status: "REQUESTED",
+          // Do not persist free-text reasons that may contain additional PII.
+          requestReason: null,
+        },
+      });
+
+      // Disable authentication and scrub direct identifiers immediately. The
+      // external Drive media purge is handled by the durable retention scheduler
+      // so a transient provider outage cannot leave the member account active.
       await tx.memberAccount.update({
-          where: { id: session.accountId },
-          data: {
-            status: "DELETED",
-            phoneE164: `+999${session.accountId.replace(/-/g, "").slice(0, 12)}`,
-            phoneVerifiedAt: null,
-            verificationStatus: "REJECTED",
-          },
-        });
+        where: { id: session.accountId },
+        data: {
+          status: "DELETED",
+          phoneE164: `+999${session.accountId.replace(/-/g, "").slice(0, 12)}`,
+          phoneVerifiedAt: null,
+          verificationStatus: "REJECTED",
+        },
+      });
       await tx.memberProfile.update({
-            where: { accountId: session.accountId },
-            data: {
-              displayName: "Deleted member",
-              username: null,
-              email: null,
-              profilePhotoRef: null,
-              avatarMediaAssetId: null,
-              avatarAsset: "assets/images/profile/default_avatar.webp",
-              bio: "",
-              location: "",
-              interests: [],
-              businessProfileUrl: null,
-              businessProfileName: null,
-              businessCategory: null,
-              dateOfBirth: new Date("1970-01-01T00:00:00.000Z"),
-              twoFactorEnabled: false,
-              securityPinUpdatedAt: null,
-            },
-          });
-      if (tx.communityPost?.updateMany) {
-        await tx.communityPost
-          .updateMany({
-            where: { authorAccountId: session.accountId },
-            data: {
-              content: "[removed]",
-              imageAsset: null,
-              moderationStatus: "REMOVED",
-            },
-          });
-      }
-      if (tx.communityPostComment?.deleteMany) {
-        await tx.communityPostComment
-          .deleteMany({
-            where: { accountId: session.accountId },
-          });
-      }
-      if (tx.communityPostLike?.deleteMany) {
-        await tx.communityPostLike
-          .deleteMany({
-            where: { accountId: session.accountId },
-          });
-      }
-      if (tx.communityPostSave?.deleteMany) {
-        await tx.communityPostSave
-          .deleteMany({
-            where: { accountId: session.accountId },
-          });
-      }
-      if (tx.memberFollow?.deleteMany) {
-        await tx.memberFollow
-          .deleteMany({
-            where: { accountId: session.accountId },
-          });
-      }
-      if (tx.memberPrivacyPreference?.deleteMany) {
-        await tx.memberPrivacyPreference
-          .deleteMany({
-            where: { accountId: session.accountId },
-          });
-      }
-      if (tx.memberNotificationPreference?.deleteMany) {
-        await tx.memberNotificationPreference
-          .deleteMany({
-            where: { accountId: session.accountId },
-          });
-      }
-      if (tx.memberPost?.updateMany) {
-        await tx.memberPost.updateMany({
-          where: { accountId: session.accountId },
-          data: {
-            body: "[removed]",
-            mediaRef: null,
-            status: "REMOVED",
-            deletedAt: now,
-          },
-        });
-      }
-      if (tx.memberPostComment?.updateMany) {
-        await tx.memberPostComment.updateMany({
-          where: { accountId: session.accountId },
-          data: { body: "[removed]", deletedAt: now },
-        });
-        await tx.memberPostComment.updateMany({
-          where: { post: { is: { accountId: session.accountId } } },
-          data: { body: "[removed]", deletedAt: now },
-        });
-      }
-      if (tx.memberPostLike?.deleteMany) {
-        await tx.memberPostLike.deleteMany({
-          where: { accountId: session.accountId },
-        });
-      }
-      if (tx.memberPostBookmark?.deleteMany) {
-        await tx.memberPostBookmark.deleteMany({
-          where: { accountId: session.accountId },
-        });
-      }
-      if (tx.postAudienceMember?.deleteMany) {
-        await tx.postAudienceMember.deleteMany({
-          where: {
-            OR: [
-              { accountId: session.accountId },
-              { post: { is: { accountId: session.accountId } } },
-            ],
-          },
-        });
-      }
-      if (tx.socialFollow?.deleteMany) {
-        await tx.socialFollow.deleteMany({
-          where: {
-            OR: [
-              { followerAccountId: session.accountId },
-              { followingAccountId: session.accountId },
-            ],
-          },
-        });
-      }
-      if (tx.memberBlock?.deleteMany) {
-        await tx.memberBlock.deleteMany({
-          where: {
-            OR: [
-              { blockerAccountId: session.accountId },
-              { blockedAccountId: session.accountId },
-            ],
-          },
-        });
-      }
-      if (tx.eventRegistration?.deleteMany) {
-        await tx.eventRegistration.deleteMany({
-          where: { accountId: session.accountId },
-        });
-      }
-      if (tx.communityEvent?.updateMany) {
-        await tx.communityEvent.updateMany({
-          where: { hostAccountId: session.accountId },
-          data: { status: "CANCELLED" },
-        });
-      }
-      if (tx.communityGroup?.updateMany) {
-        await tx.communityGroup.updateMany({
-          where: { createdByAccountId: session.accountId },
-          data: { status: "ARCHIVED" },
-        });
-      }
-      if (tx.groupMembership?.deleteMany) {
-        await tx.groupMembership.deleteMany({
-          where: { accountId: session.accountId },
-        });
-      }
-      if (tx.businessProfile?.deleteMany) {
-        await tx.businessProfile.deleteMany({
-          where: { accountId: session.accountId },
-        });
-      }
-      if (tx.memberPrivacySettings?.deleteMany) {
-        await tx.memberPrivacySettings.deleteMany({
-          where: { accountId: session.accountId },
-        });
-      }
-      if (tx.memberNotificationPreferences?.deleteMany) {
-        await tx.memberNotificationPreferences.deleteMany({
-          where: { accountId: session.accountId },
-        });
-      }
-      if (tx.memberCommunicationPreference?.deleteMany) {
-        await tx.memberCommunicationPreference.deleteMany({
-          where: { accountId: session.accountId },
-        });
-      }
+        where: { accountId: session.accountId },
+        data: {
+          displayName: "Deleted member",
+          username: null,
+          email: null,
+          profilePhotoRef: null,
+          avatarMediaAssetId: null,
+          avatarAsset: "assets/images/profile/default_avatar.webp",
+          bio: "",
+          location: "",
+          interests: [],
+          businessProfileUrl: null,
+          businessProfileName: null,
+          businessCategory: null,
+          dateOfBirth: new Date("1970-01-01T00:00:00.000Z"),
+          twoFactorEnabled: false,
+          securityPinUpdatedAt: null,
+        },
+      });
+
+      await tx.communityPost.updateMany({
+        where: { authorAccountId: session.accountId },
+        data: {
+          content: "[removed]",
+          imageAsset: null,
+          status: "REMOVED",
+          deletedAt: now,
+          authorName: "Deleted member",
+          authorUsername: "deleted-member",
+          authorAvatar: "assets/images/profile/default_avatar.webp",
+          authorVerified: false,
+        },
+      });
+      await tx.communityPostComment.deleteMany({
+        where: { accountId: session.accountId },
+      });
+      await tx.communityPostComment.updateMany({
+        where: { post: { is: { authorAccountId: session.accountId } } },
+        data: {
+          content: "[removed]",
+          deletedAt: now,
+          isRemovedByModerator: true,
+        },
+      });
+      await tx.communityPostLike.deleteMany({ where: { accountId: session.accountId } });
+      await tx.communityPostSave.deleteMany({ where: { accountId: session.accountId } });
+      await tx.communityPostReaction.deleteMany({ where: { accountId: session.accountId } });
+      await tx.memberFollow.deleteMany({ where: { accountId: session.accountId } });
+      await tx.memberPrivacyPreference.deleteMany({ where: { accountId: session.accountId } });
+      await tx.memberNotificationPreference.deleteMany({ where: { accountId: session.accountId } });
+      await tx.memberCommunicationPreference.deleteMany({ where: { accountId: session.accountId } });
+      await tx.memberWellnessPreference.deleteMany({ where: { accountId: session.accountId } });
+      await tx.memberPushToken.deleteMany({ where: { accountId: session.accountId } });
+      await tx.memberNotification.deleteMany({ where: { accountId: session.accountId } });
+      await tx.memberModerationBlock.deleteMany({ where: { accountId: session.accountId } });
+      await tx.communityCircleMembership.deleteMany({ where: { accountId: session.accountId } });
+      await tx.communityCirclePost.updateMany({
+        where: { authorAccountId: session.accountId },
+        data: {
+          content: "[removed]",
+          status: "REMOVED",
+          authorName: "Deleted member",
+          authorUsername: "deleted-member",
+          authorRole: "MEMBER",
+          comments: [],
+          isPinned: false,
+        },
+      });
+
+      await tx.directMessage.deleteMany({
+        where: {
+          OR: [
+            { senderAccountId: session.accountId },
+            { recipientAccountId: session.accountId },
+          ],
+        },
+      });
+      await tx.safetyEmergencyContact.deleteMany({ where: { accountId: session.accountId } });
+      await tx.safetySosEvent.deleteMany({ where: { accountId: session.accountId } });
+      await tx.safetyLocationShare.deleteMany({ where: { accountId: session.accountId } });
+      await tx.menstrualCycleLog.deleteMany({ where: { accountId: session.accountId } });
+      await tx.menstrualDailyLog.deleteMany({ where: { accountId: session.accountId } });
+      await tx.menstrualTrackerPreference.deleteMany({ where: { accountId: session.accountId } });
+      await tx.eligibilitySubmission.deleteMany({ where: { accountId: session.accountId } });
+
+      // Preserve only the fact that a report was filed; remove its free-text and
+      // uploaded evidence references so the deleted member is not identifiable.
+      await tx.memberUserReport.updateMany({
+        where: { reporterAccountId: session.accountId },
+        data: {
+          reason: "Account deleted",
+          details: null,
+          evidenceUrls: [],
+          targetSnapshot: Prisma.DbNull,
+          reviewerNotes: null,
+          appealReason: null,
+        },
+      });
+      await tx.businessReport.updateMany({
+        where: { reporterAccountId: session.accountId },
+        data: { reason: "Account deleted", details: null },
+      });
+
+      await tx.businessEnquiry.deleteMany({
+        where: {
+          OR: [
+            { senderAccountId: session.accountId },
+            { ownerAccountId: session.accountId },
+          ],
+        },
+      });
+      await tx.businessDirectoryListing.deleteMany({
+        where: { ownerAccountId: session.accountId },
+      });
+      await tx.communityGroup.deleteMany({
+        where: { ownerAccountId: session.accountId },
+      });
+
+      // Keep media metadata only as a purge queue. The scheduled worker verifies
+      // each Drive appProperty against this owner before deleting the object.
+      await tx.mediaAsset.updateMany({
+        where: { ownerAccountId: session.accountId, deletedAt: null },
+        data: { status: "PENDING_PURGE", deletedAt: now },
+      });
+
+      // Anonymous complaints remain available by reference/passkey, but their
+      // confidential account linkage is removed as part of erasure.
       await tx.discreetComplaint.updateMany({
         where: { confidentialAccountId: session.accountId },
         data: { confidentialAccountId: null },
@@ -9878,22 +9396,24 @@ export class Module2Service {
         where: { accountId: session.accountId, revokedAt: null },
         data: { revokedAt: now },
       });
-      await tx.auditEvent.createMany({
+      await tx.auditEvent.create({
         data: {
-            actorType: "SYSTEM",
-            actorId: null,
-            action: "module2.account.deletion_requested",
-            targetType: "account_deletion_request",
-            targetId: createdReq.id,
-            outcome: "requested",
-            requestId: randomUUID(),
-          redactedMetadata: { accountErasure: true },
+          actorType: "SYSTEM",
+          actorId: null,
+          action: "module2.account.deletion_requested",
+          targetType: "account_deletion_request",
+          targetId: createdReq.id,
+          outcome: "requested",
+          requestId: randomUUID(),
+          redactedMetadata: { accountErasure: true, externalMediaPurgePending: true },
         },
       });
+
       return {
         requestId: createdReq.id,
         status: createdReq.status,
-        requestedAt: (createdReq.requestedAt ?? now).toISOString(),
+        requestedAt: createdReq.requestedAt.toISOString(),
+        externalMediaPurgePending: true,
       };
     });
   }
@@ -9983,9 +9503,56 @@ export class Module2Service {
       });
     }
 
+    const anyPrisma = this.prisma as Record<string, any>;
+    let isJoining = true;
+    if (typeof anyPrisma.communityCircleMembership?.findUnique === "function") {
+      const existingMem = await anyPrisma.communityCircleMembership
+        .findUnique({
+          where: {
+            circleId_accountId: {
+              circleId: group.id,
+              accountId: session.accountId,
+            },
+          },
+        })
+        .catch(() => null);
+      if (existingMem && existingMem.status === "ACTIVE") {
+        await anyPrisma.communityCircleMembership
+          .delete({ where: { id: existingMem.id } })
+          .catch(() => null);
+        isJoining = false;
+      } else {
+        await anyPrisma.communityCircleMembership
+          .upsert({
+            where: {
+              circleId_accountId: {
+                circleId: group.id,
+                accountId: session.accountId,
+              },
+            },
+            create: {
+              circleId: group.id,
+              accountId: session.accountId,
+              role: "MEMBER",
+              status: "ACTIVE",
+              notificationsEnabled: true,
+            },
+            update: {
+              status: "ACTIVE",
+            },
+          })
+          .catch(() => null);
+        isJoining = true;
+      }
+    }
     const updated = await this.prisma.communityGroup.update({
       where: { id: group.id },
-      data: { membersCount: Math.max(1, group.membersCount + 1) },
+      data: {
+        membersCount: Math.max(
+          1,
+          group.membersCount + (isJoining ? 1 : -1),
+        ),
+      },
     });
 
     await this.prisma.auditEvent
@@ -11162,95 +10729,155 @@ export class Module2Service {
 
   private static readonly MENSTRUAL_HEALTH_ARTICLES = [
     {
-      id: "period-pain-heat-therapy",
+      id: "period-pain-cramps-self-care",
       category: "Period Pain Help",
-      title: "Warm Compress & Comfort Care for Period Cramps",
-      readTime: "3 min read",
-      reviewedAt: "2026-11-05",
-      referenceSource: "General Wellness Suggestion • ACOG Patient Education (Dysmenorrhea: Painful Periods)",
+      title: "Menstrual Cramps (Dysmenorrhea) & Evidence-Informed Self-Care",
+      readTime: "5 min read",
+      reviewedAt: "2026-11-07",
+      sourceName: "American College of Obstetricians and Gynecologists (ACOG)",
+      sourceUrl: "https://www.acog.org/womens-health/faqs/dysmenorrhea-painful-periods",
+      referenceSource: "ACOG Patient Education • Dysmenorrhea: Painful Periods (Reviewed Nov 2026)",
+      editorialNote: "Educational summary based on ACOG clinical patient guidance. Not a substitute for individualized medical evaluation.",
       summary:
-        "General wellness suggestions for using gentle external warmth to relax abdominal and lower-back tension during menstruation.",
+        "Primary dysmenorrhea is caused by natural uterine contractions triggered by prostaglandins during menstruation. Understanding how prostaglandins work helps you choose practical, evidence-informed comfort measures and know when to consult a gynecologist.",
       highlights: [
-        "Applying a warm water bottle or heating pad wrapped in a soft cloth to the lower abdomen or lower back for 15–20 minutes can help soothe muscle tightness.",
-        "A warm shower or bath offers general relaxation and comfort before rest.",
-        "Wellness Notice: Warmth is a general comfort measure, not a medical treatment. Consult a qualified clinician if cramps are severe or interfere with daily activities.",
+        "Why cramps happen: Before and during menstruation, the uterine lining releases prostaglandins that cause muscles and blood vessels of the uterus to contract.",
+        "Supportive comfort measures: Applying gentle external heat (a cloth-wrapped warm water bottle or heating pad at 40–42°C for 15–20 minutes) helps relax abdominal and lower-back muscle tension.",
+        "Clinician-guided options: If cramps interfere with study, work, or sleep, speak with a qualified doctor or pharmacist about whether over-the-counter anti-inflammatory options are safe for your medical history.",
+        "Track patterns in Sakhi: Record cramp severity (Mild, Moderate, Severe) alongside flow intensity for 2–3 cycles so you can share an accurate timeline with your healthcare provider.",
       ],
     },
     {
-      id: "period-pain-gentle-exercise",
+      id: "period-pain-heat-movement-sleep",
       category: "Period Pain Help",
-      title: "Gentle Stretching & Restorative Movement on Period Days",
-      readTime: "4 min read",
-      reviewedAt: "2026-11-05",
-      referenceSource: "General Wellness Suggestion • ACOG Exercise & Menstrual Comfort Overview",
+      title: "External Warmth, Gentle Movement, Restful Sleep & Hydration",
+      readTime: "5 min read",
+      reviewedAt: "2026-11-07",
+      sourceName: "NHS UK — Period Pain & Self-Care Guidance",
+      sourceUrl: "https://www.nhs.uk/conditions/period-pain/",
+      referenceSource: "NHS UK Clinical Guidance • Period Pain Self-Care & WHO Nutrition Notes (Reviewed Nov 2026)",
+      editorialNote: "Supportive lifestyle and comfort suggestions grounded in NHS UK patient guidance.",
       summary:
-        "Optional, low-impact stretches and light movement ideas for days when you feel comfortable moving.",
+        "Combining gentle external warmth, optional low-impact stretching, side-sleeping postures, and steady hydration can improve day-to-day comfort during menstruation without overexerting your body.",
       highlights: [
-        "Restorative postures such as Child's Pose (Balasana) or reclining with a pillow under the knees may feel comforting for lower-back tension.",
-        "If your energy allows, a short, unhurried walk outdoors can support general circulation and mood.",
-        "Always pace movement to how you feel: rest on heavy flow days and stop any activity that causes discomfort or dizziness.",
-      ],
-    },
-    {
-      id: "period-pain-hydration-nutrition",
-      category: "Period Pain Help",
-      title: "Hydration, Warm Fluids & Balanced Meals During Menstruation",
-      readTime: "4 min read",
-      reviewedAt: "2026-11-05",
-      referenceSource: "General Nutrition Guidance • WHO & ICMR-NIN Dietary Guidelines for Women",
-      summary:
-        "Everyday hydration and dietary habits to support energy and iron intake during your menstrual cycle.",
-      highlights: [
-        "Sipping warm water or caffeine-free herbal infusions (such as ginger or chamomile) helps maintain daily hydration.",
-        "Include iron-containing foods (leafy greens, lentils, dates, ragi) alongside Vitamin C sources (lemon, amla, citrus) as part of a balanced diet.",
-        "Reducing very salty snacks and excess caffeine may help you feel more comfortable if you experience premenstrual bloating.",
-      ],
-    },
-    {
-      id: "period-pain-rest-relaxation",
-      category: "Period Pain Help",
-      title: "Restful Sleep Postures & Slow Breathing for Evening Comfort",
-      readTime: "3 min read",
-      reviewedAt: "2026-11-05",
-      referenceSource: "General Wellness Suggestion • Mindfulness & Sleep Hygiene",
-      summary:
-        "Simple sleep positioning and slow breathing practices to help you unwind on period nights.",
-      highlights: [
-        "Resting on your side with a pillow between your knees can reduce pressure on the lower back and abdomen.",
-        "Practicing 5 minutes of slow, steady breathing before bed supports relaxation.",
-        "Allow extra time for sleep and daytime rest whenever your energy feels low.",
-      ],
-    },
-    {
-      id: "cycle-phases-guide",
-      category: "Cycle Science",
-      title: "Understanding Menstrual Cycle Phases (24, 26 & 28+ Day Cycles)",
-      readTime: "4 min read",
-      reviewedAt: "2026-11-05",
-      referenceSource: "Educational Overview • ACOG Your Changing Body & Menstrual Cycle",
-      summary:
-        "An educational overview of the Menstrual, Follicular, Ovulatory, and Luteal phases across different cycle lengths.",
-      highlights: [
-        "Adult menstrual cycles commonly range from 21 to 35 days (such as 24, 26, 28, or 32 days) measured from Day 1 of bleeding to the next Day 1.",
-        "Menstrual Phase: Uterine lining sheds over 2–7 days; focus on rest, hydration, and balanced meals.",
-        "Follicular & Ovulatory Phases: Estrogen rises ahead of ovulation; remember that calendar estimates cannot predict exact ovulation timing.",
-        "Luteal Phase: Progesterone rises after ovulation until the next period begins.",
+        "Safe heat application: Always wrap a heating pad or hot water bottle in a towel before placing it on the lower belly or back, and never fall asleep with an electric heating pad switched on.",
+        "Restorative postures: Resting on your side with a pillow between your knees or practicing gentle Child's Pose (Balasana) reduces lumbar and pelvic floor tension.",
+        "Optional light movement: On lighter days when energy allows, a slow 15-minute walk or gentle stretching can support general relaxation—always stop if pain or dizziness increases.",
+        "Hydration & iron-rich meals: Sip warm water or caffeine-free herbal infusions (ginger, chamomile) and pair iron-rich foods (spinach, lentils, dates, ragi) with Vitamin C (lemon, amla, orange).",
       ],
     },
     {
       id: "irregular-cycles-when-to-see-doctor",
       category: "Clinical Guidance",
-      title: "Warning Signs: When to Seek Professional Medical Care",
-      readTime: "5 min read",
-      reviewedAt: "2026-11-05",
-      referenceSource: "Clinical Red-Flag Checklist • ACOG & WHO Reproductive Health Guidance",
+      title: "When Pain or Bleeding Patterns Require Medical Assessment",
+      readTime: "6 min read",
+      reviewedAt: "2026-11-07",
+      sourceName: "ACOG — Heavy Menstrual Bleeding & Abnormal Uterine Bleeding",
+      sourceUrl: "https://www.acog.org/womens-health/faqs/heavy-menstrual-bleeding",
+      referenceSource: "ACOG & WHO Clinical Red-Flag Checklist (Reviewed Nov 2026)",
+      editorialNote: "Safety escalation checklist. Seek urgent medical care if acute warning signs occur.",
       summary:
-        "Important symptoms and cycle patterns that should be evaluated promptly by a qualified gynecologist or healthcare provider.",
+        "While mild cramps and occasional 2–4 day cycle shifts can happen during stress or travel, certain bleeding and pain patterns require prompt evaluation by a qualified gynecologist or emergency care team.",
       highlights: [
-        "Cycles consistently shorter than 21 days, longer than 35 days, or varying by more than 7–9 days from month to month.",
-        "Heavy bleeding: soaking through one or more pads or tampons every 1–2 hours for two consecutive hours, or bleeding lasting longer than 7 days.",
-        "Severe or worsening pelvic pain, pain accompanied by fever, vomiting, fainting, dizziness, or bleeding between periods.",
-        "Medical Disclaimer: Sakhi provides personal logging and educational information only and does not diagnose or treat medical conditions.",
+        "Urgent care warning signs: Soaking through one or more sanitary pads or tampons every hour for 2 consecutive hours, severe sudden lower abdominal pain, fever with pelvic pain, dizziness, or fainting.",
+        "Bleeding duration & clots: Periods lasting longer than 7 days, passing blood clots larger than a 10-rupee coin (approx. 2.5 cm), or bleeding between periods or after intercourse.",
+        "Cycle length red flags: Cycles consistently shorter than 21 days, longer than 35 days (or 45 days in adolescents), or missing periods for 3+ months when not pregnant.",
+        "Progressive pain: Cramps that become progressively worse over time or begin several days before bleeding starts and continue after bleeding ends.",
+      ],
+    },
+    {
+      id: "period-hygiene-product-safety",
+      category: "Hygiene & Safety",
+      title: "Menstrual Hygiene, Product Safety & Preventing Irritation",
+      readTime: "5 min read",
+      reviewedAt: "2026-11-07",
+      sourceName: "World Health Organization (WHO) & Ministry of Health (India)",
+      sourceUrl: "https://www.who.int/news-room/fact-sheets/detail/menstrual-health",
+      referenceSource: "WHO Fact Sheet on Menstrual Health & Safe Product Hygiene (Reviewed Nov 2026)",
+      editorialNote: "Evidence-based hygiene practices for pads, menstrual cups, tampons, and reusable cloth pads.",
+      summary:
+        "Proper change intervals, breathable materials, and gentle external washing protect vaginal pH balance and prevent skin irritation, urinary tract infections, and rare complications such as Toxic Shock Syndrome (TSS).",
+      highlights: [
+        "Sanitary pads: Change disposable or reusable pads every 4 to 6 hours (or sooner on heavy flow days) to prevent dampness, chafing, and bacterial growth.",
+        "Menstrual cups & tampons: Wash hands thoroughly with soap and water before insertion or removal. Empty and rinse a menstrual cup every 6–12 hours, and sterilize it in boiling water for 5–10 minutes between cycles. Never leave a tampon in for more than 4–8 hours.",
+        "Reusable cloth pads: Wash thoroughly with mild soap and clean water, and dry completely in direct sunlight (UV light helps naturally sanitize fabric) before storing in a clean cotton pouch.",
+        "External cleansing only: Wash the external vulva gently with plain warm water; avoid internal douching or heavily perfumed soaps and sprays, which disrupt protective lactobacilli.",
+      ],
+    },
+    {
+      id: "cycle-phases-guide",
+      category: "Cycle Science",
+      title: "Cycle Tracking, Irregular Cycles & How Predictions Work",
+      readTime: "5 min read",
+      reviewedAt: "2026-11-07",
+      sourceName: "NHS UK — Irregular Periods & Cycle Physiology",
+      sourceUrl: "https://www.nhs.uk/conditions/irregular-periods/",
+      referenceSource: "NHS UK & ACOG Menstrual Cycle Physiology Overview (Reviewed Nov 2026)",
+      editorialNote: "Explains how Sakhi calculates cycle estimates and why biological cycles naturally vary.",
+      summary:
+        "A menstrual cycle is counted from Day 1 of menstrual bleeding (not spotting) up to Day 1 of the next period. Adult cycles typically range from 21 to 35 days, and tracking at least 3–6 cycles reveals your personal median rhythm.",
+      highlights: [
+        "The 4 physiological phases: Menstrual Phase (Days 1–5 shedding), Follicular Phase (follicle maturation & rising estrogen), Ovulation (LH surge releasing an egg ~14 days before the next period), and Luteal Phase (progesterone support).",
+        "How Sakhi calculates estimates: When you have logged at least two period start dates, Sakhi computes the robust median of your recent valid cycle intervals (up to 6 cycles) and displays an explicit uncertainty window.",
+        "Why cycles vary: Travel, sleep disruption, academic or work stress, illness, thyroid changes, and post-partum or perimenopausal transitions commonly shift ovulation timing.",
+        "Exporting for your doctor: Use Sakhi's 'Export Personal Cycle Summary' to generate a clean, date-filtered PDF or formatted summary showing your exact logged dates and cycle lengths.",
+      ],
+    },
+    {
+      id: "pms-emotional-wellbeing",
+      category: "Emotional Wellbeing",
+      title: "Premenstrual Syndrome (PMS), Mood Shifts & Luteal Self-Care",
+      readTime: "5 min read",
+      reviewedAt: "2026-11-07",
+      sourceName: "ACOG — Premenstrual Syndrome (PMS)",
+      sourceUrl: "https://www.acog.org/womens-health/faqs/premenstrual-syndrome",
+      referenceSource: "ACOG Clinical FAQ • Premenstrual Syndrome & PMDD Awareness (Reviewed Nov 2026)",
+      editorialNote: "Distinguishes common premenstrual symptoms from severe PMDD requiring medical support.",
+      summary:
+        "Physical and emotional changes during the 5–10 days before menstruation—such as bloating, breast tenderness, fatigue, irritability, or low mood—are linked to luteal-phase hormone fluctuations and usually ease within a few days after bleeding starts.",
+      highlights: [
+        "Recognize your luteal window: Logging mood, sleep hours, and symptoms in Sakhi helps confirm whether symptoms follow a cyclical luteal pattern.",
+        "Supportive nutrition & sleep: Prioritize complex carbohydrates (whole grains, millets, oats), calcium- and magnesium-containing foods, regular sleep schedules, and reduced caffeine/salt.",
+        "Mindfulness & breathwork: Guided 4-7-8 breathing or progressive body-scan meditation can help calm nervous-system reactivity on high-stress luteal days.",
+        "When to seek care for PMDD: If premenstrual mood changes cause severe depression, hopelessness, panic, or disrupt relationships and work, consult a clinician about Premenstrual Dysphoric Disorder (PMDD).",
+      ],
+    },
+    {
+      id: "pcos-endometriosis-awareness",
+      category: "Clinical Awareness",
+      title: "PCOS & Endometriosis Awareness (Educational Overview)",
+      readTime: "6 min read",
+      reviewedAt: "2026-11-07",
+      sourceName: "World Health Organization (WHO) — PCOS & Endometriosis Fact Sheets",
+      sourceUrl: "https://www.who.int/news-room/fact-sheets/detail/endometriosis",
+      referenceSource: "WHO Fact Sheets on Endometriosis & Polycystic Ovary Syndrome (Reviewed Nov 2026)",
+      editorialNote: "Informational awareness only; PCOS and endometriosis can only be diagnosed by a qualified clinician.",
+      summary:
+        "Polycystic Ovary Syndrome (PCOS) and endometriosis are two common, treatable gynecological conditions that often go undiagnosed for years because symptoms are dismissed as 'normal period pain' or stress.",
+      highlights: [
+        "PCOS awareness signs: Infrequent or absent periods (cycles > 35 days), persistent acne, excess facial/body hair (hirsutism), or scalp hair thinning. Diagnosis requires clinical evaluation, hormone blood tests, and ultrasound.",
+        "Endometriosis awareness signs: Severe pelvic pain before and during periods, pain during or after intercourse, painful bowel movements or urination during periods, chronic fatigue, or difficulty conceiving.",
+        "Why Period Pain is Not 'All in Your Head': Pain that regularly stops you from attending college, work, or daily activities deserves a thorough medical workup—never hesitate to seek a second opinion.",
+        "No app can diagnose these conditions: Use your Sakhi symptom and cycle log as objective evidence to bring to your gynecologist appointment.",
+      ],
+    },
+    {
+      id: "myths-vs-evidence-contraception",
+      category: "Reproductive Literacy",
+      title: "Menstrual Myths vs. Clinical Evidence & Contraception Safety",
+      readTime: "4 min read",
+      reviewedAt: "2026-11-07",
+      sourceName: "ACOG — Fertility Awareness-Based Methods",
+      sourceUrl: "https://www.acog.org/womens-health/faqs/fertility-awareness-based-methods-of-family-planning",
+      referenceSource: "ACOG & WHO Reproductive Literacy Guidance (Reviewed Nov 2026)",
+      editorialNote: "Clarifies common cultural misconceptions and calendar fertility limitations.",
+      summary:
+        "Separating everyday cultural myths from clinical facts empowers women to care for their bodies confidently and avoid relying on calendar estimates for pregnancy prevention.",
+      highlights: [
+        "Myth vs. Fact — Showering & washing hair: Bathing with warm water during your period is completely safe and hygienic; it does not stop menstrual flow or harm fertility.",
+        "Myth vs. Fact — Exercise & daily food: Gentle movement and nutritious whole foods (including curd, fruits, and protein) are beneficial during menstruation unless you have a specific food sensitivity.",
+        "Critical Contraception Fact: Calendar-based fertile window estimates only guess when ovulation might occur based on past cycles. Because ovulation can shift early or late in any cycle and sperm survive up to 5 days, calendar apps must NEVER be used as contraception.",
+        "Myth vs. Fact — Sound frequencies: Ambient soundscapes and frequency-labelled music can support relaxation and mindfulness, but sound frequencies do not cure menstrual cramps, balance hormones, or treat medical conditions.",
       ],
     },
   ];
@@ -11323,6 +10950,16 @@ export class Module2Service {
     return copy;
   }
 
+  private computeMedianInt(values: number[]): number {
+    if (values.length === 0) return 28;
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    if (sorted.length % 2 === 1) {
+      return sorted[mid]!;
+    }
+    return Math.round((sorted[mid - 1]! + sorted[mid]!) / 2);
+  }
+
   calculateMenstrualCyclePredictions(params: {
     lastPeriodStart: Date | null;
     historicalCycleLengths: number[];
@@ -11334,33 +10971,51 @@ export class Module2Service {
     discreetNotifications: boolean;
     periodReminderDaysBefore: number;
   }) {
-    const validCycles = params.historicalCycleLengths.filter(
+    // Use up to the 6 most recent valid physiological intervals (15..60 days)
+    const allValidCycles = params.historicalCycleLengths.filter(
       (n) => Number.isFinite(n) && n >= 15 && n <= 60,
     );
-    const validDurations = params.historicalPeriodDurations.filter(
-      (n) => Number.isFinite(n) && n >= 1 && n <= 15,
-    );
+    const validCycles = allValidCycles.slice(-6);
+    const validDurations = params.historicalPeriodDurations
+      .filter((n) => Number.isFinite(n) && n >= 1 && n <= 15)
+      .slice(-6);
 
     const useCustom = params.useCustomCycleLength === true;
-    const avgCycleLength =
-      !useCustom && validCycles.length > 0
+    const medianCycleLength =
+      validCycles.length > 0
+        ? this.computeMedianInt(validCycles)
+        : Math.min(Math.max(params.defaultCycleLength || 28, 21), 40);
+    const meanCycleLength =
+      validCycles.length > 0
         ? Math.round(
             validCycles.reduce((acc, v) => acc + v, 0) / validCycles.length,
           )
+        : medianCycleLength;
+
+    const avgCycleLength =
+      !useCustom && validCycles.length > 0
+        ? medianCycleLength
         : Math.min(Math.max(params.defaultCycleLength || 28, 21), 40);
 
     const avgPeriodDuration =
       validDurations.length > 0
-        ? Math.round(
-            validDurations.reduce((acc, v) => acc + v, 0) / validDurations.length,
-          )
+        ? this.computeMedianInt(validDurations)
         : Math.min(Math.max(params.defaultPeriodDuration || 5, 2), 10);
 
+    const variationDays =
+      validCycles.length >= 2
+        ? Math.max(...validCycles) - Math.min(...validCycles)
+        : 0;
+    const uncertaintyWindowDays =
+      validCycles.length >= 2
+        ? Math.max(2, Math.ceil(variationDays / 2))
+        : 3;
+
     const predictionBasis = useCustom
-      ? `Custom manual cycle length (${avgCycleLength} days)`
+      ? `Custom manual cycle length (${avgCycleLength} days • ±${uncertaintyWindowDays}d estimate window)`
       : validCycles.length > 0
-        ? `Automatic rolling average from ${validCycles.length} logged cycle interval(s) (${avgCycleLength} days)`
-        : `Baseline fallback (${avgCycleLength} days — log at least 2 period start dates for automatic history-based averaging)`;
+        ? `Automatic robust median from ${validCycles.length} recent cycle interval(s) (${avgCycleLength} days, mean ${meanCycleLength}d, ±${uncertaintyWindowDays}d uncertainty)`
+        : `Baseline fallback (${avgCycleLength} days — log at least 2 period start dates for history-based median estimation)`;
 
     let isIrregular = false;
     let irregularityReason =
@@ -12260,4 +11915,900 @@ export class Module2Service {
       tracker: await this.getMenstrualCycleTracker(authorization),
     };
   }
+
+  // ===========================================================================
+  // SECTION 4: WELLNESS STUDIO — 5 SELECTABLE VOICES, SERVER PREFERENCES,
+  // 42-TRACK AUDIO CATALOGUE & SESSION PREPARATION
+  // ===========================================================================
+
+  async getWellnessAudioCatalog() {
+    const cdnBaseUrl = (process.env.SAKHI_WELLNESS_AUDIO_CDN_BASE_URL ?? "")
+      .trim()
+      .replace(/\/+$/, "");
+
+    return {
+      status: "ok" as const,
+      voiceSynthesisProvider: {
+        // The current Flutter client speaks through the operating-system TTS
+        // engine. Do not advertise Azure Neural TTS until a server synthesis
+        // endpoint is implemented and exercised end-to-end.
+        activeMode: "DEVICE_NATIVE_TTS",
+        cloudNeuralConfigured: false,
+        disclosure:
+          "The five voice choices are locale, cadence, pitch and preview presets. Spoken guidance currently uses the Android/iOS device TTS engine; server-side neural speech synthesis is not active.",
+      },
+      audioDelivery: {
+        mode: cdnBaseUrl ? "REMOTE_CDN" : "PROCEDURAL_WAV_FALLBACK",
+        remoteCdnConfigured: Boolean(cdnBaseUrl),
+        backendMemoryCache: {
+          maxCachedTracks: Module2Service.WELLNESS_AUDIO_CACHE_MAX_TRACKS,
+          maxCacheBytes: Module2Service.WELLNESS_AUDIO_CACHE_MAX_BYTES,
+          ttlHours: 168,
+        },
+        disclosure: cdnBaseUrl
+          ? "Audio bytes are fetched from the configured HTTPS object CDN, checked against catalogue MIME type, byte size and SHA-256, then cached in backend memory and on the device."
+          : "No remote audio CDN is configured. The backend serves a short deterministic procedural WAV fallback; this is not the full 42-track MP3 recording library.",
+      },
+      voices: SAKHI_SELECTABLE_VOICES,
+      categories: [
+        "Nature Soundscapes",
+        "Acoustic & Instrumental",
+        "Solfeggio & Frequencies",
+      ],
+      tracks: SAKHI_42_WELLNESS_TRACKS.map((t) => ({
+        ...t,
+        streamUrl: `/api/v1/module2/wellness/audio-tracks/${t.trackId}/stream`,
+      })),
+      cachePolicy: {
+        maxCachedTracks: 6,
+        maxCacheBytes: 15 * 1024 * 1024, // 15 MB cap
+        inactivityTtlHours: 168, // 7 days
+      },
+    };
+  }
+
+  async getWellnessPreferences(authorization: string | undefined) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    let row: Record<string, any> | null = null;
+    if (typeof anyPrisma.memberWellnessPreference?.findUnique === "function") {
+      row = await anyPrisma.memberWellnessPreference
+        .findUnique({ where: { accountId: session.accountId } })
+        .catch(() => null);
+    }
+
+    const validVoiceIds = new Set(SAKHI_SELECTABLE_VOICES.map((v) => v.voiceId));
+    const selectedVoiceId =
+      row?.selectedVoiceId && validVoiceIds.has(row.selectedVoiceId)
+        ? String(row.selectedVoiceId)
+        : "V01";
+    const voiceOption =
+      SAKHI_SELECTABLE_VOICES.find((v) => v.voiceId === selectedVoiceId) ??
+      SAKHI_SELECTABLE_VOICES[4]!;
+
+    return {
+      accountId: session.accountId,
+      preferences: {
+        selectedVoiceId,
+        voiceOption,
+        selectedMusicId: String(row?.selectedMusicId ?? "M01"),
+        selectedMusicCategory: String(
+          row?.selectedMusicCategory ?? "CHOOSE_FOR_ME",
+        ),
+        musicSelectionMode:
+          row?.musicSelectionMode === "EXPLICIT" ? "EXPLICIT" : "RANDOM",
+        preferredDurationMinutes: Number(row?.preferredDurationMinutes ?? 7),
+        voiceVolume: Number(row?.voiceVolume ?? 0.92),
+        musicVolume: Number(row?.musicVolume ?? 0.65),
+        hasCompletedOnboarding: Boolean(row?.hasCompletedOnboarding ?? false),
+        recentTrackIds: Array.isArray(row?.recentTrackIds)
+          ? (row.recentTrackIds as unknown[]).map((x) => String(x))
+          : [],
+        updatedAt:
+          row?.updatedAt instanceof Date
+            ? row.updatedAt.toISOString()
+            : new Date().toISOString(),
+      },
+    };
+  }
+
+  async updateWellnessPreferences(
+    authorization: string | undefined,
+    dto: Record<string, unknown>,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+
+    const validVoiceIds = new Set<string>(
+      SAKHI_SELECTABLE_VOICES.map((v) => v.voiceId),
+    );
+    const validTrackIds = new Set<string>(
+      SAKHI_42_WELLNESS_TRACKS.map((t) => t.trackId),
+    );
+
+    const existing = await this.getWellnessPreferences(authorization);
+    const current = existing.preferences;
+
+    const requestedVoice =
+      dto.selectedVoiceId !== undefined
+        ? String(dto.selectedVoiceId).trim().toUpperCase()
+        : current.selectedVoiceId;
+    if (!validVoiceIds.has(requestedVoice)) {
+      throw new BadRequestException(
+        `Invalid voiceId "${requestedVoice}". Supported voices: ${Array.from(validVoiceIds).join(", ")}.`,
+      );
+    }
+
+    const requestedMusicId =
+      dto.selectedMusicId !== undefined
+        ? String(dto.selectedMusicId).trim().toUpperCase()
+        : current.selectedMusicId;
+    if (requestedMusicId !== "RANDOM" && !validTrackIds.has(requestedMusicId)) {
+      throw new BadRequestException(
+        `Invalid music trackId "${requestedMusicId}". Must be M01–M42 or RANDOM.`,
+      );
+    }
+
+    const requestedCategory =
+      dto.selectedMusicCategory !== undefined
+        ? String(dto.selectedMusicCategory).trim()
+        : current.selectedMusicCategory;
+    const requestedMode =
+      dto.musicSelectionMode !== undefined
+        ? String(dto.musicSelectionMode).trim().toUpperCase() === "EXPLICIT"
+          ? "EXPLICIT"
+          : "RANDOM"
+        : current.musicSelectionMode;
+
+    const preferredDurationMinutes =
+      dto.preferredDurationMinutes !== undefined
+        ? Math.min(Math.max(Math.round(Number(dto.preferredDurationMinutes) || 7), 1), 60)
+        : current.preferredDurationMinutes;
+
+    const voiceVolume =
+      dto.voiceVolume !== undefined
+        ? Math.min(Math.max(Number(dto.voiceVolume) || 0.92, 0), 1)
+        : current.voiceVolume;
+    const musicVolume =
+      dto.musicVolume !== undefined
+        ? Math.min(Math.max(Number(dto.musicVolume) || 0.65, 0), 1)
+        : current.musicVolume;
+    const hasCompletedOnboarding =
+      dto.hasCompletedOnboarding !== undefined
+        ? Boolean(dto.hasCompletedOnboarding)
+        : true;
+
+    const nextData = {
+      selectedVoiceId: requestedVoice,
+      selectedMusicId: requestedMusicId,
+      selectedMusicCategory: requestedCategory,
+      musicSelectionMode: requestedMode,
+      preferredDurationMinutes,
+      voiceVolume,
+      musicVolume,
+      hasCompletedOnboarding,
+      recentTrackIds: current.recentTrackIds.slice(-10),
+    };
+
+    if (typeof anyPrisma.memberWellnessPreference?.upsert === "function") {
+      await anyPrisma.memberWellnessPreference.upsert({
+        where: { accountId: session.accountId },
+        create: {
+          accountId: session.accountId,
+          ...nextData,
+        },
+        update: nextData,
+      });
+    }
+
+    return this.getWellnessPreferences(authorization);
+  }
+
+  async prepareWellnessSession(
+    authorization: string | undefined,
+    body: {
+      experienceType?: "MEDITATION" | "BREATHING";
+      requestedTrackId?: string;
+      requestedCategory?: string;
+      selectionMode?: "EXPLICIT" | "RANDOM";
+    } = {},
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    const prefState = await this.getWellnessPreferences(authorization);
+    const prefs = prefState.preferences;
+
+    const mode =
+      body.selectionMode ??
+      (body.requestedTrackId && body.requestedTrackId !== "RANDOM"
+        ? "EXPLICIT"
+        : (prefs.musicSelectionMode as "EXPLICIT" | "RANDOM"));
+    const category =
+      body.requestedCategory?.trim() || prefs.selectedMusicCategory;
+
+    let chosenTrack: SakhiWellnessAudioTrackMetadata | undefined;
+    if (mode === "EXPLICIT") {
+      const targetId = (
+        body.requestedTrackId || prefs.selectedMusicId
+      ).toUpperCase();
+      chosenTrack = SAKHI_42_WELLNESS_TRACKS.find(
+        (t) => t.trackId === targetId,
+      );
+    }
+
+    if (!chosenTrack) {
+      const pool = SAKHI_42_WELLNESS_TRACKS.filter((t) => {
+        if (
+          !category ||
+          category === "CHOOSE_FOR_ME" ||
+          category.toUpperCase() === "ALL"
+        ) {
+          return true;
+        }
+        return t.category.toLowerCase() === category.toLowerCase();
+      });
+      const candidatePool = pool.length > 0 ? pool : SAKHI_42_WELLNESS_TRACKS;
+      const recentSet = new Set(prefs.recentTrackIds.slice(-5));
+      const unplayedRecently = candidatePool.filter(
+        (t) => !recentSet.has(t.trackId),
+      );
+      const finalCandidates =
+        unplayedRecently.length > 0 ? unplayedRecently : candidatePool;
+      const randomIndex = Math.floor(Math.random() * finalCandidates.length);
+      chosenTrack = finalCandidates[randomIndex] ?? SAKHI_42_WELLNESS_TRACKS[0]!;
+    }
+
+    const updatedRecent = [
+      ...prefs.recentTrackIds.filter((id) => id !== chosenTrack!.trackId),
+      chosenTrack.trackId,
+    ].slice(-10);
+
+    if (typeof anyPrisma.memberWellnessPreference?.upsert === "function") {
+      await anyPrisma.memberWellnessPreference
+        .upsert({
+          where: { accountId: session.accountId },
+          create: {
+            accountId: session.accountId,
+            selectedVoiceId: prefs.selectedVoiceId,
+            selectedMusicId: chosenTrack.trackId,
+            selectedMusicCategory: category,
+            musicSelectionMode: mode,
+            preferredDurationMinutes: prefs.preferredDurationMinutes,
+            voiceVolume: prefs.voiceVolume,
+            musicVolume: prefs.musicVolume,
+            hasCompletedOnboarding: prefs.hasCompletedOnboarding,
+            recentTrackIds: updatedRecent,
+          },
+          update: {
+            recentTrackIds: updatedRecent,
+          },
+        })
+        .catch(() => null);
+    }
+
+    const cdnBaseUrl = (process.env.SAKHI_WELLNESS_AUDIO_CDN_BASE_URL ?? "")
+      .trim()
+      .replace(/\/+$/, "");
+    const synthPreview = synthesizeDeterministicLoopableWav(chosenTrack, 4);
+
+    return {
+      prepared: true,
+      experienceType: body.experienceType ?? "MEDITATION",
+      voice: prefs.voiceOption,
+      track: {
+        ...chosenTrack,
+        downloadUrl: cdnBaseUrl
+          ? `${cdnBaseUrl}/${chosenTrack.objectPath}`
+          : `/api/v1/module2/wellness/audio-tracks/${chosenTrack.trackId}/stream`,
+        streamSha256Checksum: cdnBaseUrl
+          ? chosenTrack.sha256Checksum
+          : synthPreview.sha256Checksum,
+        streamByteSize: cdnBaseUrl
+          ? chosenTrack.byteSize
+          : synthPreview.buffer.byteLength,
+        streamMimeType: cdnBaseUrl
+          ? chosenTrack.mimeType
+          : synthPreview.mimeType,
+      },
+      preferences: {
+        ...prefs,
+        recentTrackIds: updatedRecent,
+      },
+    };
+  }
+
+  async streamWellnessAudioTrack(trackId: string) {
+    const cleanId = (trackId ?? "").trim().toUpperCase();
+    const track = SAKHI_42_WELLNESS_TRACKS.find((t) => t.trackId === cleanId);
+    if (!track) {
+      throw new NotFoundException(`Wellness audio track "${cleanId}" not found.`);
+    }
+
+    const cached = this.getCachedWellnessAudio(cleanId);
+    if (cached) {
+      return {
+        track,
+        buffer: cached.buffer,
+        contentType: cached.contentType,
+        sha256Checksum: cached.sha256Checksum,
+        byteLength: cached.buffer.byteLength,
+        cacheStatus: "HIT" as const,
+      };
+    }
+
+    const cdnBaseValue = (process.env.SAKHI_WELLNESS_AUDIO_CDN_BASE_URL ?? "").trim();
+    let audio: { buffer: Buffer; contentType: string; sha256Checksum: string };
+    if (cdnBaseValue) {
+      let base: URL;
+      try {
+        base = new URL(cdnBaseValue.endsWith("/") ? cdnBaseValue : `${cdnBaseValue}/`);
+      } catch {
+        throw new ServiceUnavailableException("The wellness audio CDN URL is invalid.");
+      }
+      if (
+        (process.env.NODE_ENV === "production" && base.protocol !== "https:") ||
+        !["https:", "http:"].includes(base.protocol) ||
+        !track.objectPath || track.objectPath.startsWith("/") ||
+        track.objectPath.split("/").some((part) => part === ".." || part === ".")
+      ) {
+        throw new ServiceUnavailableException("The wellness audio CDN URL or object path is not allowed.");
+      }
+      const objectUrl = new URL(track.objectPath.split("/").map(encodeURIComponent).join("/"), base);
+      if (objectUrl.origin !== base.origin) {
+        throw new ServiceUnavailableException("The wellness audio object URL escaped the configured CDN origin.");
+      }
+      let response: Response;
+      try {
+        response = await fetch(objectUrl, { signal: AbortSignal.timeout(15_000) });
+      } catch {
+        throw new ServiceUnavailableException("The configured wellness audio object could not be reached.");
+      }
+      if (!response.ok) {
+        throw new ServiceUnavailableException(`The configured wellness audio object is unavailable (HTTP ${response.status}).`);
+      }
+      const buffer = Buffer.from(await response.arrayBuffer());
+      const sha256Checksum = createHash("sha256").update(buffer).digest("hex");
+      const contentType = (response.headers.get("content-type") ?? track.mimeType).split(";")[0]!.trim().toLowerCase();
+      if (
+        buffer.length !== track.byteSize ||
+        sha256Checksum !== track.sha256Checksum ||
+        contentType !== track.mimeType.toLowerCase()
+      ) {
+        throw new ServiceUnavailableException("The wellness audio CDN object failed its catalogue byte-size, MIME-type or SHA-256 integrity check.");
+      }
+      audio = { buffer, contentType, sha256Checksum };
+    } else {
+      const generated = synthesizeDeterministicLoopableWav(track, 4);
+      audio = {
+        buffer: generated.buffer,
+        contentType: generated.mimeType,
+        sha256Checksum: generated.sha256Checksum,
+      };
+    }
+
+    this.cacheWellnessAudio(cleanId, audio);
+    return {
+      track,
+      buffer: audio.buffer,
+      contentType: audio.contentType,
+      sha256Checksum: audio.sha256Checksum,
+      byteLength: audio.buffer.byteLength,
+      cacheStatus: "MISS" as const,
+    };
+  }
+
+  // ===========================================================================
+  // SECTION 7.2: PUSH NOTIFICATION TOKEN LIFECYCLE & STATUS
+  // ===========================================================================
+
+  async registerPushToken(
+    authorization: string | undefined,
+    dto: {
+      token: string;
+      platform?: string;
+      provider?: string;
+      deviceName?: string;
+    },
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const rawToken = String(dto.token ?? "").trim();
+    if (rawToken.length < 16 || rawToken.length > 4096) {
+      throw new BadRequestException("Provide a valid device push token.");
+    }
+    const platform = String(dto.platform ?? "ANDROID").trim().toUpperCase();
+    const provider = String(dto.provider ?? "FCM").trim().toUpperCase();
+    const tokenDigest = createHash("sha256").update(rawToken).digest("hex");
+
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (typeof anyPrisma.memberPushToken?.upsert === "function") {
+      await anyPrisma.memberPushToken.upsert({
+        where: { tokenDigest },
+        create: {
+          accountId: session.accountId,
+          platform,
+          provider,
+          tokenDigest,
+          encryptedToken: Buffer.from(rawToken, "utf8").toString("base64"),
+          deviceName: dto.deviceName?.trim().slice(0, 120) || null,
+          isEnabled: true,
+          lastRegisteredAt: new Date(),
+        },
+        update: {
+          accountId: session.accountId,
+          platform,
+          provider,
+          isEnabled: true,
+          lastRegisteredAt: new Date(),
+          deviceName: dto.deviceName?.trim().slice(0, 120) || null,
+        },
+      });
+    }
+
+    const fcmConfigured = Boolean(
+      process.env.SAKHI_FCM_PROJECT_ID?.trim() &&
+        process.env.SAKHI_FCM_SERVICE_ACCOUNT_JSON?.trim(),
+    );
+
+    return {
+      registered: true,
+      tokenDigest,
+      platform,
+      provider,
+      livePushDeliveryConfigured: fcmConfigured,
+      deliveryMode: fcmConfigured
+        ? "FCM_LIVE_AND_PERSISTENT_INBOX"
+        : "PERSISTENT_IN_APP_INBOX_ONLY",
+    };
+  }
+
+  async unregisterPushToken(
+    authorization: string | undefined,
+    tokenOrDigest: string,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const cleaned = (tokenOrDigest ?? "").trim();
+    if (!cleaned) {
+      throw new BadRequestException("Provide token or tokenDigest to remove.");
+    }
+    const digest =
+      /^[a-f0-9]{64}$/i.test(cleaned)
+        ? cleaned.toLowerCase()
+        : createHash("sha256").update(cleaned).digest("hex");
+
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (typeof anyPrisma.memberPushToken?.deleteMany === "function") {
+      await anyPrisma.memberPushToken.deleteMany({
+        where: { accountId: session.accountId, tokenDigest: digest },
+      });
+    }
+    return { unregistered: true, tokenDigest: digest };
+  }
+
+  // ===========================================================================
+  // SECTION 7.3: ACTIVE CIRCLES — MODERATED COMMUNITY / CHANNEL LIFECYCLE
+  // ===========================================================================
+
+  async getCommunityCircleDetail(
+    authorization: string | undefined,
+    circleIdOrName: string,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    const cleaned = decodeURIComponent(circleIdOrName ?? "").trim();
+    if (!cleaned) {
+      throw new BadRequestException("Circle identifier is required.");
+    }
+
+    const viewerProfile = await this.prisma.memberProfile
+      .findUnique({ where: { accountId: session.accountId } })
+      .catch(() => null);
+
+    let circle = await this.prisma.communityGroup
+      .findFirst({
+        where: {
+          OR: [
+            ...(cleaned.length === 36 ? [{ id: cleaned }] : []),
+            { name: { equals: cleaned, mode: "insensitive" } },
+          ],
+        },
+      })
+      .catch(() => null);
+
+    if (!circle) {
+      circle = await this.prisma.communityGroup.create({
+        data: {
+          name: cleaned.slice(0, 120),
+          description: "Moderated Sakhi women's community circle and support channel.",
+          category: "Community & Support",
+          membersCount: 1,
+          newPostsToday: 0,
+        },
+      });
+    }
+
+    let membership: Record<string, any> | null = null;
+    if (typeof anyPrisma.communityCircleMembership?.findUnique === "function") {
+      membership = await anyPrisma.communityCircleMembership
+        .findUnique({
+          where: {
+            circleId_accountId: {
+              circleId: circle.id,
+              accountId: session.accountId,
+            },
+          },
+        })
+        .catch(() => null);
+    }
+
+    let posts: Array<Record<string, any>> = [];
+    if (typeof anyPrisma.communityCirclePost?.findMany === "function") {
+      posts = await anyPrisma.communityCirclePost
+        .findMany({
+          where: {
+            circleId: circle.id,
+            status: "PUBLISHED",
+          },
+          orderBy: [{ isPinned: "desc" }, { createdAt: "desc" }],
+          take: 50,
+        })
+        .catch(() => []);
+    }
+
+    let moderators: Array<Record<string, any>> = [];
+    if (typeof anyPrisma.communityCircleMembership?.findMany === "function") {
+      moderators = await anyPrisma.communityCircleMembership
+        .findMany({
+          where: {
+            circleId: circle.id,
+            role: { in: ["OWNER", "MODERATOR"] },
+            status: "ACTIVE",
+          },
+          take: 20,
+        })
+        .catch(() => []);
+    }
+
+    const rawCircle = circle as Record<string, any>;
+    const isJoined = Boolean(membership && membership.status === "ACTIVE");
+    const viewerRole = isJoined
+      ? String(membership?.role ?? "MEMBER")
+      : rawCircle.ownerAccountId === session.accountId
+        ? "OWNER"
+        : "GUEST";
+
+    return {
+      circle: {
+        id: circle.id,
+        name: circle.name,
+        description: circle.description,
+        purpose:
+          rawCircle.purpose ??
+          "Connect, share verified resources, and participate in moderated community discussions.",
+        category: circle.category,
+        visibility: rawCircle.visibility ?? "PUBLIC_VERIFIED",
+        locationScope:
+          rawCircle.locationScope ?? viewerProfile?.location ?? "Pan-India",
+        ownerAccountId: rawCircle.ownerAccountId ?? null,
+        ownerDisplayName:
+          rawCircle.ownerDisplayName ?? "Sakhi Community Host",
+        rules: Array.isArray(rawCircle.rules)
+          ? rawCircle.rules
+          : [
+              "Be respectful, supportive, and inclusive",
+              "Protect member privacy — never share personal phone numbers or addresses publicly",
+              "No spam, harassment, or unverified medical claims",
+            ],
+        membersCount: circle.membersCount,
+        newPostsToday: circle.newPostsToday,
+        isJoined,
+        viewerRole,
+        notificationsEnabled: Boolean(membership?.notificationsEnabled ?? true),
+      },
+      moderators,
+      posts: posts.map((p) => ({
+        id: String(p.id),
+        circleId: String(p.circleId),
+        authorAccountId: String(p.authorAccountId),
+        authorName: String(p.authorName),
+        authorUsername: String(p.authorUsername),
+        authorRole: String(p.authorRole ?? "MEMBER"),
+        postType: String(p.postType ?? "DISCUSSION"),
+        isPinned: Boolean(p.isPinned),
+        content: String(p.content),
+        likesCount: Number(p.likesCount ?? 0),
+        comments: Array.isArray(p.comments) ? p.comments : [],
+        createdAt:
+          p.createdAt instanceof Date
+            ? p.createdAt.toISOString()
+            : String(p.createdAt ?? new Date().toISOString()),
+        timestamp:
+          p.createdAt instanceof Date
+            ? this.formatRelativeTime(p.createdAt)
+            : "Just now",
+        isOwnPost: String(p.authorAccountId) === session.accountId,
+      })),
+    };
+  }
+
+  async createCommunityCircle(
+    authorization: string | undefined,
+    dto: {
+      name: string;
+      description: string;
+      purpose?: string;
+      category?: string;
+      visibility?: string;
+      locationScope?: string;
+      rules?: string[];
+    },
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    const name = String(dto.name ?? "").trim();
+    if (name.length < 3 || name.length > 100) {
+      throw new BadRequestException(
+        "Circle name must be between 3 and 100 characters.",
+      );
+    }
+    const description =
+      String(dto.description ?? "").trim() ||
+      "Moderated Sakhi women's community circle.";
+    const viewerProfile = await this.prisma.memberProfile
+      .findUnique({ where: { accountId: session.accountId } })
+      .catch(() => null);
+    const ownerDisplayName = viewerProfile?.displayName ?? "Sakhi Circle Host";
+
+    let created: Record<string, any>;
+    try {
+      created = await anyPrisma.communityGroup.create({
+        data: {
+          name,
+          slug: name
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-|-$/g, "")
+            .slice(0, 72),
+          description: description.slice(0, 300),
+          purpose:
+            dto.purpose?.trim().slice(0, 500) ||
+            description.slice(0, 500),
+          category: dto.category?.trim() || "Community & Support",
+          ownerAccountId: session.accountId,
+          ownerDisplayName,
+          visibility: dto.visibility?.trim() || "PUBLIC_VERIFIED",
+          locationScope:
+            dto.locationScope?.trim() ||
+            viewerProfile?.location ||
+            "Pan-India",
+          rules: Array.isArray(dto.rules) && dto.rules.length > 0
+            ? dto.rules.map((r) => String(r).trim()).filter(Boolean)
+            : [
+                "Be respectful and supportive",
+                "Protect member privacy",
+                "No spam or unsolicited promotions",
+              ],
+          membersCount: 1,
+          newPostsToday: 0,
+        },
+      });
+    } catch {
+      created = await this.prisma.communityGroup.create({
+        data: {
+          name,
+          description: description.slice(0, 300),
+          category: dto.category?.trim() || "Community & Support",
+          membersCount: 1,
+          newPostsToday: 0,
+        },
+      });
+    }
+
+    if (typeof anyPrisma.communityCircleMembership?.upsert === "function") {
+      await anyPrisma.communityCircleMembership
+        .upsert({
+          where: {
+            circleId_accountId: {
+              circleId: created.id,
+              accountId: session.accountId,
+            },
+          },
+          create: {
+            circleId: created.id,
+            accountId: session.accountId,
+            role: "OWNER",
+            status: "ACTIVE",
+            notificationsEnabled: true,
+          },
+          update: {
+            role: "OWNER",
+            status: "ACTIVE",
+          },
+        })
+        .catch(() => null);
+    }
+
+    return this.getCommunityCircleDetail(authorization, String(created.id));
+  }
+
+  async leaveCommunityCircle(
+    authorization: string | undefined,
+    circleIdOrName: string,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    const detail = await this.getCommunityCircleDetail(
+      authorization,
+      circleIdOrName,
+    );
+    const circleId = detail.circle.id;
+
+    if (typeof anyPrisma.communityCircleMembership?.deleteMany === "function") {
+      await anyPrisma.communityCircleMembership
+        .deleteMany({
+          where: { circleId, accountId: session.accountId },
+        })
+        .catch(() => null);
+    }
+
+    await this.prisma.communityGroup
+      .update({
+        where: { id: circleId },
+        data: {
+          membersCount: Math.max(1, detail.circle.membersCount - 1),
+        },
+      })
+      .catch(() => null);
+
+    return {
+      circleId,
+      name: detail.circle.name,
+      joined: false,
+      membersCount: Math.max(1, detail.circle.membersCount - 1),
+    };
+  }
+
+  async createCommunityCirclePost(
+    authorization: string | undefined,
+    circleIdOrName: string,
+    dto: {
+      content: string;
+      postType?: "DISCUSSION" | "ANNOUNCEMENT" | "RESOURCE";
+      isPinned?: boolean;
+    },
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    const content = String(dto.content ?? "").trim();
+    if (!content || content.length > 2000) {
+      throw new BadRequestException(
+        "Circle post content must be between 1 and 2000 characters.",
+      );
+    }
+
+    const detail = await this.getCommunityCircleDetail(
+      authorization,
+      circleIdOrName,
+    );
+    if (!detail.circle.isJoined && detail.circle.viewerRole === "GUEST") {
+      // Auto-join public verified circles when posting or require membership
+      if (detail.circle.visibility !== "PUBLIC_VERIFIED") {
+        throw new ForbiddenException(
+          "You must be an active member of this circle before publishing posts.",
+        );
+      }
+      await this.toggleJoinCommunityGroup(authorization, detail.circle.id);
+    }
+
+    const role =
+      detail.circle.viewerRole === "GUEST"
+        ? "MEMBER"
+        : detail.circle.viewerRole;
+    const requestedType = dto.postType ?? "DISCUSSION";
+    if (
+      requestedType === "ANNOUNCEMENT" &&
+      role !== "OWNER" &&
+      role !== "MODERATOR"
+    ) {
+      throw new ForbiddenException(
+        "Only circle owners and moderators can publish announcements.",
+      );
+    }
+
+    const viewerProfile = await this.prisma.memberProfile
+      .findUnique({ where: { accountId: session.accountId } })
+      .catch(() => null);
+    const authorName = viewerProfile?.displayName ?? "Sakhi Member";
+    const authorUsername = this.deriveUsername(
+      authorName,
+      viewerProfile?.username,
+    );
+
+    const postId = randomUUID();
+    let createdPost: Record<string, any> = {
+      id: postId,
+      circleId: detail.circle.id,
+      authorAccountId: session.accountId,
+      authorName,
+      authorUsername,
+      authorRole: role,
+      postType: requestedType,
+      isPinned:
+        (role === "OWNER" || role === "MODERATOR") && Boolean(dto.isPinned),
+      content,
+      likesCount: 0,
+      comments: [],
+      status: "PUBLISHED",
+      createdAt: new Date(),
+    };
+
+    if (typeof anyPrisma.communityCirclePost?.create === "function") {
+      createdPost = await anyPrisma.communityCirclePost.create({
+        data: createdPost,
+      });
+    }
+
+    await this.prisma.communityGroup
+      .update({
+        where: { id: detail.circle.id },
+        data: { newPostsToday: detail.circle.newPostsToday + 1 },
+      })
+      .catch(() => null);
+
+    return {
+      created: true,
+      post: {
+        ...createdPost,
+        createdAt:
+          createdPost.createdAt instanceof Date
+            ? createdPost.createdAt.toISOString()
+            : String(createdPost.createdAt),
+        timestamp: "Just now",
+        isOwnPost: true,
+      },
+    };
+  }
+
+  async moderateCommunityCirclePost(
+    authorization: string | undefined,
+    circleId: string,
+    postId: string,
+    dto: { action: "REMOVE" | "PIN" | "UNPIN"; reason?: string },
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    const detail = await this.getCommunityCircleDetail(authorization, circleId);
+    const role = detail.circle.viewerRole;
+    if (role !== "OWNER" && role !== "MODERATOR") {
+      throw new ForbiddenException(
+        "Only circle owners and moderators can moderate circle posts.",
+      );
+    }
+    if (typeof anyPrisma.communityCirclePost?.update !== "function") {
+      throw new ServiceUnavailableException(
+        "Circle moderation table is not initialized.",
+      );
+    }
+    const action = (dto.action ?? "REMOVE").toUpperCase();
+    const updated = await anyPrisma.communityCirclePost.update({
+      where: { id: postId },
+      data:
+        action === "REMOVE"
+          ? {
+              status: "REMOVED_BY_MODERATOR",
+              moderationReason:
+                dto.reason?.trim() || `Removed by circle ${role.toLowerCase()}`,
+            }
+          : {
+              isPinned: action === "PIN",
+            },
+    });
+    return {
+      moderated: true,
+      action,
+      postId: updated.id,
+      status: updated.status,
+      isPinned: updated.isPinned,
+    };
+  }
+
 }

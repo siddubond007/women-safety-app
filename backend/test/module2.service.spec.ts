@@ -33,6 +33,13 @@ describe("Module2Service privacy regression checks", () => {
           id: "viewer-directory-id",
           username: "@viewer",
         }),
+        findFirst: vi.fn().mockResolvedValue({
+          accountId: targetId,
+          name: "Other member",
+          username: "@other",
+          bio: "Public directory bio",
+          avatarAsset: "avatar.webp",
+        }),
         findMany: vi.fn(async (args: Record<string, any>) => {
           const handles = args.where?.username?.in ?? [];
           return handles
@@ -218,57 +225,36 @@ describe("Module2Service privacy regression checks", () => {
     expect(result.profile.locationCity).toBeNull();
   });
 
-  it("does not expose follower-only profiles in discovery unless the viewer follows them", async () => {
+  it("uses the RLS-filtered public directory projection for discovery", async () => {
     await service.getDiscover("Bearer test-token");
 
-    const query = prisma.memberAccount.findMany.mock.calls[0]?.[0];
-    const visibilityBranches = query.where.OR as Array<Record<string, any>>;
-    expect(visibilityBranches).toContainEqual({
-      privacySettings: {
-        is: {
-          appearInSearch: true,
-          profileVisibility: "VERIFIED_MEMBERS",
-        },
-      },
+    const query = prisma.communityDirectoryProfile.findMany.mock.calls.at(-1)?.[0];
+    expect(query.where).toMatchObject({
+      accountId: { not: viewerId },
+      searchable: true,
     });
-    expect(
-      visibilityBranches.some(
-        (branch) =>
-          Array.isArray(branch.AND) &&
-          branch.AND.some(
-            (part: Record<string, any>) =>
-              part.privacySettings?.is?.profileVisibility === "FOLLOWERS_ONLY",
-          ) &&
-          branch.AND.some(
-            (part: Record<string, any>) =>
-              part.followsAsFollowing?.some?.followerAccountId === viewerId,
-          ),
-      ),
-    ).toBe(true);
+    expect(query.select).toEqual({
+      id: true,
+      accountId: true,
+      name: true,
+      username: true,
+      avatarAsset: true,
+      bio: true,
+    });
+    expect(prisma.memberAccount.findMany).not.toHaveBeenCalled();
   });
 
-  it("does not search hidden city values in member discovery", async () => {
+  it("searches only public directory fields and never queries member location", async () => {
     await service.getDiscover("Bearer test-token", "Tirupati");
 
-    const query = prisma.memberAccount.findMany.mock.calls[0]?.[0];
-    const searchBranches = query.where.AND.find((part: Record<string, any>) =>
-      Array.isArray(part.OR),
-    ).OR as Array<Record<string, any>>;
-    expect(
-      searchBranches.some(
-        (branch) => branch.profile?.is?.locationCity !== undefined,
-      ),
-    ).toBe(false);
-    expect(
-      searchBranches.some(
-        (branch) =>
-          Array.isArray(branch.AND) &&
-          branch.AND.some(
-            (part: Record<string, any>) =>
-              part.privacySettings?.is?.locationSharing === "CITY_ONLY",
-          ),
-      ),
-    ).toBe(true);
+    const query = prisma.communityDirectoryProfile.findMany.mock.calls.at(-1)?.[0];
+    expect(query.where.OR).toEqual([
+      { name: { contains: "Tirupati", mode: "insensitive" } },
+      { username: { contains: "Tirupati", mode: "insensitive" } },
+      { bio: { contains: "Tirupati", mode: "insensitive" } },
+    ]);
+    expect(JSON.stringify(query)).not.toMatch(/location|dateOfBirth|email|phone/i);
+    expect(prisma.memberAccount.findMany).not.toHaveBeenCalled();
   });
 
   it("lists groups using only columns present in the installed Prisma schema", async () => {
@@ -282,18 +268,27 @@ describe("Module2Service privacy regression checks", () => {
     expect(query.where).toBeUndefined();
   });
 
-  it("does not return profiles that restrict visibility to only themselves", async () => {
+  it("fails closed for follower lists until a public relationship projection exists", async () => {
     const result = await service.listFollowers(
       "Bearer test-token",
       "followers",
     );
 
-    expect(
-      result.items.map((item: Record<string, any>) => item.username),
-    ).toContain("@visible");
-    expect(
-      result.items.map((item: Record<string, any>) => item.username),
-    ).not.toContain("@private");
+    expect(result.items).toEqual([]);
+    expect(result.connectionsAvailable).toBe(false);
+    expect(prisma.memberFollow.findMany).not.toHaveBeenCalled();
+  });
+
+  it("does not substitute the viewer's own connections for another member's connection list", async () => {
+    const result = await service.listMemberConnections(
+      "Bearer test-token",
+      targetId,
+      "followers",
+    );
+
+    expect(result.items).toEqual([]);
+    expect(result.connectionsAvailable).toBe(false);
+    expect(prisma.memberFollow.findMany).not.toHaveBeenCalled();
   });
 
   it("rejects profile photo references scoped to a different account", async () => {

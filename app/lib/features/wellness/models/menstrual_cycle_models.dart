@@ -248,6 +248,9 @@ class CyclePredictionSummary {
   final String? lastPeriodEnd;
   final String? nextPeriodStart;
   final String? nextPeriodEnd;
+  final String? nextPeriodWindowStart;
+  final String? nextPeriodWindowEnd;
+  final int uncertaintyRangeDays;
   final int? daysUntilNextPeriod;
   final int? currentCycleDay;
   final String currentPhase;
@@ -272,6 +275,9 @@ class CyclePredictionSummary {
     this.lastPeriodEnd,
     this.nextPeriodStart,
     this.nextPeriodEnd,
+    this.nextPeriodWindowStart,
+    this.nextPeriodWindowEnd,
+    this.uncertaintyRangeDays = 2,
     this.daysUntilNextPeriod,
     this.currentCycleDay,
     required this.currentPhase,
@@ -354,28 +360,39 @@ class CyclePredictionEngine {
       }
     }
 
+    final recentLengths = observedLengths.length > 6
+        ? observedLengths.sublist(observedLengths.length - 6)
+        : observedLengths;
+    int medianInt(List<int> vals) {
+      final sorted = List<int>.from(vals)..sort();
+      final mid = sorted.length ~/ 2;
+      if (sorted.length.isOdd) return sorted[mid];
+      return ((sorted[mid - 1] + sorted[mid]) / 2).round();
+    }
+
     final avgCycleLength =
-        (prefs.useCustomCycleLength || observedLengths.isEmpty)
+        (prefs.useCustomCycleLength || recentLengths.isEmpty)
         ? prefs.averageCycleLength.clamp(21, 40)
-        : (observedLengths.reduce((a, b) => a + b) / observedLengths.length)
-              .round();
+        : medianInt(recentLengths).clamp(21, 40);
     final predictionBasisLabel = prefs.useCustomCycleLength
         ? 'Custom Mode • Manual $avgCycleLength-day cycle length'
-        : observedLengths.isNotEmpty
-        ? 'Automatic Mode • Rolling average of ${observedLengths.length} logged cycle interval(s) ($avgCycleLength days)'
-        : 'Automatic Mode • Baseline $avgCycleLength-day fallback (log 2+ period start dates for history averaging)';
+        : recentLengths.isNotEmpty
+        ? 'Automatic Mode • Robust median of ${recentLengths.length} recent cycle interval(s) ($avgCycleLength days)'
+        : 'Automatic Mode • Baseline $avgCycleLength-day fallback (log 2+ period start dates for history estimation)';
 
     final avgPeriodDuration = observedDurations.isNotEmpty
-        ? (observedDurations.reduce((a, b) => a + b) / observedDurations.length)
-              .round()
+        ? medianInt(observedDurations).clamp(2, 10)
         : prefs.averagePeriodDuration.clamp(2, 10);
 
     var cycleVariationDays = 0;
-    if (observedLengths.length >= 2) {
-      final minLen = observedLengths.reduce((a, b) => a < b ? a : b);
-      final maxLen = observedLengths.reduce((a, b) => a > b ? a : b);
+    if (recentLengths.length >= 2) {
+      final minLen = recentLengths.reduce((a, b) => a < b ? a : b);
+      final maxLen = recentLengths.reduce((a, b) => a > b ? a : b);
       cycleVariationDays = maxLen - minLen;
     }
+    final uncertaintyRangeDays = cycleVariationDays <= 2
+        ? 2
+        : ((cycleVariationDays / 2).round().clamp(2, 6));
 
     final hasIrregularity =
         cycleVariationDays > 7 ||
@@ -489,6 +506,13 @@ class CyclePredictionEngine {
               : null),
       nextPeriodStart: nextPeriodStart,
       nextPeriodEnd: nextPeriodEnd,
+      nextPeriodWindowStart: nextPeriodStart != null
+          ? addDaysIso(nextPeriodStart, -uncertaintyRangeDays)
+          : null,
+      nextPeriodWindowEnd: nextPeriodStart != null
+          ? addDaysIso(nextPeriodStart, uncertaintyRangeDays)
+          : null,
+      uncertaintyRangeDays: uncertaintyRangeDays,
       daysUntilNextPeriod: daysUntilNextPeriod,
       currentCycleDay: currentCycleDay,
       currentPhase: currentPhase,
@@ -517,6 +541,8 @@ class MenstrualHealthArticle {
   final String summary;
   final List<String> keyTakeaways;
   final String clinicalNote;
+  final String sourceOrganization;
+  final String sourceUrl;
 
   const MenstrualHealthArticle({
     required this.id,
@@ -526,6 +552,8 @@ class MenstrualHealthArticle {
     required this.summary,
     required this.keyTakeaways,
     required this.clinicalNote,
+    this.sourceOrganization = 'ACOG / WHO Patient Education',
+    this.sourceUrl = 'https://www.acog.org/womens-health/faqs/dysmenorrhea-painful-periods',
   });
 }
 
@@ -627,6 +655,42 @@ const List<MenstrualHealthArticle> sakhiMenstrualHealthArticles = [
     ],
     clinicalNote:
         'Clinical Guidance: Fertility windows in Sakhi are informational estimates only and must never be treated as contraception.',
+    sourceOrganization: 'ACOG Fertility Awareness Guidance',
+    sourceUrl: 'https://www.acog.org/womens-health/faqs/fertility-awareness-based-methods-of-family-planning',
+  ),
+  MenstrualHealthArticle(
+    id: 'pcos-and-thyroid-cycle-awareness',
+    title: 'PCOS, Thyroid Health & Cycle Regularity Explained',
+    category: 'Endocrine & Cycle Health',
+    readTime: '5 min read • Reviewed Nov 2026',
+    summary:
+        'How common endocrine conditions such as Polycystic Ovary Syndrome (PCOS) and thyroid imbalances affect ovulation frequency, cycle intervals, and energy levels (Reference: WHO & NHS Women’s Health Guidance).',
+    keyTakeaways: [
+      'Cycles consistently longer than 35 days or fewer than 8–9 periods per year can be associated with ovulatory shifts such as PCOS.',
+      'Both hypothyroidism and hyperthyroidism can contribute to lighter, heavier, or irregular menstrual bleeding and persistent fatigue.',
+      'Logging cycle lengths, acne, sleep, and energy patterns over 3–6 months gives your clinician clear, structured history.',
+    ],
+    clinicalNote:
+        'Only a qualified clinician can diagnose PCOS or thyroid conditions through clinical history, blood panels, or ultrasound.',
+    sourceOrganization: 'World Health Organization (WHO) & NHS',
+    sourceUrl: 'https://www.who.int/news-room/fact-sheets/detail/polycystic-ovary-syndrome',
+  ),
+  MenstrualHealthArticle(
+    id: 'menstrual-hygiene-and-safe-product-use',
+    title: 'Menstrual Hygiene, Safe Pad/Cup Change Intervals & Skin Comfort',
+    category: 'Hygiene & Comfort',
+    readTime: '4 min read • Reviewed Nov 2026',
+    summary:
+        'Practical, evidence-based menstrual hygiene habits to prevent skin irritation, rashes, and reproductive tract discomfort (Reference: UNICEF & WHO Menstrual Health Guidelines).',
+    keyTakeaways: [
+      'Change sanitary pads every 4–6 hours (and more frequently on heavy flow days) to keep skin dry and prevent chafing.',
+      'If using a reusable menstrual cup, empty and rinse with clean water every 6–8 hours (up to 12 hours maximum) and sterilize between cycles.',
+      'Wash the external vulvar area gently with plain warm water; avoid scented washes or internal douching which disrupt natural flora.',
+    ],
+    clinicalNote:
+        'Seek medical evaluation if you notice persistent itching, unusual odor, pelvic pain, or fever during or after menstruation.',
+    sourceOrganization: 'WHO / UNICEF Menstrual Health & Hygiene',
+    sourceUrl: 'https://www.who.int/publications/i/item/9789240050181',
   ),
 ];
 
@@ -1067,7 +1131,10 @@ class MenstrualCycleController extends ChangeNotifier {
     }
   }
 
+  int _preferenceMutationSeq = 0;
+
   Future<void> updatePreferences(MenstrualTrackerPreferences updated) async {
+    final mutationSeq = ++_preferenceMutationSeq;
     preferences = updated;
     await _saveToEncryptedLocalStorage();
     notifyListeners();
@@ -1078,8 +1145,153 @@ class MenstrualCycleController extends ChangeNotifier {
         authenticated: true,
         body: updated.toJson(),
       );
-      await syncWithBackend();
-    } catch (_) {}
+      if (mutationSeq == _preferenceMutationSeq) {
+        lastSyncMessage = 'Private health vault synced';
+        notifyListeners();
+      }
+    } catch (_) {
+      if (mutationSeq == _preferenceMutationSeq) {
+        lastSyncMessage = 'Protected in local encrypted vault';
+        notifyListeners();
+      }
+    }
+  }
+
+  /// Generates a valid, self-contained %PDF-1.4 document for clinical/personal
+  /// sharing so the user exports a clean formatted PDF rather than raw HTML/text.
+  Uint8List generateClinicalSummaryPdfBytes({
+    int maxCycles = 12,
+    int maxDailyLogs = 30,
+    bool includeCycleSummary = true,
+    bool includeCycleHistory = true,
+    bool includeDailySymptoms = true,
+  }) {
+    final p = predictions;
+    final lines = <String>[
+      'SAKHI WOMEN'S MENSTRUAL HEALTH & CYCLE SUMMARY (PDF)',
+      'Generated: ${DateTime.now().toIso8601String().substring(0, 19).replaceFirst('T', ' ')}',
+      'Privacy Classification: Strictly Owner-Isolated & Encrypted Health Vault',
+      '------------------------------------------------------------------------',
+    ];
+
+    if (includeCycleSummary) {
+      lines.addAll([
+        '',
+        '1. CYCLE SUMMARY & PREDICTION ESTIMATES',
+        '   Prediction Mode: ${p.predictionBasisLabel}',
+        '   Median/Custom Cycle Length: ${p.averageCycleLength} days (+/- ${p.uncertaintyRangeDays}d window)',
+        '   Average Period Duration: ${p.averagePeriodDuration} days',
+        '   Regularity Status: ${p.regularityStatus} (Variation: ${p.cycleVariationDays} days)',
+        '   Last Recorded Period Start: ${p.lastPeriodStart ?? "None recorded"}',
+        '   Estimated Next Period: ${p.nextPeriodStart ?? "Pending"} '
+            '${p.nextPeriodWindowStart != null ? "(Window: ${p.nextPeriodWindowStart} to ${p.nextPeriodWindowEnd})" : ""}',
+        '   Current Phase Estimate: ${p.currentPhase}',
+        '   Irregularity Flag: ${p.hasIrregularity ? "Yes - ${p.irregularityReason}" : "None detected"}',
+      ]);
+    }
+
+    if (includeCycleHistory) {
+      final slice = cycles.take(maxCycles).toList();
+      lines.addAll([
+        '',
+        '2. RECORDED MENSTRUAL CYCLES (${slice.length} of ${cycles.length})',
+      ]);
+      if (slice.isEmpty) {
+        lines.add('   No menstrual cycle entries recorded in selected range.');
+      } else {
+        for (final c in slice) {
+          lines.add(
+            '   - Start: ${c.startDate} | End: ${c.endDate ?? "Estimated"} | '
+            'Flow: ${c.flowIntensity} | Duration: ${c.periodDurationDays ?? p.averagePeriodDuration}d'
+            '${c.notes != null && c.notes!.isNotEmpty ? " | Note: ${c.notes}" : ""}',
+          );
+        }
+      }
+    }
+
+    if (includeDailySymptoms) {
+      final logSlice = dailyLogs.take(maxDailyLogs).toList();
+      lines.addAll([
+        '',
+        '3. DAILY SYMPTOM & WELLNESS LOGS (${logSlice.length} of ${dailyLogs.length})',
+      ]);
+      if (logSlice.isEmpty) {
+        lines.add('   No daily symptom logs recorded in selected range.');
+      } else {
+        for (final d in logSlice) {
+          lines.add(
+            '   - ${d.logDate}: Flow=${d.flowIntensity ?? "None"}, '
+            'Cramps=${d.crampsSeverity ?? "None"}, Mood=${d.mood ?? "-"}, '
+            'Energy=${d.energyLevel ?? "-"}/5, Water=${d.hydrationGlasses}gl, '
+            'Symptoms=[${d.symptoms.join(", ")}]',
+          );
+        }
+      }
+    }
+
+    lines.addAll([
+      '',
+      '4. MEDICAL & CONTRACEPTIVE DISCLAIMER',
+      '   This report is a personal wellness summary and mathematical estimate.',
+      '   It is not a medical diagnosis and must never be used as contraception.',
+    ]);
+
+    String escapePdfText(String s) {
+      return s
+          .replaceAll(r'\', r'\\')
+          .replaceAll('(', r'\(')
+          .replaceAll(')', r'\)')
+          .replaceAll(RegExp(r'[^\x20-\x7E]'), ' ');
+    }
+
+    final streamBuf = StringBuffer()
+      ..writeln('BT')
+      ..writeln('/F1 10 Tf')
+      ..writeln('14 TL')
+      ..writeln('42 790 Td');
+    for (var i = 0; i < lines.length && i < 52; i++) {
+      final escaped = escapePdfText(lines[i]);
+      if (i == 0) {
+        streamBuf.writeln('($escaped) Tj');
+      } else {
+        streamBuf.writeln('T* ($escaped) Tj');
+      }
+    }
+    streamBuf.writeln('ET');
+    final contentStream = streamBuf.toString();
+
+    final objects = <String>[
+      '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
+      '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n',
+      '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] '
+          '/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n',
+      '4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n',
+      '5 0 obj\n<< /Length ${contentStream.length} >>\nstream\n$contentStream\nendstream\nendobj\n',
+    ];
+
+    final pdf = StringBuffer('%PDF-1.4
+');
+    final offsets = <int>[0];
+    for (final obj in objects) {
+      final normalizedObj = obj.replaceAll(r'
+', '
+');
+      offsets.add(pdf.length);
+      pdf.write(normalizedObj);
+    }
+    final xrefOffset = pdf.length;
+    pdf.writeln('xref');
+    pdf.writeln('0 ${objects.length + 1}');
+    pdf.writeln('0000000000 65535 f ');
+    for (var i = 1; i < offsets.length; i++) {
+      pdf.writeln('${offsets[i].toString().padLeft(10, '0')} 00000 n ');
+    }
+    pdf.writeln('trailer');
+    pdf.writeln('<< /Size ${objects.length + 1} /Root 1 0 R >>');
+    pdf.writeln('startxref');
+    pdf.writeln('$xrefOffset');
+    pdf.write('%%EOF');
+    return Uint8List.fromList(utf8.encode(pdf.toString()));
   }
 
   String generateClinicalExportReport() {

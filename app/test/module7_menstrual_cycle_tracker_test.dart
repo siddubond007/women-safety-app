@@ -197,5 +197,22 @@ void main() {
         expect(lower.contains('theta'), isFalse);
       }
     });
+  }
+    test('Exposes the 5 approved neural women voices (V22, V24, V26, V30, V01) and verifies SHA-256 digest', () {
+      final voices = GuidedMeditationSessionController.approvedVoiceOptions;
+      expect(voices.map((v) => v.voiceId).toList(), ['V22', 'V24', 'V26', 'V30', 'V01']);
+      final digest = SakhiSha256.hexDigest(Uint8List.fromList('abc'.codeUnits));
+      expect(
+        digest,
+        'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+      );
+    });
+
+    test('Generates valid %PDF-1.4 bytes for Menstrual Cycle Clinical Summary export', () {
+      final pdfBytes = MenstrualCycleController.instance.generateClinicalSummaryPdfBytes();
+      final header = String.fromCharCodes(pdfBytes.take(8));
+      expect(header, startsWith('%PDF-1.4'));
+      expect(pdfBytes.length, greaterThan(400));
+    });
   });
 }

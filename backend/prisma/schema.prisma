@@ -91,13 +91,14 @@ model MemberAccount {
   menstrualDailyLogs      MenstrualDailyLog[]
   menstrualPreference     MenstrualTrackerPreference?
   accountDeletionRequests AccountDeletionRequest[]
+  wellnessPreference      MemberWellnessPreference?
+  pushTokens              MemberPushToken[]
+  circleMemberships       CommunityCircleMembership[]
+  circlePosts             CommunityCirclePost[]
 
   @@map("member_accounts")
 }
 
-
-/// Durable record of a member-initiated account deletion request. The account row
-/// is retained as a tombstone so historical foreign keys remain valid.
 model AccountDeletionRequest {
   id            String        @id @default(uuid()) @db.Uuid
   accountId     String        @map("account_id") @db.Uuid
@@ -326,27 +327,87 @@ model CommunityPostComment {
 }
 
 model CommunityGroup {
-  id            String   @id @default(uuid()) @db.Uuid
-  name          String   @unique(map: "community_groups_name_key") @db.VarChar(120)
-  description   String   @db.VarChar(300)
-  category      String   @db.VarChar(64)
-  membersCount  Int      @default(1) @map("members_count")
-  newPostsToday Int      @default(0) @map("new_posts_today")
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id               String                      @id @default(uuid()) @db.Uuid
+  slug             String?                     @unique(map: "community_groups_slug_key") @db.VarChar(80)
+  name             String                      @unique(map: "community_groups_name_key") @db.VarChar(120)
+  description      String                      @db.VarChar(300)
+  purpose          String                      @default("Supportive women's peer circle and moderated channel.") @db.VarChar(500)
+  category         String                      @db.VarChar(64)
+  ownerAccountId   String?                     @map("owner_account_id") @db.Uuid
+  ownerDisplayName String                      @default("Sakhi Community Host") @map("owner_display_name") @db.VarChar(120)
+  visibility       String                      @default("PUBLIC_VERIFIED") @db.VarChar(32)
+  locationScope    String                      @default("Pan-India") @map("location_scope") @db.VarChar(120)
+  rules            Json                        @default("[\"Be respectful and supportive\",\"Protect member privacy\",\"No spam or unsolicited promotions\"]") @db.JsonB
+  activityState    String                      @default("ACTIVE") @map("activity_state") @db.VarChar(24)
+  membersCount     Int                         @default(1) @map("members_count")
+  newPostsToday    Int                         @default(0) @map("new_posts_today")
+  createdAt        DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  memberships      CommunityCircleMembership[]
+  circlePosts      CommunityCirclePost[]
 
+  @@index([category, activityState], map: "community_groups_category_state_idx")
   @@map("community_groups")
+}
+
+model CommunityCircleMembership {
+  id                   String         @id @default(uuid()) @db.Uuid
+  circleId             String         @map("circle_id") @db.Uuid
+  accountId            String         @map("account_id") @db.Uuid
+  role                 String         @default("MEMBER") @db.VarChar(24)
+  status               String         @default("ACTIVE") @db.VarChar(24)
+  notificationsEnabled Boolean        @default(true) @map("notifications_enabled")
+  joinedAt             DateTime       @default(now()) @map("joined_at") @db.Timestamptz(6)
+  updatedAt            DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  circle               CommunityGroup @relation(fields: [circleId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_circle_memberships_circle_id_fkey")
+  account              MemberAccount  @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_circle_memberships_account_id_fkey")
+
+  @@unique([circleId, accountId], map: "community_circle_memberships_circle_account_key")
+  @@index([accountId, status], map: "community_circle_memberships_account_status_idx")
+  @@index([circleId, role, status], map: "community_circle_memberships_circle_role_idx")
+  @@map("community_circle_memberships")
+}
+
+model CommunityCirclePost {
+  id               String         @id @default(uuid()) @db.Uuid
+  circleId         String         @map("circle_id") @db.Uuid
+  authorAccountId  String         @map("author_account_id") @db.Uuid
+  authorName       String         @map("author_name") @db.VarChar(100)
+  authorUsername   String         @map("author_username") @db.VarChar(50)
+  authorRole       String         @default("MEMBER") @map("author_role") @db.VarChar(24)
+  postType         String         @default("DISCUSSION") @map("post_type") @db.VarChar(24)
+  isPinned         Boolean        @default(false) @map("is_pinned")
+  content          String         @db.Text
+  likesCount       Int            @default(0) @map("likes_count")
+  comments         Json           @default("[]") @db.JsonB
+  status           String         @default("PUBLISHED") @db.VarChar(24)
+  moderationReason String?        @map("moderation_reason") @db.VarChar(500)
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  circle           CommunityGroup @relation(fields: [circleId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_circle_posts_circle_id_fkey")
+  authorAccount    MemberAccount  @relation(fields: [authorAccountId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_circle_posts_author_account_fkey")
+
+  @@index([circleId, status, isPinned, createdAt], map: "community_circle_posts_circle_status_created_idx")
+  @@index([authorAccountId, createdAt], map: "community_circle_posts_author_created_idx")
+  @@map("community_circle_posts")
 }
 
 model CommunityDirectoryProfile {
   id               String         @id @default(uuid()) @db.Uuid
+  accountId        String?        @unique(map: "community_directory_profiles_account_id_key") @map("account_id") @db.Uuid
   name             String         @db.VarChar(100)
   username         String         @unique(map: "community_directory_profiles_username_key") @db.VarChar(50)
   avatarAsset      String         @map("avatar_asset") @db.VarChar(255)
   bio              String?        @db.VarChar(255)
+  searchable       Boolean        @default(false)
+  profileVisibility String        @default("HIDDEN") @map("profile_visibility") @db.VarChar(32)
+  postsVisibility   String        @default("Verified members only") @map("posts_visibility") @db.VarChar(64)
+  messageVisibility String        @default("Verified members only") @map("message_visibility") @db.VarChar(64)
   defaultFollowing Boolean        @default(false) @map("default_following")
   createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   follows          MemberFollow[]
 
+  @@index([searchable, profileVisibility], map: "community_directory_profiles_visibility_idx")
   @@map("community_directory_profiles")
 }
 
@@ -382,18 +443,57 @@ model MemberPrivacyPreference {
 }
 
 model MemberNotificationPreference {
-  accountId         String        @id @map("account_id") @db.Uuid
-  communityUpdates  Boolean       @default(true) @map("community_updates")
-  groupActivity     Boolean       @default(true) @map("group_activity")
-  wellnessReminders Boolean       @default(true) @map("wellness_reminders")
-  safetyAlerts      Boolean       @default(true) @map("safety_alerts")
-  messages          Boolean       @default(true) @map("messages")
-  businessEnquiries Boolean       @default(true) @map("business_enquiries")
-  marketingUpdates  Boolean       @default(false) @map("marketing_updates")
-  updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
-  account           MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  accountId          String        @id @map("account_id") @db.Uuid
+  communityUpdates   Boolean       @default(true) @map("community_updates")
+  groupActivity      Boolean       @default(true) @map("group_activity")
+  circleActivity     Boolean       @default(true) @map("circle_activity")
+  wellnessReminders  Boolean       @default(true) @map("wellness_reminders")
+  safetyAlerts       Boolean       @default(true) @map("safety_alerts")
+  messages           Boolean       @default(true) @map("messages")
+  businessEnquiries  Boolean       @default(true) @map("business_enquiries")
+  marketingUpdates   Boolean       @default(false) @map("marketing_updates")
+  quietHoursEnabled  Boolean       @default(false) @map("quiet_hours_enabled")
+  quietHoursStart    String        @default("22:00") @map("quiet_hours_start") @db.VarChar(8)
+  quietHoursEnd      String        @default("07:00") @map("quiet_hours_end") @db.VarChar(8)
+  quietHoursTimezone String        @default("Asia/Kolkata") @map("quiet_hours_timezone") @db.VarChar(64)
+  updatedAt          DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  account            MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@map("member_notification_preferences")
+}
+
+model MemberPushToken {
+  id               String        @id @default(uuid()) @db.Uuid
+  accountId        String        @map("account_id") @db.Uuid
+  platform         String        @default("ANDROID") @db.VarChar(24)
+  provider         String        @default("FCM") @db.VarChar(24)
+  tokenDigest      String        @unique(map: "member_push_tokens_token_digest_key") @map("token_digest") @db.VarChar(64)
+  encryptedToken   String        @map("encrypted_token") @db.Text
+  deviceName       String?       @map("device_name") @db.VarChar(120)
+  isEnabled        Boolean       @default(true) @map("is_enabled")
+  lastRegisteredAt DateTime      @default(now()) @map("last_registered_at") @db.Timestamptz(6)
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  account          MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "member_push_tokens_account_id_fkey")
+
+  @@index([accountId, isEnabled], map: "member_push_tokens_account_enabled_idx")
+  @@map("member_push_tokens")
+}
+
+model MemberWellnessPreference {
+  accountId                String        @id @map("account_id") @db.Uuid
+  selectedVoiceId          String        @default("V01") @map("selected_voice_id") @db.VarChar(16)
+  selectedMusicId          String        @default("M01") @map("selected_music_id") @db.VarChar(16)
+  selectedMusicCategory    String        @default("CHOOSE_FOR_ME") @map("selected_music_category") @db.VarChar(64)
+  musicSelectionMode       String        @default("RANDOM") @map("music_selection_mode") @db.VarChar(24)
+  preferredDurationMinutes Int           @default(7) @map("preferred_duration_minutes")
+  voiceVolume              Float         @default(0.92) @map("voice_volume")
+  musicVolume              Float         @default(0.65) @map("music_volume")
+  hasCompletedOnboarding   Boolean       @default(false) @map("has_completed_onboarding")
+  recentTrackIds           Json          @default("[]") @map("recent_track_ids") @db.JsonB
+  updatedAt                DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  account                  MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "member_wellness_preferences_account_id_fkey")
+
+  @@map("member_wellness_preferences")
 }
 
 model MemberNotification {
@@ -531,6 +631,7 @@ model MemberModerationBlock {
   id                 String        @id @default(uuid()) @db.Uuid
   accountId          String        @map("account_id") @db.Uuid
   blockedUsername    String        @map("blocked_username") @db.VarChar(50)
+  blockedAccountId   String?       @map("blocked_account_id") @db.Uuid
   blockedDisplayName String        @map("blocked_display_name") @db.VarChar(100)
   createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   account            MemberAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
@@ -538,6 +639,7 @@ model MemberModerationBlock {
   @@unique([accountId, blockedUsername], map: "member_moderation_blocks_account_username_key")
   @@index([accountId], map: "member_moderation_blocks_account_idx")
   @@index([blockedUsername], map: "member_moderation_blocks_blocked_username_idx")
+  @@index([blockedAccountId], map: "member_moderation_blocks_blocked_account_idx")
   @@map("member_moderation_blocks")
 }
 
@@ -823,8 +925,15 @@ model ComplaintRetentionPolicy {
 model AdminStaffAccount {
   id                            String    @id @default(uuid()) @db.Uuid
   staffCode                     String    @unique(map: "admin_staff_accounts_staff_code_key") @map("staff_code") @db.VarChar(40)
+  username                      String?   @unique(map: "admin_staff_accounts_username_key") @db.VarChar(64)
   fullName                      String    @map("full_name") @db.VarChar(120)
   email                         String    @unique(map: "admin_staff_accounts_email_key") @db.VarChar(254)
+  passwordHash                  String?   @map("password_hash") @db.VarChar(255)
+  passwordUpdatedAt             DateTime? @map("password_updated_at") @db.Timestamptz(6)
+  mustResetPassword             Boolean   @default(false) @map("must_reset_password")
+  failedLoginAttempts           Int       @default(0) @map("failed_login_attempts")
+  lockedUntil                   DateTime? @map("locked_until") @db.Timestamptz(6)
+  mfaEnabled                    Boolean   @default(false) @map("mfa_enabled")
   role                          String    @default("COMPLAINT_REVIEWER") @db.VarChar(40)
   status                        String    @default("ACTIVE") @db.VarChar(24)
   accessTokenDigest             String    @map("access_token_digest") @db.VarChar(128)
@@ -833,13 +942,114 @@ model AdminStaffAccount {
   clearanceLevel                String    @default("LEVEL_2_TRUST_SAFETY") @map("clearance_level") @db.VarChar(64)
   permissions                   Json      @default("{}") @db.JsonB
   createdBy                     String?   @map("created_by") @db.VarChar(120)
+  suspendedAt                   DateTime? @map("suspended_at") @db.Timestamptz(6)
+  suspendedBy                    String?   @map("suspended_by") @db.Uuid
+  deletedAt                      DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy                      String?   @map("deleted_by") @db.Uuid
   lastLoginAt                   DateTime? @map("last_login_at") @db.Timestamptz(6)
+  sessions                      AdminStaffSession[]
+  mfa                           AdminStaffMfa?
+  backupCodes                   AdminStaffBackupCode[]
+  recoveryRequests              AdminStaffRecoveryRequest[]
+  suspendedByAccount            AdminStaffAccount? @relation("AdminStaffSuspendedBy", fields: [suspendedBy], references: [id], onDelete: SetNull)
+  suspendedAccounts             AdminStaffAccount[] @relation("AdminStaffSuspendedBy")
+  deletedByAccount              AdminStaffAccount? @relation("AdminStaffDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
+  deletedAccounts               AdminStaffAccount[] @relation("AdminStaffDeletedBy")
+  approvedRecoveryRequests      AdminStaffRecoveryRequest[] @relation("AdminStaffRecoveryApprover")
   createdAt                     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([role, status], map: "admin_staff_accounts_role_status_idx")
-  @@index([accessTokenDigest], map: "admin_staff_accounts_token_digest_idx")
+  @@unique([accessTokenDigest], map: "admin_staff_accounts_token_digest_key")
   @@map("admin_staff_accounts")
+}
+
+model AdminAuthSession {
+  id                 String    @id @default(uuid()) @db.Uuid
+  staffId            String    @map("staff_id") @db.VarChar(64)
+  sessionTokenDigest String    @unique(map: "admin_auth_sessions_token_digest_key") @map("session_token_digest") @db.VarChar(64)
+  refreshTokenDigest String?   @unique(map: "admin_auth_sessions_refresh_digest_key") @map("refresh_token_digest") @db.VarChar(64)
+  csrfToken          String    @map("csrf_token") @db.VarChar(64)
+  ipAddressHash      String?   @map("ip_address_hash") @db.VarChar(64)
+  userAgent          String?   @map("user_agent") @db.VarChar(255)
+  expiresAt          DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt          DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastRotatedAt      DateTime  @default(now()) @map("last_rotated_at") @db.Timestamptz(6)
+
+  @@index([staffId, expiresAt], map: "admin_auth_sessions_staff_expiry_idx")
+  @@index([expiresAt], map: "admin_auth_sessions_expiry_idx")
+  @@map("admin_auth_sessions")
+}
+
+model AdminStaffSession {
+  id                  String            @id @default(uuid()) @db.Uuid
+  staffId             String            @map("staff_id") @db.Uuid
+  sessionFamilyId     String            @map("session_family_id") @db.Uuid
+  tokenDigest         String            @unique(map: "admin_staff_sessions_token_digest_key") @map("token_digest") @db.VarChar(64)
+  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSeenAt          DateTime          @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  expiresAt           DateTime          @map("expires_at") @db.Timestamptz(6)
+  rotatedAt           DateTime?         @map("rotated_at") @db.Timestamptz(6)
+  revokedAt           DateTime?         @map("revoked_at") @db.Timestamptz(6)
+  revokeReason        String?           @map("revoke_reason") @db.VarChar(80)
+  replacedBySessionId String?           @map("replaced_by_session_id") @db.Uuid
+  staff               AdminStaffAccount @relation(fields: [staffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  replacedBySession   AdminStaffSession? @relation("AdminStaffSessionReplacement", fields: [replacedBySessionId], references: [id], onDelete: SetNull)
+  replacesSessions    AdminStaffSession[] @relation("AdminStaffSessionReplacement")
+
+  @@index([staffId, revokedAt, expiresAt], map: "admin_staff_sessions_staff_active_idx")
+  @@index([sessionFamilyId, revokedAt], map: "admin_staff_sessions_family_active_idx")
+  @@index([expiresAt], map: "admin_staff_sessions_expires_idx")
+  @@map("admin_staff_sessions")
+}
+
+model AdminStaffMfa {
+  id                   String            @id @default(uuid()) @db.Uuid
+  staffId              String            @unique(map: "admin_staff_mfa_staff_id_key") @map("staff_id") @db.Uuid
+  encryptedSecret      String            @map("encrypted_secret") @db.Text
+  secretIv             String            @map("secret_iv") @db.VarChar(32)
+  secretAuthTag        String            @map("secret_auth_tag") @db.VarChar(32)
+  encryptionKeyVersion String            @default("v1") @map("encryption_key_version") @db.VarChar(24)
+  enrollmentVerifiedAt DateTime?         @map("enrollment_verified_at") @db.Timestamptz(6)
+  lastAcceptedTimeStep BigInt            @default(-1) @map("last_accepted_time_step")
+  failedAttemptCount   Int               @default(0) @map("failed_attempt_count")
+  lockedUntil          DateTime?         @map("locked_until") @db.Timestamptz(6)
+  disabledAt           DateTime?         @map("disabled_at") @db.Timestamptz(6)
+  createdAt            DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  staff                AdminStaffAccount @relation(fields: [staffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@map("admin_staff_mfa")
+}
+
+model AdminStaffBackupCode {
+  id         String            @id @default(uuid()) @db.Uuid
+  staffId    String            @map("staff_id") @db.Uuid
+  codeDigest String            @unique(map: "admin_staff_backup_codes_digest_key") @map("code_digest") @db.VarChar(64)
+  usedAt     DateTime?         @map("used_at") @db.Timestamptz(6)
+  createdAt  DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  staff      AdminStaffAccount @relation(fields: [staffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([staffId, usedAt], map: "admin_staff_backup_codes_staff_used_idx")
+  @@map("admin_staff_backup_codes")
+}
+
+model AdminStaffRecoveryRequest {
+  id                String            @id @default(uuid()) @db.Uuid
+  staffId           String            @map("staff_id") @db.Uuid
+  challengeDigest   String            @unique(map: "admin_staff_recovery_requests_digest_key") @map("challenge_digest") @db.VarChar(64)
+  status            String            @default("PENDING") @db.VarChar(24)
+  requestedAt       DateTime          @default(now()) @map("requested_at") @db.Timestamptz(6)
+  expiresAt         DateTime          @map("expires_at") @db.Timestamptz(6)
+  attemptCount      Int               @default(0) @map("attempt_count")
+  approvedByStaffId String?           @map("approved_by_staff_id") @db.Uuid
+  completedAt       DateTime?         @map("completed_at") @db.Timestamptz(6)
+  staff             AdminStaffAccount  @relation(fields: [staffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  approvedByStaff   AdminStaffAccount? @relation("AdminStaffRecoveryApprover", fields: [approvedByStaffId], references: [id], onDelete: SetNull)
+
+  @@index([staffId, status, expiresAt], map: "admin_staff_recovery_requests_staff_status_idx")
+  @@map("admin_staff_recovery_requests")
 }
 
 model BusinessDirectoryListing {

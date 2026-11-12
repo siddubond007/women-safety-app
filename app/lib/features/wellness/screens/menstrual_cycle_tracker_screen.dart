@@ -34,6 +34,7 @@ class _MenstrualCycleTrackerScreenState
 
   DateTime _focusedMonth = DateTime(DateTime.now().year, DateTime.now().month);
   late String _selectedDateIso;
+  int? _draftCustomCycleDays;
 
   // Daily check-in form state
   String _dailyFlow = 'None';
@@ -431,12 +432,26 @@ class _MenstrualCycleTrackerScreenState
                     ),
                     const SizedBox(width: 10),
                     Expanded(
-                      child: Text(
-                        article.clinicalNote,
-                        style: AppTypography.caption.copyWith(
-                          color: AppColors.textPrimary,
-                          height: 1.38,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            article.clinicalNote,
+                            style: AppTypography.caption.copyWith(
+                              color: AppColors.textPrimary,
+                              height: 1.38,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Source: ${article.sourceOrganization} (${article.sourceUrl})',
+                            style: AppTypography.caption.copyWith(
+                              color: AppColors.primaryPurple,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -450,102 +465,159 @@ class _MenstrualCycleTrackerScreenState
   }
 
   Future<void> _exportClinicalDataSheet() async {
-    final report = _controller.generateClinicalExportReport();
+    var includeSummary = true;
+    var includeHistory = true;
+    var includeSymptoms = true;
+    var maxCycles = 12;
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                const Icon(
-                  Icons.description_outlined,
-                  color: AppColors.primaryPurple,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Export Personal Cycle Summary',
-                    style: AppTypography.sectionTitle,
-                  ),
-                ),
-                IconButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  icon: const Icon(Icons.close_rounded),
-                ),
-              ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (sheetCtx, setSheetState) {
+          final report = _controller.generateClinicalExportReport();
+          return Container(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
             ),
-            const SizedBox(height: 8),
-            Container(
-              constraints: const BoxConstraints(maxHeight: 260),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8F5FA),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.borderSubtle),
-              ),
-              child: SingleChildScrollView(
-                child: Text(
-                  report,
-                  style: const TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 11.5,
-                    height: 1.4,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            Row(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      await Clipboard.setData(ClipboardData(text: report));
-                      if (!ctx.mounted) return;
-                      Navigator.pop(ctx);
-                      if (!mounted) return;
-                      SakhiDialogs.showPrototypeSnackbar(
-                        context,
-                        'Clinical summary copied to clipboard.',
-                      );
-                    },
-                    icon: const Icon(Icons.copy_rounded, size: 17),
-                    label: const Text('Copy Summary'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.primaryPurple,
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.picture_as_pdf_rounded,
+                      color: AppColors.primaryPurple,
                     ),
-                    onPressed: () async {
-                      Navigator.pop(ctx);
-                      await SharePlus.instance.share(
-                        ShareParams(
-                          text: report,
-                          subject: 'Sakhi Menstrual Cycle Clinical Summary',
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.ios_share_rounded, size: 17),
-                    label: const Text('Share / Export'),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Export Personal Cycle Summary (PDF)',
+                        style: AppTypography.sectionTitle,
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Choose which sections to include in your formatted PDF document before sharing with your gynecologist or saving to files:',
+                  style: AppTypography.caption,
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    FilterChip(
+                      label: const Text('Cycle Summary'),
+                      selected: includeSummary,
+                      onSelected: (v) => setSheetState(() => includeSummary = v),
+                    ),
+                    FilterChip(
+                      label: const Text('Period History'),
+                      selected: includeHistory,
+                      onSelected: (v) => setSheetState(() => includeHistory = v),
+                    ),
+                    FilterChip(
+                      label: const Text('Symptom Logs'),
+                      selected: includeSymptoms,
+                      onSelected: (v) => setSheetState(() => includeSymptoms = v),
+                    ),
+                    ChoiceChip(
+                      label: Text('Last $maxCycles cycles'),
+                      selected: true,
+                      onSelected: (_) => setSheetState(() {
+                        maxCycles = maxCycles == 6 ? 12 : (maxCycles == 12 ? 24 : 6);
+                      }),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 210),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8F5FA),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppColors.borderSubtle),
                   ),
+                  child: SingleChildScrollView(
+                    child: Text(
+                      report,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 11.2,
+                        height: 1.38,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          await Clipboard.setData(ClipboardData(text: report));
+                          if (!ctx.mounted) return;
+                          Navigator.pop(ctx);
+                          if (!mounted) return;
+                          SakhiDialogs.showPrototypeSnackbar(
+                            context,
+                            'Clinical summary copied to clipboard.',
+                          );
+                        },
+                        icon: const Icon(Icons.copy_rounded, size: 17),
+                        label: const Text('Copy Text'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 2,
+                      child: FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.primaryPurple,
+                        ),
+                        onPressed: () async {
+                          final pdfBytes = _controller.generateClinicalSummaryPdfBytes(
+                            maxCycles: maxCycles,
+                            includeCycleSummary: includeSummary,
+                            includeCycleHistory: includeHistory,
+                            includeDailySymptoms: includeSymptoms,
+                          );
+                          Navigator.pop(ctx);
+                          await SharePlus.instance.share(
+                            ShareParams(
+                              files: [
+                                XFile.fromData(
+                                  pdfBytes,
+                                  mimeType: 'application/pdf',
+                                  name: 'Sakhi_Menstrual_Cycle_Summary.pdf',
+                                ),
+                              ],
+                              subject: 'Sakhi Menstrual Cycle Clinical Summary (PDF)',
+                              text: 'Attached is my formatted Sakhi Menstrual Cycle Summary PDF.',
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.picture_as_pdf_rounded, size: 17),
+                        label: const Text('Export Formatted PDF'),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -641,19 +713,19 @@ class _MenstrualCycleTrackerScreenState
             ],
             bottom: TabBar(
               controller: _tabController,
-              isScrollable: true,
-              tabAlignment: TabAlignment.start,
+              isScrollable: false,
+              labelPadding: const EdgeInsets.symmetric(horizontal: 4),
               labelColor: const Color(0xFFD63E85),
               unselectedLabelColor: AppColors.textSecondary,
               indicatorColor: const Color(0xFFD63E85),
               labelStyle: const TextStyle(
                 fontWeight: FontWeight.w800,
-                fontSize: 12.8,
+                fontSize: 11.5,
               ),
               tabs: const [
                 Tab(
                   icon: Icon(Icons.calendar_month_rounded, size: 18),
-                  text: 'Cycle & Calendar',
+                  text: 'Calendar',
                 ),
                 Tab(
                   icon: Icon(Icons.edit_calendar_rounded, size: 18),
@@ -661,11 +733,11 @@ class _MenstrualCycleTrackerScreenState
                 ),
                 Tab(
                   icon: Icon(Icons.insights_rounded, size: 18),
-                  text: 'History & Insights',
+                  text: 'Insights',
                 ),
                 Tab(
                   icon: Icon(Icons.shield_moon_outlined, size: 18),
-                  text: 'Care, FAQs & Privacy',
+                  text: 'Care & Privacy',
                 ),
               ],
             ),
@@ -1023,41 +1095,98 @@ class _MenstrualCycleTrackerScreenState
                   }).toList(),
                 ),
                 const SizedBox(height: 8),
-                Row(
-                  children: [
-                    const Text(
-                      'Custom (21–40d):',
-                      style: AppTypography.caption,
-                    ),
-                    Expanded(
-                      child: Slider(
-                        value: _controller.preferences.averageCycleLength
-                            .clamp(21, 40)
-                            .toDouble(),
-                        min: 21,
-                        max: 40,
-                        divisions: 19,
-                        label:
-                            '${_controller.preferences.averageCycleLength} days',
-                        activeColor: const Color(0xFFD63E85),
-                        onChanged: (val) {
-                          _controller.updatePreferences(
-                            _controller.preferences.copyWith(
-                              averageCycleLength: val.round(),
-                              useCustomCycleLength: true,
+                Builder(
+                  builder: (context) {
+                    final effectiveDays = (_draftCustomCycleDays ??
+                            _controller.preferences.averageCycleLength)
+                        .clamp(21, 40);
+                    return Row(
+                      children: [
+                        const Text(
+                          'Custom (21–40d):',
+                          style: AppTypography.caption,
+                        ),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          tooltip: 'Decrease cycle length by 1 day',
+                          onPressed: effectiveDays > 21
+                              ? () {
+                                  final next = (effectiveDays - 1).clamp(21, 40);
+                                  setState(() => _draftCustomCycleDays = null);
+                                  _controller.updatePreferences(
+                                    _controller.preferences.copyWith(
+                                      averageCycleLength: next,
+                                      useCustomCycleLength: true,
+                                    ),
+                                  );
+                                }
+                              : null,
+                          icon: const Icon(
+                            Icons.remove_circle_outline_rounded,
+                            size: 18,
+                            color: Color(0xFFD63E85),
+                          ),
+                        ),
+                        Expanded(
+                          child: Slider(
+                            value: effectiveDays.toDouble(),
+                            min: 21,
+                            max: 40,
+                            divisions: 19,
+                            label: '$effectiveDays days',
+                            activeColor: const Color(0xFFD63E85),
+                            onChanged: (val) {
+                              setState(() {
+                                _draftCustomCycleDays = val.round().clamp(21, 40);
+                              });
+                            },
+                            onChangeEnd: (val) {
+                              final committed = val.round().clamp(21, 40);
+                              setState(() => _draftCustomCycleDays = null);
+                              _controller.updatePreferences(
+                                _controller.preferences.copyWith(
+                                  averageCycleLength: committed,
+                                  useCustomCycleLength: true,
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          tooltip: 'Increase cycle length by 1 day',
+                          onPressed: effectiveDays < 40
+                              ? () {
+                                  final next = (effectiveDays + 1).clamp(21, 40);
+                                  setState(() => _draftCustomCycleDays = null);
+                                  _controller.updatePreferences(
+                                    _controller.preferences.copyWith(
+                                      averageCycleLength: next,
+                                      useCustomCycleLength: true,
+                                    ),
+                                  );
+                                }
+                              : null,
+                          icon: const Icon(
+                            Icons.add_circle_outline_rounded,
+                            size: 18,
+                            color: Color(0xFFD63E85),
+                          ),
+                        ),
+                        SizedBox(
+                          width: 34,
+                          child: Text(
+                            '${effectiveDays}d',
+                            textAlign: TextAlign.end,
+                            style: AppTypography.bodyMedium.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: const Color(0xFFD63E85),
                             ),
-                          );
-                        },
-                      ),
-                    ),
-                    Text(
-                      '${_controller.preferences.averageCycleLength}d',
-                      style: AppTypography.bodyMedium.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: const Color(0xFFD63E85),
-                      ),
-                    ),
-                  ],
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
                 const Divider(height: 16),
                 Row(
@@ -1096,106 +1225,6 @@ class _MenstrualCycleTrackerScreenState
                     }),
                   ],
                 ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 14),
-
-          // 2C. Period Pain Help & Cramp Relief Quick Hub (Friend Review Requirement)
-          SakhiCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFDF2F8),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(
-                        Icons.healing_rounded,
-                        color: Color(0xFFBE185D),
-                        size: 18,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Period Pain Help & Health Articles',
-                            style: AppTypography.cardTitle,
-                          ),
-                          const Text(
-                            'Doctor-informed cramp relief: heat therapy, gentle yoga, hydration, rest & when to see a gynecologist.',
-                            style: AppTypography.caption,
-                          ),
-                        ],
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: () => _tabController.animateTo(3),
-                      child: const Text('All Guides'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                ...sakhiMenstrualHealthArticles.take(3).map((article) {
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(14),
-                      onTap: () => _openArticleReader(article),
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFAF5FF),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: AppColors.borderSubtle),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons.menu_book_rounded,
-                              color: AppColors.primaryPurple,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    article.title,
-                                    style: AppTypography.bodyMedium.copyWith(
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    '${article.category} • ${article.readTime}',
-                                    style: AppTypography.caption.copyWith(
-                                      color: const Color(0xFFD63E85),
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const Icon(
-                              Icons.chevron_right_rounded,
-                              color: AppColors.primaryPurple,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-                }),
               ],
             ),
           ),
@@ -1391,6 +1420,106 @@ class _MenstrualCycleTrackerScreenState
                     );
                   },
                 ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 14),
+
+          // 2C. Period Pain Help & Cramp Relief Quick Hub (Friend Review Requirement)
+          SakhiCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFDF2F8),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.healing_rounded,
+                        color: Color(0xFFBE185D),
+                        size: 18,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Period Pain Help & Health Articles',
+                            style: AppTypography.cardTitle,
+                          ),
+                          const Text(
+                            'Doctor-informed cramp relief: heat therapy, gentle yoga, hydration, rest & when to see a gynecologist.',
+                            style: AppTypography.caption,
+                          ),
+                        ],
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => _tabController.animateTo(3),
+                      child: const Text('All Guides'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                ...sakhiMenstrualHealthArticles.take(3).map((article) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: () => _openArticleReader(article),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFAF5FF),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: AppColors.borderSubtle),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.menu_book_rounded,
+                              color: AppColors.primaryPurple,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    article.title,
+                                    style: AppTypography.bodyMedium.copyWith(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '${article.category} • ${article.readTime}',
+                                    style: AppTypography.caption.copyWith(
+                                      color: const Color(0xFFD63E85),
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Icon(
+                              Icons.chevron_right_rounded,
+                              color: AppColors.primaryPurple,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }),
               ],
             ),
           ),

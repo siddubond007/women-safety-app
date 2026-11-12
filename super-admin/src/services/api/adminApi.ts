@@ -20,20 +20,26 @@ export async function adminApi<T>(
   path: string,
   options: { method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; body?: unknown } = {},
 ): Promise<T> {
+  await adminAuthService.rotateSessionIfDue();
   const token = adminAuthService.getToken();
   const headers: Record<string, string> = { Accept: "application/json" };
   if (isStagingTestAdminMode && token) {
     headers["X-Sakhi-Staging-Admin-Session"] = token;
-  } else if (!isStagingTestAdminMode && token) {
-    headers["X-Sakhi-Admin-Token"] = token;
-    headers["x-sakhi-admin-review-token"] = token;
   }
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
+  if (
+    isStagingTestAdminMode &&
+    options.method &&
+    ["POST", "PUT", "PATCH", "DELETE"].includes(options.method) &&
+    adminAuthService.getCsrfToken()
+  ) {
+    headers["X-Sakhi-CSRF"] = adminAuthService.getCsrfToken() as string;
+  }
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: options.method ?? "GET",
     headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
-    credentials: "omit",
+    credentials: "include",
     cache: "no-store",
   });
   const data = (await response.json().catch(() => ({}))) as { message?: string | string[] };

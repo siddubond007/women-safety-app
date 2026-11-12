@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { ForbiddenException, ConflictException, UnauthorizedException, ServiceUnavailableException } from "@nestjs/common";
 import { AdminReviewService } from "../src/admin-review/admin-review.service.js";
 import { SakhiAdminRbacRegistry } from "../src/admin-review/admin-rbac.helper.js";
+import { StagingTestAdminService } from "../src/staging-test-admin/staging-test-admin.service.js";
 import type { PrismaService } from "../src/database/prisma.service.js";
 
 const originalToken = process.env.SAKHI_ADMIN_REVIEW_TOKEN;
@@ -14,7 +15,40 @@ const originalStagingAdminReviewEnabled = process.env.SAKHI_STAGING_ADMIN_REVIEW
 const originalOtpMode = process.env.SAKHI_OTP_MODE;
 const originalStagingFullAdminEnabled = process.env.SAKHI_STAGING_FULL_ADMIN_ENABLED;
 const originalStagingFullAdminToken = process.env.SAKHI_STAGING_FULL_ADMIN_TOKEN;
-const reviewerToken = "a".repeat(64);
+const originalStaffSigningKey = process.env.SAKHI_ADMIN_STAFF_SESSION_SIGNING_KEY;
+const reviewerToken = "staff-admin.unit-test-super-admin-session";
+const staffSigningKey = Buffer.alloc(32, 0x73).toString("base64");
+
+function stagingStaffRow(role = "VERIFICATION_ADMIN") {
+  const now = new Date("2026-11-09T12:00:00.000Z");
+  return {
+    id: "2d5fce37-6aab-4cb4-8a6c-6a2d07f87e91",
+    staffCode: "#VA-123",
+    fullName: "Staging Verification Reviewer",
+    email: "staging.staff@example.test",
+    role,
+    status: "ACTIVE",
+    accessTokenDigest: createHash("sha256").update("staff-first-factor-token-".padEnd(48, "x")).digest("hex"),
+    accessTokenPreview: "SAKHI-STAFF-••••",
+    isAuthorisedComplaintReviewer: false,
+    clearanceLevel: "LEVEL_2_ELIGIBILITY_SUPPORT",
+    permissions: {},
+    createdBy: "Test fixture",
+    lastLoginAt: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+async function createStagingStaffSession(prisma: PrismaService): Promise<string> {
+  configureStagingReviewer();
+  process.env.SAKHI_ADMIN_STAFF_SESSION_SIGNING_KEY = staffSigningKey;
+  SakhiAdminRbacRegistry.resetForTesting();
+  await SakhiAdminRbacRegistry.ensureHydrated(prisma);
+  const staff = SakhiAdminRbacRegistry.listStaff()[0];
+  if (!staff) throw new Error("Staging staff fixture did not hydrate.");
+  return SakhiAdminRbacRegistry.createSignedStaffSessionToken(staff, staffSigningKey).value;
+}
 
 function configureLocalReviewer() {
   process.env.SAKHI_ENV = "test";
@@ -33,7 +67,32 @@ function configureStagingReviewer() {
   process.env.SAKHI_ADMIN_REVIEWER_LABEL = "Staging QA Reviewer";
 }
 
-describe("AdminReviewService reviewer-token boundary", () => {
+describe("AdminReviewService persistent staff-session boundary", () => {
+  beforeEach(() => {
+    const originalResolve = StagingTestAdminService.resolvePrincipalFromSessionToken;
+    vi.spyOn(StagingTestAdminService, "resolvePrincipalFromSessionToken").mockImplementation(
+      (token?: string) => {
+        if (token === reviewerToken) {
+          return {
+            staffId: "2d5fce37-6aab-4cb4-8a6c-6a2d07f87e91",
+            staffCode: "#SA-TEST",
+            reviewerLabel: "QA Reviewer",
+            fullName: "QA Reviewer",
+            email: "qa.reviewer@example.test",
+            role: "SUPER_ADMIN",
+            roleTitle: "Super Admin",
+            badgeLabel: "Super Admin",
+            clearanceLevel: "LEVEL_4_MASTER_GOVERNANCE",
+            isAuthorisedComplaintReviewer: true,
+            permissions: { view: true, create: true, edit: true, approve: true, suspend: true, export: true, delete: true },
+            allowedRoutes: [],
+          };
+        }
+        return originalResolve(token);
+      },
+    );
+  });
+
   afterEach(() => {
     if (originalToken === undefined) delete process.env.SAKHI_ADMIN_REVIEW_TOKEN;
     else process.env.SAKHI_ADMIN_REVIEW_TOKEN = originalToken;
@@ -53,24 +112,25 @@ describe("AdminReviewService reviewer-token boundary", () => {
     else process.env.SAKHI_STAGING_FULL_ADMIN_ENABLED = originalStagingFullAdminEnabled;
     if (originalStagingFullAdminToken === undefined) delete process.env.SAKHI_STAGING_FULL_ADMIN_TOKEN;
     else process.env.SAKHI_STAGING_FULL_ADMIN_TOKEN = originalStagingFullAdminToken;
+    if (originalStaffSigningKey === undefined) delete process.env.SAKHI_ADMIN_STAFF_SESSION_SIGNING_KEY;
+    else process.env.SAKHI_ADMIN_STAFF_SESSION_SIGNING_KEY = originalStaffSigningKey;
+    SakhiAdminRbacRegistry.resetForTesting();
     vi.restoreAllMocks();
   });
 
-  it("fails closed when the shared local reviewer token is not configured", async () => {
-    process.env.HOST = "127.0.0.1";
-    process.env.SAKHI_ENV = "dev";
-    delete process.env.SAKHI_ADMIN_REVIEW_TOKEN;
+  it("rejects legacy shared reviewer credentials even if obsolete environment variables are set", async () => {
+    configureLocalReviewer();
     const service = new AdminReviewService({} as PrismaService);
-    await expect(service.session("anything-long-enough-to-look-like-a-token")).rejects.toThrow(ServiceUnavailableException);
+    await expect(service.session("a".repeat(64))).rejects.toThrow(UnauthorizedException);
   });
 
-  it("rejects a token that does not match the configured local secret", async () => {
+  it("rejects any credential that is not an individual staff session", async () => {
     configureLocalReviewer();
     const service = new AdminReviewService({} as PrismaService);
     await expect(service.session("b".repeat(64))).rejects.toThrow(UnauthorizedException);
   });
 
-  it("accepts the configured token and returns the server-configured local reviewer label", async () => {
+  it("accepts a test-issued individual session principal and returns its server-side label", async () => {
     configureLocalReviewer();
     const service = new AdminReviewService({} as PrismaService);
     await expect(service.session(reviewerToken)).resolves.toEqual({
@@ -80,51 +140,27 @@ describe("AdminReviewService reviewer-token boundary", () => {
     });
   });
 
-  it("allows the shared reviewer portal in staging only with every explicit test gate enabled", async () => {
+  it("rejects shared reviewer tokens in production staging even when legacy feature gates are enabled", async () => {
     configureStagingReviewer();
     const service = new AdminReviewService({} as PrismaService);
-    await expect(service.session(reviewerToken)).resolves.toEqual({
-      authenticated: true,
-      reviewerLabel: "Staging QA Reviewer",
-      mode: "staging_test_only",
-    });
+    await expect(service.session("a".repeat(64))).rejects.toThrow(
+      /individual persistent MFA-verified staff session/i,
+    );
   });
 
   it("fails closed when the explicit staging admin gate is not enabled", async () => {
     configureStagingReviewer();
     process.env.SAKHI_STAGING_ADMIN_REVIEW_ENABLED = "false";
     const service = new AdminReviewService({} as PrismaService);
-    await expect(service.session(reviewerToken)).rejects.toThrow(ForbiddenException);
+    await expect(service.session("a".repeat(64))).rejects.toThrow(UnauthorizedException);
   });
 
-  it("hydrates persisted staff accounts before validating their issued login token", async () => {
-    configureLocalReviewer();
+  it("hydrates persisted staff accounts before resolving an individual signed session", async () => {
+    configureStagingReviewer();
     SakhiAdminRbacRegistry.resetForTesting();
-    const staffToken = "SAKHI-VA-123-ABCDEFGHIJ";
-    const now = new Date("2026-10-28T08:00:00.000Z");
-    const staffRow = {
-      id: "persisted-staff-123",
-      staffCode: "#VA-123",
-      fullName: "Persisted Verification Admin",
-      email: "verification.admin@example.test",
-      role: "VERIFICATION_ADMIN",
-      status: "ACTIVE",
-      accessTokenDigest: createHash("sha256").update(staffToken).digest("hex"),
-      accessTokenPreview: "SAKHI-VA-123…GHIJ",
-      isAuthorisedComplaintReviewer: false,
-      clearanceLevel: "LEVEL_2_ELIGIBILITY_SUPPORT",
-      permissions: {
-        view: true, create: false, edit: true, approve: true,
-        suspend: true, export: false, delete: false,
-      },
-      createdBy: "Sakhi Super Admin",
-      lastLoginAt: null,
-      createdAt: now,
-      updatedAt: now,
-    };
     const prisma = {
       adminStaffAccount: {
-        findMany: vi.fn().mockResolvedValue([staffRow]),
+        findMany: vi.fn().mockResolvedValue([stagingStaffRow()]),
       },
       auditEvent: {
         findMany: vi.fn().mockResolvedValue([]),
@@ -138,13 +174,14 @@ describe("AdminReviewService reviewer-token boundary", () => {
     } as unknown as PrismaService;
 
     try {
+      const sessionToken = await createStagingStaffSession(prisma);
       const service = new AdminReviewService(prisma);
-      await expect(service.session(staffToken)).resolves.toMatchObject({
+      await expect(service.session(sessionToken)).resolves.toMatchObject({
         authenticated: true,
-        reviewerLabel: expect.stringContaining("Persisted Verification Admin"),
-        mode: "local_dev_test_only",
+        reviewerLabel: expect.stringContaining("Staging Verification Reviewer"),
+        mode: "staging_test_only",
       });
-      expect(prisma.adminStaffAccount.findMany).toHaveBeenCalledOnce();
+      expect(prisma.adminStaffAccount.findMany).toHaveBeenCalled();
     } finally {
       SakhiAdminRbacRegistry.resetForTesting();
     }
@@ -152,7 +189,7 @@ describe("AdminReviewService reviewer-token boundary", () => {
   it("does not issue a usable admin token when every durable persistence path fails", async () => {
     configureLocalReviewer();
     SakhiAdminRbacRegistry.resetForTesting();
-    const customToken = "persist-failure-token-12345";
+    const customToken = "persist-failure-token-12345678901234567890";
     const prisma = {
       adminStaffAccount: {
         findMany: vi.fn().mockResolvedValue([]),
@@ -178,7 +215,6 @@ describe("AdminReviewService reviewer-token boundary", () => {
             fullName: "Persistence Failure Admin",
             email: "persistence.failure@example.test",
             role: "VERIFICATION_ADMIN",
-            customAccessToken: customToken,
           },
           "Sakhi Super Admin",
         ),
@@ -191,6 +227,8 @@ describe("AdminReviewService reviewer-token boundary", () => {
   it("allows the staging reviewer to read the real member directory", async () => {
     configureStagingReviewer();
     const prisma = {
+      adminStaffAccount: { findMany: vi.fn().mockResolvedValue([stagingStaffRow()]) },
+      auditEvent: { findMany: vi.fn().mockResolvedValue([]) },
       memberAccount: {
         findMany: vi.fn().mockResolvedValue([]),
         count: vi.fn().mockResolvedValue(0),
@@ -199,9 +237,10 @@ describe("AdminReviewService reviewer-token boundary", () => {
         count: vi.fn().mockResolvedValue(0),
       },
     } as unknown as PrismaService;
+    const staffSession = await createStagingStaffSession(prisma);
     const service = new AdminReviewService(prisma);
 
-    await expect(service.members(reviewerToken, "1", "1")).resolves.toMatchObject({
+    await expect(service.members(staffSession, "1", "1")).resolves.toMatchObject({
       total: 0,
       page: 1,
       pageSize: 1,
@@ -236,6 +275,8 @@ describe("AdminReviewService reviewer-token boundary", () => {
       sessions: [],
     };
     const prisma = {
+      adminStaffAccount: { findMany: vi.fn().mockResolvedValue([stagingStaffRow()]) },
+      auditEvent: { findMany: vi.fn().mockResolvedValue([]) },
       memberAccount: {
         findMany: vi.fn().mockResolvedValue([account]),
         count: vi.fn().mockResolvedValue(1),
@@ -244,9 +285,10 @@ describe("AdminReviewService reviewer-token boundary", () => {
         count: vi.fn().mockResolvedValue(0),
       },
     } as unknown as PrismaService;
+    const staffSession = await createStagingStaffSession(prisma);
     const service = new AdminReviewService(prisma);
 
-    const result = await service.members(reviewerToken, "1", "1");
+    const result = await service.members(staffSession, "1", "1");
 
     expect(result.items[0]).toMatchObject({
       dateOfBirth: null,
@@ -259,7 +301,12 @@ describe("AdminReviewService reviewer-token boundary", () => {
 
   it("blocks direct member-state overrides and demo-data seeding in staging", async () => {
     configureStagingReviewer();
-    const service = new AdminReviewService({} as PrismaService);
+    const prisma = {
+      adminStaffAccount: { findMany: vi.fn().mockResolvedValue([stagingStaffRow()]) },
+      auditEvent: { findMany: vi.fn().mockResolvedValue([]) },
+    } as unknown as PrismaService;
+    const staffSession = await createStagingStaffSession(prisma);
+    const service = new AdminReviewService(prisma);
 
     await expect(service.updateMemberState(
       "8b1cae61-1111-4111-8111-111111111111",
@@ -268,10 +315,10 @@ describe("AdminReviewService reviewer-token boundary", () => {
         verificationStatus: "VERIFIED",
         reason: "Local test override must be blocked in staging.",
       } as never,
-      reviewerToken,
+      staffSession,
     )).rejects.toBeInstanceOf(ForbiddenException);
 
-    await expect(service.seedLiveData(reviewerToken)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.seedLiveData(staffSession)).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it("queries the explicit pending-submission table rather than all consented profiles", async () => {
@@ -340,6 +387,10 @@ describe("AdminReviewService reviewer-token boundary", () => {
     configureLocalReviewer();
     const upsertMock = vi.fn().mockResolvedValue({});
     const auditCreateMock = vi.fn().mockResolvedValue({ id: "audit-1" });
+    const transactionClient = {
+      platformRegistrationPolicy: { upsert: upsertMock },
+      auditEvent: { create: auditCreateMock },
+    };
     const prisma = {
       platformRegistrationPolicy: {
         findUnique: vi.fn().mockResolvedValue(null),
@@ -349,6 +400,10 @@ describe("AdminReviewService reviewer-token boundary", () => {
         findFirst: vi.fn().mockResolvedValue(null),
         create: auditCreateMock,
       },
+      $transaction: vi.fn(
+        async (callback: (client: typeof transactionClient) => Promise<unknown>) =>
+          callback(transactionClient),
+      ),
     } as unknown as PrismaService;
     const service = new AdminReviewService(prisma);
 
@@ -411,7 +466,18 @@ describe("AdminReviewService reviewer-token boundary", () => {
           ownerDisplayName: "Staging Test Owner",
           category: "Fashion and clothing",
           city: "Tirupati",
+          serviceArea: "Tirupati and nearby towns",
+          priceRange: "₹800 – ₹3,000",
           description: "Temporary staging verification listing.",
+          logoAsset: "https://assets.example.test/logo.webp",
+          coverImage: "https://assets.example.test/cover.webp",
+          mediaGallery: ["https://assets.example.test/item-1.webp"],
+          businessHours: { monday: "09:00-18:00" },
+          hidePhoneNumber: true,
+          whatsappNumber: "+919876543210",
+          instagramHandle: "sakhi_test_shop",
+          productsServices: [{ name: "Handmade bags", price: 1200 }],
+          offersAndPosts: [{ title: "Opening offer" }],
         },
         reviewerToken,
       );
@@ -424,9 +490,20 @@ describe("AdminReviewService reviewer-token boundary", () => {
 
       const directory = await service.listBusinesses(reviewerToken);
       expect(directory.businesses).toHaveLength(1);
-      expect(directory.businesses[0]?.businessName).toBe(
-        "Sakhi Durable Test Studio",
-      );
+      expect(directory.businesses[0]).toMatchObject({
+        businessName: "Sakhi Durable Test Studio",
+        serviceArea: "Tirupati and nearby towns",
+        priceRange: "₹800 – ₹3,000",
+        logoAsset: "https://assets.example.test/logo.webp",
+        coverImage: "https://assets.example.test/cover.webp",
+        mediaGallery: ["https://assets.example.test/item-1.webp"],
+        businessHours: { monday: "09:00-18:00" },
+        hidePhoneNumber: true,
+        whatsappNumber: "+919876543210",
+        instagramHandle: "sakhi_test_shop",
+        productsServices: [{ name: "Handmade bags", price: 1200 }],
+        offersAndPosts: [{ title: "Opening offer" }],
+      });
     } finally {
       SakhiAdminRbacRegistry.resetForTesting();
     }
@@ -483,6 +560,60 @@ describe("AdminReviewService reviewer-token boundary", () => {
       SakhiAdminRbacRegistry.resetForTesting();
     }
   });
+  it("does not report staff deletion success or remove the active registry entry when persistence fails", async () => {
+    configureLocalReviewer();
+    SakhiAdminRbacRegistry.resetForTesting();
+    let staffRow: Record<string, any> | null = null;
+    const transactionClient = {
+      adminStaffAccount: {
+        create: vi.fn(async ({ data }: any) => {
+          staffRow = { ...data };
+          return staffRow;
+        }),
+        findUnique: vi.fn(async () => staffRow),
+        count: vi.fn().mockResolvedValue(2),
+        updateMany: vi.fn().mockRejectedValue(new Error("simulated database failure")),
+        upsert: vi.fn(async ({ create, update }: any) => {
+          staffRow = staffRow ? { ...staffRow, ...update } : { ...create };
+          return staffRow;
+        }),
+      },
+      adminStaffSession: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      adminStaffBackupCode: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      adminStaffRecoveryRequest: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      auditEvent: { create: vi.fn().mockResolvedValue({ id: "audit-id" }) },
+    };
+    const prisma = {
+      adminStaffAccount: {
+        findMany: vi.fn(async () => (staffRow ? [staffRow] : [])),
+      },
+      auditEvent: { findMany: vi.fn().mockResolvedValue([]) },
+      $transaction: vi.fn(
+        async (callback: (client: typeof transactionClient) => Promise<unknown>) =>
+          callback(transactionClient),
+      ),
+    } as unknown as PrismaService;
+
+    try {
+      const created = await SakhiAdminRbacRegistry.createStaffAccount(
+        prisma,
+        { fullName: "Security Test Admin", email: "security-test@sakhi.test", role: "VERIFICATION_ADMIN" },
+        "Security Test",
+      );
+      await expect(
+        SakhiAdminRbacRegistry.deleteStaffAccount(
+          prisma,
+          created.staff.id,
+          "Security Test Super Admin",
+        ),
+      ).rejects.toThrow(ServiceUnavailableException);
+      expect(SakhiAdminRbacRegistry.findStaffByToken(created.issuedAccessToken)).not.toBeNull();
+      expect(transactionClient.adminStaffAccount.updateMany).toHaveBeenCalledOnce();
+    } finally {
+      SakhiAdminRbacRegistry.resetForTesting();
+    }
+  });
+
   it("does not treat profile-only business names as approved directory listings", async () => {
     configureLocalReviewer();
     SakhiAdminRbacRegistry.resetForTesting();

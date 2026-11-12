@@ -33,8 +33,9 @@ function RoleProtectedRoute({
 function AppRoutes() {
   const [isSignedIn, setIsSignedIn] = useState(() => adminAuthService.hasActiveSession());
   const [checkingSession, setCheckingSession] = useState(
-    () => Boolean(adminAuthService.getToken()),
+    () => isStagingTestAdminMode || Boolean(adminAuthService.getToken()),
   );
+  const [logoutError, setLogoutError] = useState<string | null>(null);
   const canAccessFullWorkspace =
     !isStagingTestAdminMode || adminAuthService.isFullStagingAdminSession();
   const landingPath = canAccessFullWorkspace
@@ -43,25 +44,36 @@ function AppRoutes() {
 
   useEffect(() => {
     const token = adminAuthService.getToken();
-    if (!token) return;
+    if (!isStagingTestAdminMode && !token) return;
     adminAuthService
       .validateExistingSession()
       .then(() => setIsSignedIn(true))
       .catch(() => {
-        adminAuthService.signOut();
+        adminAuthService.clearLocalSession();
         setIsSignedIn(false);
       })
       .finally(() => setCheckingSession(false));
   }, []);
 
-  async function enterAdmin(token: string) {
-    await adminAuthService.authenticate(token);
+  async function enterAdmin(token: string, mfaCode?: string) {
+    const result = await adminAuthService.authenticate(token, mfaCode);
+    if (result.authenticated) setIsSignedIn(true);
+    return result;
+  }
+
+  async function enterAdminWithCredentials(identifier: string, password: string, mfaCode: string) {
+    await adminAuthService.authenticateWithCredentials(identifier, password, mfaCode);
     setIsSignedIn(true);
   }
 
-  function endSession() {
-    adminAuthService.signOut();
-    setIsSignedIn(false);
+  async function endSession() {
+    setLogoutError(null);
+    try {
+      await adminAuthService.signOut();
+      setIsSignedIn(false);
+    } catch (error) {
+      setLogoutError(error instanceof Error ? error.message : "The server did not confirm logout.");
+    }
   }
 
   if (checkingSession) {
@@ -73,11 +85,13 @@ function AppRoutes() {
   }
 
   return (
+    <>
+    {logoutError && <div role="alert" className="admin-auth-error">{logoutError}</div>}
     <Routes>
       <Route
         path="/login"
         element={
-          isSignedIn ? <Navigate to={landingPath} replace /> : <LoginPage onAuthenticate={enterAdmin} />
+          isSignedIn ? <Navigate to={landingPath} replace /> : <LoginPage onAuthenticate={enterAdmin} onCredentialAuthenticate={enterAdminWithCredentials} />
         }
       />
       <Route path="/" element={<Navigate to={landingPath} replace />} />
@@ -279,6 +293,7 @@ function AppRoutes() {
       </Route>
       <Route path="*" element={<Navigate to={landingPath} replace />} />
     </Routes>
+    </>
   );
 }
 

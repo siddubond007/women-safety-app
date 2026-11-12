@@ -45,35 +45,33 @@ describe("Module2Service privacy-aware member search", () => {
       }),
     };
     prisma = {
-      $queryRaw: vi.fn().mockResolvedValue([{ accountId: visibleId }]),
       memberProfile: {
         findUnique: vi.fn().mockResolvedValue({
           accountId: viewerId,
           username: "@viewer",
         }),
-        findMany: vi
-          .fn()
-          .mockResolvedValue([
-            profile(visibleId, "@visible", "Yes"),
-            profile(hiddenId, "@hidden", "No"),
-            profile(blockedId, "@blocked", "Yes"),
-          ]),
       },
       memberModerationBlock: {
-        findMany: vi.fn(async (args: any) => {
-          if (args.where.accountId === viewerId) {
-            return [{ blockedUsername: "@blocked" }];
-          }
-          if (args.where.blockedUsername?.in?.includes("@viewer")) {
-            return [{ accountId: blockedMeId }];
-          }
-          return [];
-        }),
+        findMany: vi.fn().mockResolvedValue([{ blockedUsername: "@blocked" }]),
       },
       communityDirectoryProfile: {
         findMany: vi.fn().mockResolvedValue([
-          { id: "7ebc2cf6-d0a1-4000-a36f-5e2c8f9a1b26", username: "@visible" },
-          { id: "8fcd3d07-e1b2-4111-b470-6f3d90a2c237", username: "@blocked" },
+          {
+            id: "7ebc2cf6-d0a1-4000-a36f-5e2c8f9a1b26",
+            accountId: visibleId,
+            name: "A visible member",
+            username: "@visible",
+            bio: "Public directory bio",
+            avatarAsset: "avatar.webp",
+          },
+          {
+            id: "8fcd3d07-e1b2-4111-b470-6f3d90a2c237",
+            accountId: blockedId,
+            name: "Blocked member",
+            username: "@blocked",
+            bio: "Blocked directory bio",
+            avatarAsset: "blocked.webp",
+          },
         ]),
       },
       memberFollow: {
@@ -90,7 +88,7 @@ describe("Module2Service privacy-aware member search", () => {
     );
   });
 
-  it("returns verified, visible members and real follow/business metadata only", async () => {
+  it("returns only safe, RLS-filtered public directory fields and real follow state", async () => {
     const result = await service.searchMembers("Bearer test-token", "wellness");
 
     expect(result.source).toBe("postgresql_live");
@@ -99,34 +97,38 @@ describe("Module2Service privacy-aware member search", () => {
       accountId: visibleId,
       name: "A visible member",
       username: "@visible",
+      bio: "Public directory bio",
       isVerified: true,
       isFollowing: true,
       canFollow: true,
-      businessProfileName: "Visible Studio",
-      businessCategory: "Artisan",
     });
+    expect(result.members[0]).not.toHaveProperty("businessProfileName");
+    expect(result.members[0]).not.toHaveProperty("businessProfileUrl");
+    expect(result.members[0]).not.toHaveProperty("email");
+    expect(result.members.map((item) => item.username)).not.toContain("@blocked");
 
-    const profileQuery = prisma.memberProfile.findMany.mock.calls[0][0];
-    expect(profileQuery.where.account.is).toMatchObject({
-      status: "ACTIVE",
-      verificationStatus: "VERIFIED",
+    const directoryQuery = prisma.communityDirectoryProfile.findMany.mock.calls[0][0];
+    expect(directoryQuery.where).toMatchObject({
+      accountId: { not: viewerId },
+      searchable: true,
     });
-    expect(profileQuery.where.accountId.not).toBe(viewerId);
-    expect(profileQuery.where.accountId.notIn).toContain(blockedMeId);
-    expect(
-      profileQuery.where.OR.some(
-        (branch: any) => branch.accountId?.in?.includes(visibleId) === true,
-      ),
-    ).toBe(true);
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
-    expect(prisma.memberModerationBlock.findMany).toHaveBeenCalledTimes(2);
+    expect(directoryQuery.select).toEqual({
+      id: true,
+      accountId: true,
+      name: true,
+      username: true,
+      bio: true,
+      avatarAsset: true,
+    });
+    expect(JSON.stringify(directoryQuery)).not.toMatch(/email|dateOfBirth|phone|location/i);
+    expect(prisma.memberProfile.findMany).toBeUndefined();
+    expect(prisma.memberModerationBlock.findMany).toHaveBeenCalledTimes(1);
   });
 
   it("returns an empty result without a member query for a blank search", async () => {
     const result = await service.searchMembers("Bearer test-token", "  ");
 
     expect(result.members).toEqual([]);
-    expect(prisma.memberProfile.findMany).not.toHaveBeenCalled();
     expect(prisma.communityDirectoryProfile.findMany).not.toHaveBeenCalled();
   });
 });

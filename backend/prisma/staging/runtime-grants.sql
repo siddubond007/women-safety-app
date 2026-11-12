@@ -1,5 +1,8 @@
 -- Least-privilege runtime grants for Sakhi Modules 1-12.
 -- Run as sakhi_staging_migrator after baseline setup.
+-- P0 staff-security policies are permissive only for this backend-only runtime
+-- role. This is NOT staff-row isolation. The role must not be exposed to
+-- clients, must not own these tables, and must have NOBYPASSRLS.
 GRANT USAGE ON SCHEMA public TO sakhi_staging_app;
 
 -- Authentication, profiles, sessions, and communication settings.
@@ -74,9 +77,91 @@ GRANT SELECT, INSERT, UPDATE ON TABLE
 TO sakhi_staging_app;
 
 -- Module 10/11 admin RBAC and platform configuration persistence.
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
-  public.admin_staff_accounts
+-- Staff accounts are soft-deleted; the runtime role must not physically DELETE.
+GRANT SELECT, INSERT, UPDATE ON TABLE
+  public.admin_staff_accounts,
+  public.admin_staff_sessions,
+  public.admin_staff_mfa,
+  public.admin_staff_backup_codes,
+  public.admin_staff_recovery_requests
 TO sakhi_staging_app;
+REVOKE DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLE
+  public.admin_staff_accounts,
+  public.admin_staff_sessions,
+  public.admin_staff_mfa,
+  public.admin_staff_backup_codes,
+  public.admin_staff_recovery_requests
+FROM sakhi_staging_app;
+
+DO $$
+DECLARE
+  table_name text;
+  policy_name text;
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY[
+    'admin_staff_accounts',
+    'admin_staff_sessions',
+    'admin_staff_mfa',
+    'admin_staff_backup_codes',
+    'admin_staff_recovery_requests'
+  ] LOOP
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', table_name);
+    EXECUTE format('ALTER TABLE public.%I FORCE ROW LEVEL SECURITY', table_name);
+    policy_name := table_name || '_runtime_sakhi_staging_app';
+    IF EXISTS (
+      SELECT 1 FROM pg_policies
+      WHERE schemaname = 'public'
+        AND tablename = table_name
+        AND policyname = policy_name
+        AND (qual <> 'true' OR with_check <> 'true')
+    ) THEN
+      RAISE EXCEPTION 'Existing P0 runtime policy % has an incompatible expression.', policy_name;
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_policies
+      WHERE schemaname = 'public'
+        AND tablename = table_name
+        AND policyname = policy_name
+    ) THEN
+      EXECUTE format(
+        'CREATE POLICY %I ON public.%I FOR ALL TO sakhi_staging_app USING (true) WITH CHECK (true)',
+        policy_name,
+        table_name
+      );
+    END IF;
+  END LOOP;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    REVOKE ALL ON TABLE
+      public.admin_staff_accounts,
+      public.admin_staff_sessions,
+      public.admin_staff_mfa,
+      public.admin_staff_backup_codes,
+      public.admin_staff_recovery_requests
+    FROM service_role;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sakhi_staging_app') THEN
+    ALTER ROLE sakhi_staging_app NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_class c
+    JOIN pg_roles r ON r.oid = c.relowner
+    WHERE c.relnamespace = 'public'::regnamespace
+      AND c.relname IN ('admin_staff_accounts','admin_staff_sessions','admin_staff_mfa','admin_staff_backup_codes','admin_staff_recovery_requests')
+      AND r.rolname = 'sakhi_staging_app'
+  ) THEN
+    RAISE EXCEPTION 'sakhi_staging_app must not own P0 staff-security tables.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role')
+     AND (
+       has_table_privilege('service_role','public.admin_staff_accounts','SELECT')
+       OR has_table_privilege('service_role','public.admin_staff_sessions','SELECT')
+       OR has_table_privilege('service_role','public.admin_staff_mfa','SELECT')
+       OR has_table_privilege('service_role','public.admin_staff_backup_codes','SELECT')
+       OR has_table_privilege('service_role','public.admin_staff_recovery_requests','SELECT')
+     ) THEN
+    RAISE EXCEPTION 'service_role retains effective SELECT access to P0 staff-security tables.';
+  END IF;
+END $$;
 
 GRANT SELECT, INSERT, UPDATE ON TABLE
   public.business_directory_listings,
@@ -85,7 +170,9 @@ GRANT SELECT, INSERT, UPDATE ON TABLE
   public.platform_config_settings
 TO sakhi_staging_app;
 
-GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO sakhi_staging_app;
+-- UUID-backed tables do not require sequence privileges. Do not grant blanket
+-- access to current or future public-schema sequences.
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM sakhi_staging_app;
 GRANT USAGE ON TYPE
   public.account_status,
   public.verification_status,
@@ -103,9 +190,20 @@ TO sakhi_staging_app;
 -- on public. Leave schema ACL ownership changes to the Supabase project owner.
 REVOKE ALL ON TABLE public._prisma_migrations FROM sakhi_staging_app;
 
--- Module 7 owner-isolated menstrual health tables.
+-- Module 7 menstrual health tables. These grants are backend-only and do NOT
+-- establish per-member row isolation. Do not claim RLS protection until
+-- member-scoped policies and runtime account context are implemented and tested.
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   public.menstrual_cycle_logs,
   public.menstrual_daily_logs,
   public.menstrual_tracker_preferences
+TO sakhi_staging_app;
+
+-- Wellness preferences, push tokens, circle memberships/posts & admin auth sessions (2026-11-07).
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
+  public.member_wellness_preferences,
+  public.member_push_tokens,
+  public.community_circle_memberships,
+  public.community_circle_posts,
+  public.admin_auth_sessions
 TO sakhi_staging_app;

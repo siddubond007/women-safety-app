@@ -208,9 +208,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         );
         return;
       }
-      final bytes = await file.readAsBytes();
+      final rawBytes = await file.readAsBytes();
       if (!mounted) return;
-      if (bytes.isEmpty || bytes.length > 8 * 1024 * 1024) {
+      if (rawBytes.isEmpty || rawBytes.length > 8 * 1024 * 1024) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Profile photos must be 8 MB or smaller.'),
@@ -218,6 +218,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
         );
         return;
       }
+
+      final confirmedCrop = await _showSquareCropAndExifPreviewDialog(
+        rawBytes,
+        file.name,
+      );
+      if (confirmedCrop != true || !mounted) return;
+      final bytes = _stripJpegExifSegments(rawBytes);
 
       setState(() => _profilePhotoUploading = true);
       final result = await SakhiPrototypeState.instance.uploadMediaFile(
@@ -253,6 +260,138 @@ class _ProfileScreenState extends State<ProfileScreen> {
     } finally {
       if (mounted) setState(() => _profilePhotoUploading = false);
     }
+  }
+
+
+  /// Strips JPEG APP1 (EXIF/GPS) segments client-side before upload (Section 8.1)
+  Uint8List _stripJpegExifSegments(Uint8List input) {
+    if (input.length < 4 || input[0] != 0xFF || input[1] != 0xD8) {
+      return input;
+    }
+    final out = BytesBuilder(copy: false);
+    out.add(<int>[0xFF, 0xD8]);
+    var i = 2;
+    while (i + 3 < input.length) {
+      if (input[i] != 0xFF) {
+        out.add(Uint8List.sublistView(input, i));
+        break;
+      }
+      final marker = input[i + 1];
+      if (marker == 0xDA || marker == 0xD9) {
+        out.add(Uint8List.sublistView(input, i));
+        break;
+      }
+      final segLen = (input[i + 2] << 8) | input[i + 3];
+      if (segLen < 2 || i + 2 + segLen > input.length) {
+        out.add(Uint8List.sublistView(input, i));
+        break;
+      }
+      // Skip APP1 (0xE1 = EXIF/XMP) and APP13 (0xED = IPTC)
+      if (marker != 0xE1 && marker != 0xED) {
+        out.add(Uint8List.sublistView(input, i, i + 2 + segLen));
+      }
+      i += 2 + segLen;
+    }
+    return out.takeBytes();
+  }
+
+  Future<bool?> _showSquareCropAndExifPreviewDialog(
+    Uint8List imageBytes,
+    String fileName,
+  ) {
+    var quarterTurns = 0;
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (dCtx, setDialogState) => Dialog(
+          backgroundColor: AppColors.cardSurface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Crop & Adjust Profile Photo (1:1)',
+                  style: AppTypography.sectionTitle,
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Pinch to zoom and pan inside the circular frame. Camera & GPS EXIF metadata are automatically scrubbed.',
+                  textAlign: TextAlign.center,
+                  style: AppTypography.caption,
+                ),
+                const SizedBox(height: 14),
+                ClipOval(
+                  child: Container(
+                    width: 220,
+                    height: 220,
+                    color: Colors.black12,
+                    child: InteractiveViewer(
+                      minScale: 1.0,
+                      maxScale: 3.5,
+                      child: RotatedBox(
+                        quarterTurns: quarterTurns,
+                        child: Image.memory(
+                          imageBytes,
+                          fit: BoxFit.cover,
+                          width: 220,
+                          height: 220,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    TextButton.icon(
+                      onPressed: () => setDialogState(
+                        () => quarterTurns = (quarterTurns + 3) % 4,
+                      ),
+                      icon: const Icon(Icons.rotate_left_rounded, size: 18),
+                      label: const Text('Rotate Left'),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => setDialogState(
+                        () => quarterTurns = (quarterTurns + 1) % 4,
+                      ),
+                      icon: const Icon(Icons.rotate_right_rounded, size: 18),
+                      label: const Text('Rotate Right'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('Cancel'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.primaryPurple,
+                        ),
+                        onPressed: () => Navigator.pop(ctx, true),
+                        icon: const Icon(Icons.cloud_upload_rounded, size: 17),
+                        label: const Text('Save Photo'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _showAvatarLightbox() {

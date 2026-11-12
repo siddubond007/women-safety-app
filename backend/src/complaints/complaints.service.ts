@@ -9,14 +9,15 @@ import {
 } from "@nestjs/common";
 import {
   createHash,
+  randomBytes,
   randomInt,
   randomUUID,
+  scryptSync,
   timingSafeEqual,
 } from "node:crypto";
 import { AuthenticationService } from "../auth/auth.service.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { StagingTestAdminService } from "../staging-test-admin/staging-test-admin.service.js";
-import { DEFAULT_LOCAL_DEV_ADMIN_TOKEN } from "../admin-review/admin-review.service.js";
 import { GoogleDriveStorageService } from "../module2/google-drive-storage.service.js";
 import {
   SakhiAdminRbacRegistry,
@@ -344,6 +345,8 @@ export interface DiscreetComplaintRecord {
   referenceNumber: string;
   passkeyDigest: string;
   disguisedBackupSerial: string;
+  passkeyFailedAttempts: number;
+  passkeyLockedUntil: string | null;
   reportingMode: "ANONYMOUS" | "CONFIDENTIAL";
   confidentialAccountId: string | null;
   blindedRateLimitBucket: string;
@@ -527,144 +530,69 @@ export class ComplaintsService {
     return createHash("sha256").update(val).digest("hex");
   }
 
-  private stagingAdminReviewEnabled(): boolean {
-    const token = process.env.SAKHI_ADMIN_REVIEW_TOKEN?.trim() ?? "";
-    return (
-      process.env.SAKHI_ENV === "staging" &&
-      process.env.NODE_ENV === "production" &&
-      process.env.SAKHI_STAGING_ADMIN_REVIEW_ENABLED === "true" &&
-      process.env.SAKHI_OTP_MODE === "staging_test" &&
-      token.length >= 32
-    );
-  }
-
-  private stagingFullAdminEnabled(): boolean {
-    const token = process.env.SAKHI_STAGING_FULL_ADMIN_TOKEN?.trim() ?? "";
-    return (
-      process.env.SAKHI_ENV === "staging" &&
-      process.env.NODE_ENV === "production" &&
-      process.env.SAKHI_STAGING_FULL_ADMIN_ENABLED === "true" &&
-      token.length >= 32
-    );
-  }
-
-  private configuredAdminToken(): string {
-    const environment = process.env.SAKHI_ENV ?? "dev";
-    if (process.env.NODE_ENV === "production") {
-      if (!this.stagingAdminReviewEnabled()) {
-        throw new ForbiddenException(
-          "Admin complaint console requires an authorized staging or dev reviewer session.",
-        );
-      }
-      return process.env.SAKHI_ADMIN_REVIEW_TOKEN!.trim();
-    }
-    if (environment !== "dev" && environment !== "test") {
-      throw new ServiceUnavailableException(
-        "Admin complaint review is restricted to dev/test or authorized staging mode.",
-      );
-    }
-    return (
-      process.env.SAKHI_ADMIN_REVIEW_TOKEN?.trim() ||
-      DEFAULT_LOCAL_DEV_ADMIN_TOKEN
-    );
-  }
-
   public assertReviewer(provided?: string): {
     reviewerLabel: string;
+    staffId: string;
     role: "SENIOR_REVIEWER" | "SUPER_ADMIN";
     adminRole: SakhiAdminRole;
     staffCode: string;
+    permissions: { view: boolean; create: boolean; edit: boolean; approve: boolean; suspend: boolean; export: boolean; delete: boolean };
+    canManageCategoriesAndRetention: boolean;
   } {
-    if (provided?.trim()) {
-      const staffMatch = SakhiAdminRbacRegistry.findStaffByToken(
-        provided.trim(),
+    if (!provided?.startsWith("staff-admin.")) {
+      throw new UnauthorizedException(
+        "Discreet complaint administration requires an individual persistent MFA-verified staff session. Shared and legacy reviewer tokens are not accepted.",
       );
-      if (staffMatch) {
-        const principal = SakhiAdminRbacRegistry.principalFromStaff(staffMatch);
-        if (
-          principal.role !== "SUPER_ADMIN" &&
-          principal.role !== "COMPLAINT_REVIEWER" &&
-          !principal.isAuthorisedComplaintReviewer
-        ) {
-          throw new ForbiddenException(
-            `Access denied: your assigned role (${principal.badgeLabel}) is not authorised to access Discreet & Anonymous Complaints (SRS 7.4).`,
-          );
-        }
-        return {
-          reviewerLabel: principal.reviewerLabel,
-          role:
-            principal.role === "SUPER_ADMIN"
-              ? "SUPER_ADMIN"
-              : "SENIOR_REVIEWER",
-          adminRole: principal.role,
-          staffCode: principal.staffCode,
-        };
-      }
     }
-
+    const principal = StagingTestAdminService.resolvePrincipalFromSessionToken(provided);
     if (
-      process.env.NODE_ENV === "production" &&
-      process.env.SAKHI_ENV === "staging"
+      principal.role !== "SUPER_ADMIN" &&
+      principal.role !== "COMPLAINT_REVIEWER" &&
+      !principal.isAuthorisedComplaintReviewer
     ) {
-      if (
-        provided?.startsWith("full-admin.") ||
-        provided?.startsWith("staff-admin.") ||
-        provided?.startsWith("test-access.") ||
-        (!this.stagingAdminReviewEnabled() && this.stagingFullAdminEnabled())
-      ) {
-        const principal =
-          StagingTestAdminService.resolvePrincipalFromSessionToken(provided);
-        if (
-          principal.role !== "SUPER_ADMIN" &&
-          principal.role !== "COMPLAINT_REVIEWER" &&
-          !principal.isAuthorisedComplaintReviewer
-        ) {
-          throw new ForbiddenException(
-            `Access denied: your assigned role (${principal.badgeLabel}) is not authorised to access Discreet & Anonymous Complaints (SRS 7.4).`,
-          );
-        }
-        return {
-          reviewerLabel: principal.reviewerLabel,
-          role:
-            principal.role === "SUPER_ADMIN"
-              ? "SUPER_ADMIN"
-              : "SENIOR_REVIEWER",
-          adminRole: principal.role,
-          staffCode: principal.staffCode,
-        };
-      }
-    }
-    const expected = this.configuredAdminToken();
-    if (!provided) {
-      throw new UnauthorizedException(
-        "A reviewer token is required to access complaint management.",
+      throw new ForbiddenException(
+        "The assigned staff role is not authorised to access Discreet & Anonymous Complaints (SRS 7.4).",
       );
     }
-    const candidates = expected
-      .split(",")
-      .map((item) => item.trim())
-      .filter((item) => item.length > 0);
-    const providedDigest = createHash("sha256")
-      .update(provided.trim())
-      .digest();
-    const matched = candidates.some((candidate) => {
-      const expectedDigest = createHash("sha256").update(candidate).digest();
-      return timingSafeEqual(expectedDigest, providedDigest);
-    });
-    if (!matched) {
-      throw new UnauthorizedException(
-        "The reviewer token is invalid or expired.",
+    if (!principal.permissions.view) {
+      throw new ForbiddenException(
+        "The staff account does not have permission to view discreet complaints.",
       );
     }
-    const label =
-      process.env.SAKHI_ADMIN_REVIEWER_LABEL?.trim() ||
-      "Sakhi Super Admin (#SA-01)";
     return {
-      reviewerLabel: label,
-      role: "SENIOR_REVIEWER",
-      adminRole: "SUPER_ADMIN",
-      staffCode: "#SA-01",
+      reviewerLabel: principal.reviewerLabel,
+      staffId: principal.staffId,
+      role: principal.role === "SUPER_ADMIN" ? "SUPER_ADMIN" : "SENIOR_REVIEWER",
+      adminRole: principal.role,
+      staffCode: principal.staffCode,
+      permissions: principal.permissions,
+      canManageCategoriesAndRetention: principal.role === "SUPER_ADMIN",
     };
+  }
+
+  private assertComplaintPermission(
+    provided: string | undefined,
+    permission: "view" | "create" | "edit" | "approve" | "export",
+    area: string,
+    superAdminOnly = false,
+  ) {
+    const reviewer = this.assertReviewer(provided);
+    if (superAdminOnly && reviewer.adminRole !== "SUPER_ADMIN") {
+      throw new ForbiddenException(
+        "Only a Super Admin may manage " + area + ".",
+      );
+    }
+    if (superAdminOnly && !reviewer.canManageCategoriesAndRetention) {
+      throw new ForbiddenException(
+        "The Super Admin category and retention governance permission is required for " + area + ".",
+      );
+    }
+    if (!reviewer.permissions[permission]) {
+      throw new ForbiddenException(
+        "The " + permission + " permission is required for " + area + ".",
+      );
+    }
+    return reviewer;
   }
 
   private async resolveRequiredAccountId(
@@ -702,6 +630,10 @@ export class ComplaintsService {
       referenceNumber: String(r.referenceNumber),
       passkeyDigest: String(r.passkeyDigest),
       disguisedBackupSerial: String(r.disguisedBackupSerial),
+      passkeyFailedAttempts: Number(r.passkeyFailedAttempts ?? 0),
+      passkeyLockedUntil: r.passkeyLockedUntil
+        ? new Date(r.passkeyLockedUntil).toISOString()
+        : null,
       reportingMode:
         r.reportingMode === "CONFIDENTIAL" ? "CONFIDENTIAL" : "ANONYMOUS",
       confidentialAccountId: r.confidentialAccountId ?? null,
@@ -808,8 +740,7 @@ export class ComplaintsService {
                 where: { slug: cat.slug },
                 update: {},
                 create: { ...cat },
-              })
-              .catch(() => null);
+              });
           }
         }
       }
@@ -817,8 +748,7 @@ export class ComplaintsService {
       // 2. Hydrate retention policy from DB if table exists
       if (anyPrisma.complaintRetentionPolicy?.findUnique) {
         const dbPolicy = await anyPrisma.complaintRetentionPolicy
-          .findUnique({ where: { policyKey: "default" } })
-          .catch(() => null);
+          .findUnique({ where: { policyKey: "default" } });
         if (dbPolicy) {
           this.retentionPolicy = {
             policyKey: "default",
@@ -844,8 +774,7 @@ export class ComplaintsService {
           .findMany({
             orderBy: { createdAt: "desc" },
             take: 500,
-          })
-          .catch(() => null);
+          });
         if (Array.isArray(rows)) {
           loadedFromPrimaryTable = true;
           for (const r of rows) {
@@ -857,25 +786,13 @@ export class ComplaintsService {
         }
       }
 
-      // 4. Fallback to AuditEvent snapshots ONLY if discreet_complaints table is not yet migrated
-      if (!loadedFromPrimaryTable && this.prisma.auditEvent?.findMany) {
-        const snapshots = await this.prisma.auditEvent
-          .findMany({
-            where: { action: "module5.complaint.snapshot" },
-            orderBy: { createdAt: "asc" },
-            take: 250,
-          })
-          .catch(() => []);
-        for (const snap of snapshots) {
-          const meta =
-            snap.redactedMetadata as unknown as DiscreetComplaintRecord | null;
-          if (meta && typeof meta.referenceNumber === "string") {
-            this.complaintsMap.set(meta.referenceNumber.toUpperCase(), meta);
-          }
-        }
+      if (!loadedFromPrimaryTable) {
+        throw new ServiceUnavailableException("Persistent complaint storage is unavailable; audit snapshots are not a valid complaint data source.");
       }
-    } catch {
-      // Safe fallback in unit tests without live DB connection
+    } catch (error) {
+      if (process.env.NODE_ENV !== "test") {
+        throw new ServiceUnavailableException("Complaint records could not be loaded from the authoritative database.");
+      }
     }
   }
 
@@ -884,6 +801,8 @@ export class ComplaintsService {
     auditAction: string,
     actorType: "MEMBER" | "ADMIN" | "ANONYMOUS_REPORTER",
     outcome: string,
+    actorStaffId?: string,
+    transactionClient?: Record<string, any>,
   ): Promise<void> {
     const complaintKey = record.referenceNumber.toUpperCase();
     const anyPrisma = this.prisma as unknown as Record<string, any>;
@@ -909,6 +828,10 @@ export class ComplaintsService {
           assignedReviewerName: record.assignedReviewerName,
           duplicateClusterId: record.duplicateClusterId,
           mergedIntoReference: record.mergedIntoReference,
+          passkeyFailedAttempts: record.passkeyFailedAttempts,
+          passkeyLockedUntil: record.passkeyLockedUntil
+            ? new Date(record.passkeyLockedUntil)
+            : null,
           isFlaggedMaliciousAbuse: record.isFlaggedMaliciousAbuse,
           maliciousAbuseReason: record.maliciousAbuseReason,
           rejectionReasonCode: record.rejectionReasonCode,
@@ -931,6 +854,10 @@ export class ComplaintsService {
           referenceNumber: record.referenceNumber,
           passkeyDigest: record.passkeyDigest,
           disguisedBackupSerial: record.disguisedBackupSerial,
+          passkeyFailedAttempts: record.passkeyFailedAttempts,
+          passkeyLockedUntil: record.passkeyLockedUntil
+            ? new Date(record.passkeyLockedUntil)
+            : null,
           reportingMode: record.reportingMode,
           confidentialAccountId: record.confidentialAccountId,
           blindedRateLimitBucket: record.blindedRateLimitBucket,
@@ -983,13 +910,23 @@ export class ComplaintsService {
       persistenceStep = "audit_event_insert";
       if (anyPrisma.auditEvent?.create) {
         const safeAuditMetadata = {
-          ...record,
-          confidentialAccountId: null,
+          referenceNumber: record.referenceNumber,
+          reportingMode: record.reportingMode,
+          categorySlug: record.categorySlug,
+          status: record.status,
+          severity: record.severity,
+          priority: record.priority,
+          evidenceCount: record.evidenceFiles.length,
+          messageCount: record.complainantMessages.length,
+          internalNoteCount: record.internalNotes.length,
+          mediaPurged: Boolean(record.mediaPurgedAt),
+          retentionExpiresAt: record.retentionExpiresAt,
+          updatedAt: record.updatedAt,
         };
         await anyPrisma.auditEvent.create({
           data: {
             actorType,
-            actorId: null,
+            actorId: actorStaffId ?? null,
             action: "module5.complaint.snapshot",
             targetType: "module5_complaint",
             targetId: record.referenceNumber,
@@ -1002,12 +939,22 @@ export class ComplaintsService {
     };
 
     try {
-      if (typeof anyPrisma.$transaction === "function") {
+      if (typeof anyPrisma.$transaction !== "function") {
+        throw new ServiceUnavailableException(
+          "Complaint persistence and audit require one database transaction.",
+        );
+      }
+      if (!anyPrisma.auditEvent?.create) {
+        throw new ServiceUnavailableException(
+          "Complaint audit persistence is unavailable; the change was not accepted.",
+        );
+      }
+      if (transactionClient) {
+        await persistSnapshot(transactionClient);
+      } else {
         await anyPrisma.$transaction((tx: unknown) =>
           persistSnapshot(tx as Record<string, any>),
         );
-      } else {
-        await persistSnapshot(anyPrisma);
       }
     } catch (error) {
       const topLevel =
@@ -1063,6 +1010,23 @@ export class ComplaintsService {
 
       // Log only a safe error classification. Never log the request body,
       // database URL, complaint description, reporter identity, or passkey.
+      try {
+        if (anyPrisma.discreetComplaint?.findUnique) {
+          const committed = await anyPrisma.discreetComplaint.findUnique({
+            where: { referenceNumber: record.referenceNumber },
+          });
+          if (committed) {
+            const restored = this.mapDbRowToRecord(committed);
+            this.complaintsMap.set(complaintKey, restored);
+          } else {
+            this.complaintsMap.delete(complaintKey);
+          }
+        } else {
+          this.complaintsMap.delete(complaintKey);
+        }
+      } catch {
+        this.complaintsMap.delete(complaintKey);
+      }
       console.error(
         JSON.stringify({
           event: "sakhi.complaint.persistence_failed",
@@ -1082,7 +1046,9 @@ export class ComplaintsService {
       );
     }
 
-    this.complaintsMap.set(complaintKey, record);
+    if (!transactionClient) {
+      this.complaintsMap.set(complaintKey, record);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1274,6 +1240,9 @@ export class ComplaintsService {
       contentType: cleanContentType,
       buffer: scrubbedBuffer,
     });
+    if (stored.sha256Checksum !== digest || stored.size !== scrubbedBuffer.length) {
+      throw new ServiceUnavailableException("Google Drive did not confirm the sanitized evidence byte size and SHA-256 checksum.");
+    }
 
     return {
       sanitizedFile: {
@@ -1557,10 +1526,11 @@ export class ComplaintsService {
       referenceNumber = `#${prefix}-2026-${numSuffix}`;
     }
 
-    const flowerWords = ["LOTUS", "PEONY", "LILY", "ROSE", "SAGE", "ORCHID"];
-    const word = flowerWords[numSuffix % flowerWords.length];
-    const passkeyPlain = `${word}-${randomInt(100, 999)}-SAFE`;
-    const disguisedBackupSerial = `SKH-WELLNESS-2026-${numSuffix}::${passkeyPlain}`;
+    // The recovery credential is independent of the public reference and has
+    // 256 bits of entropy. The disguised serial is only a lookup hint.
+    const passkeyPlain = randomBytes(32).toString("base64url");
+    const serialNonce = randomBytes(12).toString("hex").toUpperCase();
+    const disguisedBackupSerial = `SKH-WELLNESS-2026-${numSuffix}::${serialNonce}`;
 
     const sanitizedEvidence: SanitizedEvidenceFile[] = await Promise.all(
       rawEvidence.map(async (f, idx) => {
@@ -1584,13 +1554,17 @@ export class ComplaintsService {
         }
         const evidenceId = String(f.id ?? "");
         const driveFileId = String(f.driveFileId ?? "");
+        const sha256Digest = String(f.sha256Digest ?? "").toLowerCase();
         if (
           !evidenceId ||
           !driveFileId ||
           !/^([0-9a-f]{32})$/.test(evidenceId) ||
+          !/^[a-f0-9]{64}$/.test(sha256Digest) ||
           !(await this.evidenceStorage.verifyComplaintEvidenceFile(
             driveFileId,
             evidenceId,
+            sha256Digest,
+            byteSize,
           ))
         ) {
           throw new BadRequestException(
@@ -1610,11 +1584,7 @@ export class ComplaintsService {
           originalFileNameRedacted: "[PURGED_ON_UPLOAD]",
           contentType,
           byteSize,
-          sha256Digest: String(
-            f.sha256Digest ??
-              f.sha256Hash ??
-              this.hashString(`${referenceNumber}:ev:${idx}`),
-          ),
+          sha256Digest,
           exifGpsStripped: true,
           deviceMetadataStripped: true,
           visualBlurApplied: Boolean(
@@ -1665,8 +1635,10 @@ export class ComplaintsService {
     const record: DiscreetComplaintRecord = {
       id: randomUUID(),
       referenceNumber,
-      passkeyDigest: this.hashString(passkeyPlain),
+      passkeyDigest: this.hashComplaintPasskey(passkeyPlain),
       disguisedBackupSerial,
+      passkeyFailedAttempts: 0,
+      passkeyLockedUntil: null,
       reportingMode: mode,
       confidentialAccountId,
       blindedRateLimitBucket: blindedBucket,
@@ -1775,10 +1747,31 @@ export class ComplaintsService {
     };
   }
 
-  private resolveRecordAndPasskey(
+  private hashComplaintPasskey(passkey: string): string {
+    const salt = randomBytes(16);
+    const digest = scryptSync(passkey, salt, 64);
+    return `scrypt$${salt.toString("hex")}$${digest.toString("hex")}`;
+  }
+
+  private verifyComplaintPasskey(passkey: string, stored: string): boolean {
+    if (stored.startsWith("scrypt$")) {
+      const [, saltHex, digestHex] = stored.split("$");
+      if (!saltHex || !digestHex) return false;
+      const expected = Buffer.from(digestHex, "hex");
+      const actual = scryptSync(passkey, Buffer.from(saltHex, "hex"), expected.length);
+      return expected.length === actual.length && timingSafeEqual(expected, actual);
+    }
+    // Compatibility for existing complaints; persistent throttling protects
+    // legacy records until a separately approved credential migration.
+    const expected = Buffer.from(stored, "hex");
+    const actual = createHash("sha256").update(passkey).digest();
+    return expected.length === actual.length && timingSafeEqual(expected, actual);
+  }
+
+  private async resolveRecordAndPasskey(
     referenceOrSerial: string,
     providedPasskey?: string,
-  ): DiscreetComplaintRecord {
+  ): Promise<DiscreetComplaintRecord> {
     const raw = (referenceOrSerial ?? "").trim();
     if (!raw) {
       throw new BadRequestException(
@@ -1787,7 +1780,7 @@ export class ComplaintsService {
     }
 
     let lookupRef = raw.toUpperCase();
-    let extractedPasskey = providedPasskey?.trim().toUpperCase();
+    let extractedPasskey = providedPasskey?.trim();
 
     // Support lookup via Disguised Wellness Quote Serial ("SKH-WELLNESS-2026-8492::LOTUS-123-SAFE")
     if (lookupRef.includes("::")) {
@@ -1802,9 +1795,8 @@ export class ComplaintsService {
           lookupRef = foundBySuffix.referenceNumber.toUpperCase();
         }
       }
-      if (!extractedPasskey && parts[1]) {
-        extractedPasskey = parts[1].trim().toUpperCase();
-      }
+      // The serial suffix is a random lookup nonce, never a credential.
+      // A passkey must always be supplied separately in a POST body.
     }
 
     const norm = lookupRef.startsWith("#") ? lookupRef : `#${lookupRef}`;
@@ -1826,17 +1818,59 @@ export class ComplaintsService {
       );
     }
 
-    const expectedDigest = Buffer.from(record.passkeyDigest, "hex");
-    const actualDigest = createHash("sha256").update(extractedPasskey).digest();
-    if (
-      expectedDigest.length !== actualDigest.length ||
-      !timingSafeEqual(expectedDigest, actualDigest)
-    ) {
-      throw new ForbiddenException(
-        "Invalid check-in passkey for this complaint reference number.",
-      );
+    const anyPrisma = this.prisma as unknown as Record<string, any>;
+    const now = new Date();
+    if (anyPrisma.discreetComplaint?.findUnique) {
+      const persisted = await anyPrisma.discreetComplaint.findUnique({
+        where: { id: record.id },
+        select: { passkeyFailedAttempts: true, passkeyLockedUntil: true },
+      });
+      record.passkeyFailedAttempts = Number(persisted?.passkeyFailedAttempts ?? 0);
+      record.passkeyLockedUntil = persisted?.passkeyLockedUntil
+        ? new Date(persisted.passkeyLockedUntil).toISOString()
+        : null;
     }
-
+    const lockedUntil = record.passkeyLockedUntil ? new Date(record.passkeyLockedUntil) : null;
+    if (lockedUntil && lockedUntil.getTime() > now.getTime()) {
+      throw new ForbiddenException("Complaint access is temporarily locked after repeated invalid credentials.");
+    }
+    if (!this.verifyComplaintPasskey(extractedPasskey, record.passkeyDigest)) {
+      if (typeof anyPrisma.$transaction === "function" && anyPrisma.discreetComplaint?.updateMany) {
+        await anyPrisma.$transaction(async (tx: any) => {
+          const updated = await tx.discreetComplaint.updateMany({
+            where: { id: record.id, passkeyFailedAttempts: { lt: 5 } },
+            data: { passkeyFailedAttempts: { increment: 1 } },
+          });
+          const latest = await tx.discreetComplaint.findUnique({
+            where: { id: record.id },
+            select: { passkeyFailedAttempts: true, passkeyLockedUntil: true },
+          });
+          const attempts = Number(latest?.passkeyFailedAttempts ?? 5);
+          if (attempts >= 5) {
+            const until = new Date(now.getTime() + 15 * 60 * 1000);
+            await tx.discreetComplaint.updateMany({
+              where: { id: record.id, OR: [{ passkeyLockedUntil: null }, { passkeyLockedUntil: { lte: now } }] },
+              data: { passkeyLockedUntil: until },
+            });
+          }
+          void updated;
+        }, { isolationLevel: "Serializable" });
+      } else {
+        record.passkeyFailedAttempts += 1;
+        if (record.passkeyFailedAttempts >= 5) {
+          record.passkeyLockedUntil = new Date(now.getTime() + 15 * 60 * 1000).toISOString();
+        }
+      }
+      throw new ForbiddenException("Invalid check-in passkey for this complaint reference number.");
+    }
+    if (anyPrisma.discreetComplaint?.updateMany) {
+      await anyPrisma.discreetComplaint.updateMany({
+        where: { id: record.id },
+        data: { passkeyFailedAttempts: 0, passkeyLockedUntil: null },
+      });
+    }
+    record.passkeyFailedAttempts = 0;
+    record.passkeyLockedUntil = null;
     return record;
   }
 
@@ -1850,7 +1884,9 @@ export class ComplaintsService {
     return {
       id: record.id,
       referenceNumber: record.referenceNumber,
-      disguisedBackupSerial: record.disguisedBackupSerial,
+      // Never return a legacy serial suffix because older records embedded
+      // their low-entropy passkey in it.
+      disguisedBackupSerial: record.disguisedBackupSerial.split("::")[0],
       reportingMode: record.reportingMode,
       categorySlug: record.categorySlug,
       categoryTitle: record.categoryTitle,
@@ -1901,7 +1937,7 @@ export class ComplaintsService {
   // ---------------------------------------------------------------------------
   async trackByReference(referenceNumber: string, passkey?: string) {
     await this.ensureHydrated();
-    const record = this.resolveRecordAndPasskey(referenceNumber, passkey);
+    const record = await this.resolveRecordAndPasskey(referenceNumber, passkey);
     return {
       found: true,
       allSupportedStatuses: ALL_COMPLAINT_STATUSES,
@@ -1917,7 +1953,7 @@ export class ComplaintsService {
     dto: AddComplainantReplyDto,
   ) {
     await this.ensureHydrated();
-    const record = this.resolveRecordAndPasskey(referenceNumber, dto.passkey);
+    const record = await this.resolveRecordAndPasskey(referenceNumber, dto.passkey);
 
     const cleanMessage = (dto.message ?? "").trim();
     if (cleanMessage.length < 2) {
@@ -2005,7 +2041,7 @@ export class ComplaintsService {
   // ---------------------------------------------------------------------------
   async submitAppeal(referenceNumber: string, dto: SubmitComplaintAppealDto) {
     await this.ensureHydrated();
-    const record = this.resolveRecordAndPasskey(referenceNumber, dto.passkey);
+    const record = await this.resolveRecordAndPasskey(referenceNumber, dto.passkey);
 
     const cleanAppeal = (dto.appealDescription ?? "").trim();
     if (cleanAppeal.length < 10) {
@@ -2020,13 +2056,13 @@ export class ComplaintsService {
         (r) =>
           r.id !== record.assignedReviewerId &&
           (r.role === "SUPER_ADMIN" || r.role === "COMPLAINT_REVIEWER"),
-      ) ?? reviewers[0]!;
+      ) ?? null;
     record.status = "ESCALATED";
     record.retentionExpiresAt = null;
     record.priority = "P1_URGENT";
-    record.assignedReviewerId = escalationReviewer.id;
-    record.assignedReviewerName = escalationReviewer.name;
-    record.publicResolutionSummary = `Appeal (${dto.appealReasonCategory.trim()}) accepted and routed to ${escalationReviewer.name} for independent escalation review.`;
+    record.assignedReviewerId = escalationReviewer?.id ?? null;
+    record.assignedReviewerName = escalationReviewer?.name ?? null;
+    record.publicResolutionSummary = `Appeal (${dto.appealReasonCategory.trim()}) accepted and routed to ${escalationReviewer?.name ?? "the safety review team"} for independent escalation review.`;
     record.complainantMessages.push({
       id: `msg_appeal_${Date.now()}`,
       senderRole:
@@ -2069,14 +2105,19 @@ export class ComplaintsService {
   // ---------------------------------------------------------------------------
   async purgeComplainantMedia(referenceNumber: string, passkey?: string) {
     await this.ensureHydrated();
-    const record = this.resolveRecordAndPasskey(referenceNumber, passkey);
+    const record = await this.resolveRecordAndPasskey(referenceNumber, passkey);
 
     const nowIso = new Date().toISOString();
     for (const ev of record.evidenceFiles) {
       if (!ev.isPurged && ev.driveFileId) {
+        if (!/^[a-f0-9]{64}$/i.test(String(ev.sha256Digest ?? "")) || !Number.isSafeInteger(Number(ev.byteSize)) || Number(ev.byteSize) <= 0) {
+          throw new ServiceUnavailableException("Complaint evidence has no valid integrity receipt; purge was stopped safely.");
+        }
         await this.evidenceStorage.deleteComplaintEvidence(
           ev.driveFileId,
           ev.id,
+          ev.sha256Digest,
+          Number(ev.byteSize),
         );
       }
     }
@@ -2138,10 +2179,14 @@ export class ComplaintsService {
     const {
       passkeyDigest: _passkeyDigest,
       disguisedBackupSerial: _disguisedBackupSerial,
+      passkeyFailedAttempts: _passkeyFailedAttempts,
+      passkeyLockedUntil: _passkeyLockedUntil,
       ...adminSafeRecord
     } = item;
     void _passkeyDigest;
     void _disguisedBackupSerial;
+    void _passkeyFailedAttempts;
+    void _passkeyLockedUntil;
 
     return {
       ...adminSafeRecord,
@@ -2172,7 +2217,7 @@ export class ComplaintsService {
     referenceOrId: string,
     viewerRole?: string,
   ) {
-    const reviewer = this.assertReviewer(token);
+    const reviewer = this.assertComplaintPermission(token, "view", "complaint details");
     await this.ensureHydrated();
     // A request may lower the caller to the ordinary-moderator view, but
     // cannot promote its own authenticated role through a query parameter.
@@ -2221,7 +2266,7 @@ export class ComplaintsService {
       viewerRole?: string;
     } = {},
   ) {
-    const reviewer = this.assertReviewer(token);
+    const reviewer = this.assertComplaintPermission(token, "view", "complaint queue");
     await this.ensureHydrated();
 
     // The viewerRole query is permitted only to request a more restrictive
@@ -2366,7 +2411,7 @@ export class ComplaintsService {
     referenceNumber: string,
     dto: AssignAndClassifyComplaintDto,
   ) {
-    const reviewer = this.assertReviewer(token);
+    const reviewer = this.assertComplaintPermission(token, "edit", "complaint assignment and classification");
     await this.ensureHydrated();
     const record = this.findComplaintByRefOrId(referenceNumber);
 
@@ -2414,8 +2459,9 @@ export class ComplaintsService {
       "assign",
       "ADMIN",
       record.status,
+      reviewer.staffId,
     );
-    return { updated: true, complaint: record };
+    return { updated: true, complaint: this.maskComplaintForRole(record, reviewer.adminRole === "SUPER_ADMIN" ? "SUPER_ADMIN" : "SENIOR_REVIEWER") };
   }
 
   async adminUpdateStatusAndEscalate(
@@ -2423,7 +2469,7 @@ export class ComplaintsService {
     referenceNumber: string,
     dto: UpdateComplaintStatusDto,
   ) {
-    const reviewer = this.assertReviewer(token);
+    const reviewer = this.assertComplaintPermission(token, "approve", "complaint status decisions");
     await this.ensureHydrated();
     const record = this.findComplaintByRefOrId(referenceNumber);
 
@@ -2535,8 +2581,15 @@ export class ComplaintsService {
       "status",
       "ADMIN",
       normalizedStatus,
+      reviewer.staffId,
     );
-    return { updated: true, complaint: record };
+    return {
+      updated: true,
+      complaint: this.maskComplaintForRole(
+        record,
+        reviewer.adminRole === "SUPER_ADMIN" ? "SUPER_ADMIN" : "SENIOR_REVIEWER",
+      ),
+    };
   }
 
   async adminSendMessageToComplainant(
@@ -2544,7 +2597,7 @@ export class ComplaintsService {
     referenceNumber: string,
     dto: SendAdminMessageToComplainantDto,
   ) {
-    const reviewer = this.assertReviewer(token);
+    const reviewer = this.assertComplaintPermission(token, "edit", "complainant messaging");
     await this.ensureHydrated();
     const record = this.findComplaintByRefOrId(referenceNumber);
 
@@ -2584,11 +2637,12 @@ export class ComplaintsService {
       "admin_message",
       "ADMIN",
       record.status,
+      reviewer.staffId,
     );
     return {
       sent: true,
       messageItem: msgItem,
-      complaint: record,
+      complaint: this.maskComplaintForRole(record, reviewer.adminRole === "SUPER_ADMIN" ? "SUPER_ADMIN" : "SENIOR_REVIEWER"),
     };
   }
 
@@ -2597,7 +2651,7 @@ export class ComplaintsService {
     referenceNumber: string,
     dto: AddComplaintInternalNoteDto,
   ) {
-    const reviewer = this.assertReviewer(token);
+    const reviewer = this.assertComplaintPermission(token, "edit", "complaint internal notes");
     await this.ensureHydrated();
     const record = this.findComplaintByRefOrId(referenceNumber);
 
@@ -2633,8 +2687,13 @@ export class ComplaintsService {
       timestamp: record.updatedAt,
     });
 
-    await this.persistComplaintSnapshot(record, "note", "ADMIN", "NOTE_ADDED");
-    return { added: true, internalNote: note, complaint: record };
+    await this.persistComplaintSnapshot(record, "note", "ADMIN", "NOTE_ADDED", reviewer.staffId);
+    const effectiveRole = reviewer.adminRole === "SUPER_ADMIN" ? "SUPER_ADMIN" : "SENIOR_REVIEWER";
+    return {
+      added: true,
+      internalNote: note.visibilityRole === "SUPER_ADMIN" && effectiveRole !== "SUPER_ADMIN" ? null : note,
+      complaint: this.maskComplaintForRole(record, effectiveRole),
+    };
   }
 
   async adminAccessControlledEvidence(
@@ -2642,12 +2701,7 @@ export class ComplaintsService {
     referenceNumber: string,
     dto: AccessComplaintEvidenceDto,
   ) {
-    const reviewer = this.assertReviewer(token);
-    if (dto.viewerRole === "STANDARD_MODERATOR") {
-      throw new ForbiddenException(
-        "Ordinary moderators are not authorised to unblur or export raw complaint evidence (SRS 7.6).",
-      );
-    }
+    const reviewer = this.assertComplaintPermission(token, "export", "controlled complaint evidence");
     await this.ensureHydrated();
     const record = this.findComplaintByRefOrId(referenceNumber);
 
@@ -2691,12 +2745,15 @@ export class ComplaintsService {
       "evidence_access",
       "ADMIN",
       dto.action,
+      reviewer.staffId,
     );
     if (
       !ev.driveFileId ||
       !(await this.evidenceStorage.verifyComplaintEvidenceFile(
         ev.driveFileId,
         ev.id,
+        ev.sha256Digest,
+        ev.byteSize,
       ))
     ) {
       throw new ServiceUnavailableException(
@@ -2725,7 +2782,7 @@ export class ComplaintsService {
       watermarkOverlayText: watermarkStamp,
       expiresAt: new Date(Date.now() + 48 * 3600_000).toISOString(),
       auditTrailUpdated: true,
-      complaint: record,
+      complaint: this.maskComplaintForRole(record, reviewer.adminRole === "SUPER_ADMIN" ? "SUPER_ADMIN" : "SENIOR_REVIEWER"),
     };
   }
 
@@ -2733,42 +2790,27 @@ export class ComplaintsService {
     token: string | undefined,
     dto: MergeDuplicateComplaintsDto,
   ) {
-    const reviewer = this.assertReviewer(token);
-    if (dto.viewerRole === "STANDARD_MODERATOR") {
-      throw new ForbiddenException(
-        "Ordinary moderators cannot merge complaint clusters.",
-      );
-    }
+    const reviewer = this.assertComplaintPermission(token, "edit", "complaint duplicate merging");
     await this.ensureHydrated();
-    const primary = this.findComplaintByRefOrId(dto.primaryReferenceNumber);
+    const primarySource = this.findComplaintByRefOrId(dto.primaryReferenceNumber);
+    const primary = JSON.parse(JSON.stringify(primarySource)) as DiscreetComplaintRecord;
     const primaryNorm = primary.referenceNumber;
 
-    if (
-      !Array.isArray(dto.duplicateReferenceNumbers) ||
-      dto.duplicateReferenceNumbers.length === 0
-    ) {
-      throw new BadRequestException(
-        "Provide at least one duplicate reference number to merge.",
-      );
+    if (!Array.isArray(dto.duplicateReferenceNumbers) || dto.duplicateReferenceNumbers.length === 0) {
+      throw new BadRequestException("Provide at least one duplicate reference number to merge.");
     }
 
-    const clusterId =
-      dto.clusterId?.trim() ||
-      primary.duplicateClusterId ||
-      `CLUST-${randomInt(100, 999)}`;
+    const clusterId = dto.clusterId?.trim() || primary.duplicateClusterId || `CLUST-${randomInt(100, 999)}`;
     primary.duplicateClusterId = clusterId;
     const nowIso = new Date().toISOString();
-
     const mergedRefs: string[] = [];
+    const childRecords: DiscreetComplaintRecord[] = [];
     for (const dupRaw of dto.duplicateReferenceNumbers) {
       const dupNorm = this.normalizeRef(dupRaw);
       if (dupNorm === primaryNorm) continue;
-      const dup = this.complaintsMap.get(dupNorm);
-      if (!dup) {
-        throw new NotFoundException(
-          `Duplicate complaint ${dupNorm} not found.`,
-        );
-      }
+      const source = this.complaintsMap.get(dupNorm);
+      if (!source) throw new NotFoundException(`Duplicate complaint ${dupNorm} not found.`);
+      const dup = JSON.parse(JSON.stringify(source)) as DiscreetComplaintRecord;
       dup.duplicateClusterId = clusterId;
       dup.mergedIntoReference = primaryNorm;
       dup.status = "CLOSED";
@@ -2779,12 +2821,7 @@ export class ComplaintsService {
       dup.publicResolutionSummary = `Merged into primary investigation ${primaryNorm} under Repeat-Offender Cluster #${clusterId}.`;
       dup.updatedAt = nowIso;
       mergedRefs.push(dupNorm);
-      await this.persistComplaintSnapshot(
-        dup,
-        "merge_child",
-        "ADMIN",
-        "CLOSED",
-      );
+      childRecords.push(dup);
     }
 
     const prevHash = primary.auditHistory[0]?.integrityHash ?? "GENESIS";
@@ -2799,19 +2836,29 @@ export class ComplaintsService {
       timestamp: nowIso,
     });
     primary.updatedAt = nowIso;
-    await this.persistComplaintSnapshot(
-      primary,
-      "merge_primary",
-      "ADMIN",
-      clusterId,
-    );
 
+    const anyPrisma = this.prisma as unknown as Record<string, any>;
+    if (typeof anyPrisma.$transaction !== "function") {
+      throw new ServiceUnavailableException("Complaint merge requires transactional database and audit support.");
+    }
+    await anyPrisma.$transaction(async (tx: Record<string, any>) => {
+      for (const child of childRecords) {
+        await this.persistComplaintSnapshot(child, "merge_child", "ADMIN", "CLOSED", reviewer.staffId, tx);
+      }
+      await this.persistComplaintSnapshot(primary, "merge_primary", "ADMIN", clusterId, reviewer.staffId, tx);
+    }, { isolationLevel: "Serializable" });
+
+    for (const child of childRecords) {
+      this.complaintsMap.set(child.referenceNumber.toUpperCase(), child);
+    }
+    this.complaintsMap.set(primary.referenceNumber.toUpperCase(), primary);
+    const effectiveRole = reviewer.adminRole === "SUPER_ADMIN" ? "SUPER_ADMIN" : "SENIOR_REVIEWER";
     return {
       merged: true,
       clusterId,
       primaryReferenceNumber: primaryNorm,
       mergedReferences: mergedRefs,
-      primaryComplaint: primary,
+      primaryComplaint: this.maskComplaintForRole(primary, effectiveRole),
     };
   }
 
@@ -2820,12 +2867,7 @@ export class ComplaintsService {
     referenceNumber: string,
     dto: HandleMaliciousComplaintDto,
   ) {
-    const reviewer = this.assertReviewer(token);
-    if (dto.viewerRole === "STANDARD_MODERATOR") {
-      throw new ForbiddenException(
-        "Ordinary moderators are not authorised to apply malicious-report bucket throttles.",
-      );
-    }
+    const reviewer = this.assertComplaintPermission(token, "approve", "malicious complaint handling");
     await this.ensureHydrated();
     const record = this.findComplaintByRefOrId(referenceNumber);
 
@@ -2871,12 +2913,13 @@ export class ComplaintsService {
       "malicious_guard",
       "ADMIN",
       "REJECTED",
+      reviewer.staffId,
     );
     return {
       handled: true,
       throttledBucket: record.blindedRateLimitBucket,
       cooldownUntil: untilIso,
-      complaint: record,
+      complaint: this.maskComplaintForRole(record, reviewer.adminRole === "SUPER_ADMIN" ? "SUPER_ADMIN" : "SENIOR_REVIEWER"),
     };
   }
 
@@ -2884,24 +2927,13 @@ export class ComplaintsService {
     token: string | undefined,
     dto: UpsertComplaintCategoryConfigDto,
   ) {
-    const reviewer = this.assertReviewer(token);
-    if (
-      dto.viewerRole === "STANDARD_MODERATOR" ||
-      reviewer.adminRole !== "SUPER_ADMIN"
-    ) {
-      throw new ForbiddenException(
-        "Only Super Admin is authorised to modify global complaint categories.",
-      );
+    const reviewer = this.assertComplaintPermission(token, "edit", "complaint category configuration", true);
+    if (reviewer.adminRole !== "SUPER_ADMIN" || !reviewer.permissions.create) {
+      throw new ForbiddenException("Only a Super Admin with both create and edit permissions may upsert complaint categories.");
     }
     await this.ensureHydrated();
-
-    const slug = dto.slug
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9_]/g, "_");
-    if (!slug) {
-      throw new BadRequestException("Category slug cannot be empty.");
-    }
+    const slug = dto.slug.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_");
+    if (!slug) throw new BadRequestException("Category slug cannot be empty.");
     const existing = this.categoriesMap.get(slug);
     const updated: ComplaintCategoryItem = {
       slug,
@@ -2909,79 +2941,51 @@ export class ComplaintsService {
       description: dto.description.trim(),
       iconKey: dto.iconKey?.trim() || existing?.iconKey || "shield",
       flowerType: dto.flowerType?.trim() || existing?.flowerType || "peonySoft",
-      defaultPriority:
-        dto.defaultPriority?.trim() || existing?.defaultPriority || "P2_HIGH",
-      defaultSeverity:
-        dto.defaultSeverity?.trim() || existing?.defaultSeverity || "S2_HIGH",
-      safetyGuidanceText:
-        dto.safetyGuidanceText?.trim() ||
-        existing?.safetyGuidanceText ||
-        "Preserve evidence safely and use Quick Exit if someone is nearby.",
-      legalHelplineNote:
-        dto.legalHelplineNote?.trim() ||
-        existing?.legalHelplineNote ||
-        "Dial 112 or 1091 for immediate police assistance.",
+      defaultPriority: dto.defaultPriority?.trim() || existing?.defaultPriority || "P2_HIGH",
+      defaultSeverity: dto.defaultSeverity?.trim() || existing?.defaultSeverity || "S2_HIGH",
+      safetyGuidanceText: dto.safetyGuidanceText?.trim() || existing?.safetyGuidanceText || "Preserve evidence safely and use Quick Exit if someone is nearby.",
+      legalHelplineNote: dto.legalHelplineNote?.trim() || existing?.legalHelplineNote || "Dial 112 or 1091 for immediate police assistance.",
       isEnabled: dto.isEnabled ?? existing?.isEnabled ?? true,
-      displayOrder:
-        dto.displayOrder ??
-        existing?.displayOrder ??
-        this.categoriesMap.size + 1,
+      displayOrder: dto.displayOrder ?? existing?.displayOrder ?? this.categoriesMap.size + 1,
     };
-    this.categoriesMap.set(slug, updated);
-
     const anyPrisma = this.prisma as unknown as Record<string, any>;
-    if (anyPrisma.complaintCategoryConfig?.upsert) {
-      await anyPrisma.complaintCategoryConfig
-        .upsert({
-          where: { slug },
-          update: {
+    if (!anyPrisma.complaintCategoryConfig?.upsert || typeof anyPrisma.$transaction !== "function") {
+      throw new ServiceUnavailableException("Complaint category and audit persistence are unavailable.");
+    }
+    await anyPrisma.$transaction(async (tx: Record<string, any>) => {
+      await tx.complaintCategoryConfig.upsert({
+        where: { slug },
+        update: {
+          name: updated.name, description: updated.description, iconKey: updated.iconKey,
+          flowerType: updated.flowerType, defaultPriority: updated.defaultPriority,
+          defaultSeverity: updated.defaultSeverity, safetyGuidanceText: updated.safetyGuidanceText,
+          legalHelplineNote: updated.legalHelplineNote, isEnabled: updated.isEnabled,
+          displayOrder: updated.displayOrder, updatedBy: reviewer.reviewerLabel,
+        },
+        create: { ...updated, updatedBy: reviewer.reviewerLabel },
+      });
+      await tx.auditEvent.create({
+        data: {
+          actorType: "ADMIN",
+          actorId: reviewer.staffId,
+          action: "admin.complaint_category.upserted",
+          targetType: "complaint_category",
+          targetId: slug,
+          outcome: updated.isEnabled ? "ENABLED" : "DISABLED",
+          requestId: randomUUID(),
+          redactedMetadata: {
             name: updated.name,
-            description: updated.description,
-            iconKey: updated.iconKey,
-            flowerType: updated.flowerType,
-            defaultPriority: updated.defaultPriority,
-            defaultSeverity: updated.defaultSeverity,
-            safetyGuidanceText: updated.safetyGuidanceText,
-            legalHelplineNote: updated.legalHelplineNote,
             isEnabled: updated.isEnabled,
             displayOrder: updated.displayOrder,
-            updatedBy: reviewer.reviewerLabel,
           },
-          create: {
-            ...updated,
-            updatedBy: reviewer.reviewerLabel,
-          },
-        })
-        .catch(() => null);
-    }
-
-    if (this.prisma.auditEvent?.create) {
-      await this.prisma.auditEvent
-        .create({
-          data: {
-            actorType: "ADMIN",
-            action: "admin.complaint_category.upserted",
-            targetType: "complaint_category",
-            targetId: slug,
-            outcome: updated.isEnabled ? "ENABLED" : "DISABLED",
-            requestId: randomUUID(),
-            redactedMetadata: JSON.parse(
-              JSON.stringify({
-                reviewer: reviewer.reviewerLabel,
-                category: updated,
-              }),
-            ),
-          },
-        })
-        .catch(() => null);
-    }
-
+        },
+      });
+    }, { isolationLevel: "Serializable" });
+    this.categoriesMap.set(slug, updated);
     return {
       updated: true,
       category: updated,
-      categories: Array.from(this.categoriesMap.values()).sort(
-        (a, b) => a.displayOrder - b.displayOrder,
-      ),
+      categories: Array.from(this.categoriesMap.values()).sort((a, b) => a.displayOrder - b.displayOrder),
     };
   }
 
@@ -2989,17 +2993,20 @@ export class ComplaintsService {
     token: string | undefined,
     dto: UpdateComplaintRetentionPolicyDto,
   ) {
-    const reviewer = this.assertReviewer(token);
-    if (
-      dto.viewerRole === "STANDARD_MODERATOR" ||
-      reviewer.adminRole !== "SUPER_ADMIN"
-    ) {
-      throw new ForbiddenException(
-        "Only Super Admin is authorised to modify global DPDP retention policies.",
-      );
+    const reviewer = this.assertComplaintPermission(token, "edit", "complaint retention policy", true);
+    if (reviewer.adminRole !== "SUPER_ADMIN") {
+      throw new ForbiddenException("Only a Super Admin may modify global DPDP retention policies.");
     }
     await this.ensureHydrated();
-
+    for (const [label, value] of [
+      ["closedEvidenceRetentionDays", dto.closedEvidenceRetentionDays],
+      ["rejectedReportRetentionDays", dto.rejectedReportRetentionDays],
+      ["technicalRateLimitLogDays", dto.technicalRateLimitLogDays],
+    ] as const) {
+      if (!Number.isInteger(value) || value < 1 || value > 3650) {
+        throw new BadRequestException(`${label} must be an integer between 1 and 3650 days.`);
+      }
+    }
     const nextPolicy = {
       policyKey: "default",
       closedEvidenceRetentionDays: dto.closedEvidenceRetentionDays,
@@ -3009,17 +3016,10 @@ export class ComplaintsService {
       updatedAt: new Date().toISOString(),
     };
     const anyPrisma = this.prisma as unknown as Record<string, any>;
-    const persist = async (tx: Record<string, any>) => {
-      if (typeof tx.complaintRetentionPolicy?.upsert !== "function") {
-        throw new ServiceUnavailableException(
-          "Retention policy cannot be updated because durable policy storage is unavailable.",
-        );
-      }
-      if (typeof tx.auditEvent?.create !== "function") {
-        throw new ServiceUnavailableException(
-          "Retention policy cannot be updated because audit persistence is unavailable.",
-        );
-      }
+    if (!anyPrisma.complaintRetentionPolicy?.upsert || !anyPrisma.auditEvent?.create || typeof anyPrisma.$transaction !== "function") {
+      throw new ServiceUnavailableException("Complaint retention and audit persistence are unavailable.");
+    }
+    await anyPrisma.$transaction(async (tx: Record<string, any>) => {
       await tx.complaintRetentionPolicy.upsert({
         where: { policyKey: "default" },
         update: {
@@ -3039,25 +3039,21 @@ export class ComplaintsService {
       await tx.auditEvent.create({
         data: {
           actorType: "ADMIN",
+          actorId: reviewer.staffId,
           action: "admin.complaint_retention.updated",
           targetType: "complaint_retention_policy",
           targetId: "default",
           outcome: "UPDATED",
           requestId: randomUUID(),
-          redactedMetadata: nextPolicy,
+          redactedMetadata: {
+            closedEvidenceRetentionDays: nextPolicy.closedEvidenceRetentionDays,
+            rejectedReportRetentionDays: nextPolicy.rejectedReportRetentionDays,
+            technicalRateLimitLogDays: nextPolicy.technicalRateLimitLogDays,
+          },
         },
       });
-    };
-    if (typeof anyPrisma.$transaction === "function") {
-      await anyPrisma.$transaction((tx: Record<string, any>) => persist(tx));
-    } else {
-      await persist(anyPrisma);
-    }
+    }, { isolationLevel: "Serializable" });
     this.retentionPolicy = nextPolicy;
-
-    return {
-      updated: true,
-      retentionPolicy: this.retentionPolicy,
-    };
+    return { updated: true, retentionPolicy: this.retentionPolicy };
   }
 }

@@ -17,12 +17,17 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.location.LocationManager
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioTrack
+import android.media.MediaPlayer
 import android.net.Uri
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -34,10 +39,158 @@ import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 import kotlin.math.PI
 import kotlin.math.exp
 import kotlin.math.sin
 import kotlin.math.sqrt
+
+/**
+ * Deterministic two-stage SOS hardware volume-key state machine (Section 5).
+ * Stage 1: 3 rapid Volume Up presses arm an 8-second confirmation window only.
+ * Stage 2: 3 rapid Volume Down presses within the armed window confirm SOS.
+ * Normal volume adjustment is never consumed or blocked.
+ */
+class SosVolumeKeyStateMachine(
+    private val maxTapDurationMs: Long = 650L,
+    private val minInterTapGapMs: Long = 55L,
+    private val maxInterTapGapMs: Long = 900L,
+    private val maxSequenceSpanMs: Long = 2200L,
+    private val armedWindowDurationMs: Long = 8000L,
+    private val cooldownDurationMs: Long = 10000L
+) {
+    enum class State {
+        IDLE,
+        ARMED_AWAITING_VOLUME_DOWN
+    }
+
+    var state: State = State.IDLE
+        private set
+
+    var armedAtMs: Long = 0L
+        private set
+
+    var armedExpiresAtMs: Long = 0L
+        private set
+
+    var lastConfirmedAtMs: Long = 0L
+        private set
+
+    private val volumeUpTaps = mutableListOf<Long>()
+    private val volumeDownTaps = mutableListOf<Long>()
+    private var lastKeyDownMs: Long = 0L
+    private var lastKeyDownCode: Int = -1
+    private var holdDetected: Boolean = false
+
+    fun reset(): Boolean {
+        val wasArmed = state == State.ARMED_AWAITING_VOLUME_DOWN
+        state = State.IDLE
+        armedAtMs = 0L
+        armedExpiresAtMs = 0L
+        volumeUpTaps.clear()
+        volumeDownTaps.clear()
+        lastKeyDownMs = 0L
+        lastKeyDownCode = -1
+        holdDetected = false
+        return wasArmed
+    }
+
+    fun checkExpired(nowMs: Long): Boolean {
+        if (state == State.ARMED_AWAITING_VOLUME_DOWN && nowMs > armedExpiresAtMs) {
+            reset()
+            return true
+        }
+        return false
+    }
+
+    fun onKeyDown(keyCode: Int, repeatCount: Int, isLongPress: Boolean, nowMs: Long) {
+        checkExpired(nowMs)
+        if (repeatCount > 0 || isLongPress) {
+            holdDetected = true
+            volumeUpTaps.clear()
+            volumeDownTaps.clear()
+            return
+        }
+        if (lastKeyDownMs == 0L || keyCode != lastKeyDownCode || nowMs - lastKeyDownMs >= minInterTapGapMs) {
+            holdDetected = false
+            lastKeyDownMs = nowMs
+            lastKeyDownCode = keyCode
+        }
+    }
+
+    /**
+     * Returns:
+     * - "ARMED" when 3x Volume Up completes Stage 1
+     * - "CONFIRMED" when 3x Volume Down completes Stage 2 within the armed window
+     * - "CANCELLED" when an armed state is invalidated by wrong key or timeout
+     * - null when normal volume adjustment occurs without state transition
+     */
+    fun onKeyUp(keyCode: Int, nowMs: Long): String? {
+        val expired = checkExpired(nowMs)
+        val pressDuration = (nowMs - lastKeyDownMs).coerceAtLeast(0L)
+        if (holdDetected || pressDuration > maxTapDurationMs) {
+            holdDetected = false
+            volumeUpTaps.clear()
+            volumeDownTaps.clear()
+            return if (expired) "CANCELLED" else null
+        }
+        holdDetected = false
+
+        if (nowMs - lastConfirmedAtMs < cooldownDurationMs) {
+            return if (expired) "CANCELLED" else null
+        }
+
+        if (state == State.IDLE) {
+            if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+                volumeDownTaps.clear()
+                if (volumeUpTaps.isNotEmpty()) {
+                    val gap = nowMs - volumeUpTaps.last()
+                    if (gap < minInterTapGapMs || gap > maxInterTapGapMs) {
+                        volumeUpTaps.clear()
+                    }
+                }
+                volumeUpTaps.removeAll { nowMs - it > maxSequenceSpanMs }
+                volumeUpTaps.add(nowMs)
+                if (volumeUpTaps.size >= 3) {
+                    volumeUpTaps.clear()
+                    state = State.ARMED_AWAITING_VOLUME_DOWN
+                    armedAtMs = nowMs
+                    armedExpiresAtMs = nowMs + armedWindowDurationMs
+                    return "ARMED"
+                }
+            } else if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+                // Pressing Volume Down while IDLE never arms or triggers SOS
+                volumeUpTaps.clear()
+                volumeDownTaps.clear()
+            }
+            return if (expired) "CANCELLED" else null
+        }
+
+        // State == ARMED_AWAITING_VOLUME_DOWN
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            if (volumeDownTaps.isNotEmpty()) {
+                val gap = nowMs - volumeDownTaps.last()
+                if (gap < minInterTapGapMs || gap > maxInterTapGapMs) {
+                    volumeDownTaps.clear()
+                }
+            }
+            volumeDownTaps.removeAll { nowMs - it > maxSequenceSpanMs }
+            volumeDownTaps.add(nowMs)
+            if (volumeDownTaps.size >= 3 && nowMs <= armedExpiresAtMs) {
+                reset()
+                lastConfirmedAtMs = nowMs
+                return "CONFIRMED"
+            }
+            return null
+        } else if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+            // Pressing Volume Up while awaiting Volume Down cancels the armed window
+            reset()
+            return "CANCELLED"
+        }
+
+        return null
+    }
+}
 
 class MainActivity : FlutterActivity(), SensorEventListener {
     private val channelName = "sakhi/native_actions"
@@ -47,9 +200,12 @@ class MainActivity : FlutterActivity(), SensorEventListener {
 
     private var methodChannel: MethodChannel? = null
     private var pendingPermissionResult: MethodChannel.Result? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private var sensorManager: SensorManager? = null
     private var accelerometer: Sensor? = null
+    private var audioManager: AudioManager? = null
+    private var audioFocusRequest: AudioFocusRequest? = null
 
     private var powerShortcutEnabled: Boolean = true
     private var shakeShortcutEnabled: Boolean = false
@@ -58,62 +214,81 @@ class MainActivity : FlutterActivity(), SensorEventListener {
     private val shakeTimestamps = mutableListOf<Long>()
     private var lastTriggerTimeMs: Long = 0L
 
-    // Distinct short-tap tracking (prevents holding volume key from triggering SOS,
-    // while reliably capturing rapid 3x clicks of Volume Up/Down or Power)
-    private val hardwareKeyTimestamps = mutableListOf<Long>()
-    private var lastVolumeKeyDownMs: Long = 0L
-    private var lastVolumeKeyCode: Int = -1
-    private var volumeKeyHoldDetected: Boolean = false
+    // Two-Stage SOS Hardware Volume-Key State Machine (Section 5)
+    private val sosVolumeStateMachine = SosVolumeKeyStateMachine()
+    private val sosExpiryRunnable = Runnable {
+        if (sosVolumeStateMachine.checkExpired(System.currentTimeMillis())) {
+            methodChannel?.invokeMethod(
+                "onSosVolumeShortcutCancelled",
+                mapOf("reason" to "TIMEOUT")
+            )
+        }
+    }
 
-    // Background volume & power button tracking
-    private val powerScreenTimestamps = mutableListOf<Long>()
-    private val backgroundVolumeTimestamps = mutableListOf<Long>()
-    private var lastBackgroundVolumeChangeMs: Long = 0L
-    private var screenReceiverRegistered = false
+    private var noisyAudioReceiverRegistered = false
     private var isActivityResumed = false
 
     private val wellnessChannelId = "sakhi_wellness_discreet_channel"
     private val wellnessNotificationId = 9215
 
-    // Multi-Track Peaceful Polyphonic Ambient Meditation Engine (5 Rotating Soundscapes)
+    // Meditation Audio Engine (supports verified local cached file playback + 42-track harmonic fallback)
     @Volatile
     private var meditationPlaying = false
     @Volatile
+    private var meditationPaused = false
+    @Volatile
     private var meditationVolume = 0.65f
+    @Volatile
+    private var isDuckedForVoice = false
     @Volatile
     private var meditationTrackIndex = 0
     private var sessionRotationCounter = 0
     private var meditationThread: Thread? = null
     private var meditationAudioTrack: AudioTrack? = null
+    private var meditationMediaPlayer: MediaPlayer? = null
 
-    private val screenAndVolumeReceiver = object : BroadcastReceiver() {
+    private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+        when (focusChange) {
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                stopMeditationAudioAll()
+                mainHandler.post {
+                    methodChannel?.invokeMethod(
+                        "onMeditationAudioInterruption",
+                        mapOf("type" to "AUDIOFOCUS_LOSS", "action" to "STOPPED")
+                    )
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                pauseMeditationAudioAll()
+                mainHandler.post {
+                    methodChannel?.invokeMethod(
+                        "onMeditationAudioInterruption",
+                        mapOf("type" to "PHONE_CALL_OR_TRANSIENT_LOSS", "action" to "PAUSED")
+                    )
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                isDuckedForVoice = true
+                applyEffectiveMeditationVolume()
+            }
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                isDuckedForVoice = false
+                applyEffectiveMeditationVolume()
+            }
+        }
+    }
+
+    private val noisyAudioReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (!powerShortcutEnabled) return
-            val action = intent?.action ?: return
-            val now = System.currentTimeMillis()
-
-            if (action == Intent.ACTION_SCREEN_OFF || action == Intent.ACTION_SCREEN_ON) {
-                powerScreenTimestamps.removeAll { now - it > 5000L }
-                powerScreenTimestamps.add(now)
-                if (powerScreenTimestamps.size >= 3 && now - lastTriggerTimeMs > 3000L) {
-                    powerScreenTimestamps.clear()
-                    lastTriggerTimeMs = now
-                    fireDiscreetSosTrigger("POWER_BUTTON_3X", now, null)
-                }
-            } else if (action == "android.media.VOLUME_CHANGED_ACTION" && !isActivityResumed) {
-                val delta = now - lastBackgroundVolumeChangeMs
-                lastBackgroundVolumeChangeMs = now
-                // Ignore rapid auto-repeat events (< 95ms) when user holds down volume button
-                if (delta in 1L..95L) {
-                    backgroundVolumeTimestamps.clear()
-                    return
-                }
-                backgroundVolumeTimestamps.removeAll { now - it > 3500L }
-                backgroundVolumeTimestamps.add(now)
-                if (backgroundVolumeTimestamps.size >= 3 && now - lastTriggerTimeMs > 3000L) {
-                    backgroundVolumeTimestamps.clear()
-                    lastTriggerTimeMs = now
-                    fireDiscreetSosTrigger("HARDWARE_KEY_3X", now, null)
+            if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+                if (meditationPlaying) {
+                    pauseMeditationAudioAll()
+                    mainHandler.post {
+                        methodChannel?.invokeMethod(
+                            "onMeditationAudioInterruption",
+                            mapOf("type" to "HEADPHONE_DISCONNECTED", "action" to "PAUSED")
+                        )
+                    }
                 }
             }
         }
@@ -125,8 +300,9 @@ class MainActivity : FlutterActivity(), SensorEventListener {
         super.onCreate(savedInstanceState)
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as? SensorManager
         accelerometer = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
         createSosNotificationChannel()
-        registerPowerAndVolumeReceiverIfNeeded()
+        registerNoisyAudioReceiverIfNeeded()
         handleSosNotificationIntent(intent)
     }
 
@@ -182,7 +358,8 @@ class MainActivity : FlutterActivity(), SensorEventListener {
 
                 "openWhatsAppChat" -> {
                     val rawPhone = call.argument<String>("phone") ?: ""
-                    val message = call.argument<String>("message") ?: "Hello! I found your women-owned business on Sakhi."
+                    val message = call.argument<String>("message")
+                        ?: "Hello! I found your women-owned business on Sakhi."
                     val preferBusiness = call.argument<Boolean>("preferBusiness")
                     var digits = rawPhone.replace(Regex("[^0-9]"), "")
                     if (digits.length == 10) {
@@ -216,7 +393,8 @@ class MainActivity : FlutterActivity(), SensorEventListener {
                                 launched = true
                                 break
                             }
-                        } catch (_: Exception) {}
+                        } catch (_: Exception) {
+                        }
                     }
                     if (!launched) {
                         try {
@@ -431,6 +609,9 @@ class MainActivity : FlutterActivity(), SensorEventListener {
                     shakeShortcutEnabled = call.argument<Boolean>("shakeShortcutEnabled") ?: false
                     val sensitivity = call.argument<Double>("shakeThresholdG") ?: 2.35
                     shakeThresholdG = sensitivity.toFloat().coerceIn(1.5f, 4.0f)
+                    if (!powerShortcutEnabled) {
+                        cancelArmedSosVolumeShortcut("SHORTCUT_DISABLED")
+                    }
                     updateSensorRegistration()
                     result.success(
                         mapOf(
@@ -441,13 +622,31 @@ class MainActivity : FlutterActivity(), SensorEventListener {
                     )
                 }
 
+                "getSosVolumeShortcutState" -> {
+                    val now = System.currentTimeMillis()
+                    sosVolumeStateMachine.checkExpired(now)
+                    result.success(
+                        mapOf(
+                            "state" to sosVolumeStateMachine.state.name,
+                            "armedAtMs" to sosVolumeStateMachine.armedAtMs,
+                            "expiresAtMs" to sosVolumeStateMachine.armedExpiresAtMs,
+                            "remainingMs" to (sosVolumeStateMachine.armedExpiresAtMs - now).coerceAtLeast(0L)
+                        )
+                    )
+                }
+
+                "cancelArmedSosVolumeShortcut" -> {
+                    cancelArmedSosVolumeShortcut("USER_CANCELLED")
+                    result.success(mapOf("cancelled" to true))
+                }
+
                 "vibrateFeedback" -> {
                     vibrateAlert()
                     result.success(true)
                 }
 
                 "showSosPullDownNotification" -> {
-                    val source = call.argument<String>("source") ?: "HARDWARE_KEY_3X"
+                    val source = call.argument<String>("source") ?: "VOLUME_UP_3X_THEN_DOWN_3X"
                     showHighPrioritySosNotification(source)
                     result.success(true)
                 }
@@ -455,38 +654,69 @@ class MainActivity : FlutterActivity(), SensorEventListener {
                 "startMeditationAudio" -> {
                     val vol = (call.argument<Double>("volume") ?: 0.65).toFloat().coerceIn(0f, 1f)
                     val requestedTrack = call.argument<Int>("trackIndex") ?: -1
+                    val localFilePath = call.argument<String>("localFilePath")?.trim()
                     meditationVolume = vol
-                    meditationTrackIndex = if (requestedTrack in 0..4) {
+                    meditationTrackIndex = if (requestedTrack in 0..41) {
                         requestedTrack
                     } else {
-                        (sessionRotationCounter++) % 5
+                        (sessionRotationCounter++) % 42
+                    }
+                    requestMeditationAudioFocus()
+                    if (!localFilePath.isNullOrEmpty() && File(localFilePath).isFile) {
+                        val startedFile = startLocalFileMeditationAudio(localFilePath)
+                        if (startedFile) {
+                            result.success(
+                                mapOf(
+                                    "playing" to true,
+                                    "mode" to "LOCAL_CACHED_FILE",
+                                    "trackIndex" to meditationTrackIndex,
+                                    "localFilePath" to localFilePath
+                                )
+                            )
+                            return@setMethodCallHandler
+                        }
                     }
                     startSynthesizedMeditationAudio()
                     result.success(
                         mapOf(
                             "playing" to true,
+                            "mode" to "SYNTHESIZED_FALLBACK",
                             "trackIndex" to meditationTrackIndex
                         )
                     )
                 }
 
-                "pauseMeditationAudio", "stopMeditationAudio" -> {
-                    stopSynthesizedMeditationAudio()
+                "pauseMeditationAudio" -> {
+                    pauseMeditationAudioAll()
+                    result.success(true)
+                }
+
+                "resumeMeditationAudio" -> {
+                    resumeMeditationAudioAll()
+                    result.success(true)
+                }
+
+                "stopMeditationAudio" -> {
+                    stopMeditationAudioAll()
+                    abandonMeditationAudioFocus()
+                    result.success(true)
+                }
+
+                "setMeditationDucking" -> {
+                    isDuckedForVoice = call.argument<Boolean>("ducked") ?: false
+                    applyEffectiveMeditationVolume()
                     result.success(true)
                 }
 
                 "setMeditationVolume" -> {
                     val vol = (call.argument<Double>("volume") ?: 0.65).toFloat().coerceIn(0f, 1f)
                     meditationVolume = vol
-                    try {
-                        meditationAudioTrack?.setVolume(vol)
-                    } catch (_: Exception) {
-                    }
+                    applyEffectiveMeditationVolume()
                     result.success(true)
                 }
 
                 "setMeditationTrack" -> {
-                    val idx = (call.argument<Int>("trackIndex") ?: 0).coerceIn(0, 4)
+                    val idx = (call.argument<Int>("trackIndex") ?: 0).coerceIn(0, 41)
                     meditationTrackIndex = idx
                     result.success(mapOf("trackIndex" to meditationTrackIndex))
                 }
@@ -547,6 +777,62 @@ class MainActivity : FlutterActivity(), SensorEventListener {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun cancelArmedSosVolumeShortcut(reason: String) {
+        mainHandler.removeCallbacks(sosExpiryRunnable)
+        if (sosVolumeStateMachine.reset()) {
+            mainHandler.post {
+                methodChannel?.invokeMethod(
+                    "onSosVolumeShortcutCancelled",
+                    mapOf("reason" to reason)
+                )
+            }
+        }
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val code = event.keyCode
+        if (powerShortcutEnabled &&
+            (code == KeyEvent.KEYCODE_VOLUME_UP || code == KeyEvent.KEYCODE_VOLUME_DOWN)
+        ) {
+            val now = System.currentTimeMillis()
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                sosVolumeStateMachine.onKeyDown(code, event.repeatCount, event.isLongPress, now)
+            } else if (event.action == KeyEvent.ACTION_UP) {
+                when (sosVolumeStateMachine.onKeyUp(code, now)) {
+                    "ARMED" -> {
+                        mainHandler.removeCallbacks(sosExpiryRunnable)
+                        mainHandler.postDelayed(sosExpiryRunnable, 8100L)
+                        // Subtle single vibration cue indicating Stage 1 armed
+                        vibrateShortCue()
+                        methodChannel?.invokeMethod(
+                            "onSosVolumeShortcutArmed",
+                            mapOf(
+                                "armedAtMs" to sosVolumeStateMachine.armedAtMs,
+                                "expiresAtMs" to sosVolumeStateMachine.armedExpiresAtMs,
+                                "windowSeconds" to 8,
+                                "instruction" to "SOS Armed: Press Volume Down 3 times within 8 seconds to confirm emergency dispatch, or tap Cancel."
+                            )
+                        )
+                    }
+                    "CONFIRMED" -> {
+                        mainHandler.removeCallbacks(sosExpiryRunnable)
+                        lastTriggerTimeMs = now
+                        fireDiscreetSosTrigger("VOLUME_UP_3X_THEN_DOWN_3X", now, null)
+                    }
+                    "CANCELLED" -> {
+                        mainHandler.removeCallbacks(sosExpiryRunnable)
+                        methodChannel?.invokeMethod(
+                            "onSosVolumeShortcutCancelled",
+                            mapOf("reason" to "SEQUENCE_RESET")
+                        )
+                    }
+                }
+            }
+        }
+        // Always delegate to super so normal volume adjustment and accessibility controls work
+        return super.dispatchKeyEvent(event)
     }
 
     override fun onRequestPermissionsResult(
@@ -638,46 +924,6 @@ class MainActivity : FlutterActivity(), SensorEventListener {
         }
     }
 
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        val code = event.keyCode
-        if (powerShortcutEnabled &&
-            (code == KeyEvent.KEYCODE_VOLUME_DOWN ||
-                code == KeyEvent.KEYCODE_VOLUME_UP ||
-                code == KeyEvent.KEYCODE_POWER)
-        ) {
-            val now = System.currentTimeMillis()
-            if (event.action == KeyEvent.ACTION_DOWN) {
-                // Ignore key auto-repeats & long-presses when user holds down volume button
-                if (event.repeatCount > 0 || event.isLongPress) {
-                    volumeKeyHoldDetected = true
-                    hardwareKeyTimestamps.clear()
-                    return super.dispatchKeyEvent(event)
-                }
-                if (lastVolumeKeyDownMs == 0L || code != lastVolumeKeyCode || now - lastVolumeKeyDownMs > 50L) {
-                    volumeKeyHoldDetected = false
-                    lastVolumeKeyDownMs = now
-                    lastVolumeKeyCode = code
-                }
-            } else if (event.action == KeyEvent.ACTION_UP) {
-                val pressDurationMs = (now - lastVolumeKeyDownMs).coerceAtLeast(0L)
-                if (!volumeKeyHoldDetected && pressDurationMs <= 850L) {
-                    hardwareKeyTimestamps.removeAll { now - it > 3500L }
-                    hardwareKeyTimestamps.add(now)
-                    if (hardwareKeyTimestamps.size >= 3 && now - lastTriggerTimeMs > 3000L) {
-                        hardwareKeyTimestamps.clear()
-                        lastTriggerTimeMs = now
-                        fireDiscreetSosTrigger("HARDWARE_KEY_3X", now, null)
-                    }
-                } else if (pressDurationMs > 850L) {
-                    // Held too long -> clear tap sequence so holding never triggers SOS
-                    hardwareKeyTimestamps.clear()
-                }
-                volumeKeyHoldDetected = false
-            }
-        }
-        return super.dispatchKeyEvent(event)
-    }
-
     private fun fireDiscreetSosTrigger(source: String, timestamp: Long, gForce: Double?) {
         vibrateAlert()
         showHighPrioritySosNotification(source)
@@ -700,7 +946,7 @@ class MainActivity : FlutterActivity(), SensorEventListener {
                 "Sakhi Emergency SOS Confirmation",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "High-priority pull-down confirmation alert for 3x Power/Volume SOS triggers"
+                description = "High-priority pull-down confirmation alert for confirmed 2-stage SOS triggers"
                 enableVibration(true)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
@@ -871,7 +1117,7 @@ class MainActivity : FlutterActivity(), SensorEventListener {
 
             builder
                 .setSmallIcon(android.R.drawable.ic_dialog_alert)
-                .setContentTitle("Sakhi SOS Shortcut Detected ($cleanSource)")
+                .setContentTitle("Sakhi SOS Shortcut Confirmed ($cleanSource)")
                 .setContentText("Tap immediately to confirm & dispatch live SOS alert to your trusted contacts.")
                 .setContentIntent(pendingIntent)
                 .setAutoCancel(true)
@@ -887,9 +1133,137 @@ class MainActivity : FlutterActivity(), SensorEventListener {
         }
     }
 
+    private fun requestMeditationAudioFocus() {
+        val am = audioManager ?: return
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .build()
+                    )
+                    .setAcceptsDelayedFocusGain(true)
+                    .setWillPauseWhenDucked(false)
+                    .setOnAudioFocusChangeListener(audioFocusListener, mainHandler)
+                    .build()
+                audioFocusRequest = req
+                am.requestAudioFocus(req)
+            } else {
+                @Suppress("DEPRECATION")
+                am.requestAudioFocus(
+                    audioFocusListener,
+                    AudioManager.STREAM_MUSIC,
+                    AudioManager.AUDIOFOCUS_GAIN
+                )
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun abandonMeditationAudioFocus() {
+        val am = audioManager ?: return
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                audioFocusRequest?.let { am.abandonAudioFocusRequest(it) }
+            } else {
+                @Suppress("DEPRECATION")
+                am.abandonAudioFocus(audioFocusListener)
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun applyEffectiveMeditationVolume() {
+        val effective = (if (isDuckedForVoice) meditationVolume * 0.38f else meditationVolume).coerceIn(0f, 1f)
+        try {
+            meditationAudioTrack?.setVolume(effective)
+        } catch (_: Exception) {
+        }
+        try {
+            meditationMediaPlayer?.setVolume(effective, effective)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun startLocalFileMeditationAudio(localFilePath: String): Boolean {
+        stopMeditationAudioAll()
+        return try {
+            val mp = MediaPlayer().apply {
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                )
+                setDataSource(localFilePath)
+                isLooping = true
+                prepare()
+            }
+            val effective = (if (isDuckedForVoice) meditationVolume * 0.38f else meditationVolume).coerceIn(0f, 1f)
+            mp.setVolume(effective, effective)
+            mp.start()
+            meditationMediaPlayer = mp
+            meditationPlaying = true
+            meditationPaused = false
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun pauseMeditationAudioAll() {
+        meditationPaused = true
+        try {
+            if (meditationMediaPlayer?.isPlaying == true) {
+                meditationMediaPlayer?.pause()
+            }
+        } catch (_: Exception) {
+        }
+        try {
+            meditationAudioTrack?.pause()
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun resumeMeditationAudioAll() {
+        if (!meditationPlaying) return
+        meditationPaused = false
+        try {
+            meditationMediaPlayer?.start()
+        } catch (_: Exception) {
+        }
+        try {
+            meditationAudioTrack?.play()
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun stopMeditationAudioAll() {
+        meditationPlaying = false
+        meditationPaused = false
+        try {
+            meditationMediaPlayer?.stop()
+        } catch (_: Exception) {
+        }
+        try {
+            meditationMediaPlayer?.release()
+        } catch (_: Exception) {
+        }
+        meditationMediaPlayer = null
+        try {
+            meditationThread?.join(250L)
+        } catch (_: Exception) {
+        }
+        meditationThread = null
+        meditationAudioTrack = null
+    }
+
     private fun startSynthesizedMeditationAudio() {
-        if (meditationPlaying) return
+        stopMeditationAudioAll()
         meditationPlaying = true
+        meditationPaused = false
         meditationThread = Thread {
             val sampleRate = 24000
             val bufferSamples = 2400
@@ -920,7 +1294,7 @@ class MainActivity : FlutterActivity(), SensorEventListener {
             } else {
                 @Suppress("DEPRECATION")
                 AudioTrack(
-                    android.media.AudioManager.STREAM_MUSIC,
+                    AudioManager.STREAM_MUSIC,
                     sampleRate,
                     AudioFormat.CHANNEL_OUT_MONO,
                     AudioFormat.ENCODING_PCM_16BIT,
@@ -931,54 +1305,50 @@ class MainActivity : FlutterActivity(), SensorEventListener {
 
             meditationAudioTrack = track
             try {
-                track.setVolume(meditationVolume)
+                applyEffectiveMeditationVolume()
                 track.play()
                 val pcm = ShortArray(bufferSamples)
                 var sampleIndex = 0L
-                // 5 synthesized polyphonic harmonic scales (Hz) for rotating ambient drones
                 val scales = arrayOf(
-                    // 0: 432 Hz Warm Harmonic Drone (C-pentatonic harmonic ratios)
-                    doubleArrayOf(256.0, 288.0, 320.0, 384.0, 426.7, 512.0),
-                    // 1: Soft Major-7th Ambient Pad (Fmaj7 chordal intervals)
+                    doubleArrayOf(216.0, 288.0, 324.0, 384.0, 432.0, 512.0),
                     doubleArrayOf(174.61, 220.0, 261.63, 329.63, 392.0, 440.0),
-                    // 2: Open-Fifth Gentle Swell Drone (G-major fifths & octaves)
                     doubleArrayOf(196.0, 246.94, 293.66, 392.0, 493.88, 587.33),
-                    // 3: Pentatonic Harmonic Fifths (Just-intonation pentatonic ratios)
                     doubleArrayOf(240.0, 270.0, 300.0, 360.0, 400.0, 480.0),
-                    // 4: Low-Frequency Restorative Hum (Warm lower-register harmonic intervals)
-                    doubleArrayOf(144.0, 216.0, 288.0, 324.0, 384.0, 432.0)
+                    doubleArrayOf(144.0, 216.0, 288.0, 324.0, 384.0, 432.0),
+                    doubleArrayOf(264.0, 330.0, 396.0, 528.0, 660.0, 792.0)
                 )
                 while (meditationPlaying) {
-                    val activeScale = scales[meditationTrackIndex.coerceIn(0, scales.size - 1)]
+                    if (meditationPaused) {
+                        Thread.sleep(80L)
+                        continue
+                    }
+                    val activeScale = scales[meditationTrackIndex % scales.size]
+                    val effVol = if (isDuckedForVoice) meditationVolume * 0.38f else meditationVolume
                     for (i in 0 until bufferSamples) {
                         val t = sampleIndex.toDouble() / sampleRate.toDouble()
-                        // Slow, gentle breathing pad (root + fifth at low amplitude, no dissonant beating)
                         val padRoot = activeScale[0] * 0.5
                         val padFifth = padRoot * 1.5
                         val breathSwell = 0.45 + 0.35 * sin(2.0 * PI * 0.08 * t)
                         val warmPad = (sin(2.0 * PI * padRoot * t) * 0.30 +
                             sin(2.0 * PI * padFifth * t) * 0.16) * breathSwell
 
-                        // Pluck/strike a soft decaying bell/piano note every 3.5 seconds
                         val noteInterval = 3.5
                         val noteIdx = ((t / noteInterval).toInt()) % activeScale.size
                         val noteAge = t % noteInterval
                         val noteFreq = activeScale[noteIdx]
-                        // Smooth 120ms attack + exponential decay so there is never a harsh buzz
                         val attack = (noteAge / 0.12).coerceIn(0.0, 1.0)
                         val decay = exp(-noteAge * 1.35)
                         val bellEnv = attack * decay
                         val bellTone = (sin(2.0 * PI * noteFreq * t) * 0.42 +
                             sin(2.0 * PI * (noteFreq * 2.0) * t) * 0.12 * exp(-noteAge * 2.4)) * bellEnv
 
-                        // Secondary overlapping harmony note offset by 1.75s
                         val t2 = t + 1.75
                         val noteIdx2 = ((t2 / noteInterval).toInt() + 2) % activeScale.size
                         val noteAge2 = t2 % noteInterval
                         val attack2 = (noteAge2 / 0.15).coerceIn(0.0, 1.0)
                         val bellTone2 = sin(2.0 * PI * activeScale[noteIdx2] * t) * 0.22 * attack2 * exp(-noteAge2 * 1.5)
 
-                        val mixed = (warmPad + bellTone + bellTone2) * meditationVolume
+                        val mixed = (warmPad + bellTone + bellTone2) * effVol
                         pcm[i] = (mixed * 7200.0).toInt().coerceIn(-28000, 28000).toShort()
                         sampleIndex++
                     }
@@ -998,58 +1368,49 @@ class MainActivity : FlutterActivity(), SensorEventListener {
         }
     }
 
-    private fun stopSynthesizedMeditationAudio() {
-        meditationPlaying = false
-        try {
-            meditationThread?.join(250L)
-        } catch (_: Exception) {
-        }
-        meditationThread = null
-        meditationAudioTrack = null
-    }
-
     override fun onResume() {
         super.onResume()
         isActivityResumed = true
+        // Reset any partially armed volume-key sequence across lifecycle transitions (Section 5.6)
+        cancelArmedSosVolumeShortcut("ACTIVITY_RESUMED")
         updateSensorRegistration()
     }
 
     override fun onPause() {
         isActivityResumed = false
+        // Reset armed volume-key sequence on pause so stale armed states never linger (Section 5.6)
+        cancelArmedSosVolumeShortcut("ACTIVITY_PAUSED")
         super.onPause()
-        // Keep accelerometer registered when shake shortcut is enabled so background shake works
         if (!shakeShortcutEnabled) {
             sensorManager?.unregisterListener(this)
         }
     }
 
     override fun onDestroy() {
-        stopSynthesizedMeditationAudio()
+        mainHandler.removeCallbacks(sosExpiryRunnable)
+        stopMeditationAudioAll()
+        abandonMeditationAudioFocus()
         sensorManager?.unregisterListener(this)
-        if (screenReceiverRegistered) {
+        if (noisyAudioReceiverRegistered) {
             try {
-                unregisterReceiver(screenAndVolumeReceiver)
+                unregisterReceiver(noisyAudioReceiver)
             } catch (_: Exception) {
             }
-            screenReceiverRegistered = false
+            noisyAudioReceiverRegistered = false
         }
         super.onDestroy()
     }
 
-    private fun registerPowerAndVolumeReceiverIfNeeded() {
-        if (screenReceiverRegistered) return
+    private fun registerNoisyAudioReceiverIfNeeded() {
+        if (noisyAudioReceiverRegistered) return
         try {
-            val filter = IntentFilter().apply {
-                addAction(Intent.ACTION_SCREEN_OFF)
-                addAction(Intent.ACTION_SCREEN_ON)
-                addAction("android.media.VOLUME_CHANGED_ACTION")
-            }
+            val filter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                registerReceiver(screenAndVolumeReceiver, filter, Context.RECEIVER_EXPORTED)
+                registerReceiver(noisyAudioReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
             } else {
-                registerReceiver(screenAndVolumeReceiver, filter)
+                registerReceiver(noisyAudioReceiver, filter)
             }
-            screenReceiverRegistered = true
+            noisyAudioReceiverRegistered = true
         } catch (_: Exception) {
         }
     }
@@ -1094,6 +1455,27 @@ class MainActivity : FlutterActivity(), SensorEventListener {
         // No-op
     }
 
+    private fun vibrateShortCue() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vm = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                vm?.defaultVibrator?.vibrate(
+                    VibrationEffect.createOneShot(90L, VibrationEffect.DEFAULT_AMPLITUDE)
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                val v = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    v?.vibrate(VibrationEffect.createOneShot(90L, VibrationEffect.DEFAULT_AMPLITUDE))
+                } else {
+                    @Suppress("DEPRECATION")
+                    v?.vibrate(90L)
+                }
+            }
+        } catch (_: Exception) {
+        }
+    }
+
     private fun vibrateAlert() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -1115,7 +1497,6 @@ class MainActivity : FlutterActivity(), SensorEventListener {
         }
     }
 }
-
 
 class DiscreetWellnessReminderReceiver : BroadcastReceiver() {
     companion object {
@@ -1143,7 +1524,6 @@ class DiscreetWellnessReminderReceiver : BroadcastReceiver() {
                 PendingIntent.FLAG_UPDATE_CURRENT
             }
             val pendingIntent = PendingIntent.getBroadcast(context, REQUEST_CODE, intent, flags)
-            // Cancel any previous pending alarm first to prevent duplicates
             alarmManager.cancel(pendingIntent)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
                 alarmManager.setWindow(

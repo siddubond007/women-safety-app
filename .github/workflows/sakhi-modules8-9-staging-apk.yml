@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - module-8-to-9-implementations-and-upgrades
+      - gemini/sakhi-comprehensive-fixes-20261107
+      - release/staging-apk-hosted-20261112
     paths:
       - "backend/**"
       - "super-admin/**"
