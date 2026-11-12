@@ -269,13 +269,8 @@ class _SakhiGentleWomanPainter extends CustomPainter {
   }
 }
 
-/// Section 9.1 — Home Hero Woman Animation:
-/// 1. Begins facing away (backside with flowing hair & floral gajra), then smoothly
-///    turns toward the viewer (`0.0 -> 1.0` over 1.75 seconds, once per reveal).
-/// 2. After turning to the front, maintains a subtle, continuous slow-breeze hair
-///    and dupatta motion without restarting the turn.
-/// 3. Respects `MediaQuery.maybeDisableAnimationsOf(context)` with a clean static
-///    front-facing fallback.
+/// Home hero: retain the original Sakhi portrait artwork and animate only
+/// loose hair strands. The face, body, clothing and portrait remain stationary.
 class SakhiAnimatedHomeHeroWoman extends StatefulWidget {
   final double width;
   final double height;
@@ -292,27 +287,20 @@ class SakhiAnimatedHomeHeroWoman extends StatefulWidget {
 }
 
 class _SakhiAnimatedHomeHeroWomanState extends State<SakhiAnimatedHomeHeroWoman>
-    with TickerProviderStateMixin {
-  late final AnimationController _turnController;
+    with SingleTickerProviderStateMixin {
   late final AnimationController _breezeController;
 
   @override
   void initState() {
     super.initState();
-    _turnController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1750),
-    )..forward();
-
     _breezeController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 4600),
-    )..repeat(reverse: true);
+      duration: const Duration(milliseconds: 3600),
+    )..repeat();
   }
 
   @override
   void dispose() {
-    _turnController.dispose();
     _breezeController.dispose();
     super.dispose();
   }
@@ -324,291 +312,93 @@ class _SakhiAnimatedHomeHeroWomanState extends State<SakhiAnimatedHomeHeroWoman>
       child: SizedBox(
         width: widget.width,
         height: widget.height,
-        child: AnimatedBuilder(
-          animation: Listenable.merge([_turnController, _breezeController]),
-          builder: (context, _) {
-            final turnProgress = reduceMotion
-                ? 1.0
-                : Curves.easeInOutCubic.transform(_turnController.value);
-            final breezePhase = reduceMotion ? 0.35 : _breezeController.value;
-            return CustomPaint(
-              painter: _SakhiHeroTurnAndBreezePainter(
-                turnProgress: turnProgress,
-                breezePhase: breezePhase,
+        child: ClipRect(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Image.asset(
+                'assets/images/home/greeting_hero_illustration.webp',
+                fit: BoxFit.cover,
+                alignment: Alignment.center,
+                filterQuality: FilterQuality.high,
               ),
-            );
-          },
+              if (!reduceMotion)
+                AnimatedBuilder(
+                  animation: _breezeController,
+                  builder: (context, _) => CustomPaint(
+                    painter: _SakhiPortraitHairBreezePainter(
+                      phase: _breezeController.value,
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _SakhiHeroTurnAndBreezePainter extends CustomPainter {
-  final double turnProgress; // 0.0 = facing away (backside), 1.0 = facing viewer (front)
-  final double breezePhase; // 0.0 .. 1.0 continuous slow-breeze cycle
+/// Fine, low-contrast flyaway strands move independently over the original
+/// painted hair, creating a visible breeze without moving the woman's face/body.
+class _SakhiPortraitHairBreezePainter extends CustomPainter {
+  final double phase;
 
-  const _SakhiHeroTurnAndBreezePainter({
-    required this.turnProgress,
-    required this.breezePhase,
-  });
+  const _SakhiPortraitHairBreezePainter({required this.phase});
 
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width;
     final h = size.height;
-    final breezeAngle = math.sin(breezePhase * 2 * math.pi);
-    final hairSwayX = breezeAngle * (w * 0.045);
-    final breathY = math.cos(breezePhase * math.pi) * (h * 0.012);
-
-    // 3D horizontal turn factor: cos(pi * (1 - turnProgress))
-    // -1.0 = full back view, 0.0 = side profile transition, +1.0 = full front view
-    final cosTurn = math.cos(math.pi * (1.0 - turnProgress));
-    final horizontalScale = cosTurn.abs().clamp(0.28, 1.0);
-    final isFrontVisible = turnProgress >= 0.5;
-
-    // 1. Soft sunlit pastel halo behind hero woman
-    canvas.drawCircle(
-      Offset(w * 0.52, h * 0.48),
-      w * 0.44,
-      Paint()..color = const Color(0xFFFFD6E8).withValues(alpha: 0.52),
-    );
-
-    // 2. Flowing long hair ribbon & slow-breeze strands behind shoulders
-    final hairColor = const Color(0xFF280E32);
-    final hairHighlightColor = const Color(0xFF4A1D5C);
-    final hairBackPath = Path()
-      ..moveTo(w * 0.32, h * 0.32 - breathY)
-      ..cubicTo(
-        w * 0.20 + hairSwayX * 0.6,
-        h * 0.52,
-        w * 0.22 + hairSwayX * 1.3,
-        h * 0.76,
-        w * 0.34 + hairSwayX * 1.5,
-        h * 0.88,
-      )
-      ..quadraticBezierTo(
-        w * 0.52 + hairSwayX,
-        h * 0.94,
-        w * 0.68 + hairSwayX * 1.4,
-        h * 0.85,
-      )
-      ..cubicTo(
-        w * 0.78 + hairSwayX * 1.1,
-        h * 0.70,
-        w * 0.76 + hairSwayX * 0.5,
-        h * 0.48,
-        w * 0.68,
-        h * 0.32 - breathY,
-      )
-      ..close();
-    canvas.drawPath(hairBackPath, Paint()..color = hairColor);
-
-    // Breeze hair strand highlights
-    final strandPaint = Paint()
-      ..color = hairHighlightColor
+    final sway = math.sin(phase * math.pi * 2) * w * 0.035;
+    final secondary = math.sin(phase * math.pi * 2 + 0.9) * w * 0.018;
+    final strand = Paint()
+      ..color = const Color(0xFF1D1023).withValues(alpha: 0.88)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.0
-      ..strokeCap = StrokeCap.round;
-    canvas.drawPath(
-      Path()
-        ..moveTo(w * 0.64, h * 0.38 - breathY)
-        ..quadraticBezierTo(
-          w * 0.76 + hairSwayX * 1.6,
-          h * 0.58,
-          w * 0.72 + hairSwayX * 2.0,
-          h * 0.80,
-        ),
-      strandPaint,
-    );
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = 1.45;
+    final highlight = Paint()
+      ..color = const Color(0xFF9A789B).withValues(alpha: 0.58)
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = 0.85;
 
-    // 3. Shoulders & Draped Dupatta / Kurti
-    final torsoPath = Path()
-      ..moveTo(w * 0.22, h * 0.98)
-      ..quadraticBezierTo(
-        w * 0.27,
-        h * 0.58 - breathY,
-        w * 0.50,
-        h * 0.57 - breathY,
-      )
-      ..quadraticBezierTo(
-        w * 0.73,
-        h * 0.58 - breathY,
-        w * 0.78,
-        h * 0.98,
-      )
-      ..close();
-    canvas.drawPath(
-      torsoPath,
-      Paint()
-        ..shader = const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFFD63E85), Color(0xFF7B228E)],
-        ).createShader(Rect.fromLTWH(0, h * 0.55, w, h * 0.45)),
-    );
-
-    // Dupatta breeze drape
-    final dupattaPath = Path()
-      ..moveTo(w * 0.30, h * 0.60 - breathY)
-      ..quadraticBezierTo(
-        w * 0.52 + hairSwayX * 0.8,
-        h * 0.74,
-        w * 0.76 + hairSwayX * 1.2,
-        h * 0.66,
-      )
-      ..lineTo(w * 0.78, h * 0.82)
-      ..quadraticBezierTo(
-        w * 0.50 + hairSwayX * 0.6,
-        h * 0.88,
-        w * 0.28,
-        h * 0.74,
-      )
-      ..close();
-    canvas.drawPath(
-      dupattaPath,
-      Paint()..color = const Color(0xFFFBCFE8).withValues(alpha: 0.72),
-    );
-
-    // 4. Head & Turn Perspective
-    final headCenter = Offset(w * 0.50, h * 0.34 - breathY);
-    final skinPaint = Paint()..color = const Color(0xFFE8A888);
-
-    // Neck
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromCenter(
-          center: Offset(w * 0.50, h * 0.51 - breathY * 0.6),
-          width: w * 0.11,
-          height: h * 0.12,
-        ),
-        Radius.circular(w * 0.04),
-      ),
-      skinPaint,
-    );
-
-    if (!isFrontVisible) {
-      // Back-of-head view (0.0 .. 0.5): full dark crown hair + floral gajra garland on back bun
-      canvas.drawOval(
-        Rect.fromCenter(
-          center: headCenter,
-          width: w * 0.34,
-          height: h * 0.33,
-        ),
-        Paint()..color = hairColor,
-      );
-      // Braided bun & jasmine gajra arc on the back of her hair
-      final bunCenter = Offset(
-        headCenter.dx - (turnProgress * w * 0.06),
-        headCenter.dy + h * 0.05,
-      );
-      canvas.drawCircle(bunCenter, w * 0.10, Paint()..color = const Color(0xFF1E0926));
-      for (var i = -2; i <= 2; i++) {
-        final angle = (i * 0.38) + 0.5 * math.pi;
-        final gx = bunCenter.dx + math.cos(angle) * (w * 0.105);
-        final gy = bunCenter.dy + math.sin(angle) * (w * 0.085);
-        canvas.drawCircle(
-          Offset(gx, gy),
-          w * 0.022,
-          Paint()..color = const Color(0xFFFFF1F2),
+    // Loose strands on the viewer's right side of her long hair.
+    for (var i = 0; i < 4; i++) {
+      final y = h * (0.36 + i * 0.105);
+      final offset = sway * (0.55 + i * 0.16) + secondary;
+      final path = Path()
+        ..moveTo(w * (0.79 + i * 0.012), y - h * 0.11)
+        ..cubicTo(
+          w * 0.94 + offset * 0.25,
+          y - h * 0.015,
+          w * 0.91 + offset,
+          y + h * 0.10,
+          w * 0.84 + offset * 1.25,
+          y + h * 0.17,
         );
-      }
-    } else {
-      // Front-facing reveal (0.5 .. 1.0): face smoothly widens to full frontal serenity
-      final faceOpacity = ((turnProgress - 0.5) * 2.0).clamp(0.0, 1.0);
-      canvas.drawOval(
-        Rect.fromCenter(
-          center: headCenter,
-          width: w * 0.32,
-          height: h * 0.32,
-        ),
-        skinPaint,
-      );
+      canvas.drawPath(path, strand);
+      canvas.drawPath(path.shift(Offset(-1.2, 0)), highlight);
+    }
 
-      // Crown hair parting framing the face + breeze-swept side lock
-      final crownPath = Path()
-        ..moveTo(headCenter.dx - w * 0.16, headCenter.dy - h * 0.01)
-        ..quadraticBezierTo(
-          headCenter.dx,
-          headCenter.dy - h * 0.21,
-          headCenter.dx + w * 0.16,
-          headCenter.dy - h * 0.01,
-        )
-        ..quadraticBezierTo(
-          headCenter.dx + hairSwayX * 0.3,
-          headCenter.dy - h * 0.11,
-          headCenter.dx - w * 0.16,
-          headCenter.dy - h * 0.01,
-        )
-        ..close();
-      canvas.drawPath(crownPath, Paint()..color = hairColor);
-
-      // Jasmine/lotus flower tucked behind right ear
-      canvas.drawCircle(
-        Offset(headCenter.dx + w * 0.15 + hairSwayX * 0.2, headCenter.dy - h * 0.02),
-        w * 0.036,
-        Paint()..color = const Color(0xFFFFB3D1).withValues(alpha: faceOpacity),
-      );
-
-      // Facial features shifted slightly during the turn for realistic 3D rotation
-      final featureShiftX = (1.0 - horizontalScale) * (w * 0.06);
-      final faceCenter = Offset(headCenter.dx + featureShiftX, headCenter.dy);
-
-      // Bindi
-      canvas.drawCircle(
-        Offset(faceCenter.dx, faceCenter.dy - h * 0.048),
-        w * 0.015,
-        Paint()..color = const Color(0xFFBE185D).withValues(alpha: faceOpacity),
-      );
-
-      final eyePaint = Paint()
-        ..color = const Color(0xFF3B1347).withValues(alpha: faceOpacity)
-        ..strokeWidth = 2.0
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round;
-
-      final eyeSpread = w * 0.056 * horizontalScale;
-      canvas.drawArc(
-        Rect.fromCenter(
-          center: Offset(faceCenter.dx - eyeSpread, faceCenter.dy - h * 0.01),
-          width: w * 0.046 * horizontalScale,
-          height: h * 0.022,
-        ),
-        0.1,
-        math.pi - 0.2,
-        false,
-        eyePaint,
-      );
-      canvas.drawArc(
-        Rect.fromCenter(
-          center: Offset(faceCenter.dx + eyeSpread, faceCenter.dy - h * 0.01),
-          width: w * 0.046 * horizontalScale,
-          height: h * 0.022,
-        ),
-        0.1,
-        math.pi - 0.2,
-        false,
-        eyePaint,
-      );
-
-      // Warm welcoming smile
-      canvas.drawArc(
-        Rect.fromCenter(
-          center: Offset(faceCenter.dx, faceCenter.dy + h * 0.046),
-          width: w * 0.072 * horizontalScale,
-          height: h * 0.036,
-        ),
-        0.15,
-        math.pi - 0.3,
-        false,
-        eyePaint,
-      );
+    // A few finer flyaways on the left edge; they lag slightly behind the breeze.
+    for (var i = 0; i < 2; i++) {
+      final y = h * (0.43 + i * 0.16);
+      final path = Path()
+        ..moveTo(w * 0.23, y - h * 0.12)
+        ..cubicTo(
+          w * 0.08 - secondary,
+          y - h * 0.01,
+          w * 0.09 - sway * 0.7,
+          y + h * 0.08,
+          w * 0.17 - sway,
+          y + h * 0.15,
+        );
+      canvas.drawPath(path, strand);
     }
   }
 
   @override
-  bool shouldRepaint(covariant _SakhiHeroTurnAndBreezePainter oldDelegate) {
-    return (oldDelegate.turnProgress - turnProgress).abs() > 0.003 ||
-        (oldDelegate.breezePhase - breezePhase).abs() > 0.003;
-  }
+  bool shouldRepaint(covariant _SakhiPortraitHairBreezePainter oldDelegate) =>
+      (oldDelegate.phase - phase).abs() > 0.002;
 }
