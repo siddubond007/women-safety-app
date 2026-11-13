@@ -76,19 +76,24 @@ export class ComplaintEvidenceRetentionWorker
       const db = this.prisma as unknown as Record<string, any>;
       if (
         typeof db.discreetComplaint?.findMany !== "function" ||
-        typeof db.$transaction !== "function"
+        typeof this.prisma.withSystemAdminIdentity !== "function"
       ) {
         throw new Error("Retention worker database delegates are unavailable.");
       }
-      const due = await db.discreetComplaint.findMany({
-        where: {
-          status: { in: ["CLOSED", "REJECTED_WITH_REASON"] },
-          retentionExpiresAt: { lte: now },
-          mediaPurgedAt: null,
-        },
-        orderBy: { retentionExpiresAt: "asc" },
-        take: 20,
-      });
+      // The retention scheduler is an internal system actor. Establish the
+      // explicit database identity for both selection and the atomic metadata
+      // + audit transaction so forced RLS accepts only this trusted worker.
+      const due = await this.prisma.withSystemAdminIdentity((tx) =>
+        tx.discreetComplaint.findMany({
+          where: {
+            status: { in: ["CLOSED", "REJECTED_WITH_REASON"] },
+            retentionExpiresAt: { lte: now },
+            mediaPurgedAt: null,
+          },
+          orderBy: { retentionExpiresAt: "asc" },
+          take: 20,
+        }),
+      );
       for (const complaint of due as Array<Record<string, any>>) {
         examined += 1;
         const evidence = Array.isArray(complaint.evidenceFiles)
@@ -121,8 +126,9 @@ export class ComplaintEvidenceRetentionWorker
         }
 
         const purgedAt = new Date().toISOString();
-        await db.$transaction(async (tx: Record<string, any>) => {
-          const update = await tx.discreetComplaint.updateMany({
+        const committed = await this.prisma.withSystemAdminIdentity(async (tx) => {
+          const txDb = tx as unknown as Record<string, any>;
+          const update = await txDb.discreetComplaint.updateMany({
             where: { id: complaint.id, mediaPurgedAt: null },
             data: {
               evidenceFiles: nextEvidence,
@@ -130,13 +136,13 @@ export class ComplaintEvidenceRetentionWorker
               updatedAt: new Date(purgedAt),
             },
           });
-          if (Number(update?.count ?? 0) !== 1) return;
-          if (typeof tx.auditEvent?.create !== "function") {
+          if (Number(update?.count ?? 0) !== 1) return false;
+          if (typeof txDb.auditEvent?.create !== "function") {
             throw new Error(
               "Retention purge audit persistence is unavailable.",
             );
           }
-          await tx.auditEvent.create({
+          await txDb.auditEvent.create({
             data: {
               actorType: "SYSTEM",
               actorId: null,
@@ -151,8 +157,9 @@ export class ComplaintEvidenceRetentionWorker
               },
             },
           });
+          return true;
         });
-        purged += 1;
+        if (committed) purged += 1;
       }
       this.logger.log(
         `Complaint evidence retention sweep completed: examined=${examined}, purged=${purged}.`,
@@ -258,7 +265,7 @@ export class ComplaintEvidenceRetentionWorker
             await this.storage.deleteMemberMediaFile(asset.driveFileId, asset.ownerAccountId);
           }
           const processedAt = new Date();
-          await this.prisma.withSystemAdminIdentity(async (tx) => {
+          const completedThisRequest = await this.prisma.withSystemAdminIdentity(async (tx) => {
             await tx.mediaAsset.updateMany({
               where: { ownerAccountId: request.accountId, status: "PENDING_PURGE" },
               data: {
@@ -276,22 +283,22 @@ export class ComplaintEvidenceRetentionWorker
               where: { id: request.id, status: "PROCESSING" },
               data: { status: "COMPLETED", processedAt },
             });
-            if (updated.count === 1) {
-              await tx.auditEvent.create({
-                data: {
-                  actorType: "SYSTEM",
-                  actorId: null,
-                  action: "module2.account.deletion_completed",
-                  targetType: "account_deletion_request",
-                  targetId: request.id,
-                  outcome: "completed",
-                  requestId: randomUUID(),
-                  redactedMetadata: { externalMediaPurged: true, mediaAssetCount: assets.length },
-                },
-              });
-            }
+            if (updated.count !== 1) return false;
+            await tx.auditEvent.create({
+              data: {
+                actorType: "SYSTEM",
+                actorId: null,
+                action: "module2.account.deletion_completed",
+                targetType: "account_deletion_request",
+                targetId: request.id,
+                outcome: "completed",
+                requestId: randomUUID(),
+                redactedMetadata: { externalMediaPurged: true, mediaAssetCount: assets.length },
+              },
+            });
+            return true;
           });
-          completed += 1;
+          if (completedThisRequest) completed += 1;
         } catch (error) {
           this.logger.error(
             `Account deletion media purge remains queued for request ${request.id}: ${error instanceof Error ? error.message : "unknown error"}`,

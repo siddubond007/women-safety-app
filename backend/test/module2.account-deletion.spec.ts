@@ -55,7 +55,7 @@ describe("Module2Service account deletion request", () => {
       mediaAsset: { updateMany: vi.fn().mockResolvedValue({ count: 2 }) },
       discreetComplaint: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
       authSession: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
-      auditEvent: { create: vi.fn().mockResolvedValue({ id: "audit-1" }) },
+      auditEvent: { createMany: vi.fn().mockResolvedValue({ count: 1 }) },
     };
 
     const auth = {
@@ -111,12 +111,12 @@ describe("Module2Service account deletion request", () => {
     expect(tx.authSession.updateMany).toHaveBeenCalledWith({
       where: { accountId, revokedAt: null }, data: { revokedAt: expect.any(Date) },
     });
-    expect(tx.auditEvent.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        actorType: "SYSTEM", actorId: null, action: "module2.account.deletion_requested",
+    expect(tx.auditEvent.createMany).toHaveBeenCalledWith({
+      data: [expect.objectContaining({
+        actorType: "MEMBER", actorId: accountId, action: "module2.account.deletion_requested",
         targetType: "account_deletion_request", targetId: requestId, outcome: "requested",
         redactedMetadata: { accountErasure: true, externalMediaPurgePending: true },
-      }),
+      })],
     });
   });
 });

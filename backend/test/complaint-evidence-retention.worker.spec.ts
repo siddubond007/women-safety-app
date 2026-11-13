@@ -21,15 +21,16 @@ describe("ComplaintEvidenceRetentionWorker", () => {
     };
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const auditCreate = vi.fn().mockResolvedValue({ id: "audit-1" });
+    const findMany = vi.fn().mockResolvedValue([complaint]);
     const transaction = vi.fn(async (fn: (tx: any) => Promise<unknown>) =>
       fn({
-        discreetComplaint: { updateMany },
+        discreetComplaint: { findMany, updateMany },
         auditEvent: { create: auditCreate },
       }),
     );
     const prisma = {
-      discreetComplaint: { findMany: vi.fn().mockResolvedValue([complaint]) },
-      $transaction: transaction,
+      discreetComplaint: { findMany },
+      withSystemAdminIdentity: vi.fn((operation: (tx: any) => Promise<unknown>) => transaction(operation)),
     };
     const storage = {
       deleteComplaintEvidence: vi.fn().mockResolvedValue(undefined),
@@ -81,6 +82,32 @@ describe("ComplaintEvidenceRetentionWorker", () => {
     });
   });
 
+  it("does not count or audit a complaint another worker already committed", async () => {
+    const complaint = {
+      id: "complaint-concurrent",
+      referenceNumber: "#SKH-ANON-2026-CONCURRENT",
+      evidenceFiles: [],
+    };
+    const updateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const auditCreate = vi.fn();
+    const findMany = vi.fn().mockResolvedValue([complaint]);
+    const transaction = vi.fn(async (fn: (tx: any) => Promise<unknown>) =>
+      fn({ discreetComplaint: { findMany, updateMany }, auditEvent: { create: auditCreate } }),
+    );
+    const prisma = {
+      discreetComplaint: { findMany },
+      withSystemAdminIdentity: vi.fn((operation: (tx: any) => Promise<unknown>) => transaction(operation)),
+    };
+    const storage = { deleteComplaintEvidence: vi.fn() };
+    const worker = new ComplaintEvidenceRetentionWorker(
+      prisma as unknown as PrismaService,
+      storage as unknown as GoogleDriveStorageService,
+    );
+
+    await expect(worker.runOnce()).resolves.toEqual({ examined: 1, purged: 0 });
+    expect(auditCreate).not.toHaveBeenCalled();
+  });
+
   it("does not mark evidence purged when Drive deletion fails", async () => {
     const complaint = {
       id: "complaint-2",
@@ -90,9 +117,13 @@ describe("ComplaintEvidenceRetentionWorker", () => {
       ],
     };
     const updateMany = vi.fn();
+    const findMany = vi.fn().mockResolvedValue([complaint]);
+    const transaction = vi.fn(async (fn: (tx: any) => Promise<unknown>) =>
+      fn({ discreetComplaint: { findMany, updateMany } }),
+    );
     const prisma = {
-      discreetComplaint: { findMany: vi.fn().mockResolvedValue([complaint]) },
-      $transaction: vi.fn(),
+      discreetComplaint: { findMany },
+      withSystemAdminIdentity: vi.fn((operation: (tx: any) => Promise<unknown>) => transaction(operation)),
     };
     const storage = {
       deleteComplaintEvidence: vi
@@ -106,7 +137,7 @@ describe("ComplaintEvidenceRetentionWorker", () => {
 
     await expect(worker.runOnce()).rejects.toThrow("Drive unavailable");
     expect(updateMany).not.toHaveBeenCalled();
-    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(transaction).toHaveBeenCalledTimes(1);
   });
   it("completes queued account erasure only after owner-verified Drive media deletion", async () => {
     const request = { id: "deletion-1", accountId: "2f6f7fa1-8c5c-4bb0-ae1a-0f7e3a2e5a41", status: "REQUESTED" };
