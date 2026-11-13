@@ -2,7 +2,7 @@ BEGIN;
 
 -- Validate the dedicated managed runtime principal before any schema changes.
 -- This role is provisioned by the Supabase project owner, not by migrations.
-DO $
+DO $$
 DECLARE
   runtime_role_oid oid;
 BEGIN
@@ -33,7 +33,7 @@ BEGIN
     RAISE EXCEPTION
       'sakhi_staging_app must not have incoming or outgoing PostgreSQL role memberships.';
   END IF;
-END $;
+END $$;
 
 -- Sakhi P0 administrative security foundation.
 -- Additive only: preserves existing staff records and legacy credential columns.
@@ -176,7 +176,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS admin_staff_recovery_one_active_per_staff_uniq
   WHERE status IN ('PENDING', 'APPROVED');
 
 -- The runtime principal must not own any staff-security table.
-DO $
+DO $$
 BEGIN
   IF EXISTS (
     SELECT 1
@@ -194,7 +194,7 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'sakhi_staging_app must not own P0 staff-security tables.';
   END IF;
-END $;
+END $$;
 
 -- These records are backend-only. Do not expose them through Supabase's
 -- anon/authenticated Data API roles.

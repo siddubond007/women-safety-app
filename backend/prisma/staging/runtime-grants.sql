@@ -1,6 +1,6 @@
 -- Least-privilege runtime grants for Sakhi Modules 1-12.
 -- Validate the managed runtime principal before applying any grants.
-DO $
+DO $$
 DECLARE
   runtime_role_oid oid;
 BEGIN
@@ -41,7 +41,7 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'sakhi_staging_app must not own P0 staff-security tables.';
   END IF;
-END $;
+END $$;
 
 -- Run as sakhi_staging_migrator after baseline setup.
 -- P0 staff-security policies are permissive only for this backend-only runtime
