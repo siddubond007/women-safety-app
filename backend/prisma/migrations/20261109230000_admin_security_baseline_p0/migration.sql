@@ -218,10 +218,8 @@ DECLARE
   table_name text;
   policy_name text;
 BEGIN
-  -- This managed staging role is a required security principal, not an
-  -- optional capability. Fail before applying any grants or policies if it
-  -- has not been provisioned by the Supabase project owner.
-  -- Never grant staging staff-security tables to dev/test roles.
+  -- The dedicated managed runtime role was validated at the beginning
+  -- of this transaction. Never grant these tables to dev/test roles.
   FOREACH runtime_role IN ARRAY ARRAY['sakhi_staging_app'] LOOP
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = runtime_role) THEN
       EXECUTE format(
