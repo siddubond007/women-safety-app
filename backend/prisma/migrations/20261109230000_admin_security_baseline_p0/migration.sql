@@ -259,6 +259,15 @@ BEGIN
         ) THEN
           RAISE EXCEPTION 'Existing P0 runtime policy % has an incompatible expression.', policy_name;
         END IF;
+        IF EXISTS (
+          SELECT 1 FROM pg_policies
+          WHERE schemaname = 'public'
+            AND tablename = table_name
+            AND policyname <> policy_name
+            AND roles && ARRAY['sakhi_staging_app', 'public']::name[]
+        ) THEN
+          RAISE EXCEPTION 'Unexpected additional policy applies to the P0 runtime role on table %.', table_name;
+        END IF;
         IF NOT EXISTS (
           SELECT 1
           FROM pg_policies

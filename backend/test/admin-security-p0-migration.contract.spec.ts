@@ -46,6 +46,14 @@ describe("P0 managed staging role security contract", () => {
     }
   });
 
+  it("rejects additional policies that apply to the runtime role or PUBLIC", () => {
+    for (const source of [migration, runtimeGrants]) {
+      expect(source).toContain(
+        "roles && ARRAY['sakhi_staging_app', 'public']::name[]",
+      );
+    }
+  });
+
   it("accepts READ_ONLY_AUDITOR during existing-data preflight", () => {
     expect(migration).toContain("'BUSINESS_ADMIN','READ_ONLY_AUDITOR'");
     expect(migration).toContain("role IS NULL OR role NOT IN");
