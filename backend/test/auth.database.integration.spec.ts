@@ -1,5 +1,10 @@
 import "reflect-metadata";
 import type { INestApplication } from "@nestjs/common";
+import type {
+  NextFunction,
+  Request as ExpressRequest,
+  Response as ExpressResponse,
+} from "express";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Test } from "@nestjs/testing";
@@ -15,6 +20,7 @@ import {
 } from "../src/auth/auth.dto.js";
 import { PrismaService } from "../src/database/prisma.service.js";
 import { createGlobalValidationPipe } from "../src/common/validation/create-validation-pipe.js";
+import { runWithDatabaseRequestIdentity } from "../src/database/database-request-identity.context.js";
 
 describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
   "database-backed development authentication flow",
@@ -114,6 +120,27 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
 
       app = testingModule.createNestApplication();
       app.setGlobalPrefix("api/v1");
+      // Match the production request-identity middleware in main.ts. Public
+      // OTP request/resend/verify routes require the narrowly scoped auth_lookup
+      // RLS context; authenticated member routes receive identity from guards.
+      app.use(
+        (
+          request: ExpressRequest,
+          _response: ExpressResponse,
+          next: NextFunction,
+        ) => {
+          const path =
+            String(request.originalUrl ?? request.url ?? "").split("?")[0] ??
+            "";
+          const authLookup =
+            request.method === "POST" &&
+            /\/auth\/otp\/(request|resend|verify)$/.test(path);
+          const usernameLookup =
+            request.method === "GET" &&
+            /\/auth\/username-availability$/.test(path);
+          runWithDatabaseRequestIdentity(next, { authLookup, usernameLookup });
+        },
+      );
       app.useGlobalPipes(createGlobalValidationPipe());
       await app.init();
     });

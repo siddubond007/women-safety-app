@@ -241,8 +241,12 @@ BEGIN
       public.admin_staff_recovery_requests
     FROM service_role;
   END IF;
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sakhi_staging_app') THEN
-    ALTER ROLE sakhi_staging_app NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+  IF EXISTS (
+    SELECT 1 FROM pg_roles
+    WHERE rolname = 'sakhi_staging_app'
+      AND (rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole)
+  ) THEN
+    RAISE EXCEPTION 'sakhi_staging_app must be pre-provisioned without SUPERUSER, BYPASSRLS, CREATEDB, or CREATEROLE; managed Supabase does not permit role alteration from migrations.';
   END IF;
   IF EXISTS (
     SELECT 1 FROM pg_class c
