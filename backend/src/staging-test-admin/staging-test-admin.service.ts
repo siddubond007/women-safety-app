@@ -13,6 +13,7 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import { PrismaService } from "../database/prisma.service.js";
+import { setAdminDatabaseIdentity } from "../database/database-request-identity.context.js";
 import { AdminMfaService } from "../admin-security/admin-mfa.service.js";
 import { AdminSessionService } from "../admin-security/admin-session.service.js";
 import {
@@ -190,6 +191,7 @@ export class StagingTestAdminService {
 
     const staffMatch = await this.lookupRawStaffCredential(clean);
     if (staffMatch) {
+      setAdminDatabaseIdentity(staffMatch.id, staffMatch.role);
       const mfa = await this.prisma.adminStaffMfa.findUnique({
         where: { staffId: staffMatch.id },
         select: { enrollmentVerifiedAt: true, disabledAt: true },
@@ -312,6 +314,7 @@ export class StagingTestAdminService {
   async startStaffMfaEnrollment(token?: string) {
     assertAdminAuthEnvironment();
     const staff = await this.findRawStaffCredential(token);
+    setAdminDatabaseIdentity(staff.id, staff.role);
     const enrollment = await this.staffMfa.beginEnrollment(staff.id);
     return { staffId: staff.id, ...enrollment };
   }
@@ -319,12 +322,14 @@ export class StagingTestAdminService {
   async verifyStaffMfaEnrollment(token: string | undefined, code: string) {
     assertAdminAuthEnvironment();
     const staff = await this.findRawStaffCredential(token);
+    setAdminDatabaseIdentity(staff.id, staff.role);
     return this.staffMfa.verifyEnrollment(staff.id, code);
   }
 
   async requestStaffMfaRecovery(token?: string) {
     assertAdminAuthEnvironment();
     const staff = await this.findRawStaffCredential(token);
+    setAdminDatabaseIdentity(staff.id, staff.role);
     return this.staffMfa.requestRecovery(staff.id);
   }
 
@@ -381,6 +386,7 @@ export class StagingTestAdminService {
   ) {
     assertAdminAuthEnvironment();
     const staff = await this.findRawStaffCredential(token);
+    setAdminDatabaseIdentity(staff.id, staff.role);
     return this.staffMfa.completeRecovery(staff.id, recoveryToken);
   }
 
