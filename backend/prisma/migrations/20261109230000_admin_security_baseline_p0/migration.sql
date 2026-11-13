@@ -349,14 +349,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS admin_staff_accounts_token_digest_key
 -- Actor/reference foreign keys omitted from the initial source draft.
 DO $$
 BEGIN
-  IF EXISTS (
-      SELECT 1 FROM pg_constraint
-      WHERE conname = 'admin_staff_accounts_suspended_by_fkey'
-        AND conrelid <> 'public.admin_staff_accounts'::regclass
-    ) THEN
-      RAISE EXCEPTION 'Constraint name admin_staff_accounts_suspended_by_fkey is already used by another relation.';
-    END IF;
-    IF NOT EXISTS (
+  IF NOT EXISTS (
       SELECT 1 FROM pg_constraint
       WHERE conname = 'admin_staff_accounts_suspended_by_fkey'
         AND conrelid = 'public.admin_staff_accounts'::regclass
@@ -366,14 +359,7 @@ BEGIN
       FOREIGN KEY (suspended_by) REFERENCES public.admin_staff_accounts(id)
       ON DELETE SET NULL ON UPDATE CASCADE;
   END IF;
-  IF EXISTS (
-      SELECT 1 FROM pg_constraint
-      WHERE conname = 'admin_staff_accounts_deleted_by_fkey'
-        AND conrelid <> 'public.admin_staff_accounts'::regclass
-    ) THEN
-      RAISE EXCEPTION 'Constraint name admin_staff_accounts_deleted_by_fkey is already used by another relation.';
-    END IF;
-    IF NOT EXISTS (
+  IF NOT EXISTS (
       SELECT 1 FROM pg_constraint
       WHERE conname = 'admin_staff_accounts_deleted_by_fkey'
         AND conrelid = 'public.admin_staff_accounts'::regclass
@@ -383,14 +369,7 @@ BEGIN
       FOREIGN KEY (deleted_by) REFERENCES public.admin_staff_accounts(id)
       ON DELETE SET NULL ON UPDATE CASCADE;
   END IF;
-  IF EXISTS (
-      SELECT 1 FROM pg_constraint
-      WHERE conname = 'admin_staff_sessions_replaced_by_session_fkey'
-        AND conrelid <> 'public.admin_staff_sessions'::regclass
-    ) THEN
-      RAISE EXCEPTION 'Constraint name admin_staff_sessions_replaced_by_session_fkey is already used by another relation.';
-    END IF;
-    IF NOT EXISTS (
+  IF NOT EXISTS (
       SELECT 1 FROM pg_constraint
       WHERE conname = 'admin_staff_sessions_replaced_by_session_fkey'
         AND conrelid = 'public.admin_staff_sessions'::regclass
@@ -400,14 +379,7 @@ BEGIN
       FOREIGN KEY (replaced_by_session_id) REFERENCES public.admin_staff_sessions(id)
       ON DELETE SET NULL ON UPDATE CASCADE;
   END IF;
-  IF EXISTS (
-      SELECT 1 FROM pg_constraint
-      WHERE conname = 'admin_staff_recovery_requests_approved_by_staff_fkey'
-        AND conrelid <> 'public.admin_staff_recovery_requests'::regclass
-    ) THEN
-      RAISE EXCEPTION 'Constraint name admin_staff_recovery_requests_approved_by_staff_fkey is already used by another relation.';
-    END IF;
-    IF NOT EXISTS (
+  IF NOT EXISTS (
       SELECT 1 FROM pg_constraint
       WHERE conname = 'admin_staff_recovery_requests_approved_by_staff_fkey'
         AND conrelid = 'public.admin_staff_recovery_requests'::regclass
