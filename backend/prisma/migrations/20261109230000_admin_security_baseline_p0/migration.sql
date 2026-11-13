@@ -241,6 +241,12 @@ BEGIN
       public.admin_staff_recovery_requests
     FROM service_role;
   END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_roles
+    WHERE rolname = 'sakhi_staging_app'
+  ) THEN
+    RAISE EXCEPTION 'sakhi_staging_app must be provisioned before applying the P0 staff-security migration.';
+  END IF;
   IF EXISTS (
     SELECT 1 FROM pg_roles
     WHERE rolname = 'sakhi_staging_app'
