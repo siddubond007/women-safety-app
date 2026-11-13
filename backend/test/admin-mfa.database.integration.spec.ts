@@ -96,6 +96,16 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
         "A disposable local migrator URL is required for synthetic fixture cleanup.",
       );
     }
+    const migratorUrl = new URL(process.env.SAKHI_MIGRATOR_DATABASE_URL);
+    if (
+      migratorUrl.hostname !== "127.0.0.1" ||
+      migratorUrl.pathname !== "/sakhi_test" ||
+      migratorUrl.port !== parsed.port
+    ) {
+      throw new Error(
+        "Refusing synthetic MFA fixture cleanup unless the migrator URL targets the same local sakhi_test database as the application URL.",
+      );
+    }
     process.env.SAKHI_ADMIN_MFA_ENCRYPTION_KEY = Buffer.alloc(
       32,
       0x31,
