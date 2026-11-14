@@ -734,7 +734,7 @@ export class SakhiAdminRbacRegistry {
       email: String(r.email ?? "admin@sakhi.org.in"),
       role,
       status: r.status,
-      mustResetPassword: Boolean(r.mustResetPassword),
+      mustResetPassword: Boolean(r.mustResetPassword) || r.passwordHash === null,
       accessTokenDigest: String(r.accessTokenDigest ?? ""),
       accessTokenPreview: String(r.accessTokenPreview ?? "SAKHI-STAFF-••••"),
       isAuthorisedComplaintReviewer:
@@ -1004,6 +1004,7 @@ export class SakhiAdminRbacRegistry {
       email,
       role: rawRole,
       status: "ACTIVE",
+      mustResetPassword: true,
       accessTokenDigest,
       accessTokenPreview,
       isAuthorisedComplaintReviewer:
@@ -1333,6 +1334,7 @@ export class SakhiAdminRbacRegistry {
       email: staff.email,
       role: staff.role,
       status: staff.status,
+      mustResetPassword: Boolean(staff.mustResetPassword),
       isAuthorisedComplaintReviewer: staff.isAuthorisedComplaintReviewer,
       clearanceLevel: staff.clearanceLevel,
       permissions: staff.permissions,
@@ -1363,6 +1365,7 @@ export class SakhiAdminRbacRegistry {
           email: staff.email,
           role: staff.role,
           status: staff.status,
+          mustResetPassword: Boolean(staff.mustResetPassword),
           accessTokenDigest: staff.accessTokenDigest,
           accessTokenPreview: staff.accessTokenPreview,
           isAuthorisedComplaintReviewer: staff.isAuthorisedComplaintReviewer,
