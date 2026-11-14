@@ -37,6 +37,13 @@ The prior Stage 1C run was recorded as PostgreSQL 17.12 with 33/33 migrations ap
 
 The current PR #40 source already contains the MFA integration cleanup guard from commit `e735bc41f5f3fa3040c27bc317b482e970fe0d3f`: it requires the app and migrator URLs to use `127.0.0.1`, `/sakhi_test`, and the same port. That source was left intact; no cleanup operation was run against a non-local database.
 
-## Next approved step
+## Stage 1D synchronization and post-sync validation
 
-Proceed with Stage 1D: synchronize this recovered PR #40 head with PR #39 head `378fb40d8e547e76348349b1be24d406a462d4f7`, preserve PR #40's existing base branch `fix/staging-p0-managed-role-preflight-20261113`, run post-sync validation, and push the update to the existing PR #40 head branch. Keep PR #39 and PR #40 open. Do not merge either PR into the release branch, deploy, or modify a live database.
+- Merged PR #39 head `378fb40d8e547e76348349b1be24d406a462d4f7` into the recovery branch using merge commit `0328dd5`.
+- PR #40's existing base branch remains `fix/staging-p0-managed-role-preflight-20261113`; its head now contains the PR #39 head as an ancestor.
+- Post-sync graph comparison: 0 commits behind and 10 commits ahead of the PR #39 base.
+- Post-sync backend typecheck, Prisma validation, full Vitest suite, and backend build all passed.
+- Post-sync full Vitest suite: 253 passed, 13 skipped (50 files; 42 passed and 8 integration files skipped).
+- Fresh isolated PostgreSQL 17.11 verification after synchronization applied all 33 migrations; all eight lifecycle tables had forced RLS; valid SYSTEM/ADMIN audit actor shapes were accepted, while non-null SYSTEM actor IDs and mismatched ADMIN actor IDs were rejected by RLS.
+
+The next operation is the already-approved fast-forward push to the existing PR #40 head branch `fix/sakhi-runtime-db-isolation-20261113`. Keep PR #39 and PR #40 open. Do not merge either PR into the release branch, deploy, or modify a live database.
