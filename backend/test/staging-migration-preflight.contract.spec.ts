@@ -9,6 +9,10 @@ const runner = readFileSync(
   new URL("../scripts/staging-migrate-reviewed.sh", import.meta.url),
   "utf8",
 );
+const prismaConfig = readFileSync(
+  new URL("../prisma.config.ts", import.meta.url),
+  "utf8",
+);
 const runtimeGrants = readFileSync(
   new URL("../prisma/staging/runtime-grants.sql", import.meta.url),
   "utf8",
@@ -35,6 +39,12 @@ describe("Stage 3B2 reviewed staging migration contract", () => {
     expect(runner).toContain(
       'APPROVAL_PHRASE="YES_APPLY_20261113_14_STAGE3B2"',
     );
+    expect(prismaConfig).toContain(
+      '"20261113130000_allow_scoped_system_auth_audit,20261113140000_retention_deletion_runtime_grants,20261114110000_scope_retention_system_audit"',
+    );
+    expect(prismaConfig).toContain('"YES_APPLY_20261113_14_STAGE3B2"');
+    expect(prismaConfig).not.toContain("YES_APPLY_20261106010000_MODULES8_12");
+    expect(prismaConfig).not.toContain("20261106010000_modules8_9_10_11_12_complete");
     expect(preflight).not.toContain("YES_APPLY_20261106010000_MODULES8_12");
     expect(runner).not.toContain("20261106010000_modules8_9_10_11_12_complete");
   });
