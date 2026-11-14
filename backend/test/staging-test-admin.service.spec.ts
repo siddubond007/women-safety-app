@@ -284,6 +284,10 @@ describe("StagingTestAdminService", () => {
     const accountCreate = tx.adminStaffAccount.create.mock.calls[0]?.[0];
     const auditCreate = tx.auditEvent.create.mock.calls[0]?.[0];
     expect(accountCreate.data.id).toEqual(expect.any(String));
+    expect(accountCreate.data).toMatchObject({
+      role: "SUPER_ADMIN",
+      mustResetPassword: true,
+    });
     expect(auditCreate.data).toMatchObject({
       actorType: "ADMIN",
       actorId: accountCreate.data.id,
