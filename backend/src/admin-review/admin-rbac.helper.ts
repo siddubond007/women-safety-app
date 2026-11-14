@@ -257,6 +257,7 @@ export interface AdminStaffRecord {
   email: string;
   role: SakhiAdminRole;
   status: "ACTIVE" | "SUSPENDED" | "REVOKED";
+  mustResetPassword?: boolean;
   accessTokenDigest: string;
   accessTokenPreview: string;
   isAuthorisedComplaintReviewer: boolean;
@@ -733,6 +734,7 @@ export class SakhiAdminRbacRegistry {
       email: String(r.email ?? "admin@sakhi.org.in"),
       role,
       status: r.status,
+      mustResetPassword: Boolean(r.mustResetPassword),
       accessTokenDigest: String(r.accessTokenDigest ?? ""),
       accessTokenPreview: String(r.accessTokenPreview ?? "SAKHI-STAFF-••••"),
       isAuthorisedComplaintReviewer:

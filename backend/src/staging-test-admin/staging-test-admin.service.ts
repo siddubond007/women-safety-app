@@ -189,6 +189,30 @@ export class StagingTestAdminService {
       );
     }
 
+    // The one-time bootstrap credential is not a staff login credential. It
+    // may only reveal that protected first-Super-Admin setup is available.
+    const bootstrapSecret = getFullAdminSecret();
+    if (bootstrapSecret) {
+      const suppliedDigest = createHash("sha256").update(clean).digest();
+      const expectedDigest = createHash("sha256").update(bootstrapSecret).digest();
+      if (timingSafeEqual(suppliedDigest, expectedDigest)) {
+        const existingSuperAdmin = await this.prisma.adminStaffAccount.findFirst({
+          where: { role: "SUPER_ADMIN" },
+          select: { id: true },
+        });
+        if (existingSuperAdmin) {
+          throw new UnauthorizedException(
+            "Initial Super Admin bootstrap is permanently closed. Use an individual staff credential.",
+          );
+        }
+        return {
+          authenticated: false as const,
+          bootstrapRequired: true as const,
+          message: "The initial Super Admin account must be created and enrolled in MFA.",
+        };
+      }
+    }
+
     const staffMatch = await this.lookupRawStaffCredential(clean);
     if (staffMatch) {
       setAdminDatabaseIdentity(staffMatch.id, staffMatch.role);
@@ -236,6 +260,7 @@ export class StagingTestAdminService {
         permissions: principal.permissions,
         allowedRoutes: principal.allowedRoutes,
         mode: "staging_full_admin" as const,
+        mustResetPassword: Boolean(staffMatch.mustResetPassword),
         message: `Signed in as ${principal.roleTitle} (${principal.staffCode}). Staff MFA and persistent session controls are active.`,
         sessionToken: issued.value,
         sessionExpiresAt: issued.expiresAt.toISOString(),
@@ -455,7 +480,7 @@ export class StagingTestAdminService {
 
   async sessionFromToken(sessionToken?: string) {
     await SakhiAdminRbacRegistry.ensureHydrated(this.prisma);
-    await this.staffSessions.validateSession(sessionToken ?? "");
+    const validated = await this.staffSessions.validateSession(sessionToken ?? "");
     const credential = this.assertSessionToken(sessionToken);
     const principal = credential.principal;
     if (!principal) {
@@ -478,6 +503,7 @@ export class StagingTestAdminService {
       permissions: principal.permissions,
       allowedRoutes: principal.allowedRoutes,
       mode: "staging_full_admin" as const,
+      mustResetPassword: Boolean(validated.staff.mustResetPassword),
       message: `Active ${principal.roleTitle} session.`,
     };
   }

@@ -90,6 +90,7 @@ export interface AdminSession {
   permissions?: GranularRolePermissions;
   allowedRoutes?: string[];
   csrfToken?: string;
+  mustResetPassword?: boolean;
 }
 
 export interface AdminMfaChallenge {
@@ -314,6 +315,25 @@ export const adminAuthService = {
     stagingLastRotationAt = Date.now();
     inMemoryProfile = extractProfileFromPayload(data);
     return { ...(data as AdminSession), mode: "staging_full_admin" };
+  },
+  async changeOwnPassword(newPassword: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/admin-review/auth/password/change`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        ...(stagingCsrfToken ? { "X-Sakhi-CSRF": stagingCsrfToken } : {}),
+      },
+      body: JSON.stringify({ newPassword }),
+      credentials: "include",
+      cache: "no-store",
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = Array.isArray(data.message) ? data.message.join(" ") : data.message;
+      throw new Error(message || "The initial staff password could not be changed.");
+    }
+    this.clearLocalSession();
   },
   async bootstrapSuperAdmin(
     token: string,

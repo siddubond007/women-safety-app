@@ -16,7 +16,7 @@ function contextFor(request: Record<string, any>): ExecutionContext {
   } as unknown as ExecutionContext;
 }
 
-function activeStaffRow() {
+function activeStaffRow(mustResetPassword = false) {
   const now = new Date();
   return {
     id: "2d5fce37-6aab-4cb4-8a6c-6a2d07f87e91",
@@ -25,6 +25,7 @@ function activeStaffRow() {
     email: "guard.superadmin@example.test",
     role: "SUPER_ADMIN",
     status: "ACTIVE",
+    mustResetPassword,
     accessTokenDigest: "a".repeat(64),
     accessTokenPreview: "SAKHI-STAFF-••••",
     isAuthorisedComplaintReviewer: true,
@@ -81,6 +82,47 @@ describe("AdminStaffSessionGuard", () => {
       role: "SUPER_ADMIN",
       status: "ACTIVE",
     });
+  });
+
+  it("restricts initial-password accounts to session introspection, logout and password change", async () => {
+    process.env.SAKHI_ENV = "staging";
+    process.env.NODE_ENV = "production";
+    process.env.SAKHI_ADMIN_CORS_ORIGIN = "https://sakhi-admin.example.test";
+    const token = "staff-admin.password-reset-required";
+    const csrf = "r".repeat(48);
+    const sessions = {
+      validateSession: vi.fn().mockResolvedValue({ staff: activeStaffRow(true) }),
+    };
+    const guard = new AdminStaffSessionGuard(sessions as any);
+    const introspection = {
+      method: "GET",
+      originalUrl: "/api/v1/staging-test-admin/session",
+      path: "/api/v1/staging-test-admin/session",
+      headers: { cookie: `sakhi_admin_session=${encodeURIComponent(token)}` },
+    };
+    await expect(guard.canActivate(contextFor(introspection))).resolves.toBe(true);
+
+    const passwordChange = {
+      method: "POST",
+      originalUrl: "/api/v1/admin-review/auth/password/change",
+      path: "/api/v1/admin-review/auth/password/change",
+      headers: {
+        cookie: `sakhi_admin_session=${encodeURIComponent(token)}; sakhi_admin_csrf=${csrf}`,
+        origin: "https://sakhi-admin.example.test",
+        "x-sakhi-csrf": csrf,
+      },
+    };
+    await expect(guard.canActivate(contextFor(passwordChange))).resolves.toBe(true);
+
+    const protectedRoute = {
+      method: "GET",
+      originalUrl: "/api/v1/admin-review/staff",
+      path: "/api/v1/admin-review/staff",
+      headers: { cookie: `sakhi_admin_session=${encodeURIComponent(token)}` },
+    };
+    await expect(guard.canActivate(contextFor(protectedRoute))).rejects.toThrow(
+      /must change its initial password/i,
+    );
   });
 
   it("rejects cookie-authenticated state changes without the configured origin and CSRF token", async () => {
@@ -178,4 +220,3 @@ describe("AdminStaffSessionGuard", () => {
       expect(sessions.validateSession).not.toHaveBeenCalled();
     },
   );
-

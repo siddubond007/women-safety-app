@@ -45,7 +45,7 @@ export class AdminReviewController {
     }
     const result = await this.adminReview.loginWithCredentials(body as any);
     const secure = process.env.NODE_ENV === "production";
-    const sameSite = secure ? "None; Secure" : "Lax";
+    const sameSite = secure ? "None; Secure; Partitioned" : "Lax";
     const maxAge = Math.max(0, Math.floor((new Date(result.sessionExpiresAt).getTime() - Date.now()) / 1000));
     response.setHeader("Set-Cookie", [
       `sakhi_admin_session=${encodeURIComponent(result.sessionToken)}; HttpOnly; Path=/api/v1; Max-Age=${maxAge}; SameSite=${sameSite}`,
@@ -64,7 +64,29 @@ export class AdminReviewController {
     const result = await this.adminReview.logoutAdminSession(sessionToken);
     const secure =
       process.env.NODE_ENV === "production"
-        ? "; SameSite=None; Secure"
+        ? "; SameSite=None; Secure; Partitioned"
+        : "; SameSite=Lax";
+    response.setHeader("Set-Cookie", [
+      `sakhi_admin_session=; HttpOnly; Path=/api/v1; Max-Age=0${secure}`,
+      `sakhi_admin_csrf=; Path=/api/v1; Max-Age=0${secure}`,
+    ]);
+    return result;
+  }
+
+  @Post("auth/password/change")
+  @HttpCode(200)
+  async changeOwnPassword(
+    @Body() body: { newPassword?: string },
+    @Headers("x-sakhi-staging-admin-session") sessionToken: string | undefined,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const result = await this.adminReview.changeOwnAdminPassword(
+      body,
+      pickAdminToken(sessionToken),
+    );
+    const secure =
+      process.env.NODE_ENV === "production"
+        ? "; SameSite=None; Secure; Partitioned"
         : "; SameSite=Lax";
     response.setHeader("Set-Cookie", [
       `sakhi_admin_session=; HttpOnly; Path=/api/v1; Max-Age=0${secure}`,

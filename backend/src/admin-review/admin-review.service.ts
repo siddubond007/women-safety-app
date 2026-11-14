@@ -3899,6 +3899,11 @@ export class AdminReviewService {
     return { signedOut: true as const };
   }
 
+  async changeOwnAdminPassword(body: { newPassword?: string }, token?: string) {
+    const principal = this.resolveAdminPrincipal(token);
+    return this.resetAdminStaffPassword(principal.staffId, body, token);
+  }
+
   async resetAdminStaffPassword(
     staffId: string,
     body: { newPassword?: string },

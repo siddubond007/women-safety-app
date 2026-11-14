@@ -16,6 +16,7 @@ import { RegistrationPolicyPage } from "./pages/RegistrationPolicyPage";
 import { AdminRolesAndConfigPage } from "./pages/AdminRolesAndConfigPage";
 import { BusinessManagementPage } from "./pages/BusinessManagementPage";
 import { SakhiQuoteLoader } from "./components/SakhiQuoteLoader";
+import { PasswordResetPage } from "./pages/PasswordResetPage";
 
 function RoleProtectedRoute({
   path,
@@ -36,20 +37,27 @@ function AppRoutes() {
     () => isStagingTestAdminMode || Boolean(adminAuthService.getToken()),
   );
   const [logoutError, setLogoutError] = useState<string | null>(null);
+  const [passwordResetRequired, setPasswordResetRequired] = useState(false);
   const canAccessFullWorkspace =
     !isStagingTestAdminMode || adminAuthService.isFullStagingAdminSession();
-  const landingPath = canAccessFullWorkspace
-    ? adminAuthService.getDefaultLandingRoute()
-    : "/test-access";
+  const landingPath = passwordResetRequired
+    ? "/password-reset"
+    : canAccessFullWorkspace
+      ? adminAuthService.getDefaultLandingRoute()
+      : "/test-access";
 
   useEffect(() => {
     const token = adminAuthService.getToken();
     if (!isStagingTestAdminMode && !token) return;
     adminAuthService
       .validateExistingSession()
-      .then(() => setIsSignedIn(true))
+      .then((session) => {
+        setPasswordResetRequired(Boolean(session.mustResetPassword));
+        setIsSignedIn(true);
+      })
       .catch(() => {
         adminAuthService.clearLocalSession();
+        setPasswordResetRequired(false);
         setIsSignedIn(false);
       })
       .finally(() => setCheckingSession(false));
@@ -57,12 +65,16 @@ function AppRoutes() {
 
   async function enterAdmin(token: string, mfaCode?: string) {
     const result = await adminAuthService.authenticate(token, mfaCode);
-    if (result.authenticated) setIsSignedIn(true);
+    if (result.authenticated) {
+      setPasswordResetRequired(Boolean(result.mustResetPassword));
+      setIsSignedIn(true);
+    }
     return result;
   }
 
   async function enterAdminWithCredentials(identifier: string, password: string, mfaCode: string) {
-    await adminAuthService.authenticateWithCredentials(identifier, password, mfaCode);
+    const session = await adminAuthService.authenticateWithCredentials(identifier, password, mfaCode);
+    setPasswordResetRequired(Boolean(session.mustResetPassword));
     setIsSignedIn(true);
   }
 
@@ -70,6 +82,7 @@ function AppRoutes() {
     setLogoutError(null);
     try {
       await adminAuthService.signOut();
+      setPasswordResetRequired(false);
       setIsSignedIn(false);
     } catch (error) {
       setLogoutError(error instanceof Error ? error.message : "The server did not confirm logout.");
@@ -89,6 +102,21 @@ function AppRoutes() {
     {logoutError && <div role="alert" className="admin-auth-error">{logoutError}</div>}
     <Routes>
       <Route
+        path="/password-reset"
+        element={
+          isSignedIn && passwordResetRequired ? (
+            <PasswordResetPage
+              onComplete={() => {
+                setPasswordResetRequired(false);
+                setIsSignedIn(false);
+              }}
+            />
+          ) : (
+            <Navigate to={isSignedIn ? landingPath : "/login"} replace />
+          )
+        }
+      />
+      <Route
         path="/login"
         element={
           isSignedIn ? <Navigate to={landingPath} replace /> : <LoginPage onAuthenticate={enterAdmin} onCredentialAuthenticate={enterAdminWithCredentials} />
@@ -97,7 +125,9 @@ function AppRoutes() {
       <Route path="/" element={<Navigate to={landingPath} replace />} />
       <Route
         element={
-          isSignedIn ? <AdminLayout onSignOut={endSession} /> : <Navigate to="/login" replace />
+          isSignedIn ? (
+            passwordResetRequired ? <Navigate to="/password-reset" replace /> : <AdminLayout onSignOut={endSession} />
+          ) : <Navigate to="/login" replace />
         }
       >
         {isStagingTestAdminMode && (

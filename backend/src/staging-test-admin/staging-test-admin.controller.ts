@@ -44,7 +44,7 @@ function cookieOptions(maxAgeSeconds: number): string {
   // credentials: "include", so both cookies must be explicitly cross-site
   // capable; SameSite=Lax silently withholds them on these browser requests.
   if (process.env.NODE_ENV === "production") {
-    return `Path=${COOKIE_PATH}; Max-Age=${Math.max(0, maxAgeSeconds)}; SameSite=None; Secure;`;
+    return `Path=${COOKIE_PATH}; Max-Age=${Math.max(0, maxAgeSeconds)}; SameSite=None; Secure; Partitioned;`;
   }
   return `Path=${COOKIE_PATH}; Max-Age=${Math.max(0, maxAgeSeconds)}; SameSite=Lax;`;
 }
