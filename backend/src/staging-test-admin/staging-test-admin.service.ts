@@ -493,6 +493,9 @@ export class StagingTestAdminService {
   async sessionFromToken(sessionToken?: string) {
     await SakhiAdminRbacRegistry.ensureHydrated(this.prisma);
     const validated = await this.staffSessions.validateSession(sessionToken ?? "");
+    const currentStaff = SakhiAdminRbacRegistry.refreshStaffRecordFromDatabase(
+      validated.staff as unknown as Record<string, unknown>,
+    );
     const credential = this.assertSessionToken(sessionToken);
     const principal = credential.principal;
     if (!principal) {
@@ -515,7 +518,7 @@ export class StagingTestAdminService {
       permissions: principal.permissions,
       allowedRoutes: principal.allowedRoutes,
       mode: "staging_full_admin" as const,
-      mustResetPassword: Boolean(validated.staff.mustResetPassword),
+      mustResetPassword: Boolean(currentStaff.mustResetPassword),
       message: `Active ${principal.roleTitle} session.`,
     };
   }
