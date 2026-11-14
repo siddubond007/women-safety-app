@@ -1,7 +1,7 @@
 services:
   - type: web
     name: sakhi-staging-api
-    # Render inspection on 2026-11-14: API tracks release branch; Super Admin tracks module-8-to-9 branch.
+    # Keep both hosted staging services on the same reviewed release branch.
     branch: release/staging-apk-hosted-20261112
     autoDeployTrigger: checksPass
     runtime: node
@@ -38,12 +38,15 @@ services:
         sync: false
       - key: SAKHI_ADMIN_CORS_ORIGIN
         value: https://sakhi-staging-admin.onrender.com
-      - key: SAKHI_STAGING_TEST_ADMIN_ENABLED
-        value: "true"
-      - key: SAKHI_STAGING_TEST_ADMIN_TOKEN
-        generateValue: true
-      - key: SAKHI_STAGING_TEST_ADMIN_REVIEWER_LABEL
-        value: Sakhi Friend Testing Reviewer
+      # Independent staff sessions and encrypted MFA storage use separate keys.
+      # Set these only in Render's protected Environment UI; never commit values.
+      - key: SAKHI_ADMIN_STAFF_SESSION_SIGNING_KEY
+        sync: false
+      - key: SAKHI_ADMIN_MFA_ENCRYPTION_KEY_VERSION
+        value: v1
+      - key: SAKHI_ADMIN_MFA_ENCRYPTION_KEY_V1
+        sync: false
+      # One-time bootstrap only; disable after the initial Super Admin is enrolled.
       - key: SAKHI_STAGING_FULL_ADMIN_ENABLED
         value: "true"
       - key: SAKHI_STAGING_FULL_ADMIN_TOKEN
@@ -86,7 +89,8 @@ services:
 
   - type: web
     name: sakhi-staging-admin
-    branch: module-8-to-9-implementations-and-upgrades
+    # Keep Admin and API on the same reviewed release source.
+    branch: release/staging-apk-hosted-20261112
     autoDeployTrigger: checksPass
     runtime: static
     rootDir: super-admin

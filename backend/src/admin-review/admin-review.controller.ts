@@ -62,9 +62,13 @@ export class AdminReviewController {
     @Res({ passthrough: true }) response: Response,
   ) {
     const result = await this.adminReview.logoutAdminSession(sessionToken);
+    const secure =
+      process.env.NODE_ENV === "production"
+        ? "; SameSite=None; Secure"
+        : "; SameSite=Lax";
     response.setHeader("Set-Cookie", [
-      "sakhi_admin_session=; HttpOnly; Path=/api/v1; Max-Age=0; SameSite=Lax",
-      "sakhi_admin_csrf=; Path=/api/v1; Max-Age=0; SameSite=Lax",
+      `sakhi_admin_session=; HttpOnly; Path=/api/v1; Max-Age=0${secure}`,
+      `sakhi_admin_csrf=; Path=/api/v1; Max-Age=0${secure}`,
     ]);
     return result;
   }

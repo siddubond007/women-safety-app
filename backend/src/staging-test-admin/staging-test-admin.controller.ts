@@ -40,8 +40,13 @@ function cookieValue(request: Request, name: string): string | undefined {
 }
 
 function cookieOptions(maxAgeSeconds: number): string {
-  const secure = process.env.NODE_ENV === "production" ? " Secure;" : "";
-  return `Path=${COOKIE_PATH}; Max-Age=${Math.max(0, maxAgeSeconds)}; SameSite=Lax;${secure}`;
+  // The Admin UI and API are separate Render origins. Production fetches use
+  // credentials: "include", so both cookies must be explicitly cross-site
+  // capable; SameSite=Lax silently withholds them on these browser requests.
+  if (process.env.NODE_ENV === "production") {
+    return `Path=${COOKIE_PATH}; Max-Age=${Math.max(0, maxAgeSeconds)}; SameSite=None; Secure;`;
+  }
+  return `Path=${COOKIE_PATH}; Max-Age=${Math.max(0, maxAgeSeconds)}; SameSite=Lax;`;
 }
 
 function setStaffSessionCookies(
