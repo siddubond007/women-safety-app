@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PrismaService } from "../src/database/prisma.service.js";
 import { StagingTestAdminService } from "../src/staging-test-admin/staging-test-admin.service.js";
 import { SakhiAdminRbacRegistry } from "../src/admin-review/admin-rbac.helper.js";
+import { databaseRequestIdentityStorage } from "../src/database/database-request-identity.context.js";
 
 const ENV_KEYS = [
   "SAKHI_ENV",
@@ -28,22 +29,31 @@ const ORIGINAL_ENV = Object.fromEntries(
 async function createStaffSession(
   prisma: ReturnType<typeof makeService>["prisma"],
   sessions: ReturnType<typeof makeService>["sessions"],
-  role: "SUPER_ADMIN" | "VERIFICATION_ADMIN" | "COMPLAINT_REVIEWER" = "VERIFICATION_ADMIN",
+  role:
+    | "SUPER_ADMIN"
+    | "VERIFICATION_ADMIN"
+    | "COMPLAINT_REVIEWER" = "VERIFICATION_ADMIN",
 ) {
   const now = new Date();
   const row = {
-    id: role === "SUPER_ADMIN"
-      ? "2d5fce37-6aab-4cb4-8a6c-6a2d07f87e91"
-      : "3e6fce37-6aab-4cb4-8a6c-6a2d07f87e92",
+    id:
+      role === "SUPER_ADMIN"
+        ? "2d5fce37-6aab-4cb4-8a6c-6a2d07f87e91"
+        : "3e6fce37-6aab-4cb4-8a6c-6a2d07f87e92",
     staffCode: role === "SUPER_ADMIN" ? "#SA-123" : "#VA-123",
     fullName: "Staging Staff Test",
     email: "staging.staff@example.test",
     role,
     status: "ACTIVE",
-    accessTokenDigest: createHash("sha256").update("first-factor-test-token").digest("hex"),
+    accessTokenDigest: createHash("sha256")
+      .update("first-factor-test-token")
+      .digest("hex"),
     accessTokenPreview: "SAKHI-STAFF-••••",
     isAuthorisedComplaintReviewer: role === "COMPLAINT_REVIEWER",
-    clearanceLevel: role === "SUPER_ADMIN" ? "LEVEL_4_MASTER_GOVERNANCE" : "LEVEL_2_ELIGIBILITY_SUPPORT",
+    clearanceLevel:
+      role === "SUPER_ADMIN"
+        ? "LEVEL_4_MASTER_GOVERNANCE"
+        : "LEVEL_2_ELIGIBILITY_SUPPORT",
     permissions: {},
     createdBy: "Test fixture",
     lastLoginAt: null,
@@ -51,7 +61,9 @@ async function createStaffSession(
     updatedAt: now,
   };
   prisma.adminStaffAccount.findMany.mockResolvedValue([row]);
-  await SakhiAdminRbacRegistry.ensureHydrated(prisma as unknown as PrismaService);
+  await SakhiAdminRbacRegistry.ensureHydrated(
+    prisma as unknown as PrismaService,
+  );
   const staff = SakhiAdminRbacRegistry.listStaff()[0];
   if (!staff) throw new Error("Staff session fixture did not hydrate.");
   sessions.validateSession.mockResolvedValue({ staff: row });
@@ -62,10 +74,20 @@ async function createStaffSession(
 }
 
 function makeService() {
+  const transactionIdentities: Array<
+    { adminStaffId?: string; adminRole?: string } | undefined
+  > = [];
   const tx = {
-    memberAccount: { create: vi.fn().mockResolvedValue({ id: "synthetic-account" }) },
-    memberProfile: { create: vi.fn().mockResolvedValue({ accountId: "synthetic-account" }) },
-    authSession: { create: vi.fn().mockResolvedValue({ id: "synthetic-session" }) },
+    adminStaffAccount: { create: vi.fn().mockResolvedValue({}) },
+    memberAccount: {
+      create: vi.fn().mockResolvedValue({ id: "synthetic-account" }),
+    },
+    memberProfile: {
+      create: vi.fn().mockResolvedValue({ accountId: "synthetic-account" }),
+    },
+    authSession: {
+      create: vi.fn().mockResolvedValue({ id: "synthetic-session" }),
+    },
     auditEvent: {
       create: vi.fn().mockResolvedValue({ id: "audit-id" }),
     },
@@ -87,8 +109,11 @@ function makeService() {
       findFirst: vi.fn().mockResolvedValue(null),
     },
     $transaction: vi.fn(
-      async (callback: (transaction: typeof tx) => Promise<unknown>) =>
-        callback(tx),
+      async (callback: (transaction: typeof tx) => Promise<unknown>) => {
+        const identity = databaseRequestIdentityStorage.getStore();
+        transactionIdentities.push(identity ? { ...identity } : undefined);
+        return callback(tx);
+      },
     ),
   };
   const sessions = {
@@ -113,6 +138,7 @@ function makeService() {
     ),
     prisma,
     tx,
+    transactionIdentities,
     sessions,
     mfa,
   };
@@ -134,7 +160,10 @@ describe("StagingTestAdminService", () => {
     process.env.SAKHI_STAGING_FULL_ADMIN_REVIEWER_LABEL = "Staging Super Admin";
     process.env.SAKHI_ADMIN_CORS_ORIGIN =
       "https://sakhi-staging-admin.onrender.com";
-    process.env.SAKHI_ADMIN_STAFF_SESSION_SIGNING_KEY = Buffer.alloc(32, 0x73).toString("base64");
+    process.env.SAKHI_ADMIN_STAFF_SESSION_SIGNING_KEY = Buffer.alloc(
+      32,
+      0x73,
+    ).toString("base64");
     process.env.SAKHI_ADMIN_MFA_ENCRYPTION_KEY = Buffer.alloc(
       32,
       0x5a,
@@ -153,21 +182,35 @@ describe("StagingTestAdminService", () => {
 
   it("restricts synthetic fixture creation to Super Admin and keeps the feature disabled by default", async () => {
     const { service, prisma, sessions } = makeService();
-    const verificationSession = await createStaffSession(prisma, sessions, "VERIFICATION_ADMIN");
+    const verificationSession = await createStaffSession(
+      prisma,
+      sessions,
+      "VERIFICATION_ADMIN",
+    );
     await expect(
       service.createSyntheticMemberFixture(
-        { acknowledgedTestOnly: true, reason: "Test fixture authorization boundary" },
+        {
+          acknowledgedTestOnly: true,
+          reason: "Test fixture authorization boundary",
+        },
         verificationSession,
       ),
     ).rejects.toThrow(/only an MFA-verified Super Admin/i);
     expect(prisma.$transaction).not.toHaveBeenCalled();
 
     SakhiAdminRbacRegistry.resetForTesting();
-    const superAdminSession = await createStaffSession(prisma, sessions, "SUPER_ADMIN");
+    const superAdminSession = await createStaffSession(
+      prisma,
+      sessions,
+      "SUPER_ADMIN",
+    );
     process.env.SAKHI_SYNTHETIC_FIXTURE_ENABLED = "false";
     await expect(
       service.createSyntheticMemberFixture(
-        { acknowledgedTestOnly: true, reason: "Test fixture feature flag boundary" },
+        {
+          acknowledgedTestOnly: true,
+          reason: "Test fixture feature flag boundary",
+        },
         superAdminSession,
       ),
     ).rejects.toThrow(/synthetic staging fixtures are disabled/i);
@@ -176,7 +219,11 @@ describe("StagingTestAdminService", () => {
 
   it("creates only a marked synthetic staging member fixture with a hashed short-lived session", async () => {
     const { service, prisma, tx, sessions } = makeService();
-    const sessionToken = await createStaffSession(prisma, sessions, "SUPER_ADMIN");
+    const sessionToken = await createStaffSession(
+      prisma,
+      sessions,
+      "SUPER_ADMIN",
+    );
 
     const result = await service.createSyntheticMemberFixture(
       {
@@ -211,7 +258,9 @@ describe("StagingTestAdminService", () => {
     });
     const sessionCreate = tx.authSession.create.mock.calls[0]?.[0];
     expect(sessionCreate.data.accountId).toBe(result.accountId);
-    expect(sessionCreate.data.tokenDigest).not.toBe(result.authorization.slice(7));
+    expect(sessionCreate.data.tokenDigest).not.toBe(
+      result.authorization.slice(7),
+    );
     expect(sessionCreate.data.expiresAt.getTime()).toBeGreaterThan(Date.now());
     expect(tx.auditEvent.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -244,7 +293,9 @@ describe("StagingTestAdminService", () => {
     });
     expect(sessions.issueSession).not.toHaveBeenCalled();
 
-    prisma.adminStaffAccount.findFirst.mockResolvedValueOnce({ id: "existing-super-admin" } as any);
+    prisma.adminStaffAccount.findFirst.mockResolvedValueOnce({
+      id: "existing-super-admin",
+    } as any);
     await expect(service.loginWithToken(fullToken)).rejects.toThrow(
       /bootstrap is permanently closed/i,
     );
@@ -252,12 +303,51 @@ describe("StagingTestAdminService", () => {
       service.sessionFromToken(
         "full-admin.1899999999.00000000-0000-4000-8000-000000000000.signature",
       ),
-    ).rejects.toThrow(/legacy shared and stateless staging admin sessions are disabled/i);
+    ).rejects.toThrow(
+      /legacy shared and stateless staging admin sessions are disabled/i,
+    );
     await expect(
       service.sessionFromToken(
         "test-access.1899999999.00000000-0000-4000-8000-000000000000.signature",
       ),
-    ).rejects.toThrow(/legacy shared and stateless staging admin sessions are disabled/i);
+    ).rejects.toThrow(
+      /legacy shared and stateless staging admin sessions are disabled/i,
+    );
+  });
+
+  it("creates the initial Super Admin and audit event under the same bootstrap RLS identity", async () => {
+    const { service, prisma, tx, transactionIdentities } = makeService();
+    const result = await service.bootstrapSuperAdmin(
+      "full-staging-admin-secret-token-is-over-32-chars",
+      "Initial Super Admin",
+      "initial.superadmin@example.test",
+    );
+
+    expect(result).toMatchObject({
+      created: true,
+      staffCode: expect.stringMatching(/^#SA-/),
+      accessToken: expect.stringMatching(/^SAKHI-SA-/),
+      mfaEnrollmentRequired: true,
+    });
+    const accountCreate = tx.adminStaffAccount.create.mock.calls[0]?.[0];
+    const auditCreate = tx.auditEvent.create.mock.calls[0]?.[0];
+    expect(accountCreate.data.id).toEqual(expect.any(String));
+    expect(auditCreate.data).toMatchObject({
+      actorType: "ADMIN",
+      actorId: accountCreate.data.id,
+      action: "admin.staff_account.created",
+      targetType: "admin_staff_account",
+      targetId: accountCreate.data.id,
+    });
+    expect(transactionIdentities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          adminStaffId: accountCreate.data.id,
+          adminRole: "SUPER_ADMIN",
+        }),
+      ]),
+    );
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
   it("converts the database-enforced bootstrap uniqueness race into a closed bootstrap conflict", async () => {
@@ -323,7 +413,9 @@ describe("StagingTestAdminService", () => {
       });
       expect(prisma.adminStaffAccount.findFirst).toHaveBeenCalledWith({
         where: {
-          accessTokenDigest: createHash("sha256").update(staffToken).digest("hex"),
+          accessTokenDigest: createHash("sha256")
+            .update(staffToken)
+            .digest("hex"),
           status: "ACTIVE",
           suspendedAt: null,
           deletedAt: null,
@@ -344,9 +436,9 @@ describe("StagingTestAdminService", () => {
       mode: "staging_full_admin",
       role: "VERIFICATION_ADMIN",
     });
-    await expect(service.sessionFromToken("test-only-secret-token-that-is-over-32-chars")).rejects.toThrow(
-      /invalid|legacy shared/i,
-    );
+    await expect(
+      service.sessionFromToken("test-only-secret-token-that-is-over-32-chars"),
+    ).rejects.toThrow(/invalid|legacy shared/i);
     expect(() =>
       service.assertAdminOrigin("https://untrusted.example"),
     ).toThrow(/configured Super Admin origin/i);
@@ -360,7 +452,11 @@ describe("StagingTestAdminService", () => {
 
   it("limits staging test-access decisions to Super Admin and Verification Admin staff roles", async () => {
     const { service, prisma, sessions } = makeService();
-    const complaintSession = await createStaffSession(prisma, sessions, "COMPLAINT_REVIEWER");
+    const complaintSession = await createStaffSession(
+      prisma,
+      sessions,
+      "COMPLAINT_REVIEWER",
+    );
     await expect(service.accounts(complaintSession)).rejects.toThrow(
       /Only an MFA-verified Super Admin or Verification Admin/i,
     );
@@ -401,7 +497,8 @@ describe("StagingTestAdminService", () => {
         redactedMetadata: expect.objectContaining({
           testOnly: true,
           actualEligibilityUnchanged: true,
-          reviewerLabel: "Staging Staff Test (#VA-123 • Role 1 • Verification Admin)",
+          reviewerLabel:
+            "Staging Staff Test (#VA-123 • Role 1 • Verification Admin)",
         }),
         actorId: "3e6fce37-6aab-4cb4-8a6c-6a2d07f87e92",
       }),
