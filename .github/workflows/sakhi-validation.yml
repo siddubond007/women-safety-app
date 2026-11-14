@@ -14,11 +14,13 @@ on:
       - module-8-to-9-implementations-and-upgrades
       - gemini/sakhi-comprehensive-fixes-20261107
       - integration/sakhi-gemini-first-implementation-20261111
+      - fix/staging-p0-managed-role-preflight-20261113
     paths:
       - "backend/**"
       - "super-admin/**"
       - "app/**"
       - ".github/workflows/sakhi-validation.yml"
+      - "render.yaml"
   pull_request:
     branches:
       - main
@@ -31,11 +33,13 @@ on:
       - module-8-to-9-implementations-and-upgrades
       - gemini/sakhi-comprehensive-fixes-20261107
       - integration/sakhi-gemini-first-implementation-20261111
+      - fix/staging-p0-managed-role-preflight-20261113
     paths:
       - "backend/**"
       - "super-admin/**"
       - "app/**"
       - ".github/workflows/sakhi-validation.yml"
+      - "render.yaml"
 
 permissions:
   contents: read
