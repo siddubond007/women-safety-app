@@ -14,6 +14,7 @@ on:
       - module-8-to-9-implementations-and-upgrades
       - gemini/sakhi-comprehensive-fixes-20261107
       - integration/sakhi-gemini-first-implementation-20261111
+      - fix/sakhi-runtime-db-isolation-20261113
     paths:
       - "backend/**"
       - "super-admin/**"
@@ -31,6 +32,7 @@ on:
       - module-8-to-9-implementations-and-upgrades
       - gemini/sakhi-comprehensive-fixes-20261107
       - integration/sakhi-gemini-first-implementation-20261111
+      - fix/sakhi-runtime-db-isolation-20261113
     paths:
       - "backend/**"
       - "super-admin/**"
