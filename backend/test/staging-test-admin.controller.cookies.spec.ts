@@ -47,6 +47,7 @@ describe("staging staff session cookie attributes", () => {
       expect(cookie).toContain("Path=/api/v1");
       expect(cookie).toContain("SameSite=None");
       expect(cookie).toContain("Secure");
+      expect(cookie).toContain("Partitioned");
     }
     expect(cookies[0]).toContain("HttpOnly");
     expect(cookies[1]).not.toContain("HttpOnly");
