@@ -125,6 +125,19 @@ describe("Module2Service privacy-aware member search", () => {
     expect(prisma.memberModerationBlock.findMany).toHaveBeenCalledTimes(1);
   });
 
+  it("preserves the public directory bio in the discovery projection", async () => {
+    const result = await service.getDiscover("Bearer test-token", "wellness");
+
+    expect(result.items[0]).toMatchObject({
+      accountId: visibleId,
+      name: "A visible member",
+      username: "@visible",
+      bio: "Public directory bio",
+    });
+    const directoryQuery = prisma.communityDirectoryProfile.findMany.mock.calls[0][0];
+    expect(directoryQuery.select.bio).toBe(true);
+  });
+
   it("returns an empty result without a member query for a blank search", async () => {
     const result = await service.searchMembers("Bearer test-token", "  ");
 

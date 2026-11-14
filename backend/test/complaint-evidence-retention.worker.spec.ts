@@ -72,9 +72,21 @@ describe("ComplaintEvidenceRetentionWorker", () => {
         }),
       }),
     );
+    expect(updateMany.mock.calls[0]?.[0]?.data?.evidenceFiles).toEqual([
+      {
+        id: "evidence_1234567890",
+        isPurged: true,
+        byteSize: 0,
+        fileName: "[PURGED_BY_RETENTION_POLICY]",
+      },
+    ]);
+    expect(JSON.stringify(updateMany.mock.calls[0]?.[0]?.data?.evidenceFiles)).not.toMatch(
+      /driveFileId|sha256Digest|opaque\.bin|drive_file_1234567890/i,
+    );
     expect(auditCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
         actorType: "SYSTEM",
+        actorId: null,
         action: "module5.complaint.evidence.retention_purged",
         targetId: complaint.referenceNumber,
         redactedMetadata: { retentionPurge: true, evidenceCount: 1 },

@@ -57,45 +57,16 @@ describe.skipIf(!enabled)(
       );
       if (
         migratorUrl.hostname !== "127.0.0.1" ||
-        migratorUrl.pathname !== "/sakhi_test"
+        migratorUrl.pathname !== "/sakhi_test" ||
+        migratorUrl.port !== appUrl.port
       ) {
         throw new Error(
-          "Refusing synthetic fixture cleanup through a non-local migrator connection.",
+          "Refusing synthetic fixture cleanup unless the migrator URL targets the same local sakhi_test instance as the application URL.",
         );
       }
       cleanupPool = new Pool({
         connectionString: process.env.SAKHI_MIGRATOR_DATABASE_URL,
       });
-      await cleanupPool.query(
-        "DELETE FROM public.discreet_complaints WHERE reference_number LIKE $1",
-        ["#SKH-ANON-SYNTH-%"],
-      );
-      const staleProfiles = await cleanupPool.query<{ account_id: string }>(
-        "SELECT account_id FROM public.member_profiles WHERE display_name = $1",
-        ["Synthetic Lifecycle Member"],
-      );
-      for (const stale of staleProfiles.rows) {
-        await cleanupPool.query(
-          "DELETE FROM public.account_deletion_requests WHERE account_id = $1",
-          [stale.account_id],
-        );
-        await cleanupPool.query(
-          "DELETE FROM public.media_assets WHERE owner_account_id = $1",
-          [stale.account_id],
-        );
-        await cleanupPool.query(
-          "DELETE FROM public.auth_sessions WHERE account_id = $1",
-          [stale.account_id],
-        );
-        await cleanupPool.query(
-          "DELETE FROM public.member_profiles WHERE account_id = $1",
-          [stale.account_id],
-        );
-        await cleanupPool.query(
-          "DELETE FROM public.member_accounts WHERE id = $1",
-          [stale.account_id],
-        );
-      }
       prisma = new PrismaService(new ConfigService(process.env));
       const databasePrincipal = await prisma.$queryRaw<
         Array<{ role: string; canDeleteLocationShares: boolean }>

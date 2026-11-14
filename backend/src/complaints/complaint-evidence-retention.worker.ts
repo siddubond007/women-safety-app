@@ -7,6 +7,7 @@ import { GoogleDriveStorageService } from "../module2/google-drive-storage.servi
 type EvidenceReference = {
   id?: string;
   driveFileId?: string;
+  sha256Digest?: string;
   isPurged?: boolean;
   byteSize?: number;
   fileName?: string;
@@ -117,8 +118,11 @@ export class ComplaintEvidenceRetentionWorker
             throw new Error("An expired complaint evidence record has no valid SHA-256/byte-size receipt; purge was stopped safely.");
           }
           await this.storage.deleteComplaintEvidence(item.driveFileId, item.id, item.sha256Digest, Number(item.byteSize));
+          // Retain only a stable opaque evidence reference and a purge marker.
+          // Drive IDs, checksums, original names, and arbitrary uploaded metadata
+          // must not survive the retention boundary in the complaint JSON.
           nextEvidence.push({
-            ...item,
+            id: item.id,
             isPurged: true,
             byteSize: 0,
             fileName: "[PURGED_BY_RETENTION_POLICY]",

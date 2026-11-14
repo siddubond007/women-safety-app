@@ -606,6 +606,7 @@ export class AuthenticationService {
     await tx.auditEvent.createMany({
       data: {
         actorType: "SYSTEM",
+        actorId: null,
         action: "auth.otp.requested",
         targetType: "otp_challenge",
         targetId: id,

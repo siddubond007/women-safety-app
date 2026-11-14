@@ -1,3 +1,5 @@
+BEGIN;
+
 -- Permit only the narrowly scoped system audit event emitted by the public OTP
 -- request flow. The request middleware sets auth_lookup transaction-locally;
 -- this does not grant general SYSTEM audit insertion or member-row access.
@@ -10,11 +12,13 @@ CREATE POLICY audit_events_member_or_admin_insert ON public.audit_events
     AND (
       (actor_type='MEMBER' AND actor_id=NULLIF(current_setting('app.account_id',true),'')::uuid)
       OR (
-        NULLIF(current_setting('app.admin_staff_id',true),'') IS NOT NULL
+        actor_type='ADMIN'
+        AND actor_id=NULLIF(current_setting('app.admin_staff_id',true),'')::uuid
         AND NULLIF(current_setting('app.admin_role',true),'') IS NOT NULL
       )
       OR (
         actor_type='SYSTEM'
+        AND actor_id IS NULL
         AND action='auth.otp.requested'
         AND target_type='otp_challenge'
         AND target_id IS NOT NULL
@@ -37,3 +41,5 @@ BEGIN
   END IF;
 END
 $auth_audit_policy_postflight$;
+
+COMMIT;
