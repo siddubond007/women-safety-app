@@ -21,11 +21,24 @@ BEGIN
     RAISE EXCEPTION
       'sakhi_staging_app must be a LOGIN role without SUPERUSER, BYPASSRLS, CREATEDB, CREATEROLE, or REPLICATION.';
   END IF;
+  -- Supabase manages one narrowly scoped reverse membership: postgres is a
+  -- member of sakhi_staging_app with ADMIN OPTION, but cannot inherit or SET
+  -- that role. This does not let the runtime role assume postgres privileges.
+  -- Permit only that exact row; reject every other incoming/outgoing membership.
   IF EXISTS (
-    SELECT 1 FROM pg_auth_members
-    WHERE member = runtime_role_oid OR roleid = runtime_role_oid
+    SELECT 1
+    FROM pg_auth_members m
+    JOIN pg_roles member_role ON member_role.oid = m.member
+    WHERE (m.member = runtime_role_oid OR m.roleid = runtime_role_oid)
+      AND NOT (
+        m.roleid = runtime_role_oid
+        AND member_role.rolname = 'postgres'
+        AND m.admin_option IS TRUE
+        AND m.inherit_option IS FALSE
+        AND m.set_option IS FALSE
+      )
   ) THEN
-    RAISE EXCEPTION 'sakhi_staging_app must not have incoming or outgoing PostgreSQL role memberships.';
+    RAISE EXCEPTION 'sakhi_staging_app has an unexpected incoming or outgoing PostgreSQL role membership.';
   END IF;
   IF EXISTS (
     SELECT 1

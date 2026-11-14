@@ -6,8 +6,13 @@ const SUPABASE_ROOT_CA = path.join(__dirname, "..", "prod-ca-2021.crt");
 
 const EXPECTED_HOST = "aws-0-ap-south-1.pooler.supabase.com";
 const PROJECT_REF = "wmlpokholjfadyohdlgo";
-const EXPECTED_MIGRATION = "20261106010000_modules8_9_10_11_12_complete";
-const APPROVAL_PHRASE = "YES_APPLY_20261106010000_MODULES8_12";
+const EXPECTED_MIGRATIONS = [
+  "20261113130000_allow_scoped_system_auth_audit",
+  "20261113140000_retention_deletion_runtime_grants",
+  "20261114110000_scope_retention_system_audit",
+];
+const EXPECTED_MIGRATION_TARGET = EXPECTED_MIGRATIONS.join(",");
+const APPROVAL_PHRASE = "YES_APPLY_20261113_14_STAGE3B2";
 const EXPECTED_USER = `sakhi_staging_migrator.${PROJECT_REF}`;
 const BASELINE_MIGRATIONS = [
   "20261015163000_stage1_foundation",
@@ -40,8 +45,8 @@ async function main() {
   }
 
   if (mode === "migrations") {
-    if (process.env.SAKHI_MIGRATION_TARGET !== EXPECTED_MIGRATION) {
-      throw new Error("The exact reviewed staging migration target was not selected.");
+    if (process.env.SAKHI_MIGRATION_TARGET !== EXPECTED_MIGRATION_TARGET) {
+      throw new Error("The exact three-migration Stage 3B2 target was not selected.");
     }
     if (process.env.SAKHI_ALLOW_STAGING_MIGRATIONS !== APPROVAL_PHRASE) {
       throw new Error("Explicit staging migration approval was not supplied.");
@@ -151,8 +156,8 @@ async function main() {
       );
     }
 
-    // Never let migrate deploy apply an arbitrary backlog. Only the reviewed
-    // Modules 8–12 migration may be pending; an already-applied target is also valid.
+    // Never let migrate deploy apply an arbitrary backlog. The only permitted
+    // pending migrations are the three explicitly reviewed Stage 3B2 IDs.
     const migrationRoot = path.join(__dirname, "..", "prisma", "migrations");
     const localMigrations = fs
       .readdirSync(migrationRoot, { withFileTypes: true })
@@ -160,23 +165,25 @@ async function main() {
       .map((entry) => entry.name)
       .sort();
     const pending = localMigrations.filter((name) => !applied.has(name));
-    if (!localMigrations.includes(EXPECTED_MIGRATION)) {
-      throw new Error("The reviewed Modules 8–12 migration directory is missing.");
+    const unknownApplied = [...applied].filter((name) => !localMigrations.includes(name));
+    const missingTargets = EXPECTED_MIGRATIONS.filter((name) => !localMigrations.includes(name));
+    const unexpectedPending = pending.filter((name) => !EXPECTED_MIGRATIONS.includes(name));
+    if (missingTargets.length > 0) {
+      throw new Error("One or more reviewed Stage 3B2 migration directories are missing.");
     }
-    if (
-      pending.length > 1 ||
-      pending.some((name) => name !== EXPECTED_MIGRATION) ||
-      (pending.length === 0 && !applied.has(EXPECTED_MIGRATION))
-    ) {
+    if (unknownApplied.length > 0) {
+      throw new Error("The staging migration ledger contains migrations absent from this release tree.");
+    }
+    if (unexpectedPending.length > 0) {
       throw new Error(
-        "Unexpected pending migration set; only the reviewed Modules 8–12 migration is permitted.",
+        "Unexpected pending migration set; only the three reviewed Stage 3B2 migrations are permitted.",
       );
     }
 
     process.stdout.write(
-      pending.length === 1
-        ? "Staging migration preflight passed: Modules 1–7 predecessors are complete and only the reviewed Modules 8–12 migration is pending.\n"
-        : "Staging migration preflight passed: Modules 1–7 predecessors and the reviewed Modules 8–12 migration are already applied.\n",
+      pending.length > 0
+        ? `Staging migration preflight passed: exact Stage 3B2 target selected; ${pending.length} reviewed migration(s) remain pending and no other migration may run.\n`
+        : "Staging migration preflight passed: all three reviewed Stage 3B2 migrations are already applied; no schema migration is pending.\n",
     );
   } finally {
     await client.end().catch(() => undefined);
