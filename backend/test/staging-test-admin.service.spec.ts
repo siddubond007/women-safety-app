@@ -242,6 +242,59 @@ describe("StagingTestAdminService", () => {
     ).rejects.toThrow(/individual staff first-factor credential/i);
   });
 
+  it("allows an existing passwordless Super Admin to complete token-plus-MFA login and marks password setup required", async () => {
+    const { service, prisma, sessions, mfa } = makeService();
+    const rawToken = "initial-super-admin-first-factor-token";
+    prisma.adminStaffAccount.findFirst.mockResolvedValue({
+      id: "2d5fce37-6aab-4cb4-8a6c-6a2d07f87e91",
+      staffCode: "#SA-123",
+      fullName: "Initial Super Admin",
+      email: "initial.superadmin@example.test",
+      role: "SUPER_ADMIN",
+      status: "ACTIVE",
+      suspendedAt: null,
+      deletedAt: null,
+      passwordHash: null,
+      mustResetPassword: false,
+      accessTokenDigest: createHash("sha256").update(rawToken).digest("hex"),
+      accessTokenPreview: "SAKHI-SA-••••",
+      isAuthorisedComplaintReviewer: true,
+      clearanceLevel: "LEVEL_4_MASTER_GOVERNANCE",
+      permissions: {
+        view: true, create: true, edit: true, approve: true,
+        suspend: true, export: true, delete: true,
+      },
+      createdBy: "One-time protected Super Admin bootstrap",
+      lastLoginAt: null,
+      createdAt: new Date("2026-11-14T00:00:00.000Z"),
+      updatedAt: new Date("2026-11-14T00:00:00.000Z"),
+    } as any);
+    prisma.adminStaffMfa.findUnique.mockResolvedValue({
+      enrollmentVerifiedAt: new Date("2026-11-14T00:00:00.000Z"),
+      disabledAt: null,
+    } as any);
+    mfa.verifyLoginFactor.mockResolvedValue({ verified: true } as any);
+    sessions.issueSession.mockResolvedValue({
+      value: "staff-admin.test-session",
+      expiresAt: new Date(Date.now() + 60_000),
+    } as any);
+
+    const result = await service.loginWithToken(rawToken, "123456");
+
+    expect(result).toMatchObject({
+      authenticated: true,
+      role: "SUPER_ADMIN",
+      mustResetPassword: true,
+    });
+    expect(mfa.verifyLoginFactor).toHaveBeenCalledWith(
+      "2d5fce37-6aab-4cb4-8a6c-6a2d07f87e91",
+      "123456",
+    );
+    expect(sessions.issueSession).toHaveBeenCalledWith(
+      "2d5fce37-6aab-4cb4-8a6c-6a2d07f87e91",
+    );
+  });
+
   it("exposes the one-time bootstrap setup only while no Super Admin exists", async () => {
     const { service, prisma, sessions } = makeService();
     const fullToken = "full-staging-admin-secret-token-is-over-32-chars";
