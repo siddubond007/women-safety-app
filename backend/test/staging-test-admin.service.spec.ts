@@ -301,7 +301,6 @@ describe("StagingTestAdminService", () => {
     );
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
-
   it("converts the database-enforced bootstrap uniqueness race into a closed bootstrap conflict", async () => {
     const { service } = makeService();
     const createSpy = vi
