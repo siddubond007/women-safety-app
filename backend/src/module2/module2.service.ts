@@ -9396,17 +9396,19 @@ export class Module2Service {
         where: { accountId: session.accountId, revokedAt: null },
         data: { revokedAt: now },
       });
-      await tx.auditEvent.create({
-        data: {
-          actorType: "SYSTEM",
-          actorId: null,
+      // createMany avoids INSERT ... RETURNING, which would require the
+      // member to have SELECT visibility over the private audit_events table.
+      await tx.auditEvent.createMany({
+        data: [{
+          actorType: "MEMBER",
+          actorId: session.accountId,
           action: "module2.account.deletion_requested",
           targetType: "account_deletion_request",
           targetId: createdReq.id,
           outcome: "requested",
           requestId: randomUUID(),
           redactedMetadata: { accountErasure: true, externalMediaPurgePending: true },
-        },
+        }],
       });
 
       return {

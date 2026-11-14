@@ -77,6 +77,55 @@ describe("Google Drive object integrity and ownership", () => {
     await expect(service.verifyComplaintEvidenceFile(driveFileId, evidenceId, sha256, bytes.length)).resolves.toBe(false);
   });
 
+  it("uploads synthetic complaint evidence, verifies downloaded bytes, and deletes only the matching Drive object", async () => {
+    const appProperties = {
+      sakhiEvidenceId: evidenceId,
+      sakhiClassification: "CONFIDENTIAL_COMPLAINT_EVIDENCE",
+      sakhiSha256: sha256,
+      sakhiByteSize: String(bytes.length),
+    };
+    const token = () => new Response(JSON.stringify({ access_token: "synthetic-access-token", expires_in: 3600 }), { status: 200 });
+    const emptyFolderList = () => new Response(JSON.stringify({ files: [] }), { status: 200 });
+    const folderCreated = (id: string) => new Response(JSON.stringify({ id }), { status: 200 });
+    const metadata = () => new Response(JSON.stringify({ id: driveFileId, trashed: false, size: String(bytes.length), appProperties }), { status: 200 });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(token())
+      .mockResolvedValueOnce(emptyFolderList())
+      .mockResolvedValueOnce(folderCreated("synthetic-root-folder"))
+      .mockResolvedValueOnce(emptyFolderList())
+      .mockResolvedValueOnce(folderCreated("synthetic-complaint-folder"))
+      .mockResolvedValueOnce(emptyFolderList())
+      .mockResolvedValueOnce(folderCreated("synthetic-evidence-folder"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: driveFileId, size: String(bytes.length) }), { status: 200 }))
+      .mockResolvedValueOnce(token())
+      .mockResolvedValueOnce(metadata())
+      .mockResolvedValueOnce(new Response(bytes, { status: 200 }))
+      .mockResolvedValueOnce(token())
+      .mockResolvedValueOnce(metadata())
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const service = new GoogleDriveStorageService();
+
+    const uploaded = await service.uploadComplaintEvidence({
+      evidenceId,
+      fileName: "synthetic-evidence.bin",
+      contentType: "application/octet-stream",
+      buffer: bytes,
+    });
+    expect(uploaded).toEqual({ driveFileId, driveFolderId: "synthetic-evidence-folder", size: bytes.length, sha256Checksum: sha256 });
+    const uploadInit = fetchMock.mock.calls[7]?.[1] as RequestInit;
+    const uploadBody = Buffer.from(uploadInit.body as Uint8Array).toString("utf8");
+    expect(uploadBody).toContain('"sakhiEvidenceId":"' + evidenceId + '"');
+    expect(uploadBody).toContain('"sakhiClassification":"CONFIDENTIAL_COMPLAINT_EVIDENCE"');
+    expect(uploadBody).toContain('"sakhiSha256":"' + sha256 + '"');
+    expect(uploadBody).toContain('"sakhiByteSize":"' + bytes.length + '"');
+
+    await expect(service.verifyComplaintEvidenceFile(driveFileId, evidenceId, sha256, bytes.length)).resolves.toBe(true);
+    await expect(service.deleteComplaintEvidence(driveFileId, evidenceId, sha256, bytes.length)).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(14);
+    expect(fetchMock.mock.calls[13]?.[1]).toMatchObject({ method: "DELETE" });
+  });
+
   it("requires owner metadata before deleting a member media object", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: "synthetic-access-token", expires_in: 3600 }), { status: 200 }))

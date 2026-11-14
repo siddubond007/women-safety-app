@@ -21,15 +21,16 @@ describe("ComplaintEvidenceRetentionWorker", () => {
     };
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const auditCreate = vi.fn().mockResolvedValue({ id: "audit-1" });
+    const findMany = vi.fn().mockResolvedValue([complaint]);
     const transaction = vi.fn(async (fn: (tx: any) => Promise<unknown>) =>
       fn({
-        discreetComplaint: { updateMany },
+        discreetComplaint: { findMany, updateMany },
         auditEvent: { create: auditCreate },
       }),
     );
     const prisma = {
-      discreetComplaint: { findMany: vi.fn().mockResolvedValue([complaint]) },
-      $transaction: transaction,
+      discreetComplaint: { findMany },
+      withSystemAdminIdentity: vi.fn((operation: (tx: any) => Promise<unknown>) => transaction(operation)),
     };
     const storage = {
       deleteComplaintEvidence: vi.fn().mockResolvedValue(undefined),
@@ -71,14 +72,226 @@ describe("ComplaintEvidenceRetentionWorker", () => {
         }),
       }),
     );
+    expect(updateMany.mock.calls[0]?.[0]?.data?.evidenceFiles).toEqual([
+      {
+        id: "evidence_1234567890",
+        isPurged: true,
+        byteSize: 0,
+        fileName: "[PURGED_BY_RETENTION_POLICY]",
+      },
+    ]);
+    expect(JSON.stringify(updateMany.mock.calls[0]?.[0]?.data?.evidenceFiles)).not.toMatch(
+      /driveFileId|sha256Digest|opaque\.bin|drive_file_1234567890/i,
+    );
     expect(auditCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
         actorType: "SYSTEM",
+        actorId: null,
         action: "module5.complaint.evidence.retention_purged",
         targetId: complaint.referenceNumber,
         redactedMetadata: { retentionPurge: true, evidenceCount: 1 },
       }),
     });
+  });
+
+
+  it("scrubs legacy metadata from already-purged complaint evidence without re-deleting Drive objects", async () => {
+    const mediaPurgedAt = new Date("2026-10-01T00:00:00.000Z");
+    const legacyComplaint = {
+      id: "legacy-complaint",
+      referenceNumber: "#SKH-ANON-2026-LEGACY",
+      mediaPurgedAt,
+      evidenceFiles: [{
+        id: "evidence_legacy_123",
+        isPurged: true,
+        driveFileId: "drive_file_legacy_123",
+        sha256Digest: "d".repeat(64),
+        byteSize: 4096,
+        fileName: "original-sensitive-name.pdf",
+        originalFileNameRedacted: "[PURGED:original-sensitive-name.pdf]",
+        uploaderMetadata: { device: "legacy-device" },
+      }],
+    };
+    const rawQuery = vi.fn().mockResolvedValue([legacyComplaint]);
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const auditCreate = vi.fn().mockResolvedValue({ id: "legacy-audit" });
+    const tx = {
+      $queryRawUnsafe: rawQuery,
+      discreetComplaint: { updateMany, findMany: vi.fn().mockResolvedValue([]) },
+      auditEvent: { create: auditCreate },
+    };
+    const prisma = {
+      discreetComplaint: { findMany: vi.fn().mockResolvedValue([]) },
+      withSystemAdminIdentity: vi.fn(async (operation: (tx: any) => Promise<unknown>) => operation(tx)),
+    };
+    const storage = { deleteComplaintEvidence: vi.fn() };
+    const worker = new ComplaintEvidenceRetentionWorker(
+      prisma as unknown as PrismaService,
+      storage as unknown as GoogleDriveStorageService,
+    );
+
+    await expect(worker.runOnce(new Date("2026-11-14T00:00:00.000Z"))).resolves.toEqual({
+      examined: 1,
+      purged: 0,
+    });
+    expect(rawQuery).toHaveBeenCalledOnce();
+    expect(storage.deleteComplaintEvidence).not.toHaveBeenCalled();
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        id: legacyComplaint.id,
+        mediaPurgedAt,
+        evidenceFiles: { equals: legacyComplaint.evidenceFiles },
+      },
+      data: {
+        evidenceFiles: [{
+          id: "evidence_legacy_123",
+          isPurged: true,
+          byteSize: 0,
+          fileName: "[PURGED_BY_RETENTION_POLICY]",
+        }],
+        updatedAt: new Date("2026-11-14T00:00:00.000Z"),
+      },
+    });
+    expect(JSON.stringify(updateMany.mock.calls[0]?.[0]?.data?.evidenceFiles)).not.toMatch(
+      /driveFileId|sha256Digest|originalFileName|uploaderMetadata|original-sensitive-name|drive_file_legacy/i,
+    );
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        actorType: "SYSTEM",
+        action: "module5.complaint.evidence.retention_purged",
+        targetId: legacyComplaint.referenceNumber,
+        outcome: "purged",
+      }),
+    });
+  });
+
+  it("treats malformed legacy isPurged strings as unpurged and verifies Drive deletion before sanitizing", async () => {
+    const mediaPurgedAt = new Date("2026-10-01T00:00:00.000Z");
+    const legacyComplaint = {
+      id: "legacy-malformed-complaint",
+      referenceNumber: "#SKH-ANON-2026-MALFORMED-LEGACY",
+      mediaPurgedAt,
+      evidenceFiles: [{
+        id: "evidence_malformed_123",
+        isPurged: "false",
+        driveFileId: "drive_file_malformed_123",
+        sha256Digest: "f".repeat(64),
+        byteSize: 777,
+        fileName: "legacy-sensitive.pdf",
+      }],
+    };
+    const rawQuery = vi.fn().mockResolvedValue([legacyComplaint]);
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const auditCreate = vi.fn().mockResolvedValue({ id: "malformed-legacy-audit" });
+    const tx = {
+      $queryRawUnsafe: rawQuery,
+      discreetComplaint: { updateMany, findMany: vi.fn().mockResolvedValue([]) },
+      auditEvent: { create: auditCreate },
+    };
+    const prisma = {
+      discreetComplaint: { findMany: vi.fn().mockResolvedValue([]) },
+      withSystemAdminIdentity: vi.fn(async (operation: (tx: any) => Promise<unknown>) => operation(tx)),
+    };
+    const storage = { deleteComplaintEvidence: vi.fn().mockResolvedValue(undefined) };
+    const worker = new ComplaintEvidenceRetentionWorker(
+      prisma as unknown as PrismaService,
+      storage as unknown as GoogleDriveStorageService,
+    );
+
+    await expect(worker.runOnce(new Date("2026-11-14T00:00:00.000Z"))).resolves.toEqual({
+      examined: 1,
+      purged: 0,
+    });
+    expect(storage.deleteComplaintEvidence).toHaveBeenCalledOnce();
+    expect(storage.deleteComplaintEvidence).toHaveBeenCalledWith(
+      "drive_file_malformed_123",
+      "evidence_malformed_123",
+      "f".repeat(64),
+      777,
+    );
+    expect(updateMany.mock.calls[0]?.[0]?.data?.evidenceFiles).toEqual([{
+      id: "evidence_malformed_123",
+      isPurged: true,
+      byteSize: 0,
+      fileName: "[PURGED_BY_RETENTION_POLICY]",
+    }]);
+    expect(auditCreate).toHaveBeenCalledOnce();
+  });
+
+  it("does not trust malformed isPurged strings on the normal retention path", async () => {
+    const complaint = {
+      id: "complaint-malformed-flag",
+      referenceNumber: "#SKH-ANON-2026-MALFORMED-FLAG",
+      evidenceFiles: [{
+        id: "evidence_malformed_flag_123",
+        isPurged: "false",
+        driveFileId: "drive_file_malformed_flag_123",
+        sha256Digest: "c".repeat(64),
+        byteSize: 888,
+        fileName: "sensitive.pdf",
+      }],
+    };
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const auditCreate = vi.fn().mockResolvedValue({ id: "malformed-flag-audit" });
+    const tx = {
+      $queryRawUnsafe: vi.fn().mockResolvedValue([]),
+      discreetComplaint: { findMany: vi.fn().mockResolvedValue([complaint]), updateMany },
+      auditEvent: { create: auditCreate },
+    };
+    const prisma = {
+      discreetComplaint: { findMany: vi.fn().mockResolvedValue([complaint]) },
+      withSystemAdminIdentity: vi.fn(async (operation: (tx: any) => Promise<unknown>) => operation(tx)),
+    };
+    const storage = { deleteComplaintEvidence: vi.fn().mockResolvedValue(undefined) };
+    const worker = new ComplaintEvidenceRetentionWorker(
+      prisma as unknown as PrismaService,
+      storage as unknown as GoogleDriveStorageService,
+    );
+
+    await expect(worker.runOnce(new Date("2026-11-14T00:00:00.000Z"))).resolves.toEqual({
+      examined: 1,
+      purged: 1,
+    });
+    expect(storage.deleteComplaintEvidence).toHaveBeenCalledOnce();
+    expect(storage.deleteComplaintEvidence).toHaveBeenCalledWith(
+      "drive_file_malformed_flag_123",
+      "evidence_malformed_flag_123",
+      "c".repeat(64),
+      888,
+    );
+    expect(updateMany.mock.calls[0]?.[0]?.data?.evidenceFiles).toEqual([{
+      id: "evidence_malformed_flag_123",
+      isPurged: true,
+      byteSize: 0,
+      fileName: "[PURGED_BY_RETENTION_POLICY]",
+    }]);
+    expect(auditCreate).toHaveBeenCalledOnce();
+  });
+
+  it("does not count or audit a complaint another worker already committed", async () => {
+    const complaint = {
+      id: "complaint-concurrent",
+      referenceNumber: "#SKH-ANON-2026-CONCURRENT",
+      evidenceFiles: [],
+    };
+    const updateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const auditCreate = vi.fn();
+    const findMany = vi.fn().mockResolvedValue([complaint]);
+    const transaction = vi.fn(async (fn: (tx: any) => Promise<unknown>) =>
+      fn({ discreetComplaint: { findMany, updateMany }, auditEvent: { create: auditCreate } }),
+    );
+    const prisma = {
+      discreetComplaint: { findMany },
+      withSystemAdminIdentity: vi.fn((operation: (tx: any) => Promise<unknown>) => transaction(operation)),
+    };
+    const storage = { deleteComplaintEvidence: vi.fn() };
+    const worker = new ComplaintEvidenceRetentionWorker(
+      prisma as unknown as PrismaService,
+      storage as unknown as GoogleDriveStorageService,
+    );
+
+    await expect(worker.runOnce()).resolves.toEqual({ examined: 1, purged: 0 });
+    expect(auditCreate).not.toHaveBeenCalled();
   });
 
   it("does not mark evidence purged when Drive deletion fails", async () => {
@@ -90,9 +303,13 @@ describe("ComplaintEvidenceRetentionWorker", () => {
       ],
     };
     const updateMany = vi.fn();
+    const findMany = vi.fn().mockResolvedValue([complaint]);
+    const transaction = vi.fn(async (fn: (tx: any) => Promise<unknown>) =>
+      fn({ discreetComplaint: { findMany, updateMany } }),
+    );
     const prisma = {
-      discreetComplaint: { findMany: vi.fn().mockResolvedValue([complaint]) },
-      $transaction: vi.fn(),
+      discreetComplaint: { findMany },
+      withSystemAdminIdentity: vi.fn((operation: (tx: any) => Promise<unknown>) => transaction(operation)),
     };
     const storage = {
       deleteComplaintEvidence: vi
@@ -106,7 +323,7 @@ describe("ComplaintEvidenceRetentionWorker", () => {
 
     await expect(worker.runOnce()).rejects.toThrow("Drive unavailable");
     expect(updateMany).not.toHaveBeenCalled();
-    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(transaction).toHaveBeenCalledTimes(2);
   });
   it("completes queued account erasure only after owner-verified Drive media deletion", async () => {
     const request = { id: "deletion-1", accountId: "2f6f7fa1-8c5c-4bb0-ae1a-0f7e3a2e5a41", status: "REQUESTED" };

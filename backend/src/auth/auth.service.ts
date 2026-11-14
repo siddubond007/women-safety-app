@@ -16,7 +16,10 @@ import {
 } from "node:crypto";
 import type { Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../database/prisma.service.js";
-import { setMemberDatabaseIdentity, setUsernameLookupDatabaseIdentity } from "../database/database-request-identity.context.js";
+import {
+  setMemberDatabaseIdentity,
+  setUsernameLookupDatabaseIdentity,
+} from "../database/database-request-identity.context.js";
 import {
   createAuthenticatedMemberIdentity,
   type AuthenticatedMemberIdentity,
@@ -98,10 +101,7 @@ class TooManyRequestsException extends HttpException {
 }
 
 type AccountState =
-  | "newAccount"
-  | "existingAccount"
-  | "pendingVerification"
-  | "restricted";
+  "newAccount" | "existingAccount" | "pendingVerification" | "restricted";
 
 function parseValidAge(value: unknown): number | null {
   const num =
@@ -317,7 +317,9 @@ export class AuthenticationService {
       timestampMs: number;
     } | null = null;
 
-    if (typeof anyPrisma.platformRegistrationPolicy?.findUnique === "function") {
+    if (
+      typeof anyPrisma.platformRegistrationPolicy?.findUnique === "function"
+    ) {
       try {
         const row = await anyPrisma.platformRegistrationPolicy.findUnique({
           where: { policyKey: "default" },
@@ -439,7 +441,7 @@ export class AuthenticationService {
         ? auditCandidate.timestampMs >= tableCandidate.timestampMs
           ? auditCandidate
           : tableCandidate
-        : auditCandidate ?? tableCandidate;
+        : (auditCandidate ?? tableCandidate);
 
     if (chosenDb) {
       return {
@@ -604,6 +606,7 @@ export class AuthenticationService {
     await tx.auditEvent.createMany({
       data: {
         actorType: "SYSTEM",
+        actorId: null,
         action: "auth.otp.requested",
         targetType: "otp_challenge",
         targetId: id,
@@ -934,6 +937,11 @@ export class AuthenticationService {
         });
       }
 
+      // OTP verification has now established the member identity. Bind that
+      // identity transaction-locally before creating the first session so the
+      // auth_sessions RLS insert policy is satisfied without a broad bypass.
+      await tx.$queryRaw`SELECT set_config('app.account_id', ${account.id}, true)`;
+
       const token = randomBytes(32).toString("base64url");
       const expiresAt = new Date(now.getTime() + SESSION_TTL_MS);
       await tx.authSession.create({
@@ -1014,12 +1022,17 @@ export class AuthenticationService {
     const account = await this.prisma.memberAccount.findUnique({
       where: { id: session.accountId },
     });
-    if (!account || ["DELETED", "SUSPENDED", "RESTRICTED"].includes(account.status)) {
+    if (
+      !account ||
+      ["DELETED", "SUSPENDED", "RESTRICTED"].includes(account.status)
+    ) {
       throw new UnauthorizedException(
         "Your session is expired or unavailable. Sign in again.",
       );
     }
-    const testAccessApproved = await this.hasActiveStagingTestApproval(session.accountId);
+    const testAccessApproved = await this.hasActiveStagingTestApproval(
+      session.accountId,
+    );
     return { ...session, account, testAccessApproved };
   }
 
@@ -1115,7 +1128,7 @@ export class AuthenticationService {
       );
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const existingProfile = await tx.memberProfile.findUnique({
         where: { accountId: session.accountId },
         select: { accountId: true },
@@ -1238,28 +1251,6 @@ export class AuthenticationService {
         },
       });
 
-      if ("communityDirectoryProfile" in tx) {
-        try {
-          await tx.communityDirectoryProfile.upsert({
-            where: { username: candidateUsername },
-            update: {
-              name: cleanDisplayName,
-              avatarAsset: chosenAvatar,
-              bio: profile.bio ?? "",
-            },
-            create: {
-              name: cleanDisplayName,
-              username: candidateUsername,
-              avatarAsset: chosenAvatar,
-              bio: profile.bio ?? "",
-              defaultFollowing: false,
-            },
-          });
-        } catch {
-          // The profile remains saved; directory sync can be repaired through Edit Profile.
-        }
-      }
-
       if (process.env.SAKHI_ENV === "dev" && "eligibilitySubmission" in tx) {
         try {
           const existingSub = await tx.eligibilitySubmission.findFirst({
@@ -1347,9 +1338,34 @@ export class AuthenticationService {
           username: profile.username ?? candidateUsername,
           dateOfBirth: profile.dateOfBirth.toISOString().slice(0, 10),
           email: profile.email,
+          bio: profile.bio ?? "",
         },
       };
     });
+
+    // Directory projection is optional and must not run inside the core profile
+    // transaction: a caught PostgreSQL/RLS error still aborts that transaction.
+    // Use INSERT (not upsert) so a hidden row with a conflicting username can
+    // never be reassigned to this account through ON CONFLICT.
+    try {
+      await this.prisma.communityDirectoryProfile.create({
+        data: {
+          accountId: session.accountId,
+          name: result.profile.displayName,
+          username: result.profile.username,
+          bio: result.profile.bio,
+          avatarAsset:
+            dto.avatarAsset?.trim() ||
+            "assets/images/profile/avatar_ananya.webp",
+          defaultFollowing: false,
+        },
+      });
+    } catch {
+      // Profile and consent are already committed. Directory projection can be
+      // reconciled safely by the dedicated profile-edit/sync flow.
+    }
+
+    return result;
   }
 
   async getCurrentAccount(authorization?: string) {

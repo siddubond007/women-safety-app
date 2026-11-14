@@ -11,6 +11,7 @@ import {
 import { GoogleDriveStorageService } from "../module2/google-drive-storage.service.js";
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { PrismaService } from "../database/prisma.service.js";
+import { setAdminDatabaseIdentity } from "../database/database-request-identity.context.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import {
   REGISTRATION_POLICY_AUDIT_ACTION,
@@ -3785,6 +3786,10 @@ export class AdminReviewService {
     if (staff.lockedUntil && staff.lockedUntil.getTime() > now.getTime()) {
       throw new ForbiddenException("This admin account is temporarily locked after repeated failed sign-in attempts.");
     }
+
+    // Bind only the staff row resolved by the database-backed login identifier.
+    // MFA, failed-login, and session audit writes then satisfy audit_events RLS.
+    setAdminDatabaseIdentity(staff.id, staff.role);
 
     const verifyPassword = (plain: string, stored: string | null): boolean => {
       if (!stored) return false;

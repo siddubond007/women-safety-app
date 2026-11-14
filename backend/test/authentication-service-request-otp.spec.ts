@@ -73,6 +73,9 @@ function createService(account: { id: string; status?: string } | null) {
     auditEvent: {
       findFirst: vi.fn().mockResolvedValue(null),
     },
+    communityDirectoryProfile: {
+      create: vi.fn().mockResolvedValue({ id: "directory-profile" }),
+    },
     $transaction: vi.fn(
       async (callback: (transaction: typeof tx) => Promise<unknown>) =>
         callback(tx),
@@ -317,6 +320,7 @@ describe("AuthenticationService.requestOtp account checks", () => {
       displayName: "Sadhana",
       dateOfBirth: new Date("2001-10-11T00:00:00.000Z"),
       email: null,
+      bio: "A staging profile bio that must reach the directory.",
     });
 
     const result = await service.createProfile(authorization, {
@@ -335,6 +339,13 @@ describe("AuthenticationService.requestOtp account checks", () => {
     });
     expect(tx.memberProfile.create).toHaveBeenCalledOnce();
     expect(tx.memberConsent.create).toHaveBeenCalledOnce();
+    expect(result.profile.bio).toBe("A staging profile bio that must reach the directory.");
+    expect(prisma.communityDirectoryProfile.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        accountId: "staging-account",
+        bio: "A staging profile bio that must reach the directory.",
+      }),
+    });
 
     prisma.memberProfile.findUnique.mockResolvedValue({
       displayName: "Sadhana",

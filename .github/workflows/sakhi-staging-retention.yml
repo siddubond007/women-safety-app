@@ -30,8 +30,8 @@ jobs:
           fi
           API_BASE_URL="${API_BASE_URL%/}"
           curl --fail --show-error --silent \
-            --retry 8 --retry-all-errors --retry-delay 20 \
-            --connect-timeout 15 --max-time 120 \
+            --retry 5 --retry-all-errors --retry-delay 15 \
+            --connect-timeout 15 --max-time 90 \
             -X POST \
             -H "Authorization: Bearer ${RETENTION_TOKEN}" \
             -H "Accept: application/json" \
