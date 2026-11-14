@@ -1034,6 +1034,8 @@ export class SakhiAdminRbacRegistry {
     staffId: string,
     dto: {
       fullName?: string;
+      email?: string;
+      emailChangeReason?: string;
       role?: string;
       status?: string;
       isAuthorisedComplaintReviewer?: boolean;
@@ -1073,6 +1075,26 @@ export class SakhiAdminRbacRegistry {
         );
       }
       existing.fullName = cleanName;
+    }
+
+    if (dto.email !== undefined) {
+      const cleanEmail = dto.email.trim().toLowerCase();
+      if (cleanEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+        throw new BadRequestException("Provide a valid staff email address (maximum 254 characters).");
+      }
+      if (cleanEmail !== original.email.toLowerCase()) {
+        const reason = dto.emailChangeReason?.trim() ?? "";
+        if (reason.length < 10 || reason.length > 500) {
+          throw new BadRequestException("Provide an email-change reason of 10 to 500 characters.");
+        }
+        const duplicate = Array.from(this.staffMap.values()).find(
+          (staff) => staff.id !== staffId && staff.status !== "REVOKED" && staff.email.toLowerCase() === cleanEmail,
+        );
+        if (duplicate) {
+          throw new ConflictException("That email address is already assigned to another active staff account.");
+        }
+        existing.email = cleanEmail;
+      }
     }
 
     if (dto.role !== undefined) {
@@ -1173,6 +1195,8 @@ export class SakhiAdminRbacRegistry {
         original.updatedAt,
         original.role,
         original.status,
+        original.email,
+        dto.emailChangeReason?.trim(),
       );
     } catch (error) {
       this.staffMap.set(existing.id, original);
@@ -1292,6 +1316,8 @@ export class SakhiAdminRbacRegistry {
     expectedUpdatedAt?: string,
     originalRole?: SakhiAdminRole,
     originalStatus?: AdminStaffRecord["status"],
+    originalEmail?: string,
+    emailChangeReason?: string,
   ): Promise<void> {
     const anyPrisma = prisma as unknown as Record<string, any>;
     if (typeof anyPrisma.$transaction !== "function") {
@@ -1405,12 +1431,24 @@ export class SakhiAdminRbacRegistry {
             action:
               outcome === "created"
                 ? "admin.staff_account.created"
-                : "admin.staff_account.updated",
+                : originalEmail !== undefined && originalEmail.toLowerCase() !== staff.email.toLowerCase()
+                  ? "admin.staff_account.email_changed"
+                  : "admin.staff_account.updated",
             targetType: "admin_staff_account",
             targetId: staff.id,
             outcome: "success",
             requestId: randomUUID(),
-            redactedMetadata: safeMetadata,
+            redactedMetadata: {
+              ...safeMetadata,
+              ...(originalEmail !== undefined && originalEmail.toLowerCase() !== staff.email.toLowerCase()
+                ? {
+                    emailChanged: true,
+                    reason: emailChangeReason,
+                    previousEmailSha256: sha256Hex(originalEmail.toLowerCase()),
+                    newEmailSha256: sha256Hex(staff.email.toLowerCase()),
+                  }
+                : {}),
+            },
           },
         });
       }, { isolationLevel: "Serializable" });
