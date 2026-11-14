@@ -295,6 +295,49 @@ describe("StagingTestAdminService", () => {
     );
   });
 
+  it("keeps password setup required when a passwordless Super Admin session is restored", async () => {
+    const { service, prisma, sessions } = makeService();
+    const row = {
+      id: "2d5fce37-6aab-4cb4-8a6c-6a2d07f87e91",
+      staffCode: "#SA-123",
+      fullName: "Initial Super Admin",
+      email: "initial.superadmin@example.test",
+      role: "SUPER_ADMIN",
+      status: "ACTIVE",
+      passwordHash: null,
+      mustResetPassword: false,
+      accessTokenDigest: "a".repeat(64),
+      accessTokenPreview: "SAKHI-SA-••••",
+      isAuthorisedComplaintReviewer: true,
+      clearanceLevel: "LEVEL_4_MASTER_GOVERNANCE",
+      permissions: {
+        view: true, create: true, edit: true, approve: true,
+        suspend: true, export: true, delete: true,
+      },
+      createdBy: "One-time protected Super Admin bootstrap",
+      lastLoginAt: null,
+      createdAt: new Date("2026-11-14T00:00:00.000Z"),
+      updatedAt: new Date("2026-11-14T00:00:00.000Z"),
+    };
+    prisma.adminStaffAccount.findMany.mockResolvedValue([row] as any);
+    await SakhiAdminRbacRegistry.ensureHydrated(prisma as unknown as PrismaService);
+    const staff = SakhiAdminRbacRegistry.listStaff()[0];
+    if (!staff) throw new Error("Super Admin fixture did not hydrate.");
+    const sessionToken = SakhiAdminRbacRegistry.createSignedStaffSessionToken(
+      staff,
+      process.env.SAKHI_ADMIN_STAFF_SESSION_SIGNING_KEY!,
+    ).value;
+    sessions.validateSession.mockResolvedValue({ staff: row } as any);
+
+    const result = await service.sessionFromToken(sessionToken);
+
+    expect(result).toMatchObject({
+      authenticated: true,
+      role: "SUPER_ADMIN",
+      mustResetPassword: true,
+    });
+  });
+
   it("exposes the one-time bootstrap setup only while no Super Admin exists", async () => {
     const { service, prisma, sessions } = makeService();
     const fullToken = "full-staging-admin-secret-token-is-over-32-chars";

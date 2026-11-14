@@ -493,10 +493,10 @@ export class StagingTestAdminService {
   async sessionFromToken(sessionToken?: string) {
     await SakhiAdminRbacRegistry.ensureHydrated(this.prisma);
     const validated = await this.staffSessions.validateSession(sessionToken ?? "");
+    const credential = this.assertSessionToken(sessionToken);
     const currentStaff = SakhiAdminRbacRegistry.refreshStaffRecordFromDatabase(
       validated.staff as unknown as Record<string, unknown>,
     );
-    const credential = this.assertSessionToken(sessionToken);
     const principal = credential.principal;
     if (!principal) {
       throw new UnauthorizedException(
