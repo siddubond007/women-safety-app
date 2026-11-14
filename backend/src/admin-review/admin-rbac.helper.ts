@@ -734,7 +734,7 @@ export class SakhiAdminRbacRegistry {
       email: String(r.email ?? "admin@sakhi.org.in"),
       role,
       status: r.status,
-      mustResetPassword: Boolean(r.mustResetPassword) || r.passwordHash === null,
+      mustResetPassword: Boolean(r.mustResetPassword) || (role === "SUPER_ADMIN" && r.passwordHash === null),
       accessTokenDigest: String(r.accessTokenDigest ?? ""),
       accessTokenPreview: String(r.accessTokenPreview ?? "SAKHI-STAFF-••••"),
       isAuthorisedComplaintReviewer:
