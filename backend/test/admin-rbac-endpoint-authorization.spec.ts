@@ -304,6 +304,78 @@ describe("admin endpoint server-side role and permission enforcement", () => {
     expect(tx.adminStaffAccount.updateMany).not.toHaveBeenCalled();
   });
 
+  it("changes a staff email transactionally, revokes sessions, and writes a dedicated audit event", async () => {
+    const staffId = "7d5fce37-6aab-4cb4-8a6c-6a2d07f87e91";
+    const row = {
+      id: staffId, staffCode: "#SA-777", fullName: "Initial Owner",
+      email: "temporary@example.test", role: "SUPER_ADMIN", status: "ACTIVE",
+      accessTokenDigest: "d".repeat(64), accessTokenPreview: "REDACTED",
+      isAuthorisedComplaintReviewer: true, clearanceLevel: "LEVEL_4_MASTER_GOVERNANCE",
+      permissions: { view: true, create: true, edit: true, approve: true, suspend: true, export: true, delete: true },
+      createdBy: "Bootstrap", lastLoginAt: null, createdAt: new Date(),
+      updatedAt: new Date("2026-11-10T00:00:00Z"),
+    };
+    const tx = {
+      adminStaffAccount: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      adminStaffSession: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      adminStaffBackupCode: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      adminStaffRecoveryRequest: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      auditEvent: { create: vi.fn().mockResolvedValue({ id: "email-change-audit" }) },
+    };
+    const prisma = {
+      adminStaffAccount: { findMany: vi.fn().mockResolvedValue([row]), findUnique: vi.fn().mockResolvedValue(row) },
+      auditEvent: { findMany: vi.fn().mockResolvedValue([]) },
+      businessDirectoryListing: { findMany: vi.fn().mockResolvedValue([]) },
+      platformConfigSetting: { findUnique: vi.fn().mockResolvedValue(null) },
+      $transaction: vi.fn(async (callback: (value: any) => Promise<unknown>) => callback(tx)),
+    } as any;
+
+    const updated = await SakhiAdminRbacRegistry.updateStaffAccount(
+      prisma, staffId, { email: "  Owner.New@Example.com ", emailChangeReason: "Client provided the permanent work email." }, "Verified Super Admin",
+      "00000000-0000-4000-8000-000000000001",
+    );
+
+    expect(updated.staff.email).toBe("owner.new@example.com");
+    expect(tx.adminStaffAccount.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ email: "owner.new@example.com" }),
+    }));
+    expect(tx.adminStaffSession.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { staffId, revokedAt: null },
+      data: expect.objectContaining({ revokeReason: "STAFF_ACCOUNT_CHANGED" }),
+    }));
+    expect(tx.auditEvent.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        action: "admin.staff_account.email_changed",
+        targetId: staffId,
+        redactedMetadata: expect.objectContaining({ emailChanged: true, reason: "Client provided the permanent work email." }),
+      }),
+    }));
+  });
+
+  it("rejects malformed staff email updates before persisting", async () => {
+    const staffId = "8d5fce37-6aab-4cb4-8a6c-6a2d07f87e91";
+    const row = {
+      id: staffId, staffCode: "#CM-777", fullName: "Moderator",
+      email: "moderator@example.test", role: "CONTENT_MODERATOR", status: "ACTIVE",
+      accessTokenDigest: "e".repeat(64), accessTokenPreview: "REDACTED",
+      isAuthorisedComplaintReviewer: false, clearanceLevel: "LEVEL_2_MODERATION",
+      permissions: { view: true, create: true, edit: true, approve: false, suspend: false, export: false, delete: false },
+      createdBy: "Bootstrap", lastLoginAt: null, createdAt: new Date(), updatedAt: new Date(),
+    };
+    const prisma = {
+      adminStaffAccount: { findMany: vi.fn().mockResolvedValue([row]), findUnique: vi.fn().mockResolvedValue(row) },
+      auditEvent: { findMany: vi.fn().mockResolvedValue([]) },
+      businessDirectoryListing: { findMany: vi.fn().mockResolvedValue([]) },
+      platformConfigSetting: { findUnique: vi.fn().mockResolvedValue(null) },
+      $transaction: vi.fn(),
+    } as any;
+    await expect(SakhiAdminRbacRegistry.updateStaffAccount(
+      prisma, staffId, { email: "not-an-email" }, "Verified Super Admin",
+      "00000000-0000-4000-8000-000000000001",
+    )).rejects.toThrow(/valid staff email/i);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
   it("rejects a stale concurrent staff update instead of overwriting the newer row", async () => {
     const row = {
       id: "3d5fce37-6aab-4cb4-8a6c-6a2d07f87e91",

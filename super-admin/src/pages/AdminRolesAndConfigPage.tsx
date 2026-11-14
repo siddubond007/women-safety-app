@@ -5,6 +5,7 @@ import {
   Copy,
   KeyRound,
   Lock,
+  Mail,
   Plus,
   RefreshCw,
   Settings2,
@@ -159,6 +160,9 @@ export function AdminRolesAndConfigPage() {
   const [notice, setNotice] = useState("");
   const [mfaRecoveryRequests, setMfaRecoveryRequests] = useState<Array<Record<string, unknown>>>([]);
   const [recoveryTokenIssued, setRecoveryTokenIssued] = useState<string | null>(null);
+  const [editingEmailStaffId, setEditingEmailStaffId] = useState<string | null>(null);
+  const [editingEmail, setEditingEmail] = useState("");
+  const [emailChangeReason, setEmailChangeReason] = useState("");
 
   const [staffData, setStaffData] = useState<StaffListPayload | null>(null);
   const [platformConfig, setPlatformConfig] =
@@ -448,6 +452,42 @@ export function AdminRolesAndConfigPage() {
       setError(
         err instanceof Error ? err.message : "Failed to delete admin account.",
       );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleSaveStaffEmail(staff: AdminStaffRecord) {
+    const nextEmail = editingEmail.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail) || nextEmail.length > 254) {
+      setError("Enter a valid email address (maximum 254 characters).");
+      return;
+    }
+    if (nextEmail === staff.email.toLowerCase()) {
+      setEditingEmailStaffId(null);
+      setEditingEmail("");
+      setEmailChangeReason("");
+      return;
+    }
+    if (emailChangeReason.trim().length < 10 || emailChangeReason.trim().length > 500) {
+      setError("Provide a non-sensitive email-change reason of 10–500 characters.");
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    setNotice("");
+    try {
+      await adminApi(`/admin-review/staff/${encodeURIComponent(staff.id)}`, {
+        method: "PATCH",
+        body: { email: nextEmail, emailChangeReason: emailChangeReason.trim() },
+      });
+      setEditingEmailStaffId(null);
+      setEditingEmail("");
+      setEmailChangeReason("");
+      setNotice(`Updated the email address for ${staff.fullName}. The change was audited and that staff member's active sessions were revoked.`);
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update the staff email address.");
     } finally {
       setSubmitting(false);
     }
@@ -1228,6 +1268,36 @@ export function AdminRolesAndConfigPage() {
                       </div>
                     </div>
 
+                    {editingEmailStaffId === s.id ? (
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center", margin: "8px 0 12px" }}>
+                        <label htmlFor={`staff-email-${s.id}`} style={{ fontSize: "12px", fontWeight: 700 }}>New staff email</label>
+                        <input
+                          id={`staff-email-${s.id}`}
+                          type="email"
+                          autoComplete="off"
+                          maxLength={254}
+                          value={editingEmail}
+                          onChange={(event) => setEditingEmail(event.target.value)}
+                          disabled={submitting}
+                          style={{ minWidth: "260px", flex: "1 1 260px", padding: "9px 11px", border: "1px solid #d8cbdc", borderRadius: "9px" }}
+                        />
+                        <label htmlFor={`staff-email-reason-${s.id}`} style={{ fontSize: "12px", fontWeight: 700 }}>Reason</label>
+                        <input
+                          id={`staff-email-reason-${s.id}`}
+                          type="text"
+                          maxLength={500}
+                          value={emailChangeReason}
+                          onChange={(event) => setEmailChangeReason(event.target.value)}
+                          placeholder="Why is this staff email changing?"
+                          disabled={submitting}
+                          style={{ minWidth: "260px", flex: "1 1 260px", padding: "9px 11px", border: "1px solid #d8cbdc", borderRadius: "9px" }}
+                        />
+                        <button type="button" className="secondary-button" disabled={submitting || emailChangeReason.trim().length < 10} onClick={() => void handleSaveStaffEmail(s)}>Save email</button>
+                        <button type="button" className="secondary-button" disabled={submitting} onClick={() => { setEditingEmailStaffId(null); setEditingEmail(""); setEmailChangeReason(""); }}>Cancel</button>
+                        <span style={{ fontSize: "11px", color: "#6e6275", flexBasis: "100%" }}>Changing an email revokes this staff member's active sessions. They must sign in again. The change is recorded in the admin audit log.</span>
+                      </div>
+                    ) : null}
+
                     <div
                       style={{
                         fontSize: "12px",
@@ -1303,6 +1373,14 @@ export function AdminRolesAndConfigPage() {
                         {s.isAuthorisedComplaintReviewer
                           ? "Revoke Complaint Clearance"
                           : "Grant Complaint Clearance"}
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={submitting}
+                        onClick={() => { setEditingEmailStaffId(s.id); setEditingEmail(s.email); setEmailChangeReason(""); setError(""); setNotice(""); }}
+                      >
+                        <Mail size={14} /> Change Email
                       </button>
                       <button
                         type="button"

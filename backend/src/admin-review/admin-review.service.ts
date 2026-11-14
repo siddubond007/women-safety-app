@@ -3562,6 +3562,8 @@ export class AdminReviewService {
     staffId: string,
     body: {
       fullName?: string;
+      email?: string;
+      emailChangeReason?: string;
       role?: string;
       status?: string;
       isAuthorisedComplaintReviewer?: boolean;
