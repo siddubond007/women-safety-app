@@ -21,6 +21,7 @@ on:
       - "super-admin/**"
       - "app/**"
       - ".github/workflows/sakhi-validation.yml"
+      - "render.yaml"
   pull_request:
     branches:
       - main
@@ -40,6 +41,7 @@ on:
       - "super-admin/**"
       - "app/**"
       - ".github/workflows/sakhi-validation.yml"
+      - "render.yaml"
 
 permissions:
   contents: read
