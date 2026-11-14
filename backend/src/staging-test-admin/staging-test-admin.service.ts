@@ -305,7 +305,7 @@ export class StagingTestAdminService {
         () =>
           SakhiAdminRbacRegistry.createStaffAccount(
             this.prisma,
-            { fullName, email, role: "SUPER_ADMIN" },
+            { fullName, email, role: "SUPER_ADMIN", mustResetPassword: true },
             "One-time protected Super Admin bootstrap",
             bootstrapStaffId,
             bootstrapStaffId,
