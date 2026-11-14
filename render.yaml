@@ -1,8 +1,8 @@
 services:
   - type: web
     name: sakhi-staging-api
-    # Read-only Render inspection on 2026-11-07 confirmed both live services track this branch.
-    branch: module-8-to-9-implementations-and-upgrades
+    # Render inspection on 2026-11-14: API tracks release branch; Super Admin tracks module-8-to-9 branch.
+    branch: release/staging-apk-hosted-20261112
     autoDeployTrigger: checksPass
     runtime: node
     plan: free
