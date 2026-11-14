@@ -14,9 +14,9 @@ function getMigrationDatasourceUrl(): string {
     const [commandGroup, commandAction] = process.argv.slice(2);
     const migrationApproved =
       process.env.SAKHI_MIGRATION_TARGET ===
-        "20261106010000_modules8_9_10_11_12_complete" &&
+        "20261113130000_allow_scoped_system_auth_audit,20261113140000_retention_deletion_runtime_grants,20261114110000_scope_retention_system_audit" &&
       process.env.SAKHI_ALLOW_STAGING_MIGRATIONS ===
-        "YES_APPLY_20261106010000_MODULES8_12";
+        "YES_APPLY_20261113_14_STAGE3B2";
     const bootstrapApproved =
       process.env.SAKHI_ALLOW_STAGING_BOOTSTRAP ===
       "YES_BOOTSTRAP_SAKHI_STAGING_EMPTY_DATABASE";
