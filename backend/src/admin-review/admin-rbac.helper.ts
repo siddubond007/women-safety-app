@@ -913,6 +913,7 @@ export class SakhiAdminRbacRegistry {
     },
     createdByLabel: string,
     actorStaffId?: string,
+    staffId?: string,
   ): Promise<{ staff: AdminStaffRecord; issuedAccessToken: string }> {
     await this.ensureHydrated(prisma);
 
@@ -997,7 +998,7 @@ export class SakhiAdminRbacRegistry {
     };
 
     const staff: AdminStaffRecord = {
-      id: randomUUID(),
+      id: staffId ?? randomUUID(),
       staffCode,
       fullName,
       email,

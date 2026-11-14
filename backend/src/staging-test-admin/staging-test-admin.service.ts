@@ -13,7 +13,10 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import { PrismaService } from "../database/prisma.service.js";
-import { setAdminDatabaseIdentity } from "../database/database-request-identity.context.js";
+import {
+  runWithDatabaseRequestIdentity,
+  setAdminDatabaseIdentity,
+} from "../database/database-request-identity.context.js";
 import { AdminMfaService } from "../admin-security/admin-mfa.service.js";
 import { AdminSessionService } from "../admin-security/admin-session.service.js";
 import {
@@ -294,11 +297,20 @@ export class StagingTestAdminService {
       );
     }
     let created: Awaited<ReturnType<typeof SakhiAdminRbacRegistry.createStaffAccount>>;
+    // Bootstrap is unauthenticated; establish the new staff identity only for
+    // this transaction so its matching ADMIN audit insert satisfies RLS.
+    const bootstrapStaffId = randomUUID();
     try {
-      created = await SakhiAdminRbacRegistry.createStaffAccount(
-        this.prisma,
-        { fullName, email, role: "SUPER_ADMIN" },
-        "One-time protected Super Admin bootstrap",
+      created = await runWithDatabaseRequestIdentity(
+        () =>
+          SakhiAdminRbacRegistry.createStaffAccount(
+            this.prisma,
+            { fullName, email, role: "SUPER_ADMIN" },
+            "One-time protected Super Admin bootstrap",
+            bootstrapStaffId,
+            bootstrapStaffId,
+          ),
+        { adminStaffId: bootstrapStaffId, adminRole: "SUPER_ADMIN" },
       );
     } catch (error) {
       const errorRecord =

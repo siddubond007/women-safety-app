@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PrismaService } from "../src/database/prisma.service.js";
 import { StagingTestAdminService } from "../src/staging-test-admin/staging-test-admin.service.js";
 import { SakhiAdminRbacRegistry } from "../src/admin-review/admin-rbac.helper.js";
+import { databaseRequestIdentityStorage } from "../src/database/database-request-identity.context.js";
 
 const ENV_KEYS = [
   "SAKHI_ENV",
@@ -62,7 +63,9 @@ async function createStaffSession(
 }
 
 function makeService() {
+  const transactionIdentities: Array<{ adminStaffId?: string; adminRole?: string } | undefined> = [];
   const tx = {
+    adminStaffAccount: { create: vi.fn().mockResolvedValue({}) },
     memberAccount: { create: vi.fn().mockResolvedValue({ id: "synthetic-account" }) },
     memberProfile: { create: vi.fn().mockResolvedValue({ accountId: "synthetic-account" }) },
     authSession: { create: vi.fn().mockResolvedValue({ id: "synthetic-session" }) },
@@ -87,8 +90,11 @@ function makeService() {
       findFirst: vi.fn().mockResolvedValue(null),
     },
     $transaction: vi.fn(
-      async (callback: (transaction: typeof tx) => Promise<unknown>) =>
-        callback(tx),
+      async (callback: (transaction: typeof tx) => Promise<unknown>) => {
+        const identity = databaseRequestIdentityStorage.getStore();
+        transactionIdentities.push(identity ? { ...identity } : undefined);
+        return callback(tx);
+      },
     ),
   };
   const sessions = {
@@ -113,6 +119,7 @@ function makeService() {
     ),
     prisma,
     tx,
+    transactionIdentities,
     sessions,
     mfa,
   };
@@ -260,6 +267,40 @@ describe("StagingTestAdminService", () => {
     ).rejects.toThrow(/legacy shared and stateless staging admin sessions are disabled/i);
   });
 
+  it("creates the initial Super Admin and audit event under the same bootstrap RLS identity", async () => {
+    const { service, prisma, tx, transactionIdentities } = makeService();
+    const result = await service.bootstrapSuperAdmin(
+      "full-staging-admin-secret-token-is-over-32-chars",
+      "Initial Super Admin",
+      "initial.superadmin@example.test",
+    );
+
+    expect(result).toMatchObject({
+      created: true,
+      staffCode: expect.stringMatching(/^#SA-/),
+      accessToken: expect.stringMatching(/^SAKHI-SA-/),
+      mfaEnrollmentRequired: true,
+    });
+    const accountCreate = tx.adminStaffAccount.create.mock.calls[0]?.[0];
+    const auditCreate = tx.auditEvent.create.mock.calls[0]?.[0];
+    expect(accountCreate.data.id).toEqual(expect.any(String));
+    expect(auditCreate.data).toMatchObject({
+      actorType: "ADMIN",
+      actorId: accountCreate.data.id,
+      action: "admin.staff_account.created",
+      targetType: "admin_staff_account",
+      targetId: accountCreate.data.id,
+    });
+    expect(transactionIdentities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          adminStaffId: accountCreate.data.id,
+          adminRole: "SUPER_ADMIN",
+        }),
+      ]),
+    );
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
   it("converts the database-enforced bootstrap uniqueness race into a closed bootstrap conflict", async () => {
     const { service } = makeService();
     const createSpy = vi
