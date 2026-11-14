@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  UnauthorizedException,
-  ServiceUnavailableException,
-  ForbiddenException,
-} from "@nestjs/common";
+import { Injectable, UnauthorizedException, ServiceUnavailableException, ForbiddenException } from "@nestjs/common";
 import type { CanActivate, ExecutionContext } from "@nestjs/common";
 import type { Request } from "express";
 import { timingSafeEqual } from "node:crypto";
@@ -96,7 +91,9 @@ export class AdminStaffSessionGuard implements CanActivate {
     }
     if (
       fromCookie &&
-      ["POST", "PUT", "PATCH", "DELETE"].includes(request.method.toUpperCase())
+      ["POST", "PUT", "PATCH", "DELETE"].includes(
+        request.method.toUpperCase(),
+      )
     ) {
       const origin = firstHeader(request.headers.origin);
       const allowedOrigins = String(process.env.SAKHI_ADMIN_CORS_ORIGIN ?? "")
@@ -141,10 +138,7 @@ export class AdminStaffSessionGuard implements CanActivate {
         "This staff account must change its initial password before accessing the Admin workspace.",
       );
     }
-    setAdminDatabaseIdentity(
-      String(currentStaff.id),
-      String(currentStaff.role),
-    );
+    setAdminDatabaseIdentity(String(currentStaff.id), String(currentStaff.role));
     (request as Request & { adminStaff?: unknown }).adminStaff = currentStaff;
     request.headers["x-sakhi-staging-admin-session"] = token;
     return true;

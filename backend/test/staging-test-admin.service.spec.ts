@@ -235,11 +235,18 @@ describe("StagingTestAdminService", () => {
     ).rejects.toThrow(/individual staff first-factor credential/i);
   });
 
-  it("keeps the one-time bootstrap credential out of login and session introspection", async () => {
-    const { service } = makeService();
+  it("exposes the one-time bootstrap setup only while no Super Admin exists", async () => {
+    const { service, prisma, sessions } = makeService();
     const fullToken = "full-staging-admin-secret-token-is-over-32-chars";
+    await expect(service.loginWithToken(fullToken)).resolves.toMatchObject({
+      authenticated: false,
+      bootstrapRequired: true,
+    });
+    expect(sessions.issueSession).not.toHaveBeenCalled();
+
+    prisma.adminStaffAccount.findFirst.mockResolvedValueOnce({ id: "existing-super-admin" } as any);
     await expect(service.loginWithToken(fullToken)).rejects.toThrow(
-      /individual staff first-factor credential/i,
+      /bootstrap is permanently closed/i,
     );
     await expect(
       service.sessionFromToken(

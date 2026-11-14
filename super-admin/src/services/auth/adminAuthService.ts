@@ -1,8 +1,7 @@
 const STAGING_TEST_ADMIN_MODE = true;
 
 const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL ??
-  "https://sakhi-staging-api.onrender.com/api/v1"
+  import.meta.env.VITE_API_BASE_URL ?? "https://sakhi-staging-api.onrender.com/api/v1"
 ).replace(/\/+$/, "");
 
 export type SakhiAdminRole =
@@ -106,9 +105,7 @@ export interface AdminMfaChallenge {
 
 export type AdminAuthResult = AdminSession | AdminMfaChallenge;
 
-function extractProfileFromPayload(
-  data: Partial<AdminSession>,
-): AdminRbacProfile {
+function extractProfileFromPayload(data: Partial<AdminSession>): AdminRbacProfile {
   const allowedRoles: SakhiAdminRole[] = [
     "SUPER_ADMIN",
     "VERIFICATION_ADMIN",
@@ -152,8 +149,7 @@ async function requestSession(
   token?: string,
   mfaCode?: string,
 ): Promise<AdminAuthResult> {
-  if (!token?.trim())
-    throw new Error("Enter your individual staff credential.");
+  if (!token?.trim()) throw new Error("Enter your individual staff credential.");
   const response = await fetch(API_BASE_URL + "/staging-test-admin/session", {
     method: "POST",
     headers: {
@@ -167,14 +163,10 @@ async function requestSession(
     credentials: "include",
     cache: "no-store",
   });
-  const data = (await response
-    .json()
-    .catch(() => ({}))) as Partial<AdminSession> &
+  const data = (await response.json().catch(() => ({}))) as Partial<AdminSession> &
     Partial<AdminMfaChallenge> & { message?: string | string[] };
   if (!response.ok) {
-    const message = Array.isArray(data.message)
-      ? data.message.join(" ")
-      : data.message;
+    const message = Array.isArray(data.message) ? data.message.join(" ") : data.message;
     throw new Error(message || "Individual staff authentication was rejected.");
   }
   if (data.authenticated === false) return data as AdminMfaChallenge;
@@ -194,9 +186,7 @@ async function requestSession(
 
 export const adminAuthService = {
   isFullStagingAdminSession(): boolean {
-    return (
-      STAGING_TEST_ADMIN_MODE && stagingSessionMode === "staging_full_admin"
-    );
+    return STAGING_TEST_ADMIN_MODE && stagingSessionMode === "staging_full_admin";
   },
   hasActiveSession(): boolean {
     return Boolean(stagingCookieSessionActive);
@@ -217,29 +207,22 @@ export const adminAuthService = {
     }
     if (stagingRotationPromise) return stagingRotationPromise;
     stagingRotationPromise = (async () => {
-      const response = await fetch(
-        `${API_BASE_URL}/staging-test-admin/session/rotate`,
-        {
-          method: "POST",
-          headers: {
-            Accept: "application/json",
-            "X-Sakhi-CSRF": stagingCsrfToken as string,
-          },
-          credentials: "include",
-          cache: "no-store",
+      const response = await fetch(`${API_BASE_URL}/staging-test-admin/session/rotate`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "X-Sakhi-CSRF": stagingCsrfToken as string,
         },
-      );
+        credentials: "include",
+        cache: "no-store",
+      });
       const data = (await response.json().catch(() => ({}))) as {
         csrfToken?: string;
         message?: string | string[];
       };
       if (!response.ok || !data.csrfToken) {
-        const message = Array.isArray(data.message)
-          ? data.message.join(" ")
-          : data.message;
-        throw new Error(
-          message || "The secure staff session could not be rotated.",
-        );
+        const message = Array.isArray(data.message) ? data.message.join(" ") : data.message;
+        throw new Error(message || "The secure staff session could not be rotated.");
       }
       stagingCsrfToken = data.csrfToken;
       stagingLastRotationAt = Date.now();
@@ -289,15 +272,11 @@ export const adminAuthService = {
       credentials: "include",
       cache: "no-store",
     });
-    const data = (await response
-      .json()
-      .catch(() => ({}))) as Partial<AdminSession> & {
+    const data = (await response.json().catch(() => ({}))) as Partial<AdminSession> & {
       message?: string | string[];
     };
     if (!response.ok) {
-      const message = Array.isArray(data.message)
-        ? data.message.join(" ")
-        : data.message;
+      const message = Array.isArray(data.message) ? data.message.join(" ") : data.message;
       throw new Error(message || "The staff session is no longer valid.");
     }
     if (data.mode !== "staging_full_admin" || !data.csrfToken) {
@@ -313,40 +292,20 @@ export const adminAuthService = {
     inMemoryProfile = extractProfileFromPayload(data);
     return data as AdminSession;
   },
-  async authenticate(
-    token: string,
-    mfaCode?: string,
-  ): Promise<AdminAuthResult> {
+  async authenticate(token: string, mfaCode?: string): Promise<AdminAuthResult> {
     return requestSession(token, mfaCode);
   },
-  async authenticateWithCredentials(
-    identifier: string,
-    password: string,
-    mfaCode: string,
-  ): Promise<AdminSession> {
+  async authenticateWithCredentials(identifier: string, password: string, mfaCode: string): Promise<AdminSession> {
     const response = await fetch(`${API_BASE_URL}/admin-review/auth/login`, {
       method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        identifier: identifier.trim(),
-        password,
-        mfaCode: mfaCode.trim(),
-      }),
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ identifier: identifier.trim(), password, mfaCode: mfaCode.trim() }),
       credentials: "include",
       cache: "no-store",
     });
-    const data = (await response
-      .json()
-      .catch(() => ({}))) as Partial<AdminSession> & {
-      message?: string | string[];
-    };
+    const data = (await response.json().catch(() => ({}))) as Partial<AdminSession> & { message?: string | string[] };
     if (!response.ok || !data.authenticated || !data.csrfToken) {
-      const message = Array.isArray(data.message)
-        ? data.message.join(" ")
-        : data.message;
+      const message = Array.isArray(data.message) ? data.message.join(" ") : data.message;
       throw new Error(message || "Credential or MFA authentication failed.");
     }
     stagingSessionMode = "staging_full_admin";
@@ -358,28 +317,21 @@ export const adminAuthService = {
     return { ...(data as AdminSession), mode: "staging_full_admin" };
   },
   async changeOwnPassword(newPassword: string): Promise<void> {
-    const response = await fetch(
-      `${API_BASE_URL}/admin-review/auth/password/change`,
-      {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-          ...(stagingCsrfToken ? { "X-Sakhi-CSRF": stagingCsrfToken } : {}),
-        },
-        body: JSON.stringify({ newPassword }),
-        credentials: "include",
-        cache: "no-store",
+    const response = await fetch(`${API_BASE_URL}/admin-review/auth/password/change`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        ...(stagingCsrfToken ? { "X-Sakhi-CSRF": stagingCsrfToken } : {}),
       },
-    );
+      body: JSON.stringify({ newPassword }),
+      credentials: "include",
+      cache: "no-store",
+    });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const message = Array.isArray(data.message)
-        ? data.message.join(" ")
-        : data.message;
-      throw new Error(
-        message || "The initial staff password could not be changed.",
-      );
+      const message = Array.isArray(data.message) ? data.message.join(" ") : data.message;
+      throw new Error(message || "The initial staff password could not be changed.");
     }
     this.clearLocalSession();
   },
@@ -387,178 +339,105 @@ export const adminAuthService = {
     token: string,
     fullName: string,
     email: string,
-  ): Promise<{
-    created: true;
-    staffCode: string;
-    accessToken: string;
-    mfaEnrollmentRequired: true;
-  }> {
-    const response = await fetch(
-      `${API_BASE_URL}/staging-test-admin/bootstrap/super-admin`,
-      {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ token, fullName, email }),
-        credentials: "include",
-        cache: "no-store",
-      },
-    );
+  ): Promise<{ created: true; staffCode: string; accessToken: string; mfaEnrollmentRequired: true }> {
+    const response = await fetch(`${API_BASE_URL}/staging-test-admin/bootstrap/super-admin`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ token, fullName, email }),
+      credentials: "include",
+      cache: "no-store",
+    });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok)
-      throw new Error(
-        data.message || "The initial Super Admin bootstrap failed.",
-      );
+    if (!response.ok) throw new Error(data.message || "The initial Super Admin bootstrap failed.");
     return data;
   },
-  async startMfaEnrollment(
-    token: string,
-  ): Promise<{ secret: string; otpauthUri: string; accountLabel: string }> {
-    const response = await fetch(
-      `${API_BASE_URL}/staging-test-admin/staff-mfa/enroll`,
-      {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ token }),
-        credentials: "include",
-        cache: "no-store",
-      },
-    );
+  async startMfaEnrollment(token: string): Promise<{ secret: string; otpauthUri: string; accountLabel: string }> {
+    const response = await fetch(`${API_BASE_URL}/staging-test-admin/staff-mfa/enroll`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+      credentials: "include",
+      cache: "no-store",
+    });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok)
-      throw new Error(data.message || "Could not start MFA enrollment.");
+    if (!response.ok) throw new Error(data.message || "Could not start MFA enrollment.");
     return data;
   },
-  async verifyMfaEnrollment(
-    token: string,
-    code: string,
-  ): Promise<{ enrolled: true; backupCodes: string[] }> {
-    const response = await fetch(
-      `${API_BASE_URL}/staging-test-admin/staff-mfa/verify-enrollment`,
-      {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ token, code }),
-        credentials: "include",
-        cache: "no-store",
-      },
-    );
+  async verifyMfaEnrollment(token: string, code: string): Promise<{ enrolled: true; backupCodes: string[] }> {
+    const response = await fetch(`${API_BASE_URL}/staging-test-admin/staff-mfa/verify-enrollment`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ token, code }),
+      credentials: "include",
+      cache: "no-store",
+    });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok)
-      throw new Error(data.message || "MFA verification failed.");
+    if (!response.ok) throw new Error(data.message || "MFA verification failed.");
     return data;
   },
-  async requestMfaRecovery(
-    token: string,
-  ): Promise<{ requestId: string; status: string }> {
-    const response = await fetch(
-      `${API_BASE_URL}/staging-test-admin/staff-mfa/recovery/request`,
-      {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ token }),
-        credentials: "include",
-        cache: "no-store",
-      },
-    );
+  async requestMfaRecovery(token: string): Promise<{ requestId: string; status: string }> {
+    const response = await fetch(`${API_BASE_URL}/staging-test-admin/staff-mfa/recovery/request`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+      credentials: "include",
+      cache: "no-store",
+    });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok)
-      throw new Error(
-        data.message || "Could not create an MFA recovery request.",
-      );
+    if (!response.ok) throw new Error(data.message || "Could not create an MFA recovery request.");
     return data;
   },
-  async completeMfaRecovery(
-    token: string,
-    recoveryToken: string,
-  ): Promise<{ recovered: true; mfaEnrollmentRequired: true }> {
-    const response = await fetch(
-      `${API_BASE_URL}/staging-test-admin/staff-mfa/recovery/complete`,
-      {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ token, recoveryToken }),
-        credentials: "include",
-        cache: "no-store",
-      },
-    );
+  async completeMfaRecovery(token: string, recoveryToken: string): Promise<{ recovered: true; mfaEnrollmentRequired: true }> {
+    const response = await fetch(`${API_BASE_URL}/staging-test-admin/staff-mfa/recovery/complete`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ token, recoveryToken }),
+      credentials: "include",
+      cache: "no-store",
+    });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok)
-      throw new Error(data.message || "MFA recovery completion failed.");
+    if (!response.ok) throw new Error(data.message || "MFA recovery completion failed.");
     return data;
   },
-  async listPendingMfaRecoveryRequests(): Promise<
-    Array<Record<string, unknown>>
-  > {
-    const response = await fetch(
-      `${API_BASE_URL}/staging-test-admin/staff-mfa/recovery/pending`,
-      {
-        method: "GET",
-        headers: { Accept: "application/json" },
-        credentials: "include",
-        cache: "no-store",
-      },
-    );
+  async listPendingMfaRecoveryRequests(): Promise<Array<Record<string, unknown>>> {
+    const response = await fetch(`${API_BASE_URL}/staging-test-admin/staff-mfa/recovery/pending`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      credentials: "include",
+      cache: "no-store",
+    });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok)
-      throw new Error(data.message || "Could not load MFA recovery requests.");
+    if (!response.ok) throw new Error(data.message || "Could not load MFA recovery requests.");
     return data as Array<Record<string, unknown>>;
   },
-  async approveMfaRecoveryRequest(
-    requestId: string,
-  ): Promise<{ recoveryToken: string; expiresAt: string }> {
-    const response = await fetch(
-      `${API_BASE_URL}/staging-test-admin/staff-mfa/recovery/approve`,
-      {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-          ...(stagingCsrfToken ? { "X-Sakhi-CSRF": stagingCsrfToken } : {}),
-        },
-        body: JSON.stringify({ requestId }),
-        credentials: "include",
-        cache: "no-store",
+  async approveMfaRecoveryRequest(requestId: string): Promise<{ recoveryToken: string; expiresAt: string }> {
+    const response = await fetch(`${API_BASE_URL}/staging-test-admin/staff-mfa/recovery/approve`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        ...(stagingCsrfToken ? { "X-Sakhi-CSRF": stagingCsrfToken } : {}),
       },
-    );
+      body: JSON.stringify({ requestId }),
+      credentials: "include",
+      cache: "no-store",
+    });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok)
-      throw new Error(data.message || "MFA recovery approval failed.");
+    if (!response.ok) throw new Error(data.message || "MFA recovery approval failed.");
     return data;
   },
-  async rotateMfaEncryptionKeys(): Promise<{
-    rotated: number;
-    targetVersion: string;
-  }> {
-    const response = await fetch(
-      `${API_BASE_URL}/staging-test-admin/staff-mfa/encryption-keys/rotate`,
-      {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          ...(stagingCsrfToken ? { "X-Sakhi-CSRF": stagingCsrfToken } : {}),
-        },
-        credentials: "include",
-        cache: "no-store",
+  async rotateMfaEncryptionKeys(): Promise<{ rotated: number; targetVersion: string }> {
+    const response = await fetch(`${API_BASE_URL}/staging-test-admin/staff-mfa/encryption-keys/rotate`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        ...(stagingCsrfToken ? { "X-Sakhi-CSRF": stagingCsrfToken } : {}),
       },
-    );
+      credentials: "include",
+      cache: "no-store",
+    });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok)
-      throw new Error(data.message || "MFA encryption key rotation failed.");
+    if (!response.ok) throw new Error(data.message || "MFA encryption key rotation failed.");
     return data;
   },
   async signOut(): Promise<void> {
@@ -571,9 +450,7 @@ export const adminAuthService = {
       cache: "no-store",
     });
     if (!response.ok) {
-      throw new Error(
-        "The server did not confirm staff-session revocation. You remain signed in.",
-      );
+      throw new Error("The server did not confirm staff-session revocation. You remain signed in.");
     }
     stagingSessionToken = null;
     stagingCookieSessionActive = false;

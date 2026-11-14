@@ -37,29 +37,16 @@ export class AdminReviewController {
     @Headers("origin") origin: string | undefined,
     @Res({ passthrough: true }) response: Response,
   ) {
-    if (
-      process.env.SAKHI_ENV === "staging" &&
-      process.env.NODE_ENV === "production"
-    ) {
-      const allowedOrigins = String(process.env.SAKHI_ADMIN_CORS_ORIGIN ?? "")
-        .split(",")
-        .map((value) => value.trim())
-        .filter(Boolean);
+    if (process.env.SAKHI_ENV === "staging" && process.env.NODE_ENV === "production") {
+      const allowedOrigins = String(process.env.SAKHI_ADMIN_CORS_ORIGIN ?? "").split(",").map((value) => value.trim()).filter(Boolean);
       if (!origin || !allowedOrigins.includes(origin)) {
-        throw new UnauthorizedException(
-          "The admin login origin is not allowed.",
-        );
+        throw new UnauthorizedException("The admin login origin is not allowed.");
       }
     }
     const result = await this.adminReview.loginWithCredentials(body as any);
     const secure = process.env.NODE_ENV === "production";
     const sameSite = secure ? "None; Secure" : "Lax";
-    const maxAge = Math.max(
-      0,
-      Math.floor(
-        (new Date(result.sessionExpiresAt).getTime() - Date.now()) / 1000,
-      ),
-    );
+    const maxAge = Math.max(0, Math.floor((new Date(result.sessionExpiresAt).getTime() - Date.now()) / 1000));
     response.setHeader("Set-Cookie", [
       `sakhi_admin_session=${encodeURIComponent(result.sessionToken)}; HttpOnly; Path=/api/v1; Max-Age=${maxAge}; SameSite=${sameSite}`,
       `sakhi_admin_csrf=${encodeURIComponent(result.csrfToken)}; Path=/api/v1; Max-Age=${maxAge}; SameSite=${sameSite}`,
@@ -112,21 +99,28 @@ export class AdminReviewController {
   session(
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
-    return this.adminReview.session(pickAdminToken(stagingSessionToken));
+    return this.adminReview.session(
+      pickAdminToken(stagingSessionToken),
+    );
   }
 
   @Get("rbac-profile")
   rbacProfile(
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
-    return this.adminReview.rbacProfile(pickAdminToken(stagingSessionToken));
+    return this.adminReview.rbacProfile(
+      pickAdminToken(stagingSessionToken),
+    );
   }
+
 
   @Get("staff")
   listAdminStaff(
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
-    return this.adminReview.listAdminStaff(pickAdminToken(stagingSessionToken));
+    return this.adminReview.listAdminStaff(
+      pickAdminToken(stagingSessionToken),
+    );
   }
 
   @Post("staff")
@@ -189,7 +183,9 @@ export class AdminReviewController {
   listBusinesses(
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
-    return this.adminReview.listBusinesses(pickAdminToken(stagingSessionToken));
+    return this.adminReview.listBusinesses(
+      pickAdminToken(stagingSessionToken),
+    );
   }
 
   @Post("businesses")
@@ -252,14 +248,18 @@ export class AdminReviewController {
   queue(
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
-    return this.adminReview.queue(pickAdminToken(stagingSessionToken));
+    return this.adminReview.queue(
+      pickAdminToken(stagingSessionToken),
+    );
   }
 
   @Get("history")
   history(
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
-    return this.adminReview.history(pickAdminToken(stagingSessionToken));
+    return this.adminReview.history(
+      pickAdminToken(stagingSessionToken),
+    );
   }
 
   @Get("audit-events")
@@ -385,7 +385,9 @@ export class AdminReviewController {
   seedLiveData(
     @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
   ) {
-    return this.adminReview.seedLiveData(pickAdminToken(stagingSessionToken));
+    return this.adminReview.seedLiveData(
+      pickAdminToken(stagingSessionToken),
+    );
   }
 
   @Get("community")

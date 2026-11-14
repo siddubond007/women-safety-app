@@ -9,13 +9,7 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { GoogleDriveStorageService } from "../module2/google-drive-storage.service.js";
-import {
-  createHash,
-  randomBytes,
-  randomUUID,
-  scryptSync,
-  timingSafeEqual,
-} from "node:crypto";
+import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { PrismaService } from "../database/prisma.service.js";
 import { setAdminDatabaseIdentity } from "../database/database-request-identity.context.js";
 import type { Prisma } from "../generated/prisma/client.js";
@@ -39,11 +33,7 @@ import type { DevelopmentMemberStateDto } from "./admin-member-state.dto.js";
 
 function hashAdminPasswordForStorage(plainPassword: string): string {
   const salt = randomBytes(16).toString("hex");
-  const derived = scryptSync(plainPassword, salt, 64, {
-    N: 16384,
-    r: 8,
-    p: 1,
-  }).toString("hex");
+  const derived = scryptSync(plainPassword, salt, 64, { N: 16384, r: 8, p: 1 }).toString("hex");
   return `scrypt$16384$8$1$${salt}$${derived}`;
 }
 
@@ -72,6 +62,7 @@ export class AdminReviewService {
     @Optional() private readonly adminMfa?: AdminMfaService,
     @Optional() private readonly adminSessions?: AdminSessionService,
   ) {}
+
 
   public resolveAdminPrincipal(provided?: string): AuthenticatedAdminPrincipal {
     if (
@@ -104,13 +95,7 @@ export class AdminReviewService {
     SakhiAdminRbacRegistry.assertRouteAccess(principal, allowedRoles, area);
     if (!principal.permissions[permission]) {
       throw new ForbiddenException(
-        "The " +
-          principal.roleTitle +
-          " role lacks the " +
-          permission +
-          " permission for " +
-          area +
-          ".",
+        "The " + principal.roleTitle + " role lacks the " + permission + " permission for " + area + ".",
       );
     }
     return principal;
@@ -352,12 +337,7 @@ export class AdminReviewService {
   }
 
   async getRegistrationPolicy(token?: string) {
-    this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "VERIFICATION_ADMIN"],
-      "view",
-      "Eligibility registration policy",
-    );
+    this.assertModuleAccess(token, ["SUPER_ADMIN", "VERIFICATION_ADMIN"], "view", "Eligibility registration policy");
     return this.resolvePersistedRegistrationPolicy();
   }
 
@@ -365,12 +345,7 @@ export class AdminReviewService {
     body: Record<string, unknown>,
     token?: string,
   ) {
-    const principal = this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "VERIFICATION_ADMIN"],
-      "edit",
-      "Eligibility registration policy",
-    );
+    const principal = this.assertModuleAccess(token, ["SUPER_ADMIN", "VERIFICATION_ADMIN"], "edit", "Eligibility registration policy");
     const reviewerLabel = principal.reviewerLabel;
     const parsedAge = parseValidAge(body.minimumAgeYears);
     if (parsedAge === null) {
@@ -388,52 +363,45 @@ export class AdminReviewService {
     const previous = await this.resolvePersistedRegistrationPolicy();
     const now = new Date();
     const anyPrisma = this.prisma as unknown as Record<string, any>;
-    if (
-      !anyPrisma.platformRegistrationPolicy?.upsert ||
-      !anyPrisma.auditEvent?.create ||
-      typeof anyPrisma.$transaction !== "function"
-    ) {
-      throw new ServiceUnavailableException(
-        "Registration policy and audit must commit in one database transaction.",
-      );
+    if (!anyPrisma.platformRegistrationPolicy?.upsert ||
+        !anyPrisma.auditEvent?.create ||
+        typeof anyPrisma.$transaction !== "function") {
+      throw new ServiceUnavailableException("Registration policy and audit must commit in one database transaction.");
     }
-    await anyPrisma.$transaction(
-      async (tx: Record<string, any>) => {
-        await tx.platformRegistrationPolicy.upsert({
-          where: { policyKey: "default" },
-          create: {
-            policyKey: "default",
+    await anyPrisma.$transaction(async (tx: Record<string, any>) => {
+      await tx.platformRegistrationPolicy.upsert({
+        where: { policyKey: "default" },
+        create: {
+          policyKey: "default",
+          minimumAgeYears: parsedAge,
+          updatedBy: reviewerLabel,
+          changeReason: reason,
+          updatedAt: now,
+        },
+        update: {
+          minimumAgeYears: parsedAge,
+          updatedBy: reviewerLabel,
+          changeReason: reason,
+          updatedAt: now,
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          actorType: "ADMIN",
+          actorId: principal.staffId,
+          action: REGISTRATION_POLICY_AUDIT_ACTION,
+          targetType: "registration_policy",
+          targetId: "minimum_age_years",
+          outcome: "updated",
+          requestId: randomUUID(),
+          redactedMetadata: {
             minimumAgeYears: parsedAge,
-            updatedBy: reviewerLabel,
-            changeReason: reason,
-            updatedAt: now,
+            previousMinimumAgeYears: previous.minimumAgeYears,
+            reason,
           },
-          update: {
-            minimumAgeYears: parsedAge,
-            updatedBy: reviewerLabel,
-            changeReason: reason,
-            updatedAt: now,
-          },
-        });
-        await tx.auditEvent.create({
-          data: {
-            actorType: "ADMIN",
-            actorId: principal.staffId,
-            action: REGISTRATION_POLICY_AUDIT_ACTION,
-            targetType: "registration_policy",
-            targetId: "minimum_age_years",
-            outcome: "updated",
-            requestId: randomUUID(),
-            redactedMetadata: {
-              minimumAgeYears: parsedAge,
-              previousMinimumAgeYears: previous.minimumAgeYears,
-              reason,
-            },
-          },
-        });
-      },
-      { isolationLevel: "Serializable" },
-    );
+        },
+      });
+    }, { isolationLevel: "Serializable" });
 
     return {
       configured: true,
@@ -450,12 +418,7 @@ export class AdminReviewService {
   }
 
   async queue(token?: string) {
-    this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "VERIFICATION_ADMIN"],
-      "view",
-      "Eligibility review queue",
-    );
+    this.assertModuleAccess(token, ["SUPER_ADMIN", "VERIFICATION_ADMIN"], "view", "Eligibility review queue");
     const submissions = await this.prisma.eligibilitySubmission.findMany({
       where: { status: "PENDING_MANUAL_REVIEW" },
       include: {
@@ -518,12 +481,7 @@ export class AdminReviewService {
   }
 
   async history(token?: string) {
-    this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "VERIFICATION_ADMIN"],
-      "view",
-      "Eligibility review history",
-    );
+    this.assertModuleAccess(token, ["SUPER_ADMIN", "VERIFICATION_ADMIN"], "view", "Eligibility review history");
     const events = await this.prisma.auditEvent.findMany({
       where: {
         action: {
@@ -640,12 +598,7 @@ export class AdminReviewService {
     accountStatusRaw?: string,
     verificationStatusRaw?: string,
   ) {
-    this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "VERIFICATION_ADMIN"],
-      "view",
-      "Member management",
-    );
+    this.assertModuleAccess(token, ["SUPER_ADMIN", "VERIFICATION_ADMIN"], "view", "Member management");
     this.assertMemberDirectoryAccess();
     const pageValue = Number.parseInt(pageRaw ?? "1", 10);
     const sizeValue = Number.parseInt(pageSizeRaw ?? "50", 10);
@@ -793,12 +746,7 @@ export class AdminReviewService {
     dto: DevelopmentMemberStateDto,
     token?: string,
   ) {
-    const reviewerLabel = this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "VERIFICATION_ADMIN"],
-      "suspend",
-      "Member account state changes",
-    ).reviewerLabel;
+    const reviewerLabel = this.assertModuleAccess(token, ["SUPER_ADMIN", "VERIFICATION_ADMIN"], "suspend", "Member account state changes").reviewerLabel;
     this.assertDevelopmentMemberOverrides();
     if (
       (dto.accountStatus === undefined || dto.accountStatus === null) &&
@@ -915,12 +863,7 @@ export class AdminReviewService {
     dto: ManualEligibilityDecisionDto,
     token?: string,
   ) {
-    const reviewerLabel = this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "VERIFICATION_ADMIN"],
-      "approve",
-      "Eligibility decisions",
-    ).reviewerLabel;
+    const reviewerLabel = this.assertModuleAccess(token, ["SUPER_ADMIN", "VERIFICATION_ADMIN"], "approve", "Eligibility decisions").reviewerLabel;
     const reason = dto.reason?.trim();
     if (!dto.reviewedEvidence) {
       throw new ConflictException(
@@ -1036,12 +979,7 @@ export class AdminReviewService {
         "Demo-member and demo-post seeding is disabled for the shared staging/production database.",
       );
     }
-    this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN"],
-      "create",
-      "Administrative live-data seeding",
-    );
+    this.assertModuleAccess(token, ["SUPER_ADMIN"], "create", "Administrative live-data seeding");
     this.assertDevelopmentMemberOverrides();
 
     const [totalAccounts, totalPosts, totalGroups] = await Promise.all([
@@ -1060,12 +998,7 @@ export class AdminReviewService {
   }
 
   async createMember(body: Record<string, unknown>, token?: string) {
-    const principal = this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN"],
-      "create",
-      "Administrative member creation",
-    );
+    const principal = this.assertModuleAccess(token, ["SUPER_ADMIN"], "create", "Administrative member creation");
     const reviewerLabel = principal.reviewerLabel;
     this.assertDevelopmentMemberOverrides();
 
@@ -1114,98 +1047,95 @@ export class AdminReviewService {
           : `@${body.username.trim()}`
         : `@${slug}_${phoneRaw.slice(-4)}`;
 
-    const account = await this.prisma.$transaction(
-      async (tx) => {
-        const account = await tx.memberAccount.upsert({
-          where: { phoneE164: phoneRaw },
-          update: {
-            status: verifyImmediately ? "ACTIVE" : "PENDING_VERIFICATION",
-            verificationStatus: verifyImmediately ? "VERIFIED" : "UNVERIFIED",
-            phoneVerifiedAt: new Date(),
-          },
-          create: {
-            phoneE164: phoneRaw,
-            phoneVerifiedAt: new Date(),
-            status: verifyImmediately ? "ACTIVE" : "PENDING_VERIFICATION",
-            verificationStatus: verifyImmediately ? "VERIFIED" : "UNVERIFIED",
-          },
-        });
-
-        await tx.memberProfile.upsert({
-          where: { accountId: account.id },
-          update: {
-            displayName,
-            username: usernameRaw,
-            bio,
-            location,
-            avatarAsset,
-            email,
-          },
-          create: {
-            accountId: account.id,
-            displayName,
-            username: usernameRaw,
-            bio,
-            location,
-            avatarAsset,
-            email,
-            dateOfBirth: new Date("1999-05-15T00:00:00.000Z"),
-          },
-        });
-
-        await tx.communityDirectoryProfile.upsert({
-          where: { username: usernameRaw },
-          update: {
-            name: displayName,
-            avatarAsset,
-            bio,
-          },
-          create: {
-            name: displayName,
-            username: usernameRaw,
-            avatarAsset,
-            bio,
-            defaultFollowing: false,
-          },
-        });
-
-        if (!verifyImmediately) {
-          const existingSub = await tx.eligibilitySubmission.findFirst({
-            where: { accountId: account.id, status: "PENDING_MANUAL_REVIEW" },
-          });
-          if (!existingSub) {
-            await tx.eligibilitySubmission.create({
-              data: {
-                accountId: account.id,
-                status: "PENDING_MANUAL_REVIEW",
-                consentVersion: "dev-manual-review-v1",
-                consentAcceptedAt: new Date(),
-              },
-            });
-          }
-        }
-
-        await tx.auditEvent.create({
-          data: {
-            actorType: "ADMIN",
-            actorId: principal.staffId,
-            action: "admin.member.created",
-            targetType: "member_account",
-            targetId: account.id,
-            outcome: "success",
-            requestId: randomUUID(),
-            redactedMetadata: {
-              reviewerLabel,
-              username: usernameRaw,
-              verifyImmediately,
-            },
-          },
-        });
-
-        return account;
+    const account = await this.prisma.$transaction(async (tx) => {
+      const account = await tx.memberAccount.upsert({
+      where: { phoneE164: phoneRaw },
+      update: {
+        status: verifyImmediately ? "ACTIVE" : "PENDING_VERIFICATION",
+        verificationStatus: verifyImmediately ? "VERIFIED" : "UNVERIFIED",
+        phoneVerifiedAt: new Date(),
       },
-      { isolationLevel: "Serializable" },
-    );
+      create: {
+        phoneE164: phoneRaw,
+        phoneVerifiedAt: new Date(),
+        status: verifyImmediately ? "ACTIVE" : "PENDING_VERIFICATION",
+        verificationStatus: verifyImmediately ? "VERIFIED" : "UNVERIFIED",
+      },
+    });
+
+    await tx.memberProfile.upsert({
+      where: { accountId: account.id },
+      update: {
+        displayName,
+        username: usernameRaw,
+        bio,
+        location,
+        avatarAsset,
+        email,
+      },
+      create: {
+        accountId: account.id,
+        displayName,
+        username: usernameRaw,
+        bio,
+        location,
+        avatarAsset,
+        email,
+        dateOfBirth: new Date("1999-05-15T00:00:00.000Z"),
+      },
+    });
+
+    await tx.communityDirectoryProfile.upsert({
+      where: { username: usernameRaw },
+      update: {
+        name: displayName,
+        avatarAsset,
+        bio,
+      },
+      create: {
+        name: displayName,
+        username: usernameRaw,
+        avatarAsset,
+        bio,
+        defaultFollowing: false,
+      },
+    });
+
+    if (!verifyImmediately) {
+      const existingSub = await tx.eligibilitySubmission.findFirst({
+        where: { accountId: account.id, status: "PENDING_MANUAL_REVIEW" },
+      });
+      if (!existingSub) {
+        await tx.eligibilitySubmission.create({
+          data: {
+            accountId: account.id,
+            status: "PENDING_MANUAL_REVIEW",
+            consentVersion: "dev-manual-review-v1",
+            consentAcceptedAt: new Date(),
+          },
+        });
+      }
+    }
+
+    await tx.auditEvent.create({
+      data: {
+        actorType: "ADMIN",
+        actorId: principal.staffId,
+        action: "admin.member.created",
+        targetType: "member_account",
+        targetId: account.id,
+        outcome: "success",
+        requestId: randomUUID(),
+        redactedMetadata: {
+          reviewerLabel,
+          username: usernameRaw,
+          verifyImmediately,
+        },
+      },
+    });
+
+      return account;
+    }, { isolationLevel: "Serializable" });
 
     return {
       id: account.id,
@@ -1218,12 +1148,7 @@ export class AdminReviewService {
   }
 
   async communityOverview(token?: string) {
-    this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "CONTENT_MODERATOR"],
-      "view",
-      "Community moderation",
-    );
+    this.assertModuleAccess(token, ["SUPER_ADMIN", "CONTENT_MODERATOR"], "view", "Community moderation");
     const defaultCategories = [
       {
         slug: "following",
@@ -1367,12 +1292,7 @@ export class AdminReviewService {
   }
 
   async createAdminPost(body: Record<string, unknown>, token?: string) {
-    const principal = this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "CONTENT_MODERATOR"],
-      "create",
-      "Community post creation",
-    );
+    const principal = this.assertModuleAccess(token, ["SUPER_ADMIN", "CONTENT_MODERATOR"], "create", "Community post creation");
     const reviewerLabel = principal.reviewerLabel;
     const content = typeof body.content === "string" ? body.content.trim() : "";
     if (!content) {
@@ -1412,9 +1332,7 @@ export class AdminReviewService {
       }
     }
     if ((requestedAccountId || requestedUsername) && !resolvedMember) {
-      throw new NotFoundException(
-        "The requested post author does not exist or is not eligible.",
-      );
+      throw new NotFoundException("The requested post author does not exist or is not eligible.");
     }
 
     const authorAccountId = resolvedMember?.accountId ?? null;
@@ -1457,68 +1375,49 @@ export class AdminReviewService {
         ? body.imageAsset.trim()
         : null;
 
-    return this.prisma.$transaction(
-      async (tx) => {
-        const post = await tx.communityPost.create({
-          data: {
-            authorAccountId,
-            authorName,
-            authorUsername,
-            authorAvatar,
-            authorVerified: Boolean(resolvedMember?.accountId),
-            content,
-            categoryBadge,
-            categorySlug,
-            feedSection,
-            imageAsset,
-            likesCount: 0,
-            commentsCount: 0,
-          },
-        });
-        await tx.auditEvent.create({
-          data: {
-            actorType: "ADMIN",
-            actorId: principal.staffId,
-            action: "admin.community_post.created",
-            targetType: "community_post",
-            targetId: post.id,
-            outcome: "success",
-            requestId: randomUUID(),
-            redactedMetadata: { feedSection, authorUsername },
-          },
-        });
-        return post;
-      },
-      { isolationLevel: "Serializable" },
-    );
+    return this.prisma.$transaction(async (tx) => {
+      const post = await tx.communityPost.create({
+        data: {
+          authorAccountId, authorName, authorUsername, authorAvatar,
+          authorVerified: Boolean(resolvedMember?.accountId),
+          content, categoryBadge, categorySlug, feedSection, imageAsset,
+          likesCount: 0, commentsCount: 0,
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          actorType: "ADMIN",
+          actorId: principal.staffId,
+          action: "admin.community_post.created",
+          targetType: "community_post",
+          targetId: post.id,
+          outcome: "success",
+          requestId: randomUUID(),
+          redactedMetadata: { feedSection, authorUsername },
+        },
+      });
+      return post;
+    }, { isolationLevel: "Serializable" });
   }
 
   async deleteAdminPost(postId: string, token?: string) {
-    const principal = this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "CONTENT_MODERATOR"],
-      "delete",
-      "Community post deletion",
-    );
-    return this.prisma.$transaction(
-      async (tx) => {
-        await tx.communityPost.delete({ where: { id: postId } });
-        await tx.auditEvent.create({
-          data: {
-            actorType: "ADMIN",
-            actorId: principal.staffId,
-            action: "admin.community_post.deleted",
-            targetType: "community_post",
-            targetId: postId,
-            outcome: "deleted",
-            requestId: randomUUID(),
-            redactedMetadata: {},
-          },
-        });
-        return { deletedPostId: postId, status: "deleted" as const };
-      },
-      { isolationLevel: "Serializable" },
-    );
+    const principal = this.assertModuleAccess(token, ["SUPER_ADMIN", "CONTENT_MODERATOR"], "delete", "Community post deletion");
+    return this.prisma.$transaction(async (tx) => {
+      await tx.communityPost.delete({ where: { id: postId } });
+      await tx.auditEvent.create({
+        data: {
+          actorType: "ADMIN",
+          actorId: principal.staffId,
+          action: "admin.community_post.deleted",
+          targetType: "community_post",
+          targetId: postId,
+          outcome: "deleted",
+          requestId: randomUUID(),
+          redactedMetadata: {},
+        },
+      });
+      return { deletedPostId: postId, status: "deleted" as const };
+    }, { isolationLevel: "Serializable" });
   }
 
   private async enrichReportsWithEvidence(
@@ -1788,12 +1687,7 @@ export class AdminReviewService {
   }
 
   async operationsOverview(token?: string) {
-    this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "SOS_SAFETY_ADMIN"],
-      "view",
-      "Safety operations overview",
-    );
+    this.assertModuleAccess(token, ["SUPER_ADMIN", "SOS_SAFETY_ADMIN"], "view", "Safety operations overview");
     const [
       reports,
       blocks,
@@ -1921,87 +1815,71 @@ export class AdminReviewService {
     body: Record<string, unknown>,
     token?: string,
   ) {
-    const principal = this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "CONTENT_MODERATOR"],
-      "view",
-      "Community category configuration",
-    );
+    const principal = this.assertModuleAccess(token, ["SUPER_ADMIN", "CONTENT_MODERATOR"], "view", "Community category configuration");
     if (!principal.permissions.create || !principal.permissions.edit) {
-      throw new ForbiddenException(
-        "Both create and edit permissions are required for category upsert.",
-      );
+      throw new ForbiddenException("Both create and edit permissions are required for category upsert.");
     }
     const reviewerLabel = principal.reviewerLabel;
     const normalizedSlug = slug.trim().toLowerCase();
-    return this.prisma.$transaction(
-      async (tx) => {
-        const updated = await tx.feedCategoryConfig.upsert({
-          where: { slug: normalizedSlug },
-          create: {
-            slug: normalizedSlug,
-            name:
-              typeof body.name === "string" ? body.name.trim() : normalizedSlug,
-            description:
-              typeof body.description === "string"
-                ? body.description.trim()
-                : "Sakhi Social Wall category.",
-            iconKey:
-              typeof body.iconKey === "string"
-                ? body.iconKey.trim()
-                : "sparkles",
-            accentColorHex:
-              typeof body.accentColorHex === "string"
-                ? body.accentColorHex.trim()
-                : "#EC4899",
-            isEnabled:
-              typeof body.isEnabled === "boolean" ? body.isEnabled : true,
-            displayOrder:
-              typeof body.displayOrder === "number" ? body.displayOrder : 1,
-            updatedBy: reviewerLabel,
-          },
-          update: {
-            ...(typeof body.name === "string"
-              ? { name: body.name.trim() }
-              : {}),
-            ...(typeof body.description === "string"
-              ? { description: body.description.trim() }
-              : {}),
-            ...(typeof body.iconKey === "string"
-              ? { iconKey: body.iconKey.trim() }
-              : {}),
-            ...(typeof body.accentColorHex === "string"
-              ? { accentColorHex: body.accentColorHex.trim() }
-              : {}),
-            ...(typeof body.isEnabled === "boolean"
-              ? { isEnabled: body.isEnabled }
-              : {}),
-            ...(typeof body.displayOrder === "number"
-              ? { displayOrder: body.displayOrder }
-              : {}),
-            updatedBy: reviewerLabel,
-          },
-        });
-        await tx.auditEvent.create({
-          data: {
-            actorType: "ADMIN",
-            actorId: principal.staffId,
-            action: "admin.feed_category.updated",
-            targetType: "feed_category_config",
-            targetId: normalizedSlug,
-            outcome: "success",
-            requestId: randomUUID(),
-            redactedMetadata: {
-              reviewerLabel,
-              isEnabled: updated.isEnabled,
-              displayOrder: updated.displayOrder,
-            },
-          },
-        });
-        return updated;
+    return this.prisma.$transaction(async (tx) => {
+    const updated = await tx.feedCategoryConfig.upsert({
+      where: { slug: normalizedSlug },
+      create: {
+        slug: normalizedSlug,
+        name: typeof body.name === "string" ? body.name.trim() : normalizedSlug,
+        description:
+          typeof body.description === "string"
+            ? body.description.trim()
+            : "Sakhi Social Wall category.",
+        iconKey:
+          typeof body.iconKey === "string" ? body.iconKey.trim() : "sparkles",
+        accentColorHex:
+          typeof body.accentColorHex === "string"
+            ? body.accentColorHex.trim()
+            : "#EC4899",
+        isEnabled: typeof body.isEnabled === "boolean" ? body.isEnabled : true,
+        displayOrder:
+          typeof body.displayOrder === "number" ? body.displayOrder : 1,
+        updatedBy: reviewerLabel,
       },
-      { isolationLevel: "Serializable" },
-    );
+      update: {
+        ...(typeof body.name === "string" ? { name: body.name.trim() } : {}),
+        ...(typeof body.description === "string"
+          ? { description: body.description.trim() }
+          : {}),
+        ...(typeof body.iconKey === "string"
+          ? { iconKey: body.iconKey.trim() }
+          : {}),
+        ...(typeof body.accentColorHex === "string"
+          ? { accentColorHex: body.accentColorHex.trim() }
+          : {}),
+        ...(typeof body.isEnabled === "boolean"
+          ? { isEnabled: body.isEnabled }
+          : {}),
+        ...(typeof body.displayOrder === "number"
+          ? { displayOrder: body.displayOrder }
+          : {}),
+        updatedBy: reviewerLabel,
+      },
+    });
+    await tx.auditEvent.create({
+      data: {
+        actorType: "ADMIN",
+        actorId: principal.staffId,
+        action: "admin.feed_category.updated",
+        targetType: "feed_category_config",
+        targetId: normalizedSlug,
+        outcome: "success",
+        requestId: randomUUID(),
+        redactedMetadata: {
+          reviewerLabel,
+          isEnabled: updated.isEnabled,
+          displayOrder: updated.displayOrder,
+        },
+      },
+    });
+    return updated;
+    }, { isolationLevel: "Serializable" });
   }
 
   async resolveReport(
@@ -2009,52 +1887,22 @@ export class AdminReviewService {
     body: Record<string, unknown>,
     token?: string,
   ) {
-    const principal = this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "CONTENT_MODERATOR"],
-      "view",
-      "Community report decisions",
-    );
-    const actionType =
-      typeof body.actionType === "string"
-        ? body.actionType.trim().toUpperCase()
-        : "DISMISS_REPORT";
+    const principal = this.assertModuleAccess(token, ["SUPER_ADMIN", "CONTENT_MODERATOR"], "view", "Community report decisions");
+    const actionType = typeof body.actionType === "string"
+      ? body.actionType.trim().toUpperCase()
+      : "DISMISS_REPORT";
     const allowedActions = new Set([
-      "DISMISS_REPORT",
-      "NO_VIOLATION",
-      "ESCALATE",
-      "MARK_UNDER_REVIEW",
-      "REMOVE_POST",
-      "REMOVE_CONTENT",
-      "RESTORE_CONTENT",
-      "REMOVE_COMMENT",
-      "RESTRICT_MEMBER",
-      "SUSPEND_MEMBER",
-      "TEMP_SUSPEND_USER",
-      "BAN_MEMBER",
-      "PERMANENT_BAN_USER",
+      "DISMISS_REPORT", "NO_VIOLATION", "ESCALATE", "MARK_UNDER_REVIEW",
+      "REMOVE_POST", "REMOVE_CONTENT", "RESTORE_CONTENT", "REMOVE_COMMENT",
+      "RESTRICT_MEMBER", "SUSPEND_MEMBER", "TEMP_SUSPEND_USER",
+      "BAN_MEMBER", "PERMANENT_BAN_USER",
     ]);
     if (!allowedActions.has(actionType)) {
       throw new BadRequestException("Unsupported community report action.");
     }
-    const requiresDelete = [
-      "REMOVE_POST",
-      "REMOVE_CONTENT",
-      "REMOVE_COMMENT",
-    ].includes(actionType);
-    const requiresSuspend = [
-      "RESTRICT_MEMBER",
-      "SUSPEND_MEMBER",
-      "TEMP_SUSPEND_USER",
-      "BAN_MEMBER",
-      "PERMANENT_BAN_USER",
-    ].includes(actionType);
-    const requiresApprove = [
-      "DISMISS_REPORT",
-      "NO_VIOLATION",
-      "ESCALATE",
-      "RESTORE_CONTENT",
-    ].includes(actionType);
+    const requiresDelete = ["REMOVE_POST", "REMOVE_CONTENT", "REMOVE_COMMENT"].includes(actionType);
+    const requiresSuspend = ["RESTRICT_MEMBER", "SUSPEND_MEMBER", "TEMP_SUSPEND_USER", "BAN_MEMBER", "PERMANENT_BAN_USER"].includes(actionType);
+    const requiresApprove = ["DISMISS_REPORT", "NO_VIOLATION", "ESCALATE", "RESTORE_CONTENT"].includes(actionType);
     const requiresEdit = actionType === "MARK_UNDER_REVIEW";
     if (
       (requiresDelete && !principal.permissions.delete) ||
@@ -2062,147 +1910,104 @@ export class AdminReviewService {
       (requiresApprove && !principal.permissions.approve) ||
       (requiresEdit && !principal.permissions.edit)
     ) {
-      throw new ForbiddenException(
-        "The permission required for this report action is not granted.",
-      );
+      throw new ForbiddenException("The permission required for this report action is not granted.");
     }
-    const reason =
-      typeof body.reason === "string" && body.reason.trim().length > 0
-        ? body.reason.trim()
-        : "Reviewed by Sakhi Trust & Safety.";
-    const report = await this.prisma.memberUserReport.findUnique({
-      where: { id: reportId },
-    });
+    const reason = typeof body.reason === "string" && body.reason.trim().length > 0
+      ? body.reason.trim()
+      : "Reviewed by Sakhi Trust & Safety.";
+    const report = await this.prisma.memberUserReport.findUnique({ where: { id: reportId } });
     if (!report) throw new NotFoundException("Report was not found.");
 
     const nextStatus =
-      actionType === "DISMISS_REPORT" || actionType === "NO_VIOLATION"
-        ? "DISMISSED"
-        : actionType === "ESCALATE"
-          ? "ESCALATED"
-          : actionType === "MARK_UNDER_REVIEW"
-            ? "UNDER_REVIEW"
-            : "ACTION_TAKEN";
+      actionType === "DISMISS_REPORT" || actionType === "NO_VIOLATION" ? "DISMISSED" :
+      actionType === "ESCALATE" ? "ESCALATED" :
+      actionType === "MARK_UNDER_REVIEW" ? "UNDER_REVIEW" : "ACTION_TAKEN";
     const updateData: Record<string, any> = {
       status: nextStatus,
       reviewerNotes: reason,
       reviewedBy: principal.reviewerLabel,
       reviewedAt: new Date(),
-      ...(actionType === "ESCALATE"
-        ? { priority: "P0_CRITICAL", severity: "S1_CRITICAL" }
-        : {}),
+      ...(actionType === "ESCALATE" ? { priority: "P0_CRITICAL", severity: "S1_CRITICAL" } : {}),
     };
 
-    return this.prisma.$transaction(
-      async (tx) => {
-        const updatedReport = await tx.memberUserReport.update({
-          where: { id: reportId },
-          data: updateData as any,
+    return this.prisma.$transaction(async (tx) => {
+      const updatedReport = await tx.memberUserReport.update({
+        where: { id: reportId },
+        data: updateData as any,
+      });
+      if ((actionType === "REMOVE_POST" || actionType === "REMOVE_CONTENT") && report.postId) {
+        await tx.communityPost.update({
+          where: { id: report.postId },
+          data: { status: "REMOVED_BY_MODERATOR", moderationReason: reason, deletedAt: new Date() },
         });
-        if (
-          (actionType === "REMOVE_POST" || actionType === "REMOVE_CONTENT") &&
-          report.postId
-        ) {
-          await tx.communityPost.update({
-            where: { id: report.postId },
-            data: {
-              status: "REMOVED_BY_MODERATOR",
-              moderationReason: reason,
-              deletedAt: new Date(),
-            },
-          });
-          await tx.mediaAsset.updateMany({
-            where: { postId: report.postId },
-            data: { status: "QUARANTINED" },
-          });
-        } else if (actionType === "RESTORE_CONTENT" && report.postId) {
-          await tx.communityPost.update({
-            where: { id: report.postId },
-            data: {
-              status: "PUBLISHED",
-              moderationReason: null,
-              deletedAt: null,
-            },
-          });
-          await tx.mediaAsset.updateMany({
-            where: { postId: report.postId },
-            data: { status: "ATTACHED" },
+        await tx.mediaAsset.updateMany({
+          where: { postId: report.postId },
+          data: { status: "QUARANTINED" },
+        });
+      } else if (actionType === "RESTORE_CONTENT" && report.postId) {
+        await tx.communityPost.update({
+          where: { id: report.postId },
+          data: { status: "PUBLISHED", moderationReason: null, deletedAt: null },
+        });
+        await tx.mediaAsset.updateMany({
+          where: { postId: report.postId },
+          data: { status: "ATTACHED" },
+        });
+      }
+      if ((actionType === "REMOVE_COMMENT" || actionType === "REMOVE_CONTENT") && report.commentId) {
+        await tx.communityPostComment.update({
+          where: { id: report.commentId },
+          data: { isRemovedByModerator: true, deletedAt: new Date() },
+        });
+      }
+      if (requiresSuspend) {
+        const cleanHandle = String(report.targetHandle ?? "").trim().replace(/^@+/, "");
+        const targetProfile = cleanHandle ? await tx.memberProfile.findFirst({
+          where: { OR: [
+            { username: { equals: cleanHandle, mode: "insensitive" } },
+            { username: { equals: `@${cleanHandle}`, mode: "insensitive" } },
+          ] },
+        }) : null;
+        if (!targetProfile?.accountId) {
+          throw new NotFoundException("The reported member account could not be resolved; no suspension was applied.");
+        }
+        const nextAccountStatus = actionType === "RESTRICT_MEMBER" ? "RESTRICTED" : "SUSPENDED";
+        await tx.memberAccount.update({
+          where: { id: targetProfile.accountId },
+          data: { status: nextAccountStatus },
+        });
+        if (nextAccountStatus === "SUSPENDED") {
+          await tx.authSession.updateMany({
+            where: { accountId: targetProfile.accountId, revokedAt: null },
+            data: { revokedAt: new Date() },
           });
         }
-        if (
-          (actionType === "REMOVE_COMMENT" ||
-            actionType === "REMOVE_CONTENT") &&
-          report.commentId
-        ) {
-          await tx.communityPostComment.update({
-            where: { id: report.commentId },
-            data: { isRemovedByModerator: true, deletedAt: new Date() },
-          });
-        }
-        if (requiresSuspend) {
-          const cleanHandle = String(report.targetHandle ?? "")
-            .trim()
-            .replace(/^@+/, "");
-          const targetProfile = cleanHandle
-            ? await tx.memberProfile.findFirst({
-                where: {
-                  OR: [
-                    { username: { equals: cleanHandle, mode: "insensitive" } },
-                    {
-                      username: {
-                        equals: `@${cleanHandle}`,
-                        mode: "insensitive",
-                      },
-                    },
-                  ],
-                },
-              })
-            : null;
-          if (!targetProfile?.accountId) {
-            throw new NotFoundException(
-              "The reported member account could not be resolved; no suspension was applied.",
-            );
-          }
-          const nextAccountStatus =
-            actionType === "RESTRICT_MEMBER" ? "RESTRICTED" : "SUSPENDED";
-          await tx.memberAccount.update({
-            where: { id: targetProfile.accountId },
-            data: { status: nextAccountStatus },
-          });
-          if (nextAccountStatus === "SUSPENDED") {
-            await tx.authSession.updateMany({
-              where: { accountId: targetProfile.accountId, revokedAt: null },
-              data: { revokedAt: new Date() },
-            });
-          }
-        }
-        await tx.moderationDecision.create({
-          data: {
-            reportId,
-            targetType: report.targetType || "POST",
-            targetPostId: report.postId ?? null,
-            targetCommentId: report.commentId ?? null,
-            actionType,
-            reason,
-            reviewerLabel: principal.reviewerLabel,
-          },
-        });
-        await tx.auditEvent.create({
-          data: {
-            actorType: "ADMIN",
-            actorId: principal.staffId,
-            action: "admin.report.resolved",
-            targetType: "member_user_report",
-            targetId: reportId,
-            outcome: actionType,
-            requestId: randomUUID(),
-            redactedMetadata: { actionType, status: nextStatus },
-          },
-        });
-        return updatedReport;
-      },
-      { isolationLevel: "Serializable" },
-    );
+      }
+      await tx.moderationDecision.create({
+        data: {
+          reportId,
+          targetType: report.targetType || "POST",
+          targetPostId: report.postId ?? null,
+          targetCommentId: report.commentId ?? null,
+          actionType,
+          reason,
+          reviewerLabel: principal.reviewerLabel,
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          actorType: "ADMIN",
+          actorId: principal.staffId,
+          action: "admin.report.resolved",
+          targetType: "member_user_report",
+          targetId: reportId,
+          outcome: actionType,
+          requestId: randomUUID(),
+          redactedMetadata: { actionType, status: nextStatus },
+        },
+      });
+      return updatedReport;
+    }, { isolationLevel: "Serializable" });
   }
 
   async triageReport(
@@ -2210,12 +2015,7 @@ export class AdminReviewService {
     body: Record<string, unknown>,
     token?: string,
   ) {
-    const principal = this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "CONTENT_MODERATOR"],
-      "edit",
-      "Community report triage",
-    );
+    const principal = this.assertModuleAccess(token, ["SUPER_ADMIN", "CONTENT_MODERATOR"], "edit", "Community report triage");
     const reviewerLabel = principal.reviewerLabel;
     const report = (await this.prisma.memberUserReport.findUnique({
       where: { id: reportId },
@@ -2273,44 +2073,11 @@ export class AdminReviewService {
       });
     }
 
-    return this.prisma.$transaction(
-      async (tx) => {
-        const updated = await tx.memberUserReport.update({
-          where: { id: reportId },
-          data: {
-            status: nextStatus,
-            priority: nextPriority,
-            severity: nextSeverity,
-            assignedReviewerId,
-            assignedReviewerName,
-            appealStatus,
-            appealReason,
-            internalNotes: existingNotes,
-            ...(typeof body.reviewerNotes === "string"
-              ? { reviewerNotes: body.reviewerNotes.trim().slice(0, 1000) }
-              : {}),
-          } as any,
-        });
-        await tx.auditEvent.create({
-          data: {
-            actorType: "ADMIN",
-            actorId: principal.staffId,
-            action: "admin.report.triaged",
-            targetType: "member_user_report",
-            targetId: reportId,
-            outcome: nextStatus ?? "TRIAGED",
-            requestId: randomUUID(),
-            redactedMetadata: {
-              priority: nextPriority,
-              severity: nextSeverity,
-              assignedReviewerName,
-              status: nextStatus,
-              notesCount: existingNotes.length,
-            },
-          },
-        });
-        return {
-          ...updated,
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.memberUserReport.update({
+        where: { id: reportId },
+        data: {
+          status: nextStatus,
           priority: nextPriority,
           severity: nextSeverity,
           assignedReviewerId,
@@ -2318,19 +2085,44 @@ export class AdminReviewService {
           appealStatus,
           appealReason,
           internalNotes: existingNotes,
-        };
-      },
-      { isolationLevel: "Serializable" },
-    );
+          ...(typeof body.reviewerNotes === "string"
+            ? { reviewerNotes: body.reviewerNotes.trim().slice(0, 1000) }
+            : {}),
+        } as any,
+      });
+      await tx.auditEvent.create({
+        data: {
+          actorType: "ADMIN",
+          actorId: principal.staffId,
+          action: "admin.report.triaged",
+          targetType: "member_user_report",
+          targetId: reportId,
+          outcome: nextStatus ?? "TRIAGED",
+          requestId: randomUUID(),
+          redactedMetadata: {
+            priority: nextPriority,
+            severity: nextSeverity,
+            assignedReviewerName,
+            status: nextStatus,
+            notesCount: existingNotes.length,
+          },
+        },
+      });
+      return {
+        ...updated,
+        priority: nextPriority,
+        severity: nextSeverity,
+        assignedReviewerId,
+        assignedReviewerName,
+        appealStatus,
+        appealReason,
+        internalNotes: existingNotes,
+      };
+    }, { isolationLevel: "Serializable" });
   }
 
   async getReportDetail(reportId: string, token?: string) {
-    this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "CONTENT_MODERATOR"],
-      "view",
-      "Community report details",
-    );
+    this.assertModuleAccess(token, ["SUPER_ADMIN", "CONTENT_MODERATOR"], "view", "Community report details");
     const report = await this.prisma.memberUserReport.findUnique({
       where: { id: reportId },
     });
@@ -2362,12 +2154,7 @@ export class AdminReviewService {
   }
 
   async previewReportedMedia(uploadId: string, token?: string) {
-    const reviewerLabel = this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "CONTENT_MODERATOR"],
-      "view",
-      "Moderation evidence preview",
-    ).reviewerLabel;
+    const reviewerLabel = this.assertModuleAccess(token, ["SUPER_ADMIN", "CONTENT_MODERATOR"], "view", "Moderation evidence preview").reviewerLabel;
     const cleanId = (uploadId ?? "").trim().replace(/^.*\/media\/object\//, "");
     if (!cleanId) {
       throw new BadRequestException("Provide a valid media upload ID.");
@@ -2458,12 +2245,7 @@ export class AdminReviewService {
   }
 
   async listWellnessResources(token?: string) {
-    this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "CONTENT_MODERATOR"],
-      "view",
-      "Wellness resources",
-    );
+    this.assertModuleAccess(token, ["SUPER_ADMIN", "CONTENT_MODERATOR"], "view", "Wellness resources");
     const items = await this.prisma.wellnessResource.findMany({
       orderBy: { createdAt: "asc" },
     });
@@ -2471,118 +2253,69 @@ export class AdminReviewService {
   }
 
   async upsertWellnessResource(body: Record<string, unknown>, token?: string) {
-    const principal = this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "CONTENT_MODERATOR"],
-      "view",
-      "Wellness resource management",
-    );
+    const principal = this.assertModuleAccess(token, ["SUPER_ADMIN", "CONTENT_MODERATOR"], "view", "Wellness resource management");
     if (!principal.permissions.create || !principal.permissions.edit) {
-      throw new ForbiddenException(
-        "Both create and edit permissions are required for wellness resource upsert.",
-      );
+      throw new ForbiddenException("Both create and edit permissions are required for wellness resource upsert.");
     }
     const reviewerLabel = principal.reviewerLabel;
-    const slug = String(
-      body.slug ??
-        String(body.title ?? "wellness-guide")
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-"),
-    )
-      .trim()
-      .slice(0, 64);
+    const slug = String(body.slug ?? String(body.title ?? "wellness-guide").toLowerCase().replace(/[^a-z0-9]+/g, "-")).trim().slice(0, 64);
     const title = String(body.title ?? "Sakhi Wellness Guide").trim();
     const category = String(body.category ?? "Period Pain Help").trim();
-    const subtitle = String(
-      body.subtitle ??
-        body.summary ??
-        "General women's health and mindfulness guidance.",
-    ).trim();
-    const durationLabel =
-      typeof body.durationLabel === "string"
-        ? body.durationLabel.trim()
-        : "4 min read";
-    if (!slug || !title || !category)
-      throw new BadRequestException(
-        "Wellness resource slug, title and category are required.",
-      );
-    return this.prisma.$transaction(
-      async (tx) => {
-        const saved = await tx.wellnessResource.upsert({
-          where: { slug },
-          create: {
-            slug,
-            category,
-            title,
-            subtitle,
-            durationLabel,
-            thumbAsset:
-              typeof body.thumbAsset === "string"
-                ? body.thumbAsset.trim()
-                : null,
-          },
-          update: {
-            category,
-            title,
-            subtitle,
-            durationLabel,
-            ...(typeof body.thumbAsset === "string"
-              ? { thumbAsset: body.thumbAsset.trim() }
-              : {}),
-          },
-        });
-        await tx.auditEvent.create({
-          data: {
-            actorType: "ADMIN",
-            actorId: principal.staffId,
-            action: "admin.wellness_resource.upserted",
-            targetType: "wellness_resource",
-            targetId: saved.id,
-            outcome: "saved",
-            requestId: randomUUID(),
-            redactedMetadata: { slug, title, category, reviewerLabel },
-          },
-        });
-        return { saved: true, resource: saved };
-      },
-      { isolationLevel: "Serializable" },
-    );
+    const subtitle = String(body.subtitle ?? body.summary ?? "General women's health and mindfulness guidance.").trim();
+    const durationLabel = typeof body.durationLabel === "string" ? body.durationLabel.trim() : "4 min read";
+    if (!slug || !title || !category) throw new BadRequestException("Wellness resource slug, title and category are required.");
+    return this.prisma.$transaction(async (tx) => {
+      const saved = await tx.wellnessResource.upsert({
+        where: { slug },
+        create: {
+          slug, category, title, subtitle, durationLabel,
+          thumbAsset: typeof body.thumbAsset === "string" ? body.thumbAsset.trim() : null,
+        },
+        update: {
+          category, title, subtitle, durationLabel,
+          ...(typeof body.thumbAsset === "string" ? { thumbAsset: body.thumbAsset.trim() } : {}),
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          actorType: "ADMIN",
+          actorId: principal.staffId,
+          action: "admin.wellness_resource.upserted",
+          targetType: "wellness_resource",
+          targetId: saved.id,
+          outcome: "saved",
+          requestId: randomUUID(),
+          redactedMetadata: { slug, title, category, reviewerLabel },
+        },
+      });
+      return { saved: true, resource: saved };
+    }, { isolationLevel: "Serializable" });
   }
 
   async deleteWellnessResource(resourceId: string, token?: string) {
-    const principal = this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "CONTENT_MODERATOR"],
-      "delete",
-      "Wellness resource deletion",
-    );
+    const principal = this.assertModuleAccess(token, ["SUPER_ADMIN", "CONTENT_MODERATOR"], "delete", "Wellness resource deletion");
     const cleanId = (resourceId ?? "").trim();
-    if (!cleanId)
-      throw new BadRequestException("Provide a wellness resource ID.");
+    if (!cleanId) throw new BadRequestException("Provide a wellness resource ID.");
     const existing = await this.prisma.wellnessResource.findFirst({
       where: { OR: [{ id: cleanId }, { slug: cleanId }] },
     });
-    if (!existing)
-      throw new NotFoundException("Wellness resource was not found.");
-    return this.prisma.$transaction(
-      async (tx) => {
-        await tx.wellnessResource.delete({ where: { id: existing.id } });
-        await tx.auditEvent.create({
-          data: {
-            actorType: "ADMIN",
-            actorId: principal.staffId,
-            action: "admin.wellness_resource.deleted",
-            targetType: "wellness_resource",
-            targetId: existing.id,
-            outcome: "deleted",
-            requestId: randomUUID(),
-            redactedMetadata: { resourceId: existing.id, slug: existing.slug },
-          },
-        });
-        return { deleted: true, resourceId: existing.id };
-      },
-      { isolationLevel: "Serializable" },
-    );
+    if (!existing) throw new NotFoundException("Wellness resource was not found.");
+    return this.prisma.$transaction(async (tx) => {
+      await tx.wellnessResource.delete({ where: { id: existing.id } });
+      await tx.auditEvent.create({
+        data: {
+          actorType: "ADMIN",
+          actorId: principal.staffId,
+          action: "admin.wellness_resource.deleted",
+          targetType: "wellness_resource",
+          targetId: existing.id,
+          outcome: "deleted",
+          requestId: randomUUID(),
+          redactedMetadata: { resourceId: existing.id, slug: existing.slug },
+        },
+      });
+      return { deleted: true, resourceId: existing.id };
+    }, { isolationLevel: "Serializable" });
   }
 
   async moderatePost(
@@ -2590,67 +2323,43 @@ export class AdminReviewService {
     body: Record<string, unknown>,
     token?: string,
   ) {
-    const principal = this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "CONTENT_MODERATOR"],
-      "view",
-      "Community post moderation",
-    );
-    const actionType =
-      typeof body.actionType === "string"
-        ? body.actionType.trim().toUpperCase()
-        : "REMOVE_POST";
-    if (
-      actionType !== "REMOVE_POST" &&
-      actionType !== "REMOVE_CONTENT" &&
-      actionType !== "RESTORE_CONTENT"
-    ) {
+    const principal = this.assertModuleAccess(token, ["SUPER_ADMIN", "CONTENT_MODERATOR"], "view", "Community post moderation");
+    const actionType = typeof body.actionType === "string" ? body.actionType.trim().toUpperCase() : "REMOVE_POST";
+    if (actionType !== "REMOVE_POST" && actionType !== "REMOVE_CONTENT" && actionType !== "RESTORE_CONTENT") {
       throw new BadRequestException("Unsupported post moderation action.");
     }
     const restore = actionType === "RESTORE_CONTENT";
-    if (
-      restore ? !principal.permissions.approve : !principal.permissions.delete
-    ) {
-      throw new ForbiddenException(
-        restore
-          ? "The approve permission is required to restore a post."
-          : "The delete permission is required to remove a post.",
-      );
+    if (restore ? !principal.permissions.approve : !principal.permissions.delete) {
+      throw new ForbiddenException(restore ? "The approve permission is required to restore a post." : "The delete permission is required to remove a post.");
     }
-    const reason =
-      typeof body.reason === "string" && body.reason.trim()
-        ? body.reason.trim()
-        : "Moderated by Sakhi Trust & Safety.";
-    return this.prisma.$transaction(
-      async (tx) => {
-        const updated = await tx.communityPost.update({
-          where: { id: postId },
-          data: {
-            status: restore ? "PUBLISHED" : "REMOVED_BY_MODERATOR",
-            moderationReason: restore ? null : reason,
-            deletedAt: restore ? null : new Date(),
-          },
-        });
-        await tx.mediaAsset.updateMany({
-          where: { postId },
-          data: { status: restore ? "ATTACHED" : "QUARANTINED" },
-        });
-        await tx.auditEvent.create({
-          data: {
-            actorType: "ADMIN",
-            actorId: principal.staffId,
-            action: restore ? "admin.post.restored" : "admin.post.removed",
-            targetType: "community_post",
-            targetId: postId,
-            outcome: actionType,
-            requestId: randomUUID(),
-            redactedMetadata: { reason },
-          },
-        });
-        return updated;
-      },
-      { isolationLevel: "Serializable" },
-    );
+    const reason = typeof body.reason === "string" && body.reason.trim() ? body.reason.trim() : "Moderated by Sakhi Trust & Safety.";
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.communityPost.update({
+        where: { id: postId },
+        data: {
+          status: restore ? "PUBLISHED" : "REMOVED_BY_MODERATOR",
+          moderationReason: restore ? null : reason,
+          deletedAt: restore ? null : new Date(),
+        },
+      });
+      await tx.mediaAsset.updateMany({
+        where: { postId },
+        data: { status: restore ? "ATTACHED" : "QUARANTINED" },
+      });
+      await tx.auditEvent.create({
+        data: {
+          actorType: "ADMIN",
+          actorId: principal.staffId,
+          action: restore ? "admin.post.restored" : "admin.post.removed",
+          targetType: "community_post",
+          targetId: postId,
+          outcome: actionType,
+          requestId: randomUUID(),
+          redactedMetadata: { reason },
+        },
+      });
+      return updated;
+    }, { isolationLevel: "Serializable" });
   }
 
   async moderateComment(
@@ -2658,56 +2367,34 @@ export class AdminReviewService {
     body: Record<string, unknown>,
     token?: string,
   ) {
-    const principal = this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "CONTENT_MODERATOR"],
-      "view",
-      "Community comment moderation",
-    );
-    const actionType =
-      typeof body.actionType === "string"
-        ? body.actionType.trim().toUpperCase()
-        : "REMOVE_COMMENT";
+    const principal = this.assertModuleAccess(token, ["SUPER_ADMIN", "CONTENT_MODERATOR"], "view", "Community comment moderation");
+    const actionType = typeof body.actionType === "string" ? body.actionType.trim().toUpperCase() : "REMOVE_COMMENT";
     if (actionType !== "REMOVE_COMMENT" && actionType !== "RESTORE_CONTENT") {
       throw new BadRequestException("Unsupported comment moderation action.");
     }
     const restore = actionType === "RESTORE_CONTENT";
-    if (
-      restore ? !principal.permissions.approve : !principal.permissions.delete
-    ) {
-      throw new ForbiddenException(
-        restore
-          ? "The approve permission is required to restore a comment."
-          : "The delete permission is required to remove a comment.",
-      );
+    if (restore ? !principal.permissions.approve : !principal.permissions.delete) {
+      throw new ForbiddenException(restore ? "The approve permission is required to restore a comment." : "The delete permission is required to remove a comment.");
     }
-    return this.prisma.$transaction(
-      async (tx) => {
-        const updated = await tx.communityPostComment.update({
-          where: { id: commentId },
-          data: {
-            isRemovedByModerator: !restore,
-            deletedAt: restore ? null : new Date(),
-          },
-        });
-        await tx.auditEvent.create({
-          data: {
-            actorType: "ADMIN",
-            actorId: principal.staffId,
-            action: restore
-              ? "admin.comment.restored"
-              : "admin.comment.removed",
-            targetType: "community_post_comment",
-            targetId: commentId,
-            outcome: actionType,
-            requestId: randomUUID(),
-            redactedMetadata: {},
-          },
-        });
-        return updated;
-      },
-      { isolationLevel: "Serializable" },
-    );
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.communityPostComment.update({
+        where: { id: commentId },
+        data: { isRemovedByModerator: !restore, deletedAt: restore ? null : new Date() },
+      });
+      await tx.auditEvent.create({
+        data: {
+          actorType: "ADMIN",
+          actorId: principal.staffId,
+          action: restore ? "admin.comment.restored" : "admin.comment.removed",
+          targetType: "community_post_comment",
+          targetId: commentId,
+          outcome: actionType,
+          requestId: randomUUID(),
+          redactedMetadata: {},
+        },
+      });
+      return updated;
+    }, { isolationLevel: "Serializable" });
   }
 
   private formatCleanLabel(raw?: string | null): string {
@@ -2723,12 +2410,7 @@ export class AdminReviewService {
   }
 
   async safetyConsoleOverview(token?: string) {
-    const reviewerLabel = this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "SOS_SAFETY_ADMIN"],
-      "view",
-      "SOS safety console",
-    ).reviewerLabel;
+    const reviewerLabel = this.assertModuleAccess(token, ["SUPER_ADMIN", "SOS_SAFETY_ADMIN"], "view", "SOS safety console").reviewerLabel;
     const anyPrisma = this.prisma as Record<string, any>;
     const [rawSosEvents, contactsCount, stations, helplines, auditEvents] =
       await Promise.all([
@@ -2986,127 +2668,71 @@ export class AdminReviewService {
   }
 
   async upsertPoliceStation(body: Record<string, unknown>, token?: string) {
-    const principal = this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "SOS_SAFETY_ADMIN"],
-      "view",
-      "Police station directory management",
-    );
+    const principal = this.assertModuleAccess(token, ["SUPER_ADMIN", "SOS_SAFETY_ADMIN"], "view", "Police station directory management");
     if (!principal.permissions.create || !principal.permissions.edit) {
-      throw new ForbiddenException(
-        "Both create and edit permissions are required because station upsert may create or update a record.",
-      );
+      throw new ForbiddenException("Both create and edit permissions are required because station upsert may create or update a record.");
     }
     const requestedVerified = body.isVerified === true;
     if (requestedVerified && !principal.permissions.approve) {
-      throw new ForbiddenException(
-        "The approve permission is required to mark a police station as verified.",
-      );
+      throw new ForbiddenException("The approve permission is required to mark a police station as verified.");
     }
     const reviewerLabel = principal.reviewerLabel;
     const name = String(body.name ?? "").trim();
     const address = String(body.address ?? "").trim();
     const phoneNumber = String(body.phoneNumber ?? "112").trim();
-    if (!name || !address)
-      throw new BadRequestException("Station name and address are required.");
-    const excludedCommercialPattern =
-      /\b(petrol|fuel|bunk|pump|hpcl|bpcl|iocl|canteen|ncc|bakery|hotel|restaurant|shop|store|atm|bank)\b/i;
+    if (!name || !address) throw new BadRequestException("Station name and address are required.");
+    const excludedCommercialPattern = /\b(petrol|fuel|bunk|pump|hpcl|bpcl|iocl|canteen|ncc|bakery|hotel|restaurant|shop|store|atm|bank)\b/i;
     if (excludedCommercialPattern.test(`${name} ${address}`)) {
-      throw new BadRequestException(
-        "Only genuine police stations can be registered.",
-      );
+      throw new BadRequestException("Only genuine police stations can be registered.");
     }
-    const stationCode =
-      String(body.stationCode ?? "").trim() ||
-      `ps_${name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "_")
-        .slice(0, 32)}`;
+    const stationCode = String(body.stationCode ?? "").trim() ||
+      `ps_${name.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 32)}`;
     const latitude = Number(body.latitude);
     const longitude = Number(body.longitude);
-    if (
-      !Number.isFinite(latitude) ||
-      !Number.isFinite(longitude) ||
-      latitude < -90 ||
-      latitude > 90 ||
-      longitude < -180 ||
-      longitude > 180
-    ) {
-      throw new BadRequestException(
-        "Valid station latitude and longitude are required.",
-      );
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude) ||
+      latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+      throw new BadRequestException("Valid station latitude and longitude are required.");
     }
     const isWomenStation = body.isWomenStation === true;
     const anyPrisma = this.prisma as Record<string, any>;
     if (!anyPrisma.verifiedPoliceStation?.upsert) {
-      throw new ServiceUnavailableException(
-        "Police station storage is unavailable.",
-      );
+      throw new ServiceUnavailableException("Police station storage is unavailable.");
     }
-    return this.prisma.$transaction(
-      async (tx) => {
-        const saved = await tx.verifiedPoliceStation.upsert({
-          where: { stationCode },
-          create: {
-            stationCode,
-            name,
-            address,
-            latitude,
-            longitude,
-            phoneNumber,
-            isWomenStation,
-            isVerified: requestedVerified,
-            updatedBy: reviewerLabel,
-          },
-          update: {
-            name,
-            address,
-            latitude,
-            longitude,
-            phoneNumber,
-            isWomenStation,
-            isVerified: requestedVerified,
-            updatedBy: reviewerLabel,
-          },
-        });
-        await tx.auditEvent.create({
-          data: {
-            actorType: "ADMIN",
-            actorId: principal.staffId,
-            action: "admin.police_station.upserted",
-            targetType: "verified_police_station",
-            targetId: stationCode,
-            outcome: requestedVerified
-              ? "manually_verified"
-              : "pending_verification",
-            requestId: randomUUID(),
-            redactedMetadata: {
-              name,
-              stationCode,
-              isVerified: requestedVerified,
-            },
-          },
-        });
-        return saved;
-      },
-      { isolationLevel: "Serializable" },
-    );
+    return this.prisma.$transaction(async (tx) => {
+      const saved = await tx.verifiedPoliceStation.upsert({
+        where: { stationCode },
+        create: {
+          stationCode, name, address, latitude, longitude, phoneNumber,
+          isWomenStation, isVerified: requestedVerified, updatedBy: reviewerLabel,
+        },
+        update: {
+          name, address, latitude, longitude, phoneNumber, isWomenStation,
+          isVerified: requestedVerified, updatedBy: reviewerLabel,
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          actorType: "ADMIN",
+          actorId: principal.staffId,
+          action: "admin.police_station.upserted",
+          targetType: "verified_police_station",
+          targetId: stationCode,
+          outcome: requestedVerified ? "manually_verified" : "pending_verification",
+          requestId: randomUUID(),
+          redactedMetadata: { name, stationCode, isVerified: requestedVerified },
+        },
+      });
+      return saved;
+    }, { isolationLevel: "Serializable" });
   }
 
   async syncPoliceStationsFromOsm(
     body: Record<string, unknown>,
     token?: string,
   ) {
-    const principal = this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "SOS_SAFETY_ADMIN"],
-      "view",
-      "Police station directory synchronization",
-    );
+    const principal = this.assertModuleAccess(token, ["SUPER_ADMIN", "SOS_SAFETY_ADMIN"], "view", "Police station directory synchronization");
     if (!principal.permissions.create || !principal.permissions.edit) {
-      throw new ForbiddenException(
-        "Both create and edit permissions are required for police-station synchronization.",
-      );
+      throw new ForbiddenException("Both create and edit permissions are required for police-station synchronization.");
     }
     const reviewerLabel = principal.reviewerLabel;
     const city = String(body.city ?? "Bengaluru").trim();
@@ -3244,57 +2870,47 @@ export class AdminReviewService {
       clearTimeout(timeout);
     }
 
-    const toPersist =
-      discovered.length > 0 ? discovered : curatedFallbackStations;
+    const toPersist = discovered.length > 0 ? discovered : curatedFallbackStations;
     if (!anyPrisma.verifiedPoliceStation?.upsert) {
-      throw new ServiceUnavailableException(
-        "Police station storage is unavailable.",
-      );
+      throw new ServiceUnavailableException("Police station storage is unavailable.");
     }
-    const savedStations = await this.prisma.$transaction(
-      async (tx) => {
-        const rows: Array<Record<string, unknown>> = [];
-        for (const station of toPersist) {
-          const row = await tx.verifiedPoliceStation.upsert({
-            where: { stationCode: station.stationCode },
-            create: {
-              ...station,
-              isVerified: false,
-              updatedBy: reviewerLabel,
-            },
-            update: {
-              name: station.name,
-              address: station.address,
-              latitude: station.latitude,
-              longitude: station.longitude,
-              phoneNumber: station.phoneNumber,
-              isWomenStation: station.isWomenStation,
-              isVerified: false,
-              updatedBy: reviewerLabel,
-            },
-          });
-          rows.push(row);
-        }
-        await tx.auditEvent.create({
-          data: {
-            actorType: "ADMIN",
-            actorId: principal.staffId,
-            action: "admin.police_stations.osm_synced",
-            targetType: "verified_police_station",
-            targetId: city.toLowerCase(),
-            outcome: "imported_unverified",
-            requestId: randomUUID(),
-            redactedMetadata: {
-              city,
-              importedCount: rows.length,
-              requiresIndependentVerification: true,
-            },
+    const savedStations = await this.prisma.$transaction(async (tx) => {
+      const rows: Array<Record<string, unknown>> = [];
+      for (const station of toPersist) {
+        const row = await tx.verifiedPoliceStation.upsert({
+          where: { stationCode: station.stationCode },
+          create: {
+            ...station,
+            isVerified: false,
+            updatedBy: reviewerLabel,
+          },
+          update: {
+            name: station.name,
+            address: station.address,
+            latitude: station.latitude,
+            longitude: station.longitude,
+            phoneNumber: station.phoneNumber,
+            isWomenStation: station.isWomenStation,
+            isVerified: false,
+            updatedBy: reviewerLabel,
           },
         });
-        return rows;
-      },
-      { isolationLevel: "Serializable" },
-    );
+        rows.push(row);
+      }
+      await tx.auditEvent.create({
+        data: {
+          actorType: "ADMIN",
+          actorId: principal.staffId,
+          action: "admin.police_stations.osm_synced",
+          targetType: "verified_police_station",
+          targetId: city.toLowerCase(),
+          outcome: "imported_unverified",
+          requestId: randomUUID(),
+          redactedMetadata: { city, importedCount: rows.length, requiresIndependentVerification: true },
+        },
+      });
+      return rows;
+    }, { isolationLevel: "Serializable" });
 
     return {
       syncedCount: savedStations.length,
@@ -3305,39 +2921,29 @@ export class AdminReviewService {
   }
 
   async deletePoliceStation(stationCode: string, token?: string) {
-    const principal = this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "SOS_SAFETY_ADMIN"],
-      "delete",
-      "Police station directory deletion",
-    );
+    const principal = this.assertModuleAccess(token, ["SUPER_ADMIN", "SOS_SAFETY_ADMIN"], "delete", "Police station directory deletion");
     const anyPrisma = this.prisma as Record<string, any>;
     if (!anyPrisma.verifiedPoliceStation?.deleteMany) {
-      throw new ServiceUnavailableException(
-        "Police station storage is unavailable.",
-      );
+      throw new ServiceUnavailableException("Police station storage is unavailable.");
     }
-    return this.prisma.$transaction(
-      async (tx) => {
-        const deleted = await tx.verifiedPoliceStation.deleteMany({
-          where: { OR: [{ stationCode }, { id: stationCode }] },
-        });
-        await tx.auditEvent.create({
-          data: {
-            actorType: "ADMIN",
-            actorId: principal.staffId,
-            action: "admin.police_station.deleted",
-            targetType: "verified_police_station",
-            targetId: stationCode,
-            outcome: "deleted",
-            requestId: randomUUID(),
-            redactedMetadata: { stationCode, deletedCount: deleted.count },
-          },
-        });
-        return { deleted: true, stationCode, deletedCount: deleted.count };
-      },
-      { isolationLevel: "Serializable" },
-    );
+    return this.prisma.$transaction(async (tx) => {
+      const deleted = await tx.verifiedPoliceStation.deleteMany({
+        where: { OR: [{ stationCode }, { id: stationCode }] },
+      });
+      await tx.auditEvent.create({
+        data: {
+          actorType: "ADMIN",
+          actorId: principal.staffId,
+          action: "admin.police_station.deleted",
+          targetType: "verified_police_station",
+          targetId: stationCode,
+          outcome: "deleted",
+          requestId: randomUUID(),
+          redactedMetadata: { stationCode, deletedCount: deleted.count },
+        },
+      });
+      return { deleted: true, stationCode, deletedCount: deleted.count };
+    }, { isolationLevel: "Serializable" });
   }
 
   async reviewSosEvent(
@@ -3345,47 +2951,31 @@ export class AdminReviewService {
     body: Record<string, unknown>,
     token?: string,
   ) {
-    const principal = this.assertModuleAccess(
-      token,
-      ["SUPER_ADMIN", "SOS_SAFETY_ADMIN"],
-      "approve",
-      "SOS event review",
-    );
-    const classification = String(body.classification ?? "RESOLVED_VERIFIED")
-      .trim()
-      .toUpperCase();
-    const allowed = new Set([
-      "RESOLVED_VERIFIED",
-      "FALSE_TRIGGER",
-      "ABUSE",
-      "ESCALATED",
-      "UNDER_REVIEW",
-    ]);
+    const principal = this.assertModuleAccess(token, ["SUPER_ADMIN", "SOS_SAFETY_ADMIN"], "approve", "SOS event review");
+    const classification = String(body.classification ?? "RESOLVED_VERIFIED").trim().toUpperCase();
+    const allowed = new Set(["RESOLVED_VERIFIED", "FALSE_TRIGGER", "ABUSE", "ESCALATED", "UNDER_REVIEW"]);
     if (!allowed.has(classification)) {
       throw new BadRequestException("Unsupported SOS review classification.");
     }
-    return this.prisma.$transaction(
-      async (tx) => {
-        const updated = await tx.safetySosEvent.update({
-          where: { id: eventId },
-          data: { status: classification },
-        });
-        await tx.auditEvent.create({
-          data: {
-            actorType: "ADMIN",
-            actorId: principal.staffId,
-            action: "admin.sos_event.reviewed",
-            targetType: "safety_sos_event",
-            targetId: eventId,
-            outcome: classification,
-            requestId: randomUUID(),
-            redactedMetadata: { classification },
-          },
-        });
-        return updated;
-      },
-      { isolationLevel: "Serializable" },
-    );
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.safetySosEvent.update({
+        where: { id: eventId },
+        data: { status: classification },
+      });
+      await tx.auditEvent.create({
+        data: {
+          actorType: "ADMIN",
+          actorId: principal.staffId,
+          action: "admin.sos_event.reviewed",
+          targetType: "safety_sos_event",
+          targetId: eventId,
+          outcome: classification,
+          requestId: randomUUID(),
+          redactedMetadata: { classification },
+        },
+      });
+      return updated;
+    }, { isolationLevel: "Serializable" });
   }
 
   async getMember360Detail(accountId: string, token?: string) {
@@ -3894,10 +3484,7 @@ export class AdminReviewService {
       ["SUPER_ADMIN"],
       "Admin Users & RBAC Governance",
     );
-    if (!principal.permissions.view)
-      throw new ForbiddenException(
-        "The view permission is required for Admin Users & RBAC Governance.",
-      );
+    if (!principal.permissions.view) throw new ForbiddenException("The view permission is required for Admin Users & RBAC Governance.");
     const staff = SakhiAdminRbacRegistry.listStaff();
     return {
       principal,
@@ -3929,33 +3516,20 @@ export class AdminReviewService {
       ["SUPER_ADMIN"],
       "Creating Admin Staff Accounts",
     );
-    if (!principal.permissions.create)
-      throw new ForbiddenException(
-        "The create permission is required for Creating Admin Staff Accounts.",
-      );
+    if (!principal.permissions.create) throw new ForbiddenException("The create permission is required for Creating Admin Staff Accounts.");
     if (body.role === "SUPER_ADMIN" && !principal.permissions.approve) {
-      throw new ForbiddenException(
-        "The approve permission is required to create a Super Admin account.",
-      );
+      throw new ForbiddenException("The approve permission is required to create a Super Admin account.");
     }
-    const username = String(body.username ?? "")
-      .trim()
-      .toLowerCase();
+    const username = String(body.username ?? "").trim().toLowerCase();
     const initialPassword = String(body.initialPassword ?? "");
     if (Boolean(username) !== Boolean(initialPassword)) {
-      throw new BadRequestException(
-        "Provide both a staff username and an initial password, or leave both empty.",
-      );
+      throw new BadRequestException("Provide both a staff username and an initial password, or leave both empty.");
     }
     if (username && !/^[a-z0-9][a-z0-9._-]{2,63}$/.test(username)) {
-      throw new BadRequestException(
-        "Username must be 3–64 characters using letters, numbers, dot, underscore or hyphen.",
-      );
+      throw new BadRequestException("Username must be 3–64 characters using letters, numbers, dot, underscore or hyphen.");
     }
     if (initialPassword && initialPassword.length < 10) {
-      throw new BadRequestException(
-        "Initial admin password must be at least 10 characters long.",
-      );
+      throw new BadRequestException("Initial admin password must be at least 10 characters long.");
     }
     const created = await SakhiAdminRbacRegistry.createStaffAccount(
       this.prisma,
@@ -4005,42 +3579,26 @@ export class AdminReviewService {
       ["SUPER_ADMIN"],
       "Updating Admin Staff Accounts",
     );
-    if (!principal.permissions.edit)
-      throw new ForbiddenException(
-        "The edit permission is required for Updating Admin Staff Accounts.",
-      );
+    if (!principal.permissions.edit) throw new ForbiddenException("The edit permission is required for Updating Admin Staff Accounts.");
     if (typeof body.status === "string") {
-      const statusPermission =
-        body.status.trim().toUpperCase() === "ACTIVE" ? "approve" : "suspend";
+      const statusPermission = body.status.trim().toUpperCase() === "ACTIVE" ? "approve" : "suspend";
       if (!principal.permissions[statusPermission]) {
         throw new ForbiddenException(
-          "The " +
-            statusPermission +
-            " permission is required to change a staff account status.",
+          "The " + statusPermission + " permission is required to change a staff account status.",
         );
       }
     }
-    if (
-      body.role !== undefined ||
-      body.permissions !== undefined ||
-      body.isAuthorisedComplaintReviewer !== undefined ||
-      body.clearanceLevel !== undefined
-    ) {
+    if (body.role !== undefined || body.permissions !== undefined ||
+        body.isAuthorisedComplaintReviewer !== undefined ||
+        body.clearanceLevel !== undefined) {
       if (!principal.permissions.approve) {
-        throw new ForbiddenException(
-          "The approve permission is required to change staff roles, permissions, reviewer clearance or security clearance.",
-        );
+        throw new ForbiddenException("The approve permission is required to change staff roles, permissions, reviewer clearance or security clearance.");
       }
     }
     if (body.customAccessToken !== undefined) {
-      throw new BadRequestException(
-        "Caller-supplied staff credentials are not accepted.",
-      );
+      throw new BadRequestException("Caller-supplied staff credentials are not accepted.");
     }
-    if (
-      body.regenerateToken !== undefined &&
-      typeof body.regenerateToken !== "boolean"
-    ) {
+    if (body.regenerateToken !== undefined && typeof body.regenerateToken !== "boolean") {
       throw new BadRequestException("regenerateToken must be a boolean.");
     }
     if (body.regenerateToken === true && !principal.permissions.suspend) {
@@ -4072,10 +3630,7 @@ export class AdminReviewService {
       ["SUPER_ADMIN"],
       "Deleting Admin Staff Accounts",
     );
-    if (!principal.permissions.delete)
-      throw new ForbiddenException(
-        "The delete permission is required for Deleting Admin Staff Accounts.",
-      );
+    if (!principal.permissions.delete) throw new ForbiddenException("The delete permission is required for Deleting Admin Staff Accounts.");
     return SakhiAdminRbacRegistry.deleteStaffAccount(
       this.prisma,
       staffId,
@@ -4093,9 +3648,7 @@ export class AdminReviewService {
       "Global Platform Configuration",
     );
     if (!principal.permissions.view) {
-      throw new ForbiddenException(
-        "The view permission is required for Global Platform Configuration.",
-      );
+      throw new ForbiddenException("The view permission is required for Global Platform Configuration.");
     }
     const config = await SakhiAdminRbacRegistry.getPlatformConfig(this.prisma);
     return {
@@ -4112,10 +3665,7 @@ export class AdminReviewService {
       ["SUPER_ADMIN"],
       "Global Platform Configuration & Feature Flags",
     );
-    if (!principal.permissions.edit)
-      throw new ForbiddenException(
-        "The edit permission is required for Global Platform Configuration.",
-      );
+    if (!principal.permissions.edit) throw new ForbiddenException("The edit permission is required for Global Platform Configuration.");
     const config = await SakhiAdminRbacRegistry.updatePlatformConfig(
       this.prisma,
       body,
@@ -4136,10 +3686,7 @@ export class AdminReviewService {
       ["SUPER_ADMIN", "BUSINESS_ADMIN"],
       "Business & Marketplace Management",
     );
-    if (!principal.permissions.view)
-      throw new ForbiddenException(
-        "The view permission is required for Business & Marketplace Management.",
-      );
+    if (!principal.permissions.view) throw new ForbiddenException("The view permission is required for Business & Marketplace Management.");
     return SakhiAdminRbacRegistry.listBusinesses(this.prisma);
   }
 
@@ -4151,10 +3698,7 @@ export class AdminReviewService {
       ["SUPER_ADMIN", "BUSINESS_ADMIN"],
       "Business Directory Management",
     );
-    if (!principal.permissions.create)
-      throw new ForbiddenException(
-        "The create permission is required for Business Directory Management.",
-      );
+    if (!principal.permissions.create) throw new ForbiddenException("The create permission is required for Business Directory Management.");
     if (!principal.permissions.edit) {
       throw new ForbiddenException(
         "The edit permission is required because business upsert can update an existing listing.",
@@ -4181,10 +3725,7 @@ export class AdminReviewService {
       ["SUPER_ADMIN", "BUSINESS_ADMIN"],
       "Business Verification & Moderation",
     );
-    if (!principal.permissions.approve)
-      throw new ForbiddenException(
-        "The approve permission is required for Business Verification & Moderation.",
-      );
+    if (!principal.permissions.approve) throw new ForbiddenException("The approve permission is required for Business Verification & Moderation.");
     const business = await SakhiAdminRbacRegistry.reviewBusinessListing(
       this.prisma,
       businessId,
@@ -4203,10 +3744,7 @@ export class AdminReviewService {
       ["SUPER_ADMIN", "BUSINESS_ADMIN"],
       "Business Directory Deletion",
     );
-    if (!principal.permissions.delete)
-      throw new ForbiddenException(
-        "The delete permission is required for Business Directory Deletion.",
-      );
+    if (!principal.permissions.delete) throw new ForbiddenException("The delete permission is required for Business Directory Deletion.");
     return SakhiAdminRbacRegistry.deleteBusinessListing(
       this.prisma,
       businessId,
@@ -4222,21 +3760,15 @@ export class AdminReviewService {
     password?: string;
     mfaCode?: string;
   }) {
-    const identifier = String(
-      body.identifier ?? body.email ?? body.username ?? "",
-    )
+    const identifier = String(body.identifier ?? body.email ?? body.username ?? "")
       .trim()
       .toLowerCase();
     const password = String(body.password ?? "");
     if (!identifier || !password) {
-      throw new UnauthorizedException(
-        "Enter both your admin email/username and password.",
-      );
+      throw new UnauthorizedException("Enter both your admin email/username and password.");
     }
     if (!this.adminMfa || !this.adminSessions) {
-      throw new ServiceUnavailableException(
-        "Credential sign-in is not available until the MFA session services are configured.",
-      );
+      throw new ServiceUnavailableException("Credential sign-in is not available until the MFA session services are configured.");
     }
 
     const staff = await this.prisma.adminStaffAccount.findFirst({
@@ -4248,20 +3780,11 @@ export class AdminReviewService {
       },
     });
     const now = new Date();
-    if (
-      !staff ||
-      staff.status !== "ACTIVE" ||
-      staff.suspendedAt ||
-      staff.deletedAt
-    ) {
-      throw new UnauthorizedException(
-        "Invalid admin credentials or inactive staff account.",
-      );
+    if (!staff || staff.status !== "ACTIVE" || staff.suspendedAt || staff.deletedAt) {
+      throw new UnauthorizedException("Invalid admin credentials or inactive staff account.");
     }
     if (staff.lockedUntil && staff.lockedUntil.getTime() > now.getTime()) {
-      throw new ForbiddenException(
-        "This admin account is temporarily locked after repeated failed sign-in attempts.",
-      );
+      throw new ForbiddenException("This admin account is temporarily locked after repeated failed sign-in attempts.");
     }
 
     // Bind only the staff row resolved by the database-backed login identifier.
@@ -4277,20 +3800,11 @@ export class AdminReviewService {
       const q = Number(parts[3]);
       const salt = parts[4] ?? "";
       const expectedHex = parts[5] ?? "";
-      if (
-        N !== 16384 ||
-        r !== 8 ||
-        q !== 1 ||
-        !salt ||
-        !/^[a-f0-9]{128}$/i.test(expectedHex)
-      )
-        return false;
+      if (N !== 16384 || r !== 8 || q !== 1 || !salt || !/^[a-f0-9]{128}$/i.test(expectedHex)) return false;
       try {
         const actual = scryptSync(plain, salt, 64, { N, r, p: q });
         const expected = Buffer.from(expectedHex, "hex");
-        return (
-          actual.length === expected.length && timingSafeEqual(actual, expected)
-        );
+        return actual.length === expected.length && timingSafeEqual(actual, expected);
       } catch {
         return false;
       }
@@ -4298,10 +3812,9 @@ export class AdminReviewService {
 
     if (!verifyPassword(password, staff.passwordHash)) {
       const failedLoginAttempts = Number(staff.failedLoginAttempts ?? 0) + 1;
-      const lockedUntil =
-        failedLoginAttempts >= 5
-          ? new Date(now.getTime() + 15 * 60 * 1000)
-          : null;
+      const lockedUntil = failedLoginAttempts >= 5
+        ? new Date(now.getTime() + 15 * 60 * 1000)
+        : null;
       await this.prisma.$transaction(async (tx) => {
         await tx.adminStaffAccount.update({
           where: { id: staff.id },
@@ -4314,27 +3827,20 @@ export class AdminReviewService {
           data: {
             actorType: "ADMIN",
             actorId: staff.id,
-            action: lockedUntil
-              ? "admin.auth.account_locked"
-              : "admin.auth.login_failed",
+            action: lockedUntil ? "admin.auth.account_locked" : "admin.auth.login_failed",
             targetType: "admin_staff_account",
             targetId: staff.id,
             outcome: "denied",
             requestId: randomUUID(),
             redactedMetadata: {
-              identifierHash: createHash("sha256")
-                .update(identifier)
-                .digest("hex")
-                .slice(0, 16),
+              identifierHash: createHash("sha256").update(identifier).digest("hex").slice(0, 16),
               failedLoginAttempts,
               locked: Boolean(lockedUntil),
             },
           },
         });
       });
-      throw new UnauthorizedException(
-        "Invalid admin email/username or password.",
-      );
+      throw new UnauthorizedException("Invalid admin email/username or password.");
     }
 
     // Password is only the first factor. A persistent, one-time-use TOTP or
@@ -4344,8 +3850,7 @@ export class AdminReviewService {
     const csrfToken = randomBytes(32).toString("base64url");
     const role = staff.role as SakhiAdminRole;
     const roleDefinition = ADMIN_ROLE_DEFINITIONS[role];
-    if (!roleDefinition)
-      throw new UnauthorizedException("The staff role is invalid.");
+    if (!roleDefinition) throw new UnauthorizedException("The staff role is invalid.");
 
     await this.prisma.$transaction(async (tx) => {
       await tx.adminStaffAccount.update({
@@ -4361,11 +3866,7 @@ export class AdminReviewService {
           targetId: staff.id,
           outcome: "authenticated",
           requestId: randomUUID(),
-          redactedMetadata: {
-            staffCode: staff.staffCode,
-            role,
-            mfa: "verified",
-          },
+          redactedMetadata: { staffCode: staff.staffCode, role, mfa: "verified" },
         },
       });
     });
@@ -4417,30 +3918,18 @@ export class AdminReviewService {
     }
     const newPassword = String(body?.newPassword ?? "");
     if (newPassword.trim().length < 10) {
-      throw new BadRequestException(
-        "New admin password must be at least 10 characters long.",
-      );
+      throw new BadRequestException("New admin password must be at least 10 characters long.");
     }
     const salt = randomBytes(16).toString("hex");
-    const derived = scryptSync(newPassword, salt, 64, {
-      N: 16384,
-      r: 8,
-      p: 1,
-    }).toString("hex");
+    const derived = scryptSync(newPassword, salt, 64, { N: 16384, r: 8, p: 1 }).toString("hex");
     const passwordHash = `scrypt$16384$8$1$${salt}$${derived}`;
     const updated = await this.prisma.adminStaffAccount.update({
       where: { id: staffId },
-      data: {
-        passwordHash,
-        passwordUpdatedAt: new Date(),
-        mustResetPassword: false,
-        failedLoginAttempts: 0,
-        lockedUntil: null,
-      },
+      data: { passwordHash, passwordUpdatedAt: new Date(), mustResetPassword: false, failedLoginAttempts: 0, lockedUntil: null },
       select: { id: true, staffCode: true },
     });
-    if (this.adminSessions)
-      await this.adminSessions.revokeAllForStaff(staffId, "PASSWORD_CHANGED");
+    if (this.adminSessions) await this.adminSessions.revokeAllForStaff(staffId, "PASSWORD_CHANGED");
     return { updated: true as const, staffCode: updated.staffCode };
   }
+
 }
