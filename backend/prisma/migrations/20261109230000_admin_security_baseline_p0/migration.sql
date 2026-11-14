@@ -1,5 +1,40 @@
 BEGIN;
 
+-- Validate the dedicated managed runtime principal before any schema changes.
+-- This role is provisioned by the Supabase project owner, not by migrations.
+DO $$
+DECLARE
+  runtime_role_oid oid;
+BEGIN
+  SELECT oid INTO runtime_role_oid
+  FROM pg_roles
+  WHERE rolname = 'sakhi_staging_app';
+
+  IF runtime_role_oid IS NULL THEN
+    RAISE EXCEPTION
+      'Required managed staging runtime role sakhi_staging_app is missing; provision it before applying the P0 staff-security baseline.';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM pg_roles
+    WHERE oid = runtime_role_oid
+      AND (rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole OR rolreplication OR NOT rolcanlogin)
+  ) THEN
+    RAISE EXCEPTION
+      'sakhi_staging_app must be a LOGIN role without SUPERUSER, BYPASSRLS, CREATEDB, CREATEROLE, or REPLICATION.';
+  END IF;
+
+  -- A dedicated application login must neither inherit another role nor be
+  -- assumable by another role through membership/SET ROLE.
+  IF EXISTS (
+    SELECT 1 FROM pg_auth_members
+    WHERE member = runtime_role_oid OR roleid = runtime_role_oid
+  ) THEN
+    RAISE EXCEPTION
+      'sakhi_staging_app must not have incoming or outgoing PostgreSQL role memberships.';
+  END IF;
+END $$;
+
 -- Sakhi P0 administrative security foundation.
 -- Additive only: preserves existing staff records and legacy credential columns.
 -- This migration is NOT applied to any database by this change.
@@ -140,6 +175,27 @@ CREATE UNIQUE INDEX IF NOT EXISTS admin_staff_recovery_one_active_per_staff_uniq
   ON public.admin_staff_recovery_requests (staff_id)
   WHERE status IN ('PENDING', 'APPROVED');
 
+-- The runtime principal must not own any staff-security table.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_class c
+    JOIN pg_roles r ON r.oid = c.relowner
+    WHERE c.relnamespace = 'public'::regnamespace
+      AND c.relname IN (
+        'admin_staff_accounts',
+        'admin_staff_sessions',
+        'admin_staff_mfa',
+        'admin_staff_backup_codes',
+        'admin_staff_recovery_requests'
+      )
+      AND r.rolname = 'sakhi_staging_app'
+  ) THEN
+    RAISE EXCEPTION 'sakhi_staging_app must not own P0 staff-security tables.';
+  END IF;
+END $$;
+
 -- These records are backend-only. Do not expose them through Supabase's
 -- anon/authenticated Data API roles.
 REVOKE ALL ON TABLE
@@ -162,15 +218,8 @@ DECLARE
   table_name text;
   policy_name text;
 BEGIN
-  -- This managed staging role is a required security principal, not an
-  -- optional capability. Fail before applying any grants or policies if it
-  -- has not been provisioned by the Supabase project owner.
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sakhi_staging_app') THEN
-    RAISE EXCEPTION
-      'Required managed staging runtime role sakhi_staging_app is missing; provision it before applying the P0 staff-security baseline.';
-  END IF;
-
-  -- Never grant staging staff-security tables to dev/test roles.
+  -- The dedicated managed runtime role was validated at the beginning
+  -- of this transaction. Never grant these tables to dev/test roles.
   FOREACH runtime_role IN ARRAY ARRAY['sakhi_staging_app'] LOOP
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = runtime_role) THEN
       EXECUTE format(
@@ -200,9 +249,24 @@ BEGIN
           WHERE schemaname = 'public'
             AND tablename = table_name
             AND policyname = policy_name
-            AND (qual <> 'true' OR with_check <> 'true')
+            AND (
+              permissive IS DISTINCT FROM 'PERMISSIVE'
+              OR cmd IS DISTINCT FROM 'ALL'
+              OR roles IS DISTINCT FROM ARRAY['sakhi_staging_app']::name[]
+              OR COALESCE(qual, '') <> 'true'
+              OR COALESCE(with_check, '') <> 'true'
+            )
         ) THEN
           RAISE EXCEPTION 'Existing P0 runtime policy % has an incompatible expression.', policy_name;
+        END IF;
+        IF EXISTS (
+          SELECT 1 FROM pg_policies
+          WHERE schemaname = 'public'
+            AND tablename = table_name
+            AND policyname <> policy_name
+            AND roles && ARRAY['sakhi_staging_app', 'public']::name[]
+        ) THEN
+          RAISE EXCEPTION 'Unexpected additional policy applies to the P0 runtime role on table %.', table_name;
         END IF;
         IF NOT EXISTS (
           SELECT 1
@@ -249,22 +313,6 @@ BEGIN
       public.admin_staff_recovery_requests
     FROM service_role;
   END IF;
-  IF EXISTS (
-    SELECT 1 FROM pg_roles
-    WHERE rolname = 'sakhi_staging_app'
-      AND (rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole)
-  ) THEN
-    RAISE EXCEPTION 'sakhi_staging_app must be pre-provisioned without SUPERUSER, BYPASSRLS, CREATEDB, or CREATEROLE; managed Supabase does not permit role alteration from migrations.';
-  END IF;
-  IF EXISTS (
-    SELECT 1 FROM pg_class c
-    JOIN pg_roles r ON r.oid = c.relowner
-    WHERE c.relnamespace = 'public'::regnamespace
-      AND c.relname IN ('admin_staff_accounts','admin_staff_sessions','admin_staff_mfa','admin_staff_backup_codes','admin_staff_recovery_requests')
-      AND r.rolname = 'sakhi_staging_app'
-  ) THEN
-    RAISE EXCEPTION 'sakhi_staging_app must not own P0 staff-security tables.';
-  END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role')
      AND (
        has_table_privilege('service_role','public.admin_staff_accounts','SELECT')
@@ -308,25 +356,41 @@ CREATE UNIQUE INDEX IF NOT EXISTS admin_staff_accounts_token_digest_key
 -- Actor/reference foreign keys omitted from the initial source draft.
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'admin_staff_accounts_suspended_by_fkey') THEN
+  IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conname = 'admin_staff_accounts_suspended_by_fkey'
+        AND conrelid = 'public.admin_staff_accounts'::regclass
+    ) THEN
     ALTER TABLE public.admin_staff_accounts
       ADD CONSTRAINT admin_staff_accounts_suspended_by_fkey
       FOREIGN KEY (suspended_by) REFERENCES public.admin_staff_accounts(id)
       ON DELETE SET NULL ON UPDATE CASCADE;
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'admin_staff_accounts_deleted_by_fkey') THEN
+  IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conname = 'admin_staff_accounts_deleted_by_fkey'
+        AND conrelid = 'public.admin_staff_accounts'::regclass
+    ) THEN
     ALTER TABLE public.admin_staff_accounts
       ADD CONSTRAINT admin_staff_accounts_deleted_by_fkey
       FOREIGN KEY (deleted_by) REFERENCES public.admin_staff_accounts(id)
       ON DELETE SET NULL ON UPDATE CASCADE;
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'admin_staff_sessions_replaced_by_session_fkey') THEN
+  IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conname = 'admin_staff_sessions_replaced_by_session_fkey'
+        AND conrelid = 'public.admin_staff_sessions'::regclass
+    ) THEN
     ALTER TABLE public.admin_staff_sessions
       ADD CONSTRAINT admin_staff_sessions_replaced_by_session_fkey
       FOREIGN KEY (replaced_by_session_id) REFERENCES public.admin_staff_sessions(id)
       ON DELETE SET NULL ON UPDATE CASCADE;
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'admin_staff_recovery_requests_approved_by_staff_fkey') THEN
+  IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conname = 'admin_staff_recovery_requests_approved_by_staff_fkey'
+        AND conrelid = 'public.admin_staff_recovery_requests'::regclass
+    ) THEN
     ALTER TABLE public.admin_staff_recovery_requests
       ADD CONSTRAINT admin_staff_recovery_requests_approved_by_staff_fkey
       FOREIGN KEY (approved_by_staff_id) REFERENCES public.admin_staff_accounts(id)
@@ -337,11 +401,11 @@ END $$;
 -- Fail before adding constraints if existing data violates the security model.
 DO $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM public.admin_staff_accounts WHERE role NOT IN
-    ('SUPER_ADMIN','VERIFICATION_ADMIN','CONTENT_MODERATOR','COMPLAINT_REVIEWER','SOS_SAFETY_ADMIN','BUSINESS_ADMIN')) THEN
+  IF EXISTS (SELECT 1 FROM public.admin_staff_accounts WHERE role IS NULL OR role NOT IN
+    ('SUPER_ADMIN','VERIFICATION_ADMIN','CONTENT_MODERATOR','COMPLAINT_REVIEWER','SOS_SAFETY_ADMIN','BUSINESS_ADMIN','READ_ONLY_AUDITOR')) THEN
     RAISE EXCEPTION 'Unknown admin staff role values exist; reconcile before migration.';
   END IF;
-  IF EXISTS (SELECT 1 FROM public.admin_staff_accounts WHERE status NOT IN ('ACTIVE','SUSPENDED','REVOKED')) THEN
+  IF EXISTS (SELECT 1 FROM public.admin_staff_accounts WHERE status IS NULL OR status NOT IN ('ACTIVE','SUSPENDED','REVOKED')) THEN
     RAISE EXCEPTION 'Unknown admin staff status values exist; reconcile before migration.';
   END IF;
   IF EXISTS (SELECT 1 FROM public.admin_staff_accounts WHERE access_token_digest !~ '^[0-9a-fA-F]{64}$') THEN

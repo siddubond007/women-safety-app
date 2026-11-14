@@ -1,4 +1,83 @@
 -- Least-privilege runtime grants for Sakhi Modules 1-12.
+-- Validate the managed runtime principal before applying any grants.
+DO $$
+DECLARE
+  runtime_role_oid oid;
+  table_name text;
+  policy_name text;
+BEGIN
+  SELECT oid INTO runtime_role_oid
+  FROM pg_roles
+  WHERE rolname = 'sakhi_staging_app';
+
+  IF runtime_role_oid IS NULL THEN
+    RAISE EXCEPTION 'Required managed staging runtime role sakhi_staging_app is missing.';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_roles
+    WHERE oid = runtime_role_oid
+      AND (rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole OR rolreplication OR NOT rolcanlogin)
+  ) THEN
+    RAISE EXCEPTION
+      'sakhi_staging_app must be a LOGIN role without SUPERUSER, BYPASSRLS, CREATEDB, CREATEROLE, or REPLICATION.';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_auth_members
+    WHERE member = runtime_role_oid OR roleid = runtime_role_oid
+  ) THEN
+    RAISE EXCEPTION 'sakhi_staging_app must not have incoming or outgoing PostgreSQL role memberships.';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+    FROM pg_class c
+    JOIN pg_roles r ON r.oid = c.relowner
+    WHERE c.relnamespace = 'public'::regnamespace
+      AND c.relname IN (
+        'admin_staff_accounts',
+        'admin_staff_sessions',
+        'admin_staff_mfa',
+        'admin_staff_backup_codes',
+        'admin_staff_recovery_requests'
+      )
+      AND r.rolname = 'sakhi_staging_app'
+  ) THEN
+    RAISE EXCEPTION 'sakhi_staging_app must not own P0 staff-security tables.';
+  END IF;
+  FOREACH table_name IN ARRAY ARRAY[
+    'admin_staff_accounts',
+    'admin_staff_sessions',
+    'admin_staff_mfa',
+    'admin_staff_backup_codes',
+    'admin_staff_recovery_requests'
+  ] LOOP
+    policy_name := table_name || '_runtime_sakhi_staging_app';
+    IF EXISTS (
+      SELECT 1 FROM pg_policies
+      WHERE schemaname = 'public'
+        AND tablename = table_name
+        AND policyname = policy_name
+        AND (
+          permissive IS DISTINCT FROM 'PERMISSIVE'
+          OR cmd IS DISTINCT FROM 'ALL'
+          OR roles IS DISTINCT FROM ARRAY['sakhi_staging_app']::name[]
+          OR COALESCE(qual, '') <> 'true'
+          OR COALESCE(with_check, '') <> 'true'
+        )
+    ) THEN
+      RAISE EXCEPTION 'Existing P0 runtime policy % has an incompatible definition.', policy_name;
+    END IF;
+    IF EXISTS (
+      SELECT 1 FROM pg_policies
+      WHERE schemaname = 'public'
+        AND tablename = table_name
+        AND policyname <> policy_name
+        AND roles && ARRAY['sakhi_staging_app', 'public']::name[]
+    ) THEN
+      RAISE EXCEPTION 'Unexpected additional policy applies to the P0 runtime role on table %.', table_name;
+    END IF;
+  END LOOP;
+END $$;
+
 -- Run as sakhi_staging_migrator after baseline setup.
 -- P0 staff-security policies are permissive only for this backend-only runtime
 -- role. This is NOT staff-row isolation. The role must not be exposed to
@@ -113,7 +192,13 @@ BEGIN
       WHERE schemaname = 'public'
         AND tablename = table_name
         AND policyname = policy_name
-        AND (qual <> 'true' OR with_check <> 'true')
+        AND (
+          permissive IS DISTINCT FROM 'PERMISSIVE'
+          OR cmd IS DISTINCT FROM 'ALL'
+          OR roles IS DISTINCT FROM ARRAY['sakhi_staging_app']::name[]
+          OR COALESCE(qual, '') <> 'true'
+          OR COALESCE(with_check, '') <> 'true'
+        )
     ) THEN
       RAISE EXCEPTION 'Existing P0 runtime policy % has an incompatible expression.', policy_name;
     END IF;
@@ -138,9 +223,6 @@ BEGIN
       public.admin_staff_backup_codes,
       public.admin_staff_recovery_requests
     FROM service_role;
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sakhi_staging_app') THEN
-    ALTER ROLE sakhi_staging_app NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
   END IF;
   IF EXISTS (
     SELECT 1 FROM pg_class c
