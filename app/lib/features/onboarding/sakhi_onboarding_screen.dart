@@ -311,7 +311,9 @@ class _SakhiOnboardingPage extends StatelessWidget {
                       style: SakhiTypography.categoryLabel,
                     ),
                   ),
-                  const SizedBox(height: SakhiSpacing.md),
+                  SizedBox(
+                    height: shortScreen ? SakhiSpacing.sm : SakhiSpacing.md,
+                  ),
                 ],
                 ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 560),
@@ -330,7 +332,9 @@ class _SakhiOnboardingPage extends StatelessWidget {
                     style: descriptionStyle,
                   ),
                 ),
-                const SizedBox(height: SakhiSpacing.md),
+                SizedBox(
+                  height: shortScreen ? SakhiSpacing.sm : SakhiSpacing.md,
+                ),
                 SakhiPageIndicator(
                   currentPage: pageIndex,
                   onSelected: onPageSelected,
