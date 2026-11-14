@@ -18,6 +18,7 @@ describe.skipIf(!enabled)(
     const accountId = randomUUID();
     const sessionId = randomUUID();
     const complaintId = randomUUID();
+    const legacyComplaintId = randomUUID();
     const requestTokenDigest = createHash("sha256")
       .update(randomUUID())
       .digest("hex");
@@ -35,6 +36,9 @@ describe.skipIf(!enabled)(
       .digest("hex");
     const complaintReference =
       "#SKH-ANON-SYNTH-" + complaintId.replace(/-/g, "").slice(0, 12);
+    const legacyComplaintReference =
+      "#SKH-ANON-SYNTH-LEGACY-" + legacyComplaintId.replace(/-/g, "").slice(0, 12);
+    const legacyEvidenceId = "legacy_evidence_" + legacyComplaintId.replace(/-/g, "").slice(0, 20);
     let deletionRequestId = "";
 
     beforeAll(async () => {
@@ -124,6 +128,39 @@ describe.skipIf(!enabled)(
         });
         await tx.discreetComplaint.create({
           data: {
+            id: legacyComplaintId,
+            referenceNumber: legacyComplaintReference,
+            passkeyDigest: createHash("sha256").update(randomUUID()).digest("hex"),
+            disguisedBackupSerial: "SYNTH-LEGACY-" + legacyComplaintId.replace(/-/g, "").slice(0, 12),
+            categorySlug: "synthetic-test",
+            categoryTitle: "Synthetic legacy retention test",
+            description: "Synthetic already-purged evidence metadata test. No real complaint.",
+            approximateDateLabel: "synthetic legacy date",
+            approximateTimeWindow: "synthetic legacy window",
+            status: "CLOSED",
+            retentionExpiresAt: new Date("2020-01-01T00:00:00.000Z"),
+            mediaPurgedAt: new Date("2020-01-02T00:00:00.000Z"),
+            evidenceFiles: [{
+              id: legacyEvidenceId,
+              isPurged: true,
+              driveFileId: "synthetic_drive_legacy_" + legacyComplaintId.replace(/-/g, ""),
+              sha256Digest: "d".repeat(64),
+              byteSize: 4096,
+              fileName: "legacy-sensitive-name.pdf",
+              originalFileNameRedacted: "[PURGED:legacy-sensitive-name.pdf]",
+              uploaderMetadata: { device: "synthetic-legacy-device" },
+            }, {
+              id: "legacy_pending_" + legacyComplaintId.replace(/-/g, "").slice(0, 12),
+              isPurged: false,
+              driveFileId: "synthetic_drive_legacy_pending_" + legacyComplaintId.replace(/-/g, ""),
+              sha256Digest: "e".repeat(64),
+              byteSize: 512,
+              fileName: "legacy-pending-sensitive-name.pdf",
+            }],
+          },
+        });
+        await tx.discreetComplaint.create({
+          data: {
             id: complaintId,
             referenceNumber: complaintReference,
             passkeyDigest: createHash("sha256")
@@ -159,8 +196,8 @@ describe.skipIf(!enabled)(
         await cleanupPool.query(
           `DELETE FROM public.audit_events
            WHERE target_id IN (SELECT id::text FROM public.account_deletion_requests WHERE account_id = $1)
-              OR target_id = $2`,
-          [accountId, complaintReference],
+              OR target_id = ANY($2::text[])`,
+          [accountId, [complaintReference, legacyComplaintReference]],
         );
         await cleanupPool.query(
           "DELETE FROM public.account_deletion_requests WHERE account_id = $1",
@@ -183,8 +220,8 @@ describe.skipIf(!enabled)(
           [accountId],
         );
         await cleanupPool.query(
-          "DELETE FROM public.discreet_complaints WHERE id = $1",
-          [complaintId],
+          "DELETE FROM public.discreet_complaints WHERE id = ANY($1::uuid[])",
+          [[complaintId, legacyComplaintId]],
         );
         await cleanupPool.end();
       }
@@ -213,6 +250,22 @@ describe.skipIf(!enabled)(
         role: "sakhi_test_app",
         accountId,
       });
+      await expect(
+        prisma!.withSystemAdminIdentity((tx) =>
+          tx.auditEvent.create({
+            data: {
+              actorType: "SYSTEM",
+              actorId: null,
+              action: "system.unapproved.integration_event",
+              targetType: "unapproved_target",
+              targetId: randomUUID(),
+              outcome: "success",
+              requestId: randomUUID(),
+              redactedMetadata: {},
+            },
+          }),
+        ),
+      ).rejects.toThrow();
       const service = new Module2Service(auth as any, prisma!, {} as any);
 
       const requested = await runWithDatabaseRequestIdentity(
@@ -283,6 +336,12 @@ describe.skipIf(!enabled)(
         request: await tx.accountDeletionRequest.findUniqueOrThrow({
           where: { id: deletionRequestId },
         }),
+        audit: await tx.auditEvent.findFirstOrThrow({
+          where: {
+            action: "module2.account.deletion_completed",
+            targetId: deletionRequestId,
+          },
+        }),
       }));
       expect(drive.deleteMemberMediaFile).toHaveBeenCalledWith(
         mediaFileId,
@@ -297,22 +356,55 @@ describe.skipIf(!enabled)(
       });
       expect(completed.request.status).toBe("COMPLETED");
       expect(completed.request.processedAt).toBeInstanceOf(Date);
+      expect(completed.audit).toMatchObject({
+        actorType: "SYSTEM",
+        actorId: null,
+        action: "module2.account.deletion_completed",
+        targetType: "account_deletion_request",
+        targetId: deletionRequestId,
+        requestId: deletionRequestId,
+        outcome: "completed",
+      });
 
       await expect(worker.runOnce(new Date())).resolves.toEqual({
-        examined: 1,
+        examined: 2,
         purged: 1,
       });
-      const purgedComplaint = await prisma!.withSystemAdminIdentity((tx) =>
-        tx.discreetComplaint.findUniqueOrThrow({ where: { id: complaintId } }),
-      );
+      const purgedComplaint = await prisma!.withSystemAdminIdentity(async (tx) => ({
+        complaint: await tx.discreetComplaint.findUniqueOrThrow({
+          where: { id: complaintId },
+        }),
+        audit: await tx.auditEvent.findFirstOrThrow({
+          where: {
+            action: "module5.complaint.evidence.retention_purged",
+            targetId: complaintReference,
+          },
+        }),
+        legacyComplaint: await tx.discreetComplaint.findUniqueOrThrow({
+          where: { id: legacyComplaintId },
+        }),
+        legacyAudit: await tx.auditEvent.findFirstOrThrow({
+          where: {
+            action: "module5.complaint.evidence.retention_purged",
+            targetId: legacyComplaintReference,
+          },
+        }),
+      }));
+      expect(drive.deleteComplaintEvidence).toHaveBeenCalledTimes(2);
       expect(drive.deleteComplaintEvidence).toHaveBeenCalledWith(
         complaintFileId,
         evidenceId,
         evidenceDigest,
         evidenceBytes.length,
       );
-      expect(purgedComplaint.mediaPurgedAt).toBeInstanceOf(Date);
-      expect(purgedComplaint.evidenceFiles).toEqual([
+      expect(drive.deleteComplaintEvidence).toHaveBeenCalledWith(
+        "synthetic_drive_legacy_pending_" + legacyComplaintId.replace(/-/g, ""),
+        "legacy_pending_" + legacyComplaintId.replace(/-/g, "").slice(0, 12),
+        "e".repeat(64),
+        512,
+      );
+      expect(purgedComplaint.complaint.mediaPurgedAt).toBeInstanceOf(Date);
+      expect(purgedComplaint.complaint.evidenceFiles).toEqual([
         expect.objectContaining({
           id: evidenceId,
           isPurged: true,
@@ -320,6 +412,36 @@ describe.skipIf(!enabled)(
           fileName: "[PURGED_BY_RETENTION_POLICY]",
         }),
       ]);
+      expect(purgedComplaint.audit).toMatchObject({
+        actorType: "SYSTEM",
+        actorId: null,
+        action: "module5.complaint.evidence.retention_purged",
+        targetType: "module5_complaint",
+        targetId: complaintReference,
+        outcome: "purged",
+      });
+      expect(purgedComplaint.legacyComplaint.evidenceFiles).toEqual([
+        {
+          id: legacyEvidenceId,
+          isPurged: true,
+          byteSize: 0,
+          fileName: "[PURGED_BY_RETENTION_POLICY]",
+        },
+        {
+          id: "legacy_pending_" + legacyComplaintId.replace(/-/g, "").slice(0, 12),
+          isPurged: true,
+          byteSize: 0,
+          fileName: "[PURGED_BY_RETENTION_POLICY]",
+        },
+      ]);
+      expect(purgedComplaint.legacyAudit).toMatchObject({
+        actorType: "SYSTEM",
+        actorId: null,
+        action: "module5.complaint.evidence.retention_purged",
+        targetType: "module5_complaint",
+        targetId: legacyComplaintReference,
+        outcome: "purged",
+      });
     }, 30_000);
   },
 );

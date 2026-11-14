@@ -54,6 +54,28 @@ describe("P0 managed staging role security contract", () => {
     }
   });
 
+  it("expires stale MFA recovery requests before applying the active-request unique index", () => {
+    const expiryTransition = migration.indexOf("SET status = 'EXPIRED'");
+    const duplicatePreflight = migration.indexOf("Multiple active MFA recovery requests exist");
+    const activeIndex = migration.indexOf("CREATE UNIQUE INDEX IF NOT EXISTS admin_staff_recovery_one_active_per_staff_unique");
+    expect(expiryTransition).toBeGreaterThan(0);
+    expect(duplicatePreflight).toBeGreaterThan(expiryTransition);
+    expect(activeIndex).toBeGreaterThan(duplicatePreflight);
+    expect(migration).toContain("AND expires_at <= CURRENT_TIMESTAMP");
+    expect(migration).toContain("WHERE status IN ('PENDING', 'APPROVED')");
+  });
+
+  it("revokes and postflights effective column-level service_role privileges", () => {
+    expect(migration).toContain("REVOKE ALL PRIVILEGES (%s) ON TABLE public.%I FROM service_role");
+    expect(migration).toContain("has_column_privilege('service_role', c.oid, a.attnum, 'SELECT')");
+    expect(migration).toContain("has_column_privilege('service_role', c.oid, a.attnum, 'INSERT')");
+    expect(migration).toContain("has_column_privilege('service_role', c.oid, a.attnum, 'UPDATE')");
+    expect(migration).toContain("has_column_privilege('service_role', c.oid, a.attnum, 'REFERENCES')");
+    for (const privilege of ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"]) {
+      expect(migration).toContain(`has_table_privilege('service_role','public.admin_staff_mfa','${privilege}')`);
+    }
+  });
+
   it("accepts READ_ONLY_AUDITOR during existing-data preflight", () => {
     expect(migration).toContain("'BUSINESS_ADMIN','READ_ONLY_AUDITOR'");
     expect(migration).toContain("role IS NULL OR role NOT IN");

@@ -95,27 +95,96 @@ BEGIN
     RAISE EXCEPTION 'All eight retention/deletion lifecycle tables must exist with enabled and forced RLS';
   END IF;
 
+  -- Validate the effective policy shape. Permissive policies are OR-combined,
+  -- so unexpected additional policies or weakened USING/WITH CHECK expressions
+  -- would broaden access even when the expected policy name still exists.
+  DECLARE
+    expected RECORD;
+    actual_policy RECORD;
+    required_token text;
+  BEGIN
+    FOR expected IN
+      SELECT * FROM (VALUES
+        ('discreet_complaints','discreet_complaints_sakhi_backend_only','ALL','38bbe0a38d8c81387fece45c70ba7240','38bbe0a38d8c81387fece45c70ba7240',
+          ARRAY['current_user','sakhi_dev_app','sakhi_test_app','sakhi_staging_app']::text[],
+          ARRAY['current_user','sakhi_dev_app','sakhi_test_app','sakhi_staging_app']::text[]),
+        ('member_communication_preferences','member_communication_preferences_owner_only','ALL','1def17443af834ca7530bc43a8d088f2','1def17443af834ca7530bc43a8d088f2',
+          ARRAY['current_user','sakhi_staging_app','account_id','app.account_id']::text[],
+          ARRAY['current_user','sakhi_staging_app','account_id','app.account_id']::text[]),
+        ('eligibility_submissions','eligibility_submissions_owner_or_verification_admin','ALL','3678314d557bd3349f517685d467c821','3678314d557bd3349f517685d467c821',
+          ARRAY['current_user','account_id','app.account_id','admin_staff_id','admin_role','verification_admin']::text[],
+          ARRAY['current_user','account_id','app.account_id','admin_staff_id','admin_role','verification_admin']::text[]),
+        ('business_directory_listings','business_directory_listings_owner_or_business_admin','ALL','bf0eb46b172a17675eac2ae3951292d5','bf0eb46b172a17675eac2ae3951292d5',
+          ARRAY['current_user','owner_account_id','app.account_id','admin_staff_id','admin_role','business_admin']::text[],
+          ARRAY['current_user','owner_account_id','app.account_id','admin_staff_id','admin_role','business_admin']::text[]),
+        ('business_directory_listings','business_directory_listings_public_read','SELECT','998dae311deac48870e5d19e425eec61','d41d8cd98f00b204e9800998ecf8427e',
+          ARRAY['current_user','account_id','app.account_id','approval_status','approved','is_reported_fraudulent']::text[],
+          ARRAY[]::text[]),
+        ('business_enquiries','business_enquiries_participants_or_admin','ALL','6902b35b3fdaf17a74bf67f6b956f647','6902b35b3fdaf17a74bf67f6b956f647',
+          ARRAY['current_user','sender_account_id','owner_account_id','app.account_id','admin_staff_id','admin_role','business_admin']::text[],
+          ARRAY['current_user','sender_account_id','owner_account_id','app.account_id','admin_staff_id','admin_role','business_admin']::text[]),
+        ('direct_messages','direct_messages_participants_only','ALL','8995429c63e39d5a46d110562a710842','8995429c63e39d5a46d110562a710842',
+          ARRAY['current_user','sender_account_id','recipient_account_id','app.account_id']::text[],
+          ARRAY['current_user','sender_account_id','recipient_account_id','app.account_id']::text[]),
+        ('safety_location_shares','safety_location_shares_owner_only','ALL','1def17443af834ca7530bc43a8d088f2','1def17443af834ca7530bc43a8d088f2',
+          ARRAY['current_user','account_id','app.account_id']::text[],
+          ARRAY['current_user','account_id','app.account_id']::text[]),
+        ('business_reports','business_reports_reporter_or_admin','ALL','a8d78b5638b34c08def851a01f0cd149','a8d78b5638b34c08def851a01f0cd149',
+          ARRAY['current_user','reporter_account_id','app.account_id','admin_staff_id','admin_role','business_admin']::text[],
+          ARRAY['current_user','reporter_account_id','app.account_id','admin_staff_id','admin_role','business_admin']::text[])
+      ) AS policies(table_name, policy_name, policy_command, qual_hash, check_hash, qual_tokens, check_tokens)
+    LOOP
+      SELECT * INTO actual_policy
+      FROM pg_policies
+      WHERE schemaname='public'
+        AND tablename=expected.table_name
+        AND policyname=expected.policy_name;
+      IF NOT FOUND
+         OR actual_policy.permissive IS DISTINCT FROM 'PERMISSIVE'
+         OR actual_policy.roles IS DISTINCT FROM ARRAY['public']::name[]
+         OR actual_policy.cmd IS DISTINCT FROM expected.policy_command
+         OR actual_policy.qual IS NULL
+         OR (expected.policy_command='ALL' AND actual_policy.with_check IS NULL)
+         OR (expected.policy_command='SELECT' AND actual_policy.with_check IS NOT NULL)
+         OR md5(lower(regexp_replace(COALESCE(actual_policy.qual,''), '[[:space:]]+', '', 'g'))) <> expected.qual_hash
+         OR md5(lower(regexp_replace(COALESCE(actual_policy.with_check,''), '[[:space:]]+', '', 'g'))) <> expected.check_hash THEN
+        RAISE EXCEPTION 'Lifecycle RLS policy %.% has an unexpected mode, role, command, or predicate shape', expected.table_name, expected.policy_name;
+      END IF;
+      FOREACH required_token IN ARRAY expected.qual_tokens LOOP
+        IF position(lower(required_token) IN lower(actual_policy.qual)) = 0 THEN
+          RAISE EXCEPTION 'Lifecycle RLS policy %.% is missing required USING predicate token %', expected.table_name, expected.policy_name, required_token;
+        END IF;
+      END LOOP;
+      FOREACH required_token IN ARRAY expected.check_tokens LOOP
+        IF position(lower(required_token) IN lower(COALESCE(actual_policy.with_check,''))) = 0 THEN
+          RAISE EXCEPTION 'Lifecycle RLS policy %.% is missing required WITH CHECK predicate token %', expected.table_name, expected.policy_name, required_token;
+        END IF;
+      END LOOP;
+    END LOOP;
+  END;
+
   IF EXISTS (
-    SELECT 1
-    FROM (VALUES
-      ('discreet_complaints','discreet_complaints_sakhi_backend_only','ALL'),
-      ('member_communication_preferences','member_communication_preferences_owner_only','ALL'),
-      ('eligibility_submissions','eligibility_submissions_owner_or_verification_admin','ALL'),
-      ('business_directory_listings','business_directory_listings_owner_or_business_admin','ALL'),
-      ('business_directory_listings','business_directory_listings_public_read','SELECT'),
-      ('business_enquiries','business_enquiries_participants_or_admin','ALL'),
-      ('direct_messages','direct_messages_participants_only','ALL'),
-      ('safety_location_shares','safety_location_shares_owner_only','ALL'),
-      ('business_reports','business_reports_reporter_or_admin','ALL')
-    ) AS expected(table_name, policy_name, policy_command)
-    LEFT JOIN pg_policies p
-      ON p.schemaname='public'
-     AND p.tablename=expected.table_name
-     AND p.policyname=expected.policy_name
-     AND p.cmd=expected.policy_command
-    WHERE p.policyname IS NULL
+    SELECT 1 FROM pg_policies p
+    WHERE p.schemaname='public'
+      AND p.tablename IN (
+        'discreet_complaints','member_communication_preferences','eligibility_submissions',
+        'business_directory_listings','business_enquiries','direct_messages',
+        'safety_location_shares','business_reports'
+      )
+      AND p.permissive='PERMISSIVE'
+      AND p.roles && ARRAY['public','sakhi_dev_app','sakhi_test_app','sakhi_staging_app']::name[]
+      AND NOT (
+        (p.tablename='discreet_complaints' AND p.policyname='discreet_complaints_sakhi_backend_only') OR
+        (p.tablename='member_communication_preferences' AND p.policyname='member_communication_preferences_owner_only') OR
+        (p.tablename='eligibility_submissions' AND p.policyname='eligibility_submissions_owner_or_verification_admin') OR
+        (p.tablename='business_directory_listings' AND p.policyname IN ('business_directory_listings_owner_or_business_admin','business_directory_listings_public_read')) OR
+        (p.tablename='business_enquiries' AND p.policyname='business_enquiries_participants_or_admin') OR
+        (p.tablename='direct_messages' AND p.policyname='direct_messages_participants_only') OR
+        (p.tablename='safety_location_shares' AND p.policyname='safety_location_shares_owner_only') OR
+        (p.tablename='business_reports' AND p.policyname='business_reports_reporter_or_admin')
+      )
   ) THEN
-    RAISE EXCEPTION 'One or more required lifecycle RLS policies are missing or have an unexpected command';
+    RAISE EXCEPTION 'Unexpected permissive lifecycle RLS policy may broaden runtime access';
   END IF;
 END
 $retention_deletion_runtime_postflight$;

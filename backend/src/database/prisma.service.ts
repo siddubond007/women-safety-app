@@ -71,6 +71,7 @@ export class PrismaService extends PrismaClient implements OnModuleDestroy {
                   set_config('app.admin_role', ${identity.adminRole ?? ""}, true),
                   set_config('app.auth_lookup', ${identity.authLookup ? "true" : "false"}, true),
                   set_config('app.username_lookup', ${identity.usernameLookup ? "true" : "false"}, true),
+                  set_config('app.system_job', 'false', true),
                   set_config('app.auth_session_digest', '', true),
                   set_config('app.notification_recipient_id', '', true)`;
               }
@@ -113,6 +114,7 @@ export class PrismaService extends PrismaClient implements OnModuleDestroy {
                     set_config('app.admin_role', ${identity?.adminRole ?? ""}, true),
                     set_config('app.auth_lookup', ${identity?.authLookup ? "true" : "false"}, true),
                     set_config('app.username_lookup', ${identity?.usernameLookup ? "true" : "false"}, true),
+                    set_config('app.system_job', 'false', true),
                     set_config('app.auth_session_digest', ${authSessionDigest}, true),
                     set_config('app.notification_recipient_id', '', true)`;
                   return databaseTransactionStorage.run(tx, () =>
@@ -150,7 +152,9 @@ export class PrismaService extends PrismaClient implements OnModuleDestroy {
     }
 
     return this.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT set_config('app.account_id', ${identity.accountId}, true)`;
+      await tx.$queryRaw`SELECT
+        set_config('app.account_id', ${identity.accountId}, true),
+        set_config('app.system_job', 'false', true)`;
       return operation(tx);
     });
   }
@@ -189,6 +193,7 @@ export class PrismaService extends PrismaClient implements OnModuleDestroy {
         set_config('app.admin_role', 'SUPER_ADMIN', true),
         set_config('app.auth_lookup', 'false', true),
         set_config('app.username_lookup', 'false', true),
+        set_config('app.system_job', 'true', true),
         set_config('app.auth_session_digest', '', true),
         set_config('app.notification_recipient_id', '', true)`;
       return operation(tx);

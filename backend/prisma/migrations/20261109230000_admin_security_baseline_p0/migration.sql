@@ -152,8 +152,15 @@ CREATE TABLE IF NOT EXISTS public.admin_staff_recovery_requests (
 CREATE INDEX IF NOT EXISTS admin_staff_recovery_requests_staff_status_idx
   ON public.admin_staff_recovery_requests (staff_id, status, expires_at);
 
--- Expired requests are no longer active. Refuse to silently choose between
--- multiple still-valid requests; resolve those explicitly before deployment.
+-- Expired requests are no longer active. Normalize their state before the
+-- partial unique index is built: its predicate includes status, not expiry.
+-- This is a deterministic lifecycle transition, not a selection of a winner.
+UPDATE public.admin_staff_recovery_requests
+SET status = 'EXPIRED'
+WHERE status IN ('PENDING', 'APPROVED')
+  AND expires_at <= CURRENT_TIMESTAMP;
+
+-- Refuse to silently choose between multiple still-valid requests.
 DO $$
 BEGIN
   IF EXISTS (
@@ -217,6 +224,7 @@ DECLARE
   runtime_role text;
   table_name text;
   policy_name text;
+  column_list text;
 BEGIN
   -- The dedicated managed runtime role was validated at the beginning
   -- of this transaction. Never grant these tables to dev/test roles.
@@ -313,15 +321,89 @@ BEGIN
       public.admin_staff_recovery_requests
     FROM service_role;
   END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    FOREACH table_name IN ARRAY ARRAY[
+      'admin_staff_accounts',
+      'admin_staff_sessions',
+      'admin_staff_mfa',
+      'admin_staff_backup_codes',
+      'admin_staff_recovery_requests'
+    ] LOOP
+      SELECT string_agg(format('%I', a.attname), ', ' ORDER BY a.attnum)
+        INTO column_list
+      FROM pg_attribute a
+      WHERE a.attrelid = format('public.%I', table_name)::regclass
+        AND a.attnum > 0
+        AND NOT a.attisdropped;
+      IF column_list IS NOT NULL THEN
+        EXECUTE format(
+          'REVOKE ALL PRIVILEGES (%s) ON TABLE public.%I FROM service_role',
+          column_list,
+          table_name
+        );
+      END IF;
+    END LOOP;
+  END IF;
+
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role')
      AND (
        has_table_privilege('service_role','public.admin_staff_accounts','SELECT')
+       OR has_table_privilege('service_role','public.admin_staff_accounts','INSERT')
+       OR has_table_privilege('service_role','public.admin_staff_accounts','UPDATE')
+       OR has_table_privilege('service_role','public.admin_staff_accounts','DELETE')
+       OR has_table_privilege('service_role','public.admin_staff_accounts','TRUNCATE')
+       OR has_table_privilege('service_role','public.admin_staff_accounts','REFERENCES')
+       OR has_table_privilege('service_role','public.admin_staff_accounts','TRIGGER')
        OR has_table_privilege('service_role','public.admin_staff_sessions','SELECT')
+       OR has_table_privilege('service_role','public.admin_staff_sessions','INSERT')
+       OR has_table_privilege('service_role','public.admin_staff_sessions','UPDATE')
+       OR has_table_privilege('service_role','public.admin_staff_sessions','DELETE')
+       OR has_table_privilege('service_role','public.admin_staff_sessions','TRUNCATE')
+       OR has_table_privilege('service_role','public.admin_staff_sessions','REFERENCES')
+       OR has_table_privilege('service_role','public.admin_staff_sessions','TRIGGER')
        OR has_table_privilege('service_role','public.admin_staff_mfa','SELECT')
+       OR has_table_privilege('service_role','public.admin_staff_mfa','INSERT')
+       OR has_table_privilege('service_role','public.admin_staff_mfa','UPDATE')
+       OR has_table_privilege('service_role','public.admin_staff_mfa','DELETE')
+       OR has_table_privilege('service_role','public.admin_staff_mfa','TRUNCATE')
+       OR has_table_privilege('service_role','public.admin_staff_mfa','REFERENCES')
+       OR has_table_privilege('service_role','public.admin_staff_mfa','TRIGGER')
        OR has_table_privilege('service_role','public.admin_staff_backup_codes','SELECT')
+       OR has_table_privilege('service_role','public.admin_staff_backup_codes','INSERT')
+       OR has_table_privilege('service_role','public.admin_staff_backup_codes','UPDATE')
+       OR has_table_privilege('service_role','public.admin_staff_backup_codes','DELETE')
+       OR has_table_privilege('service_role','public.admin_staff_backup_codes','TRUNCATE')
+       OR has_table_privilege('service_role','public.admin_staff_backup_codes','REFERENCES')
+       OR has_table_privilege('service_role','public.admin_staff_backup_codes','TRIGGER')
        OR has_table_privilege('service_role','public.admin_staff_recovery_requests','SELECT')
+       OR has_table_privilege('service_role','public.admin_staff_recovery_requests','INSERT')
+       OR has_table_privilege('service_role','public.admin_staff_recovery_requests','UPDATE')
+       OR has_table_privilege('service_role','public.admin_staff_recovery_requests','DELETE')
+       OR has_table_privilege('service_role','public.admin_staff_recovery_requests','TRUNCATE')
+       OR has_table_privilege('service_role','public.admin_staff_recovery_requests','REFERENCES')
+       OR has_table_privilege('service_role','public.admin_staff_recovery_requests','TRIGGER')
      ) THEN
     RAISE EXCEPTION 'service_role retains effective SELECT access to P0 staff-security tables.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') AND EXISTS (
+    SELECT 1
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_attribute a ON a.attrelid = c.oid
+    WHERE n.nspname = 'public'
+      AND c.relname IN (
+        'admin_staff_accounts', 'admin_staff_sessions', 'admin_staff_mfa',
+        'admin_staff_backup_codes', 'admin_staff_recovery_requests'
+      )
+      AND a.attnum > 0 AND NOT a.attisdropped
+      AND (
+        has_column_privilege('service_role', c.oid, a.attnum, 'SELECT')
+        OR has_column_privilege('service_role', c.oid, a.attnum, 'INSERT')
+        OR has_column_privilege('service_role', c.oid, a.attnum, 'UPDATE')
+        OR has_column_privilege('service_role', c.oid, a.attnum, 'REFERENCES')
+      )
+  ) THEN
+    RAISE EXCEPTION 'service_role retains effective column-level privileges on P0 staff-security tables.';
   END IF;
 END $$;
 

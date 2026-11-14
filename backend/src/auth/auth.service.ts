@@ -1338,6 +1338,7 @@ export class AuthenticationService {
           username: profile.username ?? candidateUsername,
           dateOfBirth: profile.dateOfBirth.toISOString().slice(0, 10),
           email: profile.email,
+          bio: profile.bio ?? "",
         },
       };
     });
@@ -1352,6 +1353,7 @@ export class AuthenticationService {
           accountId: session.accountId,
           name: result.profile.displayName,
           username: result.profile.username,
+          bio: result.profile.bio,
           avatarAsset:
             dto.avatarAsset?.trim() ||
             "assets/images/profile/avatar_ananya.webp",

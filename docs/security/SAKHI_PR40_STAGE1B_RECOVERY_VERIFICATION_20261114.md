@@ -35,7 +35,7 @@ The prior Stage 1C run was recorded as PostgreSQL 17.12 with 33/33 migrations ap
 
 ## MFA cleanup safeguard
 
-The current PR #40 source already contains the MFA integration cleanup guard from commit `e735bc41f5f3fa3040c27bc317b482e970fe0d3f`: it requires the app and migrator URLs to use `127.0.0.1`, `/sakhi_test`, and the same port. That source was left intact; no cleanup operation was run against a non-local database.
+The current recovery source intentionally gates the full staff MFA lifecycle integration behind `SAKHI_STAGING_MFA_DB_INTEGRATION=true`, `SAKHI_ENV=staging`, and `NODE_ENV=production`. It validates both application and migrator URLs against the staging target and requires the runtime principal to be `sakhi_staging_app`. This is a staging-only verification gate; it was not executed against live staging during this local remediation.
 
 ## Stage 1D synchronization and post-sync validation
 
@@ -46,4 +46,10 @@ The current PR #40 source already contains the MFA integration cleanup guard fro
 - Post-sync full Vitest suite: 253 passed, 13 skipped (50 files; 42 passed and 8 integration files skipped).
 - Fresh isolated PostgreSQL 17.11 verification after synchronization applied all 33 migrations; all eight lifecycle tables had forced RLS; valid SYSTEM/ADMIN audit actor shapes were accepted, while non-null SYSTEM actor IDs and mismatched ADMIN actor IDs were rejected by RLS.
 
-The next operation is the already-approved fast-forward push to the existing PR #40 head branch `fix/sakhi-runtime-db-isolation-20261113`. Keep PR #39 and PR #40 open. Do not merge either PR into the release branch, deploy, or modify a live database.
+Any push to the existing PR #40 head branch `fix/sakhi-runtime-db-isolation-20261113` requires separate, explicit authorization after final combined review. Keep PR #39 and PR #40 open. Do not merge either PR into the release branch, deploy, or modify a live database without separate authorization.
+
+## Stage 1E retention audit follow-up (2026-11-14)
+
+The follow-up remediation and evidence are recorded in [SAKHI_PR40_STAGE1_RETENTION_REMEDIATION_20261114.md](./SAKHI_PR40_STAGE1_RETENTION_REMEDIATION_20261114.md). It adds one narrowly scoped audit-policy migration and verifies it on the cloned disposable PostgreSQL 17.11 database: 34/34 migrations applied, 49 tables with forced RLS, retention/deletion DB integration 1/1 passed, authentication DB integration 1/1 passed, and the staff-MFA staging-role boundary 1/1 passed. The full staff MFA lifecycle remains an explicit staging-only verification gate.
+
+This follow-up remains uncommitted and unpushed on the recovery branch. It did not modify PR #39/#40 remote refs, staging, or the release branch.

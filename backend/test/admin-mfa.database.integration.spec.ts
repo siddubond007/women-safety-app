@@ -15,6 +15,7 @@ import { AdminMfaService } from "../src/admin-security/admin-mfa.service.js";
 import { AdminSessionService } from "../src/admin-security/admin-session.service.js";
 import { StagingTestAdminService } from "../src/staging-test-admin/staging-test-admin.service.js";
 import { AdminReviewService } from "../src/admin-review/admin-review.service.js";
+import { assertSakhiDatabaseTarget } from "../src/config/database-target.js";
 
 function totpAtStep(secret: string, step: number): string {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -43,7 +44,7 @@ function totpAtStep(secret: string, step: number): string {
   return String(binary % 1_000_000).padStart(6, "0");
 }
 
-const enabled = process.env.SAKHI_DB_INTEGRATION === "true";
+const enabled = process.env.SAKHI_STAGING_MFA_DB_INTEGRATION === "true";
 
 describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
   let prisma: PrismaService | undefined;
@@ -79,31 +80,32 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
     });
 
   beforeAll(async () => {
-    if (process.env.SAKHI_ENV !== "test" || process.env.NODE_ENV !== "test") {
+    if (process.env.SAKHI_ENV !== "staging" || process.env.NODE_ENV !== "production") {
       throw new Error(
-        "Staff MFA integration requires SAKHI_ENV=test and NODE_ENV=test.",
+        "Full staff MFA lifecycle integration is staging-only and requires SAKHI_ENV=staging and NODE_ENV=production.",
       );
     }
     const appUrl = process.env.SAKHI_APP_DATABASE_URL ?? "";
+    assertSakhiDatabaseTarget(appUrl, "app", "staging");
     const parsed = new URL(appUrl);
-    if (parsed.hostname !== "127.0.0.1" || parsed.pathname !== "/sakhi_test") {
-      throw new Error(
-        "Refusing staff MFA integration against a non-local sakhi_test database.",
-      );
-    }
     if (!process.env.SAKHI_MIGRATOR_DATABASE_URL) {
       throw new Error(
-        "A disposable local migrator URL is required for synthetic fixture cleanup.",
+        "The explicitly configured staging migrator URL is required for synthetic fixture cleanup.",
       );
     }
+    assertSakhiDatabaseTarget(
+      process.env.SAKHI_MIGRATOR_DATABASE_URL,
+      "migrator",
+      "staging",
+    );
     const migratorUrl = new URL(process.env.SAKHI_MIGRATOR_DATABASE_URL);
     if (
-      migratorUrl.hostname !== "127.0.0.1" ||
-      migratorUrl.pathname !== "/sakhi_test" ||
+      migratorUrl.hostname !== parsed.hostname ||
+      migratorUrl.pathname !== parsed.pathname ||
       migratorUrl.port !== parsed.port
     ) {
       throw new Error(
-        "Refusing synthetic MFA fixture cleanup unless the migrator URL targets the same local sakhi_test database as the application URL.",
+        "Refusing synthetic MFA fixture cleanup unless the staging migrator URL targets the same staging database host, path, and port as the application URL.",
       );
     }
     process.env.SAKHI_ADMIN_MFA_ENCRYPTION_KEY = Buffer.alloc(
@@ -122,6 +124,8 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
     cleanup = new Pool({
       connectionString: process.env.SAKHI_MIGRATOR_DATABASE_URL,
     });
+    const principal = await prisma!.$queryRaw<Array<{ role: string }>>`SELECT current_user::text AS role`;
+    expect(principal[0]?.role).toBe("sakhi_staging_app");
 
     await prisma!.withSystemAdminIdentity(async (tx) => {
       await tx.adminStaffAccount.createMany({
