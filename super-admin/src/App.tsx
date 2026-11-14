@@ -1,6 +1,9 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { adminAuthService, isStagingTestAdminMode } from "./services/auth/adminAuthService";
+import {
+  adminAuthService,
+  isStagingTestAdminMode,
+} from "./services/auth/adminAuthService";
 import { AdminLayout } from "./layouts/AdminLayout";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
@@ -16,6 +19,7 @@ import { RegistrationPolicyPage } from "./pages/RegistrationPolicyPage";
 import { AdminRolesAndConfigPage } from "./pages/AdminRolesAndConfigPage";
 import { BusinessManagementPage } from "./pages/BusinessManagementPage";
 import { SakhiQuoteLoader } from "./components/SakhiQuoteLoader";
+import { PasswordResetPage } from "./pages/PasswordResetPage";
 
 function RoleProtectedRoute({
   path,
@@ -31,25 +35,34 @@ function RoleProtectedRoute({
 }
 
 function AppRoutes() {
-  const [isSignedIn, setIsSignedIn] = useState(() => adminAuthService.hasActiveSession());
+  const [isSignedIn, setIsSignedIn] = useState(() =>
+    adminAuthService.hasActiveSession(),
+  );
   const [checkingSession, setCheckingSession] = useState(
     () => isStagingTestAdminMode || Boolean(adminAuthService.getToken()),
   );
   const [logoutError, setLogoutError] = useState<string | null>(null);
+  const [passwordResetRequired, setPasswordResetRequired] = useState(false);
   const canAccessFullWorkspace =
     !isStagingTestAdminMode || adminAuthService.isFullStagingAdminSession();
-  const landingPath = canAccessFullWorkspace
-    ? adminAuthService.getDefaultLandingRoute()
-    : "/test-access";
+  const landingPath = passwordResetRequired
+    ? "/password-reset"
+    : canAccessFullWorkspace
+      ? adminAuthService.getDefaultLandingRoute()
+      : "/test-access";
 
   useEffect(() => {
     const token = adminAuthService.getToken();
     if (!isStagingTestAdminMode && !token) return;
     adminAuthService
       .validateExistingSession()
-      .then(() => setIsSignedIn(true))
+      .then((session) => {
+        setPasswordResetRequired(Boolean(session.mustResetPassword));
+        setIsSignedIn(true);
+      })
       .catch(() => {
         adminAuthService.clearLocalSession();
+        setPasswordResetRequired(false);
         setIsSignedIn(false);
       })
       .finally(() => setCheckingSession(false));
@@ -57,12 +70,24 @@ function AppRoutes() {
 
   async function enterAdmin(token: string, mfaCode?: string) {
     const result = await adminAuthService.authenticate(token, mfaCode);
-    if (result.authenticated) setIsSignedIn(true);
+    if (result.authenticated) {
+      setPasswordResetRequired(Boolean(result.mustResetPassword));
+      setIsSignedIn(true);
+    }
     return result;
   }
 
-  async function enterAdminWithCredentials(identifier: string, password: string, mfaCode: string) {
-    await adminAuthService.authenticateWithCredentials(identifier, password, mfaCode);
+  async function enterAdminWithCredentials(
+    identifier: string,
+    password: string,
+    mfaCode: string,
+  ) {
+    const session = await adminAuthService.authenticateWithCredentials(
+      identifier,
+      password,
+      mfaCode,
+    );
+    setPasswordResetRequired(Boolean(session.mustResetPassword));
     setIsSignedIn(true);
   }
 
@@ -70,9 +95,14 @@ function AppRoutes() {
     setLogoutError(null);
     try {
       await adminAuthService.signOut();
+      setPasswordResetRequired(false);
       setIsSignedIn(false);
     } catch (error) {
-      setLogoutError(error instanceof Error ? error.message : "The server did not confirm logout.");
+      setLogoutError(
+        error instanceof Error
+          ? error.message
+          : "The server did not confirm logout.",
+      );
     }
   }
 
@@ -86,213 +116,274 @@ function AppRoutes() {
 
   return (
     <>
-    {logoutError && <div role="alert" className="admin-auth-error">{logoutError}</div>}
-    <Routes>
-      <Route
-        path="/login"
-        element={
-          isSignedIn ? <Navigate to={landingPath} replace /> : <LoginPage onAuthenticate={enterAdmin} onCredentialAuthenticate={enterAdminWithCredentials} />
-        }
-      />
-      <Route path="/" element={<Navigate to={landingPath} replace />} />
-      <Route
-        element={
-          isSignedIn ? <AdminLayout onSignOut={endSession} /> : <Navigate to="/login" replace />
-        }
-      >
-        {isStagingTestAdminMode && (
+      {logoutError && (
+        <div role="alert" className="admin-auth-error">
+          {logoutError}
+        </div>
+      )}
+      <Routes>
+        <Route
+          path="/password-reset"
+          element={
+            isSignedIn && passwordResetRequired ? (
+              <PasswordResetPage
+                onComplete={() => {
+                  setPasswordResetRequired(false);
+                  setIsSignedIn(false);
+                }}
+              />
+            ) : (
+              <Navigate to={isSignedIn ? landingPath : "/login"} replace />
+            )
+          }
+        />
+        <Route
+          path="/login"
+          element={
+            isSignedIn ? (
+              <Navigate to={landingPath} replace />
+            ) : (
+              <LoginPage
+                onAuthenticate={enterAdmin}
+                onCredentialAuthenticate={enterAdminWithCredentials}
+              />
+            )
+          }
+        />
+        <Route path="/" element={<Navigate to={landingPath} replace />} />
+        <Route
+          element={
+            isSignedIn ? (
+              passwordResetRequired ? (
+                <Navigate to="/password-reset" replace />
+              ) : (
+                <AdminLayout onSignOut={endSession} />
+              )
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        >
+          {isStagingTestAdminMode && (
+            <Route
+              path="/test-access"
+              element={
+                <StagingTestAccessPage onSignOut={endSession} embedded />
+              }
+            />
+          )}
           <Route
-            path="/test-access"
-            element={<StagingTestAccessPage onSignOut={endSession} embedded />}
+            path="/dashboard"
+            element={
+              canAccessFullWorkspace ? (
+                <RoleProtectedRoute
+                  path="/dashboard"
+                  element={<DashboardPage />}
+                />
+              ) : (
+                <Navigate to="/test-access" replace />
+              )
+            }
           />
-        )}
-        <Route
-          path="/dashboard"
-          element={
-            canAccessFullWorkspace ? (
-              <RoleProtectedRoute path="/dashboard" element={<DashboardPage />} />
-            ) : (
-              <Navigate to="/test-access" replace />
-            )
-          }
-        />
-        <Route
-          path="/action-center"
-          element={
-            canAccessFullWorkspace ? (
-              <RoleProtectedRoute path="/action-center" element={<ModerationPage section="action-center" />} />
-            ) : (
-              <Navigate to="/test-access" replace />
-            )
-          }
-        />
-        <Route
-          path="/members"
-          element={
-            canAccessFullWorkspace ? (
-              <RoleProtectedRoute
-                path="/members"
-                element={<MemberManagementPage isStagingTest={isStagingTestAdminMode} />}
-              />
-            ) : (
-              <Navigate to="/test-access" replace />
-            )
-          }
-        />
-        <Route
-          path="/verification"
-          element={
-            canAccessFullWorkspace ? (
-              <RoleProtectedRoute path="/verification" element={<EligibilityReviewPage />} />
-            ) : (
-              <Navigate to="/test-access" replace />
-            )
-          }
-        />
-        <Route
-          path="/verifications"
-          element={
-            canAccessFullWorkspace ? (
-              <RoleProtectedRoute path="/verifications" element={<EligibilityReviewPage />} />
-            ) : (
-              <Navigate to="/test-access" replace />
-            )
-          }
-        />
-        <Route
-          path="/community"
-          element={
-            canAccessFullWorkspace ? (
-              <RoleProtectedRoute path="/community" element={<CommunityManagementPage />} />
-            ) : (
-              <Navigate to="/test-access" replace />
-            )
-          }
-        />
-        <Route
-          path="/wellness"
-          element={
-            canAccessFullWorkspace ? (
-              <RoleProtectedRoute path="/wellness" element={<ModerationPage section="wellness" />} />
-            ) : (
-              <Navigate to="/test-access" replace />
-            )
-          }
-        />
-        <Route
-          path="/moderation"
-          element={
-            canAccessFullWorkspace ? (
-              <RoleProtectedRoute
-                path="/moderation"
-                element={<ModerationPage section="moderation" />}
-              />
-            ) : (
-              <Navigate to="/test-access" replace />
-            )
-          }
-        />
-        <Route
-          path="/complaints"
-          element={
-            canAccessFullWorkspace ? (
-              <RoleProtectedRoute
-                path="/complaints"
-                element={<ComplaintsManagementPage />}
-              />
-            ) : (
-              <Navigate to="/test-access" replace />
-            )
-          }
-        />
-        <Route
-          path="/emergency"
-          element={
-            canAccessFullWorkspace ? (
-              <RoleProtectedRoute path="/emergency" element={<SafetyConsolePage />} />
-            ) : (
-              <Navigate to="/test-access" replace />
-            )
-          }
-        />
-        <Route
-          path="/businesses"
-          element={
-            canAccessFullWorkspace ? (
-              <RoleProtectedRoute
-                path="/businesses"
-                element={<BusinessManagementPage />}
-              />
-            ) : (
-              <Navigate to="/test-access" replace />
-            )
-          }
-        />
-        <Route
-          path="/admin-users"
-          element={
-            canAccessFullWorkspace ? (
-              <RoleProtectedRoute
-                path="/admin-users"
-                element={<AdminRolesAndConfigPage />}
-              />
-            ) : (
-              <Navigate to="/test-access" replace />
-            )
-          }
-        />
-        <Route
-          path="/audit-security"
-          element={
-            canAccessFullWorkspace ? (
-              <RoleProtectedRoute
-                path="/audit-security"
-                element={<ModerationPage section="audit" />}
-              />
-            ) : (
-              <Navigate to="/test-access" replace />
-            )
-          }
-        />
-        <Route
-          path="/integrations"
-          element={
-            canAccessFullWorkspace ? (
-              <RoleProtectedRoute
-                path="/integrations"
-                element={<ModerationPage section="integrations" />}
-              />
-            ) : (
-              <Navigate to="/test-access" replace />
-            )
-          }
-        />
-        <Route
-          path="/settings"
-          element={
-            canAccessFullWorkspace ? (
-              <RoleProtectedRoute
-                path="/settings"
-                element={<RegistrationPolicyPage />}
-              />
-            ) : (
-              <Navigate to="/test-access" replace />
-            )
-          }
-        />
-        <Route
-          path="*"
-          element={
-            canAccessFullWorkspace ? (
-              <PlannedPage />
-            ) : (
-              <Navigate to="/test-access" replace />
-            )
-          }
-        />
-      </Route>
-      <Route path="*" element={<Navigate to={landingPath} replace />} />
-    </Routes>
+          <Route
+            path="/action-center"
+            element={
+              canAccessFullWorkspace ? (
+                <RoleProtectedRoute
+                  path="/action-center"
+                  element={<ModerationPage section="action-center" />}
+                />
+              ) : (
+                <Navigate to="/test-access" replace />
+              )
+            }
+          />
+          <Route
+            path="/members"
+            element={
+              canAccessFullWorkspace ? (
+                <RoleProtectedRoute
+                  path="/members"
+                  element={
+                    <MemberManagementPage
+                      isStagingTest={isStagingTestAdminMode}
+                    />
+                  }
+                />
+              ) : (
+                <Navigate to="/test-access" replace />
+              )
+            }
+          />
+          <Route
+            path="/verification"
+            element={
+              canAccessFullWorkspace ? (
+                <RoleProtectedRoute
+                  path="/verification"
+                  element={<EligibilityReviewPage />}
+                />
+              ) : (
+                <Navigate to="/test-access" replace />
+              )
+            }
+          />
+          <Route
+            path="/verifications"
+            element={
+              canAccessFullWorkspace ? (
+                <RoleProtectedRoute
+                  path="/verifications"
+                  element={<EligibilityReviewPage />}
+                />
+              ) : (
+                <Navigate to="/test-access" replace />
+              )
+            }
+          />
+          <Route
+            path="/community"
+            element={
+              canAccessFullWorkspace ? (
+                <RoleProtectedRoute
+                  path="/community"
+                  element={<CommunityManagementPage />}
+                />
+              ) : (
+                <Navigate to="/test-access" replace />
+              )
+            }
+          />
+          <Route
+            path="/wellness"
+            element={
+              canAccessFullWorkspace ? (
+                <RoleProtectedRoute
+                  path="/wellness"
+                  element={<ModerationPage section="wellness" />}
+                />
+              ) : (
+                <Navigate to="/test-access" replace />
+              )
+            }
+          />
+          <Route
+            path="/moderation"
+            element={
+              canAccessFullWorkspace ? (
+                <RoleProtectedRoute
+                  path="/moderation"
+                  element={<ModerationPage section="moderation" />}
+                />
+              ) : (
+                <Navigate to="/test-access" replace />
+              )
+            }
+          />
+          <Route
+            path="/complaints"
+            element={
+              canAccessFullWorkspace ? (
+                <RoleProtectedRoute
+                  path="/complaints"
+                  element={<ComplaintsManagementPage />}
+                />
+              ) : (
+                <Navigate to="/test-access" replace />
+              )
+            }
+          />
+          <Route
+            path="/emergency"
+            element={
+              canAccessFullWorkspace ? (
+                <RoleProtectedRoute
+                  path="/emergency"
+                  element={<SafetyConsolePage />}
+                />
+              ) : (
+                <Navigate to="/test-access" replace />
+              )
+            }
+          />
+          <Route
+            path="/businesses"
+            element={
+              canAccessFullWorkspace ? (
+                <RoleProtectedRoute
+                  path="/businesses"
+                  element={<BusinessManagementPage />}
+                />
+              ) : (
+                <Navigate to="/test-access" replace />
+              )
+            }
+          />
+          <Route
+            path="/admin-users"
+            element={
+              canAccessFullWorkspace ? (
+                <RoleProtectedRoute
+                  path="/admin-users"
+                  element={<AdminRolesAndConfigPage />}
+                />
+              ) : (
+                <Navigate to="/test-access" replace />
+              )
+            }
+          />
+          <Route
+            path="/audit-security"
+            element={
+              canAccessFullWorkspace ? (
+                <RoleProtectedRoute
+                  path="/audit-security"
+                  element={<ModerationPage section="audit" />}
+                />
+              ) : (
+                <Navigate to="/test-access" replace />
+              )
+            }
+          />
+          <Route
+            path="/integrations"
+            element={
+              canAccessFullWorkspace ? (
+                <RoleProtectedRoute
+                  path="/integrations"
+                  element={<ModerationPage section="integrations" />}
+                />
+              ) : (
+                <Navigate to="/test-access" replace />
+              )
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              canAccessFullWorkspace ? (
+                <RoleProtectedRoute
+                  path="/settings"
+                  element={<RegistrationPolicyPage />}
+                />
+              ) : (
+                <Navigate to="/test-access" replace />
+              )
+            }
+          />
+          <Route
+            path="*"
+            element={
+              canAccessFullWorkspace ? (
+                <PlannedPage />
+              ) : (
+                <Navigate to="/test-access" replace />
+              )
+            }
+          />
+        </Route>
+        <Route path="*" element={<Navigate to={landingPath} replace />} />
+      </Routes>
     </>
   );
 }

@@ -16,7 +16,7 @@ function contextFor(request: Record<string, any>): ExecutionContext {
   } as unknown as ExecutionContext;
 }
 
-function activeStaffRow() {
+function activeStaffRow(mustResetPassword = false) {
   const now = new Date();
   return {
     id: "2d5fce37-6aab-4cb4-8a6c-6a2d07f87e91",
@@ -25,6 +25,7 @@ function activeStaffRow() {
     email: "guard.superadmin@example.test",
     role: "SUPER_ADMIN",
     status: "ACTIVE",
+    mustResetPassword,
     accessTokenDigest: "a".repeat(64),
     accessTokenPreview: "SAKHI-STAFF-••••",
     isAuthorisedComplaintReviewer: true,
@@ -43,7 +44,8 @@ describe("AdminStaffSessionGuard", () => {
     else process.env.SAKHI_ENV = oldEnv.sakhiEnv;
     if (oldEnv.nodeEnv === undefined) delete process.env.NODE_ENV;
     else process.env.NODE_ENV = oldEnv.nodeEnv;
-    if (oldEnv.corsOrigin === undefined) delete process.env.SAKHI_ADMIN_CORS_ORIGIN;
+    if (oldEnv.corsOrigin === undefined)
+      delete process.env.SAKHI_ADMIN_CORS_ORIGIN;
     else process.env.SAKHI_ADMIN_CORS_ORIGIN = oldEnv.corsOrigin;
     if (oldEnv.host === undefined) delete process.env.HOST;
     else process.env.HOST = oldEnv.host;
@@ -81,6 +83,53 @@ describe("AdminStaffSessionGuard", () => {
       role: "SUPER_ADMIN",
       status: "ACTIVE",
     });
+  });
+
+  it("restricts initial-password accounts to session introspection, logout and password change", async () => {
+    process.env.SAKHI_ENV = "staging";
+    process.env.NODE_ENV = "production";
+    process.env.SAKHI_ADMIN_CORS_ORIGIN = "https://sakhi-admin.example.test";
+    const token = "staff-admin.password-reset-required";
+    const csrf = "r".repeat(48);
+    const sessions = {
+      validateSession: vi
+        .fn()
+        .mockResolvedValue({ staff: activeStaffRow(true) }),
+    };
+    const guard = new AdminStaffSessionGuard(sessions as any);
+    const introspection = {
+      method: "GET",
+      originalUrl: "/api/v1/staging-test-admin/session",
+      path: "/api/v1/staging-test-admin/session",
+      headers: { cookie: `sakhi_admin_session=${encodeURIComponent(token)}` },
+    };
+    await expect(guard.canActivate(contextFor(introspection))).resolves.toBe(
+      true,
+    );
+
+    const passwordChange = {
+      method: "POST",
+      originalUrl: "/api/v1/admin-review/auth/password/change",
+      path: "/api/v1/admin-review/auth/password/change",
+      headers: {
+        cookie: `sakhi_admin_session=${encodeURIComponent(token)}; sakhi_admin_csrf=${csrf}`,
+        origin: "https://sakhi-admin.example.test",
+        "x-sakhi-csrf": csrf,
+      },
+    };
+    await expect(guard.canActivate(contextFor(passwordChange))).resolves.toBe(
+      true,
+    );
+
+    const protectedRoute = {
+      method: "GET",
+      originalUrl: "/api/v1/admin-review/staff",
+      path: "/api/v1/admin-review/staff",
+      headers: { cookie: `sakhi_admin_session=${encodeURIComponent(token)}` },
+    };
+    await expect(guard.canActivate(contextFor(protectedRoute))).rejects.toThrow(
+      /must change its initial password/i,
+    );
   });
 
   it("rejects cookie-authenticated state changes without the configured origin and CSRF token", async () => {
@@ -124,20 +173,54 @@ describe("AdminStaffSessionGuard", () => {
     expect(sessions.validateSession).not.toHaveBeenCalled();
   });
 });
-  it.each([
-    ["x-sakhi-admin-token", "legacy-shared-reviewer-token"],
-    ["x-sakhi-admin-review-token", "legacy-shared-reviewer-token"],
-    ["authorization", "Bearer legacy-shared-reviewer-token"],
-  ])("rejects legacy shared-token credential via %s", async (header, value) => {
-    process.env.SAKHI_ENV = "dev";
-    process.env.NODE_ENV = "development";
-    process.env.HOST = "127.0.0.1";
-    const request = {
-      method: "GET",
-      originalUrl: "/api/v1/admin-review/staff",
-      path: "/api/v1/admin-review/staff",
-      headers: { [header]: value },
-    };
+it.each([
+  ["x-sakhi-admin-token", "legacy-shared-reviewer-token"],
+  ["x-sakhi-admin-review-token", "legacy-shared-reviewer-token"],
+  ["authorization", "Bearer legacy-shared-reviewer-token"],
+])("rejects legacy shared-token credential via %s", async (header, value) => {
+  process.env.SAKHI_ENV = "dev";
+  process.env.NODE_ENV = "development";
+  process.env.HOST = "127.0.0.1";
+  const request = {
+    method: "GET",
+    originalUrl: "/api/v1/admin-review/staff",
+    path: "/api/v1/admin-review/staff",
+    headers: { [header]: value },
+  };
+  const sessions = { validateSession: vi.fn() };
+  const guard = new AdminStaffSessionGuard(sessions as any);
+
+  await expect(guard.canActivate(contextFor(request))).rejects.toThrow(
+    /persistent MFA-verified staff session/i,
+  );
+  expect(sessions.validateSession).not.toHaveBeenCalled();
+});
+
+it("allows only explicitly listed first-factor login to bypass an existing session", async () => {
+  process.env.SAKHI_ENV = "staging";
+  process.env.NODE_ENV = "production";
+  const request = {
+    method: "POST",
+    originalUrl: "/api/v1/staging-test-admin/session",
+    path: "/api/v1/staging-test-admin/session",
+    headers: {},
+  };
+  const sessions = { validateSession: vi.fn() };
+  const guard = new AdminStaffSessionGuard(sessions as any);
+
+  await expect(guard.canActivate(contextFor(request))).resolves.toBe(true);
+  expect(sessions.validateSession).not.toHaveBeenCalled();
+});
+
+it.each([
+  "/api/v1/staging-test-admin/logout",
+  "/api/v1/staging-test-admin/session/rotate",
+])(
+  "does not exempt logout or rotation from persistent-session validation: %s",
+  async (path) => {
+    process.env.SAKHI_ENV = "staging";
+    process.env.NODE_ENV = "production";
+    const request = { method: "POST", originalUrl: path, path, headers: {} };
     const sessions = { validateSession: vi.fn() };
     const guard = new AdminStaffSessionGuard(sessions as any);
 
@@ -145,37 +228,5 @@ describe("AdminStaffSessionGuard", () => {
       /persistent MFA-verified staff session/i,
     );
     expect(sessions.validateSession).not.toHaveBeenCalled();
-  });
-
-  it("allows only explicitly listed first-factor login to bypass an existing session", async () => {
-    process.env.SAKHI_ENV = "staging";
-    process.env.NODE_ENV = "production";
-    const request = {
-      method: "POST",
-      originalUrl: "/api/v1/staging-test-admin/session",
-      path: "/api/v1/staging-test-admin/session",
-      headers: {},
-    };
-    const sessions = { validateSession: vi.fn() };
-    const guard = new AdminStaffSessionGuard(sessions as any);
-
-    await expect(guard.canActivate(contextFor(request))).resolves.toBe(true);
-    expect(sessions.validateSession).not.toHaveBeenCalled();
-  });
-
-  it.each(["/api/v1/staging-test-admin/logout", "/api/v1/staging-test-admin/session/rotate"])(
-    "does not exempt logout or rotation from persistent-session validation: %s",
-    async (path) => {
-      process.env.SAKHI_ENV = "staging";
-      process.env.NODE_ENV = "production";
-      const request = { method: "POST", originalUrl: path, path, headers: {} };
-      const sessions = { validateSession: vi.fn() };
-      const guard = new AdminStaffSessionGuard(sessions as any);
-
-      await expect(guard.canActivate(contextFor(request))).rejects.toThrow(
-        /persistent MFA-verified staff session/i,
-      );
-      expect(sessions.validateSession).not.toHaveBeenCalled();
-    },
-  );
-
+  },
+);

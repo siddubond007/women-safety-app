@@ -257,6 +257,7 @@ export interface AdminStaffRecord {
   email: string;
   role: SakhiAdminRole;
   status: "ACTIVE" | "SUSPENDED" | "REVOKED";
+  mustResetPassword?: boolean;
   accessTokenDigest: string;
   accessTokenPreview: string;
   isAuthorisedComplaintReviewer: boolean;
@@ -485,7 +486,9 @@ export class SakhiAdminRbacRegistry {
   ): AuthenticatedAdminPrincipal {
     const def = ADMIN_ROLE_DEFINITIONS[staff.role];
     if (!def) {
-      throw new UnauthorizedException("The stored staff role is not recognized; access is denied.");
+      throw new UnauthorizedException(
+        "The stored staff role is not recognized; access is denied.",
+      );
     }
     return {
       staffId: staff.id,
@@ -516,7 +519,10 @@ export class SakhiAdminRbacRegistry {
     expiresAtSec = Math.floor(Date.now() / 1000) + 8 * 3600,
   ): { value: string; expiresAt: Date; sessionId: string } {
     const decodedKey = Buffer.from(secretKey, "base64");
-    if (decodedKey.length !== 32 || decodedKey.toString("base64") !== secretKey) {
+    if (
+      decodedKey.length !== 32 ||
+      decodedKey.toString("base64") !== secretKey
+    ) {
       throw new ServiceUnavailableException(
         "A dedicated base64-encoded 32-byte staff-session signing key is required.",
       );
@@ -537,7 +543,8 @@ export class SakhiAdminRbacRegistry {
     secretKey: string,
   ): AdminStaffRecord | null {
     const decodedKey = Buffer.from(secretKey, "base64");
-    if (decodedKey.length !== 32 || decodedKey.toString("base64") !== secretKey) return null;
+    if (decodedKey.length !== 32 || decodedKey.toString("base64") !== secretKey)
+      return null;
     if (!token.startsWith("staff-admin.")) return null;
     const parts = token.split(".");
     if (parts.length !== 5) return null;
@@ -698,26 +705,58 @@ export class SakhiAdminRbacRegistry {
   }
 
   private static mapDbRowToStaff(r: Record<string, any>): AdminStaffRecord {
-    if (typeof r.role !== "string" || !Object.prototype.hasOwnProperty.call(ADMIN_ROLE_DEFINITIONS, r.role)) {
-      throw new UnauthorizedException("The stored staff role is not recognized; access is denied.");
+    if (
+      typeof r.role !== "string" ||
+      !Object.prototype.hasOwnProperty.call(ADMIN_ROLE_DEFINITIONS, r.role)
+    ) {
+      throw new UnauthorizedException(
+        "The stored staff role is not recognized; access is denied.",
+      );
     }
     const role = r.role as SakhiAdminRole;
     const def = ADMIN_ROLE_DEFINITIONS[role];
-    if (r.status !== "ACTIVE" && r.status !== "SUSPENDED" && r.status !== "REVOKED") {
-      throw new UnauthorizedException("The stored staff account status is invalid; access is denied.");
+    if (
+      r.status !== "ACTIVE" &&
+      r.status !== "SUSPENDED" &&
+      r.status !== "REVOKED"
+    ) {
+      throw new UnauthorizedException(
+        "The stored staff account status is invalid; access is denied.",
+      );
     }
-    if (!r.permissions || typeof r.permissions !== "object" || Array.isArray(r.permissions)) {
-      throw new UnauthorizedException("Stored staff permissions are malformed; access is denied.");
+    if (
+      !r.permissions ||
+      typeof r.permissions !== "object" ||
+      Array.isArray(r.permissions)
+    ) {
+      throw new UnauthorizedException(
+        "Stored staff permissions are malformed; access is denied.",
+      );
     }
     const rawPerms = r.permissions as Record<string, unknown>;
-    const permissionKeys = ["view", "create", "edit", "approve", "suspend", "export", "delete"] as const;
+    const permissionKeys = [
+      "view",
+      "create",
+      "edit",
+      "approve",
+      "suspend",
+      "export",
+      "delete",
+    ] as const;
     for (const key of permissionKeys) {
       if (rawPerms[key] !== undefined && typeof rawPerms[key] !== "boolean") {
-        throw new UnauthorizedException(`Stored staff permission ${key} is not a boolean; access is denied.`);
+        throw new UnauthorizedException(
+          `Stored staff permission ${key} is not a boolean; access is denied.`,
+        );
       }
     }
-    if (r.isAuthorisedComplaintReviewer !== undefined && typeof r.isAuthorisedComplaintReviewer !== "boolean") {
-      throw new UnauthorizedException("Stored complaint-reviewer authorization is invalid; access is denied.");
+    if (
+      r.isAuthorisedComplaintReviewer !== undefined &&
+      typeof r.isAuthorisedComplaintReviewer !== "boolean"
+    ) {
+      throw new UnauthorizedException(
+        "Stored complaint-reviewer authorization is invalid; access is denied.",
+      );
     }
     const allowedRoutes = Array.isArray(rawPerms.allowedRoutes)
       ? rawPerms.allowedRoutes
@@ -733,6 +772,7 @@ export class SakhiAdminRbacRegistry {
       email: String(r.email ?? "admin@sakhi.org.in"),
       role,
       status: r.status,
+      mustResetPassword: Boolean(r.mustResetPassword),
       accessTokenDigest: String(r.accessTokenDigest ?? ""),
       accessTokenPreview: String(r.accessTokenPreview ?? "SAKHI-STAFF-••••"),
       isAuthorisedComplaintReviewer:
@@ -741,13 +781,34 @@ export class SakhiAdminRbacRegistry {
         Boolean(r.isAuthorisedComplaintReviewer),
       clearanceLevel: String(r.clearanceLevel ?? def.defaultClearanceLevel),
       permissions: {
-        view: rawPerms.view === undefined ? def.defaultPermissions.view : rawPerms.view as boolean,
-        create: rawPerms.create === undefined ? def.defaultPermissions.create : rawPerms.create as boolean,
-        edit: rawPerms.edit === undefined ? def.defaultPermissions.edit : rawPerms.edit as boolean,
-        approve: rawPerms.approve === undefined ? def.defaultPermissions.approve : rawPerms.approve as boolean,
-        suspend: rawPerms.suspend === undefined ? def.defaultPermissions.suspend : rawPerms.suspend as boolean,
-        export: rawPerms.export === undefined ? def.defaultPermissions.export : rawPerms.export as boolean,
-        delete: rawPerms.delete === undefined ? def.defaultPermissions.delete : rawPerms.delete as boolean,
+        view:
+          rawPerms.view === undefined
+            ? def.defaultPermissions.view
+            : (rawPerms.view as boolean),
+        create:
+          rawPerms.create === undefined
+            ? def.defaultPermissions.create
+            : (rawPerms.create as boolean),
+        edit:
+          rawPerms.edit === undefined
+            ? def.defaultPermissions.edit
+            : (rawPerms.edit as boolean),
+        approve:
+          rawPerms.approve === undefined
+            ? def.defaultPermissions.approve
+            : (rawPerms.approve as boolean),
+        suspend:
+          rawPerms.suspend === undefined
+            ? def.defaultPermissions.suspend
+            : (rawPerms.suspend as boolean),
+        export:
+          rawPerms.export === undefined
+            ? def.defaultPermissions.export
+            : (rawPerms.export as boolean),
+        delete:
+          rawPerms.delete === undefined
+            ? def.defaultPermissions.delete
+            : (rawPerms.delete as boolean),
       },
       allowedRoutes,
       createdBy: String(r.createdBy ?? "Sakhi Super Admin"),
@@ -944,8 +1005,13 @@ export class SakhiAdminRbacRegistry {
       );
     }
     const def = ADMIN_ROLE_DEFINITIONS[rawRole];
-    if (dto.isAuthorisedComplaintReviewer !== undefined && typeof dto.isAuthorisedComplaintReviewer !== "boolean") {
-      throw new BadRequestException("isAuthorisedComplaintReviewer must be a boolean.");
+    if (
+      dto.isAuthorisedComplaintReviewer !== undefined &&
+      typeof dto.isAuthorisedComplaintReviewer !== "boolean"
+    ) {
+      throw new BadRequestException(
+        "isAuthorisedComplaintReviewer must be a boolean.",
+      );
     }
     if (
       dto.isAuthorisedComplaintReviewer === true &&
@@ -971,7 +1037,9 @@ export class SakhiAdminRbacRegistry {
     const staffCode = `#${prefix}-${num}`;
 
     if (dto.customAccessToken !== undefined) {
-      throw new BadRequestException("Caller-supplied staff credentials are not accepted; the server generates credentials.");
+      throw new BadRequestException(
+        "Caller-supplied staff credentials are not accepted; the server generates credentials.",
+      );
     }
     const randomPart = randomBytes(32).toString("base64url");
     const issuedAccessToken = `SAKHI-${prefix}-${num}-${randomPart}`;
@@ -980,8 +1048,21 @@ export class SakhiAdminRbacRegistry {
 
     const nowIso = new Date().toISOString();
     for (const [key, value] of Object.entries(dto.permissions ?? {})) {
-      if (!["view", "create", "edit", "approve", "suspend", "export", "delete"].includes(key) || typeof value !== "boolean") {
-        throw new BadRequestException("Staff permissions must contain only recognized boolean permission values.");
+      if (
+        ![
+          "view",
+          "create",
+          "edit",
+          "approve",
+          "suspend",
+          "export",
+          "delete",
+        ].includes(key) ||
+        typeof value !== "boolean"
+      ) {
+        throw new BadRequestException(
+          "Staff permissions must contain only recognized boolean permission values.",
+        );
       }
     }
     const permissions: GranularRolePermissions = {
@@ -1048,14 +1129,24 @@ export class SakhiAdminRbacRegistry {
       ? await anyPrisma.adminStaffAccount.findUnique({ where: { id: staffId } })
       : null;
     if (!dbRow && process.env.NODE_ENV !== "test") {
-      throw new ServiceUnavailableException("Staff updates require an authoritative database record.");
+      throw new ServiceUnavailableException(
+        "Staff updates require an authoritative database record.",
+      );
     }
-    const cached = dbRow ? this.mapDbRowToStaff(dbRow) :
-      (this.staffMap.get(staffId) ?? Array.from(this.staffMap.values()).find((s) => s.staffCode === staffId));
+    const cached = dbRow
+      ? this.mapDbRowToStaff(dbRow)
+      : (this.staffMap.get(staffId) ??
+        Array.from(this.staffMap.values()).find(
+          (s) => s.staffCode === staffId,
+        ));
     if (!cached) {
       throw new NotFoundException(`Admin staff account ${staffId} not found.`);
     }
-    const existing = { ...cached, permissions: { ...cached.permissions }, allowedRoutes: [...cached.allowedRoutes] };
+    const existing = {
+      ...cached,
+      permissions: { ...cached.permissions },
+      allowedRoutes: [...cached.allowedRoutes],
+    };
     const original: AdminStaffRecord = {
       ...existing,
       permissions: { ...existing.permissions },
@@ -1116,7 +1207,9 @@ export class SakhiAdminRbacRegistry {
 
     if (dto.isAuthorisedComplaintReviewer !== undefined) {
       if (typeof dto.isAuthorisedComplaintReviewer !== "boolean") {
-        throw new BadRequestException("isAuthorisedComplaintReviewer must be a boolean.");
+        throw new BadRequestException(
+          "isAuthorisedComplaintReviewer must be a boolean.",
+        );
       }
       const effectiveRole = (dto.role ?? existing.role) as SakhiAdminRole;
       if (
@@ -1128,7 +1221,8 @@ export class SakhiAdminRbacRegistry {
           "Only Super Admin or Complaint Reviewer roles may hold complaint-reviewer clearance.",
         );
       }
-      existing.isAuthorisedComplaintReviewer = dto.isAuthorisedComplaintReviewer;
+      existing.isAuthorisedComplaintReviewer =
+        dto.isAuthorisedComplaintReviewer;
     }
     if (dto.clearanceLevel !== undefined && dto.clearanceLevel.trim()) {
       existing.clearanceLevel = dto.clearanceLevel.trim();
@@ -1142,14 +1236,32 @@ export class SakhiAdminRbacRegistry {
 
     let issuedAccessToken: string | undefined;
     if (dto.customAccessToken !== undefined) {
-      throw new BadRequestException("Caller-supplied staff credentials are not accepted.");
+      throw new BadRequestException(
+        "Caller-supplied staff credentials are not accepted.",
+      );
     }
-    if (dto.regenerateToken !== undefined && typeof dto.regenerateToken !== "boolean") {
+    if (
+      dto.regenerateToken !== undefined &&
+      typeof dto.regenerateToken !== "boolean"
+    ) {
       throw new BadRequestException("regenerateToken must be a boolean.");
     }
     for (const [key, value] of Object.entries(dto.permissions ?? {})) {
-      if (!["view", "create", "edit", "approve", "suspend", "export", "delete"].includes(key) || typeof value !== "boolean") {
-        throw new BadRequestException("Staff permissions must contain only recognized boolean permission values.");
+      if (
+        ![
+          "view",
+          "create",
+          "edit",
+          "approve",
+          "suspend",
+          "export",
+          "delete",
+        ].includes(key) ||
+        typeof value !== "boolean"
+      ) {
+        throw new BadRequestException(
+          "Staff permissions must contain only recognized boolean permission values.",
+        );
       }
     }
     if (dto.regenerateToken === true) {
@@ -1190,10 +1302,16 @@ export class SakhiAdminRbacRegistry {
       ? await anyPrisma.adminStaffAccount.findUnique({ where: { id: staffId } })
       : null;
     if (!dbRow && process.env.NODE_ENV !== "test") {
-      throw new ServiceUnavailableException("Staff deletion requires an authoritative database record.");
+      throw new ServiceUnavailableException(
+        "Staff deletion requires an authoritative database record.",
+      );
     }
-    const existing = dbRow ? this.mapDbRowToStaff(dbRow) :
-      (this.staffMap.get(staffId) ?? Array.from(this.staffMap.values()).find((s) => s.staffCode === staffId));
+    const existing = dbRow
+      ? this.mapDbRowToStaff(dbRow)
+      : (this.staffMap.get(staffId) ??
+        Array.from(this.staffMap.values()).find(
+          (s) => s.staffCode === staffId,
+        ));
     if (!existing) {
       throw new NotFoundException(`Admin staff account ${staffId} not found.`);
     }
@@ -1206,69 +1324,74 @@ export class SakhiAdminRbacRegistry {
     }
 
     try {
-      await anyPrisma.$transaction(async (tx: any) => {
-        if (existing.role === "SUPER_ADMIN" && existing.status === "ACTIVE") {
-          const activeSuperAdmins = await tx.adminStaffAccount.count({
-            where: { role: "SUPER_ADMIN", status: "ACTIVE" },
-          });
-          if (activeSuperAdmins <= 1) {
-            throw new ConflictException("The last active Super Admin cannot be deleted or revoked.");
+      await anyPrisma.$transaction(
+        async (tx: any) => {
+          if (existing.role === "SUPER_ADMIN" && existing.status === "ACTIVE") {
+            const activeSuperAdmins = await tx.adminStaffAccount.count({
+              where: { role: "SUPER_ADMIN", status: "ACTIVE" },
+            });
+            if (activeSuperAdmins <= 1) {
+              throw new ConflictException(
+                "The last active Super Admin cannot be deleted or revoked.",
+              );
+            }
           }
-        }
-        const updated = await tx.adminStaffAccount.updateMany({
-        where: {
-          id: existing.id,
-          updatedAt: new Date(existing.updatedAt),
-          role: existing.role,
-          status: existing.status,
+          const updated = await tx.adminStaffAccount.updateMany({
+            where: {
+              id: existing.id,
+              updatedAt: new Date(existing.updatedAt),
+              role: existing.role,
+              status: existing.status,
+            },
+            data: {
+              status: "REVOKED",
+              deletedAt: now,
+              deletedBy: deletedByStaffId,
+              accessTokenDigest: sha256Hex(randomUUID()),
+              accessTokenPreview: "REVOKED",
+              updatedAt: now,
+            },
+          });
+          if (updated.count !== 1) {
+            throw new ConflictException(
+              "The staff account was already revoked or changed.",
+            );
+          }
+          await tx.adminStaffSession.updateMany({
+            where: { staffId: existing.id, revokedAt: null },
+            data: { revokedAt: now, revokeReason: "STAFF_DELETED" },
+          });
+          await tx.adminStaffBackupCode.updateMany({
+            where: { staffId: existing.id, usedAt: null },
+            data: { usedAt: now },
+          });
+          await tx.adminStaffRecoveryRequest.updateMany({
+            where: {
+              staffId: existing.id,
+              status: { in: ["PENDING", "APPROVED"] },
+            },
+            data: { status: "CANCELLED" },
+          });
+          await tx.auditEvent.create({
+            data: {
+              actorType: "ADMIN",
+              actorId: deletedByStaffId,
+              action: "admin.staff_account.deleted",
+              targetType: "admin_staff_account",
+              targetId: existing.id,
+              outcome: "success",
+              requestId: randomUUID(),
+              redactedMetadata: {
+                staffCode: existing.staffCode,
+                deletedBy: deletedByLabel,
+                sessionsRevoked: true,
+                backupCodesInvalidated: true,
+              },
+            },
+          });
         },
-        data: {
-          status: "REVOKED",
-          deletedAt: now,
-          deletedBy: deletedByStaffId,
-          accessTokenDigest: sha256Hex(randomUUID()),
-          accessTokenPreview: "REVOKED",
-          updatedAt: now,
-        },
-      });
-      if (updated.count !== 1) {
-        throw new ConflictException(
-          "The staff account was already revoked or changed.",
-        );
-      }
-      await tx.adminStaffSession.updateMany({
-        where: { staffId: existing.id, revokedAt: null },
-        data: { revokedAt: now, revokeReason: "STAFF_DELETED" },
-      });
-      await tx.adminStaffBackupCode.updateMany({
-        where: { staffId: existing.id, usedAt: null },
-        data: { usedAt: now },
-      });
-      await tx.adminStaffRecoveryRequest.updateMany({
-        where: {
-          staffId: existing.id,
-          status: { in: ["PENDING", "APPROVED"] },
-        },
-        data: { status: "CANCELLED" },
-      });
-      await tx.auditEvent.create({
-        data: {
-          actorType: "ADMIN",
-          actorId: deletedByStaffId,
-          action: "admin.staff_account.deleted",
-          targetType: "admin_staff_account",
-          targetId: existing.id,
-          outcome: "success",
-          requestId: randomUUID(),
-          redactedMetadata: {
-            staffCode: existing.staffCode,
-            deletedBy: deletedByLabel,
-            sessionsRevoked: true,
-            backupCodesInvalidated: true,
-          },
-        },
-        });
-      }, { isolationLevel: "Serializable" });
+        { isolationLevel: "Serializable" },
+      );
     } catch (error) {
       if (error instanceof HttpException) throw error;
       throw new ServiceUnavailableException(
@@ -1314,103 +1437,117 @@ export class SakhiAdminRbacRegistry {
     };
 
     try {
-      await anyPrisma.$transaction(async (tx: any) => {
-        if (
-          outcome !== "created" &&
-          originalRole === "SUPER_ADMIN" &&
-          originalStatus === "ACTIVE" &&
-          (staff.role !== "SUPER_ADMIN" || staff.status !== "ACTIVE")
-        ) {
-          const activeSuperAdmins = await tx.adminStaffAccount.count({
-            where: { role: "SUPER_ADMIN", status: "ACTIVE" },
-          });
-          if (activeSuperAdmins <= 1) {
-            throw new ConflictException("The last active Super Admin cannot be demoted, suspended, or revoked.");
-          }
-        }
-
-        const staffData = {
-          fullName: staff.fullName,
-          email: staff.email,
-          role: staff.role,
-          status: staff.status,
-          accessTokenDigest: staff.accessTokenDigest,
-          accessTokenPreview: staff.accessTokenPreview,
-          isAuthorisedComplaintReviewer: staff.isAuthorisedComplaintReviewer,
-          clearanceLevel: staff.clearanceLevel,
-          permissions: { ...staff.permissions, allowedRoutes: staff.allowedRoutes },
-          suspendedAt: staff.status === "SUSPENDED" ? new Date(staff.updatedAt) : null,
-          suspendedBy: staff.status === "SUSPENDED" ? actorStaffId : null,
-          deletedAt: staff.status === "REVOKED" ? new Date(staff.updatedAt) : null,
-          deletedBy: staff.status === "REVOKED" ? actorStaffId : null,
-          lastLoginAt: staff.lastLoginAt ? new Date(staff.lastLoginAt) : null,
-          updatedAt: new Date(staff.updatedAt),
-        };
-        if (outcome === "created") {
-          await tx.adminStaffAccount.create({
-            data: {
-              id: staff.id,
-              staffCode: staff.staffCode,
-              ...staffData,
-              createdBy: staff.createdBy,
-              createdAt: new Date(staff.createdAt),
-            },
-          });
-        } else {
-          if (!expectedUpdatedAt) {
-            throw new ServiceUnavailableException("Staff updates require an optimistic concurrency version.");
-          }
-          const updated = await tx.adminStaffAccount.updateMany({
-            where: {
-              id: staff.id,
-              updatedAt: new Date(expectedUpdatedAt),
-              role: originalRole,
-              status: originalStatus,
-            },
-            data: staffData,
-          });
-          if (updated.count !== 1) {
-            throw new ConflictException("The staff account changed concurrently; reload it and retry.");
-          }
-        }
-
-        if (outcome !== "created") {
-          const now = new Date();
-          await tx.adminStaffSession.updateMany({
-            where: { staffId: staff.id, revokedAt: null },
-            data: { revokedAt: now, revokeReason: "STAFF_ACCOUNT_CHANGED" },
-          });
-          if (staff.status !== "ACTIVE") {
-            await tx.adminStaffBackupCode.updateMany({
-              where: { staffId: staff.id, usedAt: null },
-              data: { usedAt: now },
+      await anyPrisma.$transaction(
+        async (tx: any) => {
+          if (
+            outcome !== "created" &&
+            originalRole === "SUPER_ADMIN" &&
+            originalStatus === "ACTIVE" &&
+            (staff.role !== "SUPER_ADMIN" || staff.status !== "ACTIVE")
+          ) {
+            const activeSuperAdmins = await tx.adminStaffAccount.count({
+              where: { role: "SUPER_ADMIN", status: "ACTIVE" },
             });
-            await tx.adminStaffRecoveryRequest.updateMany({
-              where: {
-                staffId: staff.id,
-                status: { in: ["PENDING", "APPROVED"] },
+            if (activeSuperAdmins <= 1) {
+              throw new ConflictException(
+                "The last active Super Admin cannot be demoted, suspended, or revoked.",
+              );
+            }
+          }
+
+          const staffData = {
+            fullName: staff.fullName,
+            email: staff.email,
+            role: staff.role,
+            status: staff.status,
+            accessTokenDigest: staff.accessTokenDigest,
+            accessTokenPreview: staff.accessTokenPreview,
+            isAuthorisedComplaintReviewer: staff.isAuthorisedComplaintReviewer,
+            clearanceLevel: staff.clearanceLevel,
+            permissions: {
+              ...staff.permissions,
+              allowedRoutes: staff.allowedRoutes,
+            },
+            suspendedAt:
+              staff.status === "SUSPENDED" ? new Date(staff.updatedAt) : null,
+            suspendedBy: staff.status === "SUSPENDED" ? actorStaffId : null,
+            deletedAt:
+              staff.status === "REVOKED" ? new Date(staff.updatedAt) : null,
+            deletedBy: staff.status === "REVOKED" ? actorStaffId : null,
+            lastLoginAt: staff.lastLoginAt ? new Date(staff.lastLoginAt) : null,
+            updatedAt: new Date(staff.updatedAt),
+          };
+          if (outcome === "created") {
+            await tx.adminStaffAccount.create({
+              data: {
+                id: staff.id,
+                staffCode: staff.staffCode,
+                ...staffData,
+                createdBy: staff.createdBy,
+                createdAt: new Date(staff.createdAt),
               },
-              data: { status: "CANCELLED" },
             });
+          } else {
+            if (!expectedUpdatedAt) {
+              throw new ServiceUnavailableException(
+                "Staff updates require an optimistic concurrency version.",
+              );
+            }
+            const updated = await tx.adminStaffAccount.updateMany({
+              where: {
+                id: staff.id,
+                updatedAt: new Date(expectedUpdatedAt),
+                role: originalRole,
+                status: originalStatus,
+              },
+              data: staffData,
+            });
+            if (updated.count !== 1) {
+              throw new ConflictException(
+                "The staff account changed concurrently; reload it and retry.",
+              );
+            }
           }
-        }
 
-        await tx.auditEvent.create({
-          data: {
-            actorType: "ADMIN",
-            actorId: actorStaffId,
-            action:
-              outcome === "created"
-                ? "admin.staff_account.created"
-                : "admin.staff_account.updated",
-            targetType: "admin_staff_account",
-            targetId: staff.id,
-            outcome: "success",
-            requestId: randomUUID(),
-            redactedMetadata: safeMetadata,
-          },
-        });
-      }, { isolationLevel: "Serializable" });
+          if (outcome !== "created") {
+            const now = new Date();
+            await tx.adminStaffSession.updateMany({
+              where: { staffId: staff.id, revokedAt: null },
+              data: { revokedAt: now, revokeReason: "STAFF_ACCOUNT_CHANGED" },
+            });
+            if (staff.status !== "ACTIVE") {
+              await tx.adminStaffBackupCode.updateMany({
+                where: { staffId: staff.id, usedAt: null },
+                data: { usedAt: now },
+              });
+              await tx.adminStaffRecoveryRequest.updateMany({
+                where: {
+                  staffId: staff.id,
+                  status: { in: ["PENDING", "APPROVED"] },
+                },
+                data: { status: "CANCELLED" },
+              });
+            }
+          }
+
+          await tx.auditEvent.create({
+            data: {
+              actorType: "ADMIN",
+              actorId: actorStaffId,
+              action:
+                outcome === "created"
+                  ? "admin.staff_account.created"
+                  : "admin.staff_account.updated",
+              targetType: "admin_staff_account",
+              targetId: staff.id,
+              outcome: "success",
+              requestId: randomUUID(),
+              redactedMetadata: safeMetadata,
+            },
+          });
+        },
+        { isolationLevel: "Serializable" },
+      );
       this.staffMap.set(staff.id, staff);
     } catch (error) {
       this.hydrated = false;
@@ -1506,8 +1643,13 @@ export class SakhiAdminRbacRegistry {
     actorStaffId?: string,
   ): Promise<BusinessListingRecord> {
     await this.ensureHydrated(prisma);
-    if (body.approvalStatus !== undefined || body.verificationBadgeStatus !== undefined) {
-      throw new BadRequestException("Business approval and verification badge changes must use the dedicated review operation.");
+    if (
+      body.approvalStatus !== undefined ||
+      body.verificationBadgeStatus !== undefined
+    ) {
+      throw new BadRequestException(
+        "Business approval and verification badge changes must use the dedicated review operation.",
+      );
     }
     const businessName = String(body.businessName ?? "").trim();
     if (businessName.length < 3 || /^\d+$/.test(businessName)) {
@@ -1602,7 +1744,8 @@ export class SakhiAdminRbacRegistry {
           ? body.websiteOrInstagram.trim()
           : (existing?.websiteOrInstagram ?? null),
       approvalStatus: existing?.approvalStatus ?? "PENDING_APPROVAL",
-      verificationBadgeStatus: existing?.verificationBadgeStatus ?? "PENDING_BADGE",
+      verificationBadgeStatus:
+        existing?.verificationBadgeStatus ?? "PENDING_BADGE",
       isFeatured:
         typeof body.isFeatured === "boolean"
           ? body.isFeatured
@@ -1656,14 +1799,24 @@ export class SakhiAdminRbacRegistry {
     // Work on a copy so failed persistence cannot mutate the in-memory record.
     const updated: BusinessListingRecord = { ...existing };
     if (body.approvalStatus) {
-      if (!["PENDING_APPROVAL", "APPROVED", "SUSPENDED", "REJECTED"].includes(body.approvalStatus)) {
+      if (
+        !["PENDING_APPROVAL", "APPROVED", "SUSPENDED", "REJECTED"].includes(
+          body.approvalStatus,
+        )
+      ) {
         throw new BadRequestException("Unsupported business approval status.");
       }
       updated.approvalStatus = body.approvalStatus;
     }
     if (body.verificationBadgeStatus) {
-      if (!["NONE", "PENDING_BADGE", "VERIFIED_WOMAN_OWNED", "REVOKED"].includes(body.verificationBadgeStatus)) {
-        throw new BadRequestException("Unsupported business verification badge status.");
+      if (
+        !["NONE", "PENDING_BADGE", "VERIFIED_WOMAN_OWNED", "REVOKED"].includes(
+          body.verificationBadgeStatus,
+        )
+      ) {
+        throw new BadRequestException(
+          "Unsupported business verification badge status.",
+        );
       }
       updated.verificationBadgeStatus = body.verificationBadgeStatus;
     }
@@ -1680,39 +1833,62 @@ export class SakhiAdminRbacRegistry {
     updated.updatedAt = new Date().toISOString();
 
     const anyPrisma = prisma as unknown as Record<string, any>;
-    if (typeof anyPrisma.$transaction !== "function" || !anyPrisma.auditEvent?.create) {
-      throw new ServiceUnavailableException("Business review and audit require one database transaction.");
+    if (
+      typeof anyPrisma.$transaction !== "function" ||
+      !anyPrisma.auditEvent?.create
+    ) {
+      throw new ServiceUnavailableException(
+        "Business review and audit require one database transaction.",
+      );
     }
-    await anyPrisma.$transaction(async (tx: Record<string, any>) => {
-      await this.persistBusinessRecord(prisma, updated, actorLabel, actorStaffId, tx);
-      if (updated.ownerAccountId && tx.memberProfile?.update) {
-        const otherApproved = Array.from(this.businessMap.values()).find(
-          (business) =>
-            business.ownerAccountId === updated.ownerAccountId &&
-            business.id !== updated.id &&
-            business.approvalStatus === "APPROVED",
+    await anyPrisma.$transaction(
+      async (tx: Record<string, any>) => {
+        await this.persistBusinessRecord(
+          prisma,
+          updated,
+          actorLabel,
+          actorStaffId,
+          tx,
         );
-        if (updated.approvalStatus === "APPROVED") {
-          await tx.memberProfile.update({
-            where: { accountId: updated.ownerAccountId },
-            data: {
-              businessProfileName: updated.businessName.slice(0, 120),
-              businessCategory: updated.category.slice(0, 80),
-              businessProfileUrl: `sakhi://business/${updated.id}`,
-            },
-          });
-        } else if (updated.approvalStatus === "REJECTED" || updated.approvalStatus === "SUSPENDED") {
-          await tx.memberProfile.update({
-            where: { accountId: updated.ownerAccountId },
-            data: {
-              businessProfileName: otherApproved ? otherApproved.businessName.slice(0, 120) : null,
-              businessCategory: otherApproved ? otherApproved.category.slice(0, 80) : null,
-              businessProfileUrl: otherApproved ? `sakhi://business/${otherApproved.id}` : null,
-            },
-          });
+        if (updated.ownerAccountId && tx.memberProfile?.update) {
+          const otherApproved = Array.from(this.businessMap.values()).find(
+            (business) =>
+              business.ownerAccountId === updated.ownerAccountId &&
+              business.id !== updated.id &&
+              business.approvalStatus === "APPROVED",
+          );
+          if (updated.approvalStatus === "APPROVED") {
+            await tx.memberProfile.update({
+              where: { accountId: updated.ownerAccountId },
+              data: {
+                businessProfileName: updated.businessName.slice(0, 120),
+                businessCategory: updated.category.slice(0, 80),
+                businessProfileUrl: `sakhi://business/${updated.id}`,
+              },
+            });
+          } else if (
+            updated.approvalStatus === "REJECTED" ||
+            updated.approvalStatus === "SUSPENDED"
+          ) {
+            await tx.memberProfile.update({
+              where: { accountId: updated.ownerAccountId },
+              data: {
+                businessProfileName: otherApproved
+                  ? otherApproved.businessName.slice(0, 120)
+                  : null,
+                businessCategory: otherApproved
+                  ? otherApproved.category.slice(0, 80)
+                  : null,
+                businessProfileUrl: otherApproved
+                  ? `sakhi://business/${otherApproved.id}`
+                  : null,
+              },
+            });
+          }
         }
-      }
-    }, { isolationLevel: "Serializable" });
+      },
+      { isolationLevel: "Serializable" },
+    );
     this.businessMap.set(updated.id, updated);
     return updated;
   }
@@ -1729,28 +1905,40 @@ export class SakhiAdminRbacRegistry {
       Array.from(this.businessMap.values()).find(
         (b) => b.businessCode === businessId,
       );
-    if (!existing) throw new NotFoundException(`Business listing ${businessId} not found.`);
+    if (!existing)
+      throw new NotFoundException(`Business listing ${businessId} not found.`);
     const targetId = existing.id;
     const anyPrisma = prisma as unknown as Record<string, any>;
-    if (!anyPrisma.businessDirectoryListing?.delete || !anyPrisma.auditEvent?.create ||
-        typeof anyPrisma.$transaction !== "function") {
-      throw new ServiceUnavailableException("Business deletion and audit require one database transaction.");
+    if (
+      !anyPrisma.businessDirectoryListing?.delete ||
+      !anyPrisma.auditEvent?.create ||
+      typeof anyPrisma.$transaction !== "function"
+    ) {
+      throw new ServiceUnavailableException(
+        "Business deletion and audit require one database transaction.",
+      );
     }
-    await anyPrisma.$transaction(async (tx: Record<string, any>) => {
-      await tx.businessDirectoryListing.delete({ where: { id: targetId } });
-      await tx.auditEvent.create({
-        data: {
-          actorType: "ADMIN",
-          actorId: actorStaffId ?? null,
-          action: "module10.business_listing.deleted",
-          targetType: "business_directory_listing",
-          targetId,
-          outcome: "deleted",
-          requestId: randomUUID(),
-          redactedMetadata: { businessCode: existing.businessCode, businessName: existing.businessName },
-        },
-      });
-    }, { isolationLevel: "Serializable" });
+    await anyPrisma.$transaction(
+      async (tx: Record<string, any>) => {
+        await tx.businessDirectoryListing.delete({ where: { id: targetId } });
+        await tx.auditEvent.create({
+          data: {
+            actorType: "ADMIN",
+            actorId: actorStaffId ?? null,
+            action: "module10.business_listing.deleted",
+            targetType: "business_directory_listing",
+            targetId,
+            outcome: "deleted",
+            requestId: randomUUID(),
+            redactedMetadata: {
+              businessCode: existing.businessCode,
+              businessName: existing.businessName,
+            },
+          },
+        });
+      },
+      { isolationLevel: "Serializable" },
+    );
     this.businessMap.delete(targetId);
     return { deleted: true, businessId: targetId };
   }
@@ -1855,23 +2043,37 @@ export class SakhiAdminRbacRegistry {
         await transactionClient.businessDirectoryListing.upsert(upsertArgs);
         await transactionClient.auditEvent.create({ data: auditData });
       } else {
-        if (typeof anyPrisma.$transaction !== "function" || !anyPrisma.auditEvent?.create) {
-          throw new ServiceUnavailableException("Business listing and audit require one database transaction.");
+        if (
+          typeof anyPrisma.$transaction !== "function" ||
+          !anyPrisma.auditEvent?.create
+        ) {
+          throw new ServiceUnavailableException(
+            "Business listing and audit require one database transaction.",
+          );
         }
-        await anyPrisma.$transaction(async (transaction: Record<string, any>) => {
-          await transaction.businessDirectoryListing.upsert(upsertArgs);
-          await transaction.auditEvent.create({ data: auditData });
-        }, { isolationLevel: "Serializable" });
+        await anyPrisma.$transaction(
+          async (transaction: Record<string, any>) => {
+            await transaction.businessDirectoryListing.upsert(upsertArgs);
+            await transaction.auditEvent.create({ data: auditData });
+          },
+          { isolationLevel: "Serializable" },
+        );
       }
     } catch (error) {
       if (error instanceof HttpException) throw error;
       if (
-        typeof error === "object" && error !== null && "code" in error &&
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
         (error as { code?: unknown }).code === "P2002"
       ) {
-        throw new ConflictException("A business listing with this business code already exists.");
+        throw new ConflictException(
+          "A business listing with this business code already exists.",
+        );
       }
-      throw new ServiceUnavailableException("Business listing changes and audit could not be durably committed. No success was recorded.");
+      throw new ServiceUnavailableException(
+        "Business listing changes and audit could not be durably committed. No success was recorded.",
+      );
     }
 
     // Update the process cache only after the durable database write succeeds.
@@ -1895,17 +2097,34 @@ export class SakhiAdminRbacRegistry {
     actorStaffId?: string,
   ): Promise<PlatformConfigRecord> {
     await this.ensureHydrated(prisma);
-    const next = JSON.parse(JSON.stringify(this.platformConfig)) as PlatformConfigRecord;
-    if (typeof body.featureFlags === "object" && body.featureFlags !== null && !Array.isArray(body.featureFlags)) {
+    const next = JSON.parse(
+      JSON.stringify(this.platformConfig),
+    ) as PlatformConfigRecord;
+    if (
+      typeof body.featureFlags === "object" &&
+      body.featureFlags !== null &&
+      !Array.isArray(body.featureFlags)
+    ) {
       const allowedFlags = Object.keys(next.featureFlags);
-      for (const [key, value] of Object.entries(body.featureFlags as Record<string, unknown>)) {
+      for (const [key, value] of Object.entries(
+        body.featureFlags as Record<string, unknown>,
+      )) {
         if (!allowedFlags.includes(key) || typeof value !== "boolean") {
-          throw new BadRequestException("Platform feature flags must contain only recognized boolean values.");
+          throw new BadRequestException(
+            "Platform feature flags must contain only recognized boolean values.",
+          );
         }
       }
-      next.featureFlags = { ...next.featureFlags, ...(body.featureFlags as Record<string, boolean>) };
+      next.featureFlags = {
+        ...next.featureFlags,
+        ...(body.featureFlags as Record<string, boolean>),
+      };
     }
-    if (typeof body.mediaUploadLimits === "object" && body.mediaUploadLimits !== null && !Array.isArray(body.mediaUploadLimits)) {
+    if (
+      typeof body.mediaUploadLimits === "object" &&
+      body.mediaUploadLimits !== null &&
+      !Array.isArray(body.mediaUploadLimits)
+    ) {
       next.mediaUploadLimits = {
         ...next.mediaUploadLimits,
         ...(body.mediaUploadLimits as Record<string, any>),
@@ -1923,49 +2142,58 @@ export class SakhiAdminRbacRegistry {
     next.updatedAt = new Date().toISOString();
 
     const anyPrisma = prisma as unknown as Record<string, any>;
-    if (!anyPrisma.platformConfigSetting?.upsert || !anyPrisma.auditEvent?.create ||
-        typeof anyPrisma.$transaction !== "function") {
-      throw new ServiceUnavailableException("Platform configuration and audit must be persisted in one database transaction.");
+    if (
+      !anyPrisma.platformConfigSetting?.upsert ||
+      !anyPrisma.auditEvent?.create ||
+      typeof anyPrisma.$transaction !== "function"
+    ) {
+      throw new ServiceUnavailableException(
+        "Platform configuration and audit must be persisted in one database transaction.",
+      );
     }
-    await anyPrisma.$transaction(async (tx: Record<string, any>) => {
-      await tx.platformConfigSetting.upsert({
-        where: { configKey: "default" },
-        update: {
-          featureFlags: next.featureFlags,
-          mediaUploadLimits: next.mediaUploadLimits,
-          businessCategories: next.businessCategories,
-          announcementBanner: next.announcementBanner,
-          updatedBy: actorLabel,
-          updatedAt: new Date(next.updatedAt),
-        },
-        create: {
-          configKey: "default",
-          featureFlags: next.featureFlags,
-          mediaUploadLimits: next.mediaUploadLimits,
-          businessCategories: next.businessCategories,
-          announcementBanner: next.announcementBanner,
-          updatedBy: actorLabel,
-          updatedAt: new Date(next.updatedAt),
-        },
-      });
-      await tx.auditEvent.create({
-        data: {
-          actorType: "ADMIN",
-          actorId: actorStaffId ?? null,
-          action: "module10.platform_config.snapshot",
-          targetType: "platform_config_setting",
-          targetId: "default",
-          outcome: "updated",
-          requestId: randomUUID(),
-          redactedMetadata: {
-            featureFlagKeys: Object.keys(next.featureFlags),
-            businessCategoryCount: next.businessCategories.length,
-            mediaUploadLimitKeys: Object.keys(next.mediaUploadLimits),
-            announcementBannerUpdated: typeof body.announcementBanner === "string",
+    await anyPrisma.$transaction(
+      async (tx: Record<string, any>) => {
+        await tx.platformConfigSetting.upsert({
+          where: { configKey: "default" },
+          update: {
+            featureFlags: next.featureFlags,
+            mediaUploadLimits: next.mediaUploadLimits,
+            businessCategories: next.businessCategories,
+            announcementBanner: next.announcementBanner,
+            updatedBy: actorLabel,
+            updatedAt: new Date(next.updatedAt),
           },
-        },
-      });
-    }, { isolationLevel: "Serializable" });
+          create: {
+            configKey: "default",
+            featureFlags: next.featureFlags,
+            mediaUploadLimits: next.mediaUploadLimits,
+            businessCategories: next.businessCategories,
+            announcementBanner: next.announcementBanner,
+            updatedBy: actorLabel,
+            updatedAt: new Date(next.updatedAt),
+          },
+        });
+        await tx.auditEvent.create({
+          data: {
+            actorType: "ADMIN",
+            actorId: actorStaffId ?? null,
+            action: "module10.platform_config.snapshot",
+            targetType: "platform_config_setting",
+            targetId: "default",
+            outcome: "updated",
+            requestId: randomUUID(),
+            redactedMetadata: {
+              featureFlagKeys: Object.keys(next.featureFlags),
+              businessCategoryCount: next.businessCategories.length,
+              mediaUploadLimitKeys: Object.keys(next.mediaUploadLimits),
+              announcementBannerUpdated:
+                typeof body.announcementBanner === "string",
+            },
+          },
+        });
+      },
+      { isolationLevel: "Serializable" },
+    );
     this.platformConfig = next;
     return this.platformConfig;
   }

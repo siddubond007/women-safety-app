@@ -1,4 +1,9 @@
-import { Injectable, UnauthorizedException, ServiceUnavailableException } from "@nestjs/common";
+import {
+  Injectable,
+  UnauthorizedException,
+  ServiceUnavailableException,
+  ForbiddenException,
+} from "@nestjs/common";
 import type { CanActivate, ExecutionContext } from "@nestjs/common";
 import type { Request } from "express";
 import { timingSafeEqual } from "node:crypto";
@@ -91,9 +96,7 @@ export class AdminStaffSessionGuard implements CanActivate {
     }
     if (
       fromCookie &&
-      ["POST", "PUT", "PATCH", "DELETE"].includes(
-        request.method.toUpperCase(),
-      )
+      ["POST", "PUT", "PATCH", "DELETE"].includes(request.method.toUpperCase())
     ) {
       const origin = firstHeader(request.headers.origin);
       const allowedOrigins = String(process.env.SAKHI_ADMIN_CORS_ORIGIN ?? "")
@@ -124,7 +127,24 @@ export class AdminStaffSessionGuard implements CanActivate {
     const currentStaff = SakhiAdminRbacRegistry.refreshStaffRecordFromDatabase(
       validated.staff as unknown as Record<string, unknown>,
     );
-    setAdminDatabaseIdentity(String(currentStaff.id), String(currentStaff.role));
+    const passwordResetAllowed =
+      (request.method.toUpperCase() === "POST" &&
+        [
+          "/admin-review/auth/password/change",
+          "/admin-review/auth/logout",
+          "/staging-test-admin/logout",
+        ].some((suffix) => path.endsWith(suffix))) ||
+      (request.method.toUpperCase() === "GET" &&
+        path.endsWith("/staging-test-admin/session"));
+    if (currentStaff.mustResetPassword && !passwordResetAllowed) {
+      throw new ForbiddenException(
+        "This staff account must change its initial password before accessing the Admin workspace.",
+      );
+    }
+    setAdminDatabaseIdentity(
+      String(currentStaff.id),
+      String(currentStaff.role),
+    );
     (request as Request & { adminStaff?: unknown }).adminStaff = currentStaff;
     request.headers["x-sakhi-staging-admin-session"] = token;
     return true;
