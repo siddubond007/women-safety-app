@@ -16,6 +16,7 @@ on:
       - integration/sakhi-gemini-first-implementation-20261111
       - fix/staging-p0-managed-role-preflight-20261113
       - fix/sakhi-runtime-db-isolation-20261113
+      - fix/stage3b2-reviewed-staging-migrations-20261114
     paths:
       - "backend/**"
       - "super-admin/**"
@@ -36,6 +37,7 @@ on:
       - integration/sakhi-gemini-first-implementation-20261111
       - fix/staging-p0-managed-role-preflight-20261113
       - fix/sakhi-runtime-db-isolation-20261113
+      - release/staging-apk-hosted-20261112
     paths:
       - "backend/**"
       - "super-admin/**"
