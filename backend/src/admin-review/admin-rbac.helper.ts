@@ -910,6 +910,7 @@ export class SakhiAdminRbacRegistry {
       isAuthorisedComplaintReviewer?: boolean;
       clearanceLevel?: string;
       permissions?: Partial<GranularRolePermissions>;
+      mustResetPassword?: boolean;
     },
     createdByLabel: string,
     actorStaffId?: string,
@@ -1004,7 +1005,7 @@ export class SakhiAdminRbacRegistry {
       email,
       role: rawRole,
       status: "ACTIVE",
-      mustResetPassword: true,
+      mustResetPassword: dto.mustResetPassword === true,
       accessTokenDigest,
       accessTokenPreview,
       isAuthorisedComplaintReviewer:
