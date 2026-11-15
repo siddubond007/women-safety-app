@@ -567,6 +567,9 @@ class _ComplaintAdminConsoleScreenState
                             child: TextField(
                               key: const Key('m5-admin-token-input'),
                               controller: _adminTokenCtrl,
+                              obscureText: true,
+                              autocorrect: false,
+                              enableSuggestions: false,
                               decoration: const InputDecoration(
                                 isDense: true,
                                 labelText:

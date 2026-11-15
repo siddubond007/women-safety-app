@@ -255,6 +255,10 @@ Widget _wrapWithMaterialApp(Widget home, {Key? key}) {
 
 void main() {
   group('Module 5 — Real Data, Validation & Privacy Invariants', () {
+    test('does not embed a shared admin reviewer token in the mobile client', () {
+      expect(SakhiComplaintController.instance.adminReviewerToken, isEmpty);
+    });
+
     test('starts with an empty complaint list (zero fabricated records)', () {
       final freshController = SakhiComplaintController(
         apiClient: _FakeComplaintBackendApiClient(),

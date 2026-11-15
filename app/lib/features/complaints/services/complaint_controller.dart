@@ -102,9 +102,11 @@ class SakhiComplaintController extends ChangeNotifier {
     }
   }
 
+  // Shared reviewer credentials must be supplied by an authorised operator.
+  // Never embed a reusable admin-review token in the mobile application binary.
   String _adminReviewerToken = const String.fromEnvironment(
     'SAKHI_ADMIN_REVIEW_TOKEN',
-    defaultValue: 'ADMIN2026TEST',
+    defaultValue: '',
   );
   String get adminReviewerToken => _adminReviewerToken;
   void setAdminReviewerToken(String token) {
