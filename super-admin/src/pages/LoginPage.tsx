@@ -104,7 +104,12 @@ export function LoginPage({ onAuthenticate, onCredentialAuthenticate }: LoginPag
         setCode("");
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Reviewer authentication failed.");
+      const message = cause instanceof Error ? cause.message : "Reviewer authentication failed.";
+      setError(
+        /initial super admin bootstrap is permanently closed/i.test(message)
+          ? "That is the one-time bootstrap credential, not your personal staff access token. Bootstrap is closed because a Super Admin already exists. Clear this value and enter the individual staff token issued to your account; your TOTP code is entered in the next step. If you no longer have that staff token, it must be reissued through an authorized Super Admin account-recovery process."
+          : message,
+      );
     } finally {
       setIsSubmitting(false);
     }
