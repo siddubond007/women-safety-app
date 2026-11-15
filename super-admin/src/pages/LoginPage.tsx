@@ -32,6 +32,7 @@ export function LoginPage({ onAuthenticate, onCredentialAuthenticate }: LoginPag
   const [credentialIdentifier, setCredentialIdentifier] = useState("");
   const [credentialPassword, setCredentialPassword] = useState("");
   const [credentialMfaCode, setCredentialMfaCode] = useState("");
+  const [tokenAcknowledged, setTokenAcknowledged] = useState(false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -61,6 +62,7 @@ export function LoginPage({ onAuthenticate, onCredentialAuthenticate }: LoginPag
           email.trim(),
         );
         setToken(created.accessToken);
+        setTokenAcknowledged(false);
         const enrollment = await adminAuthService.startMfaEnrollment(created.accessToken);
         setEnrollmentSecret(enrollment.secret);
         setOtpauthUri(enrollment.otpauthUri);
@@ -198,7 +200,7 @@ export function LoginPage({ onAuthenticate, onCredentialAuthenticate }: LoginPag
                     : stage === "recovery"
                       ? "Enter the one-time recovery token issued by an independent MFA-verified Super Admin. Your existing staff token is also required."
                     : staging
-                      ? "Enter your individual staff access token, or the one-time bootstrap credential if no Super Admin account exists."
+                      ? "First sign-in or password not set yet? Use your individual staff access token here, then verify your authenticator. After verification, Sakhi will ask you to create your password if required. The email/password form is for later sign-ins."
                       : "Enter the local development/test reviewer token."}
           </p>
 
@@ -254,6 +256,13 @@ export function LoginPage({ onAuthenticate, onCredentialAuthenticate }: LoginPag
 
             {stage === "verify-enrollment" && (
               <div className="admin-review-help" role="group" aria-label="Authenticator setup">
+                <p><strong>Your individual staff access token — save this now</strong></p>
+                <code style={{ overflowWrap: "anywhere", userSelect: "all" }}>{token}</code>
+                <p>This token is shown only during initial setup. Store it in your password manager. It is different from your six-digit authenticator code.</p>
+                <label style={{ display: "flex", alignItems: "flex-start", gap: 8, margin: "12px 0" }}>
+                  <input type="checkbox" checked={tokenAcknowledged} onChange={(event) => setTokenAcknowledged(event.target.checked)} />
+                  <span>I have securely saved my individual staff access token.</span>
+                </label>
                 <p><strong>Manual setup secret</strong></p>
                 <code>{enrollmentSecret}</code>
                 <p>Authenticator setup URI:</p>
@@ -306,6 +315,7 @@ export function LoginPage({ onAuthenticate, onCredentialAuthenticate }: LoginPag
                 isSubmitting ||
                 token.trim().length < 8 ||
                 (needsCode && code.trim().length < 6) ||
+                (stage === "verify-enrollment" && !tokenAcknowledged) ||
                 (stage === "recovery" && recoveryToken.trim().length < 32) ||
                 (stage === "bootstrap" && (fullName.trim().length < 3 || !email.includes("@")))
               }
@@ -328,7 +338,7 @@ export function LoginPage({ onAuthenticate, onCredentialAuthenticate }: LoginPag
           </form>
           {onCredentialAuthenticate && stage === "token" && (
             <>
-              <p className="login-card-description" style={{ marginTop: 18, textAlign: "center" }}>Or sign in with your assigned admin credentials and authenticator.</p>
+              <p className="login-card-description" style={{ marginTop: 18, textAlign: "center" }}>Already set your password? Sign in with your assigned admin email or username, password and authenticator. If this is your first sign-in and you have no password yet, use the staff access token section above instead.</p>
               <form onSubmit={submitCredentials} className="login-credential-form">
                 <label className="member-form-label" htmlFor="admin-identifier">Admin email or username <span>Required</span></label>
                 <input id="admin-identifier" className="admin-review-token-input" value={credentialIdentifier} onChange={(event) => setCredentialIdentifier(event.target.value)} autoComplete="username" required />
