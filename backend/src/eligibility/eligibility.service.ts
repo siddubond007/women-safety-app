@@ -5,7 +5,6 @@ import {
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { AuthenticationService } from "../auth/auth.service.js";
-import { createAuthenticatedMemberIdentity } from "../auth/member-identity.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type { StartManualReviewDto } from "./eligibility.dto.js";
 
@@ -192,9 +191,16 @@ export class EligibilityService {
       throw new ConflictException("This account is not eligible to submit a new manual-review request.");
     }
 
-    return this.prisma.withMemberIdentity(
-      createAuthenticatedMemberIdentity({ accountId: session.accountId, sessionId: session.id }),
-      async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
+      // Bind the authenticated member identity on this exact transaction
+      // before writing the submission, member state, or audit event.
+      await tx.$queryRaw`SELECT
+        set_config('app.account_id', ${session.accountId}, true),
+        set_config('app.session_id', ${session.id}, true),
+        set_config('app.admin_staff_id', '', true),
+        set_config('app.admin_role', '', true),
+        set_config('app.auth_lookup', 'false', true),
+        set_config('app.system_job', 'false', true)`;
       const previousSubmission = await tx.eligibilitySubmission.findFirst({
         where: { accountId: session.accountId },
         orderBy: { submittedAt: "desc" },
