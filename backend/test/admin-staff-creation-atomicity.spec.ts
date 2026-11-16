@@ -7,10 +7,10 @@ const PASSWORD_HASH = "scrypt$16384$8$1$salt$" + "c".repeat(128);
 function createHarness(failAudit = false) {
   const tx = {
     adminStaffAccount: {
-      create: vi.fn().mockResolvedValue({ id: "created-staff" }),
+      create: vi.fn(async (_args: { data: Record<string, unknown> }) => ({ id: "created-staff" })),
     },
     auditEvent: {
-      create: vi.fn(async () => {
+      create: vi.fn(async (_args: { data: Record<string, unknown> }) => {
         if (failAudit) throw new Error("audit write failed");
         return { id: "audit-id" };
       }),
