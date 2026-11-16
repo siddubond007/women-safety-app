@@ -417,6 +417,29 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
         /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
       );
 
+      // The member-facing request runs as the NOBYPASSRLS app role. Verify
+      // that its scoped audit insert persisted with an explicit UUID and the
+      // authenticated member as actor; the migrator is used only to inspect
+      // the disposable test database after the API transaction commits.
+      const submissionAudit = await cleanupClient!.auditEvent.findFirst({
+        where: {
+          actorType: "MEMBER",
+          actorId: approvedMember.accountId,
+          action: "eligibility.manual_review.submitted",
+          targetType: "eligibility_submission",
+          targetId: approvedSubmissionId,
+        },
+        select: { id: true, actorId: true, requestId: true },
+      });
+      expect(submissionAudit).not.toBeNull();
+      expect(submissionAudit?.id).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      );
+      expect(submissionAudit?.requestId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      );
+      expect(submissionAudit?.actorId).toBe(approvedMember.accountId);
+
       const queueResponse = await request(app.getHttpServer())
         .get("/api/v1/admin-review/queue")
         .set("X-Sakhi-Staging-Admin-Session", reviewerToken)
