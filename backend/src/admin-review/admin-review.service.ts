@@ -3949,13 +3949,66 @@ export class AdminReviewService {
     const salt = randomBytes(16).toString("hex");
     const derived = scryptSync(newPassword, salt, 64, { N: 16384, r: 8, p: 1 }).toString("hex");
     const passwordHash = `scrypt$16384$8$1$${salt}$${derived}`;
-    const updated = await this.prisma.adminStaffAccount.update({
-      where: { id: staffId },
-      data: { passwordHash, passwordUpdatedAt: new Date(), mustResetPassword: false, failedLoginAttempts: 0, lockedUntil: null },
-      select: { id: true, staffCode: true },
-    });
-    if (this.adminSessions) await this.adminSessions.revokeAllForStaff(staffId, "PASSWORD_CHANGED");
-    return { updated: true as const, staffCode: updated.staffCode };
+    // Bind the authenticated administrator as the database actor before the
+    // transaction so audit_events RLS evaluates the same request identity.
+    setAdminDatabaseIdentity(principal.staffId, principal.role);
+    const now = new Date();
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.adminStaffAccount.update({
+        where: { id: staffId },
+        data: {
+          passwordHash,
+          passwordUpdatedAt: now,
+          mustResetPassword: false,
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+        },
+        select: { id: true, staffCode: true },
+      });
+      const revoked = await tx.adminStaffSession.updateMany({
+        where: { staffId, revokedAt: null },
+        data: { revokedAt: now, revokeReason: "PASSWORD_CHANGED" },
+      });
+
+      // Both security events commit or roll back with the credential and
+      // session changes. Never include the password or password hash.
+      await tx.auditEvent.create({
+        data: {
+          actorType: "ADMIN",
+          actorId: principal.staffId,
+          action: "admin.staff_password.changed",
+          targetType: "admin_staff_account",
+          targetId: staffId,
+          outcome: "success",
+          requestId: randomUUID(),
+          redactedMetadata: {
+            passwordUpdatedAt: now.toISOString(),
+            mustResetPassword: false,
+          },
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          actorType: "ADMIN",
+          actorId: principal.staffId,
+          action: "admin.staff_sessions.revoked_all",
+          targetType: "admin_staff_account",
+          targetId: staffId,
+          outcome: "success",
+          requestId: randomUUID(),
+          redactedMetadata: {
+            reason: "PASSWORD_CHANGED",
+            revokedSessions: revoked.count,
+          },
+        },
+      });
+      return { updated, revokedSessions: revoked.count };
+    }, { isolationLevel: "Serializable" });
+    return {
+      updated: true as const,
+      staffCode: result.updated.staffCode,
+      revokedSessions: result.revokedSessions,
+    };
   }
 
 }
