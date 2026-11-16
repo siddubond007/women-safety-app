@@ -58,6 +58,46 @@ describe("admin authentication security remediation", () => {
     },
   );
 
+  it("passes only a password hash into the atomic staff-creation transaction", async () => {
+    vi.spyOn(SakhiAdminRbacRegistry, "ensureHydrated").mockResolvedValue(undefined);
+    const creator = vi
+      .spyOn(SakhiAdminRbacRegistry, "createStaffAccount")
+      .mockResolvedValue({
+        staff: {
+          id: "3e6fce37-6aab-4cb4-8a6c-6a2d07f87e92",
+          staffCode: "#VA-456",
+          username: "new.reviewer",
+        } as never,
+        issuedAccessToken: "one-time-generated-token",
+      });
+    const service = new AdminReviewService({} as never);
+    vi.spyOn(service, "resolveAdminPrincipal").mockReturnValue({
+      ...restrictedSuperAdmin,
+      permissions: { ...restrictedSuperAdmin.permissions, approve: true, create: true },
+    });
+
+    await service.createAdminStaff(
+      {
+        fullName: "New Reviewer",
+        email: "new.reviewer@example.test",
+        role: "VERIFICATION_ADMIN",
+        username: "new.reviewer",
+        initialPassword: "Temporary-Admin-Password-2026",
+      },
+      "staff-admin.test",
+    );
+
+    const dto = creator.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(dto).toMatchObject({
+      username: "new.reviewer",
+      mustResetPassword: true,
+    });
+    expect(dto.initialPasswordHash).toEqual(
+      expect.stringMatching(/^scrypt\$16384\$8\$1\$/),
+    );
+    expect(dto).not.toHaveProperty("initialPassword");
+  });
+
   it("counts concurrent failed password attempts atomically before applying the five-attempt lockout", async () => {
     let failedLoginAttempts = 3;
     let lockedUntil: Date | null = null;
