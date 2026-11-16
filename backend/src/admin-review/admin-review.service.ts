@@ -3830,41 +3830,54 @@ export class AdminReviewService {
 
     if (!verifyPassword(password, staff.passwordHash)) {
       await this.prisma.$transaction(async (tx) => {
-        // Use a database-side increment so simultaneous failures cannot
-        // overwrite one another with the same stale count read at login.
-        const incremented = await tx.adminStaffAccount.update({
-          where: { id: staff.id },
-          data: { failedLoginAttempts: { increment: 1 } },
-          select: { failedLoginAttempts: true },
-        });
-        const failedLoginAttempts = Number(incremented.failedLoginAttempts ?? 0);
-        const lockedUntil = failedLoginAttempts >= 5
-          ? new Date(now.getTime() + 15 * 60 * 1000)
-          : null;
-        if (lockedUntil) {
-          await tx.adminStaffAccount.update({
-            where: { id: staff.id },
-            data: { failedLoginAttempts: 0, lockedUntil },
-          });
-        } else {
-          await tx.adminStaffAccount.update({
-            where: { id: staff.id },
-            data: { lockedUntil: null },
-          });
+        // One conditional UPDATE serializes concurrent failures on the staff
+        // row. A request that was already in flight when the fifth failure
+        // locked the account must preserve that lock instead of clearing it.
+        const rows = await tx.$queryRaw<Array<{
+          failedLoginAttempts: number;
+          lockedUntil: Date | null;
+        }>>`
+          UPDATE admin_staff_accounts
+          SET
+            failed_login_attempts = CASE
+              WHEN locked_until IS NOT NULL AND locked_until > NOW()
+                THEN failed_login_attempts
+              WHEN failed_login_attempts + 1 >= 5
+                THEN 0
+              ELSE failed_login_attempts + 1
+            END,
+            locked_until = CASE
+              WHEN locked_until IS NOT NULL AND locked_until > NOW()
+                THEN locked_until
+              WHEN failed_login_attempts + 1 >= 5
+                THEN NOW() + INTERVAL '15 minutes'
+              ELSE NULL
+            END
+          WHERE id = ${staff.id}::uuid
+          RETURNING
+            failed_login_attempts AS "failedLoginAttempts",
+            locked_until AS "lockedUntil"
+        `;
+        const state = rows[0];
+        if (!state) {
+          throw new UnauthorizedException("The admin account is no longer available.");
         }
+        const failedLoginAttempts = Number(state.failedLoginAttempts ?? 0);
+        const lockedUntil = state.lockedUntil ? new Date(state.lockedUntil) : null;
+        const locked = Boolean(lockedUntil && lockedUntil.getTime() > Date.now());
         await tx.auditEvent.create({
           data: {
             actorType: "ADMIN",
             actorId: staff.id,
-            action: lockedUntil ? "admin.auth.account_locked" : "admin.auth.login_failed",
+            action: locked ? "admin.auth.account_locked" : "admin.auth.login_failed",
             targetType: "admin_staff_account",
             targetId: staff.id,
             outcome: "denied",
             requestId: randomUUID(),
             redactedMetadata: {
               identifierHash: createHash("sha256").update(identifier).digest("hex").slice(0, 16),
-              failedLoginAttempts,
-              locked: Boolean(lockedUntil),
+              failedLoginAttempts: locked ? 5 : failedLoginAttempts,
+              locked,
             },
           },
         });
