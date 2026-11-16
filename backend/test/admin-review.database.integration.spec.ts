@@ -33,7 +33,6 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
   "database-backed manual eligibility review workflow",
   () => {
     let app: INestApplication | undefined;
-    let db: PrismaService | undefined;
     let cleanupClient: PrismaClient | undefined;
     const fixtureAccountIds: string[] = [];
 
@@ -101,7 +100,6 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
       app.setGlobalPrefix("api/v1");
       app.useGlobalPipes(createGlobalValidationPipe());
       await app.init();
-      db = app.get(PrismaService);
 
       // The runtime API uses the least-privilege app role. The local test migrator
       // is used only to remove synthetic fixtures because the app role has no DELETE grant.
@@ -152,21 +150,23 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
       } finally {
         await app?.close();
         app = undefined;
-        db = undefined;
         await cleanupClient?.$disconnect();
         cleanupClient = undefined;
       }
     }, 30000);
 
     async function createSyntheticMember(displayName: string) {
-      if (!db) throw new Error("Integration-test database client is not ready.");
+      if (!cleanupClient) throw new Error("Integration-test migrator client is not ready.");
+      // Fixture setup intentionally uses the isolated test migrator (BYPASSRLS),
+      // never the least-privilege app role. API reads and writes below still run
+      // through the app role and must satisfy the real RLS policies.
       const [terms, privacy] = await Promise.all([
-        db.policyDocumentVersion.findFirst({
+        cleanupClient.policyDocumentVersion.findFirst({
           where: { documentType: "TERMS", status: "DRAFT" },
           orderBy: { createdAt: "desc" },
           select: { id: true },
         }),
-        db.policyDocumentVersion.findFirst({
+        cleanupClient.policyDocumentVersion.findFirst({
           where: { documentType: "PRIVACY", status: "DRAFT" },
           orderBy: { createdAt: "desc" },
           select: { id: true },
@@ -179,7 +179,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
       let phoneE164 = "";
       for (let attempt = 0; attempt < 12; attempt += 1) {
         const candidate = "+1202555" + String(randomInt(0, 10000)).padStart(4, "0");
-        const existing = await db.memberAccount.findUnique({
+        const existing = await cleanupClient.memberAccount.findUnique({
           where: { phoneE164: candidate },
           select: { id: true },
         });
@@ -190,7 +190,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
       }
       if (!phoneE164) throw new Error("Could not allocate a unique synthetic phone number.");
 
-      const account = await db.memberAccount.create({
+      const account = await cleanupClient.memberAccount.create({
         data: {
           phoneE164,
           phoneVerifiedAt: new Date(),
@@ -201,7 +201,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
       });
       fixtureAccountIds.push(account.id);
 
-      await db.memberProfile.create({
+      await cleanupClient.memberProfile.create({
         data: {
           accountId: account.id,
           displayName,
@@ -209,7 +209,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
           email: "review-integration@example.invalid",
         },
       });
-      await db.memberConsent.create({
+      await cleanupClient.memberConsent.create({
         data: {
           accountId: account.id,
           termsVersionId: terms.id,
@@ -220,7 +220,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
       });
 
       const accessToken = randomBytes(32).toString("base64url");
-      await db.authSession.create({
+      await cleanupClient.authSession.create({
         data: {
           accountId: account.id,
           tokenDigest: createHash("sha256").update(accessToken).digest("hex"),
