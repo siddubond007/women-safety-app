@@ -17,6 +17,8 @@ import {
 import { AdminReviewController } from "../src/admin-review/admin-review.controller.js";
 import { AdminReviewModule } from "../src/admin-review/admin-review.module.js";
 import { AdminReviewService } from "../src/admin-review/admin-review.service.js";
+import { GoogleDriveStorageService } from "../src/module2/google-drive-storage.service.js";
+import { AdminStaffSessionGuard } from "../src/admin-security/admin-staff-session.guard.js";
 import { ManualEligibilityDecisionDto } from "../src/admin-review/admin-review.dto.js";
 import { DevelopmentMemberStateDto } from "../src/admin-review/admin-member-state.dto.js";
 import { EligibilityController } from "../src/eligibility/eligibility.controller.js";
@@ -117,7 +119,8 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
       Reflect.defineMetadata("design:paramtypes", [AuthenticationService, PrismaService], EligibilityService);
       Reflect.defineMetadata("design:paramtypes", [EligibilityService], EligibilityController);
       Reflect.defineMetadata("design:paramtypes", [String, StartManualReviewDto], EligibilityController.prototype, "start");
-      Reflect.defineMetadata("design:paramtypes", [PrismaService], AdminReviewService);
+      Reflect.defineMetadata("design:paramtypes", [PrismaService, GoogleDriveStorageService, AdminMfaService, AdminSessionService], AdminReviewService);
+      Reflect.defineMetadata("design:paramtypes", [AdminSessionService], AdminStaffSessionGuard);
       Reflect.defineMetadata("design:paramtypes", [PrismaService], AdminMfaService);
       Reflect.defineMetadata("design:paramtypes", [PrismaService], AdminSessionService);
       Reflect.defineMetadata("design:paramtypes", [AdminReviewService], AdminReviewController);
