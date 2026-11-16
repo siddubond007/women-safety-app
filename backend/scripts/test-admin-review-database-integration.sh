@@ -112,4 +112,7 @@ export SAKHI_MANUAL_REVIEW_RETENTION_DESCRIPTION="TEST ONLY: integration fixture
 
 npm run test:db-admin-review
 
+# Verify forced RLS metadata for staff-security tables against the same disposable PostgreSQL 17 database.
+NODE_ENV=test npx vitest run test/admin-mfa-role-boundary.database.integration.spec.ts --reporter=verbose
+
 unset SAKHI_APP_DATABASE_URL SAKHI_MIGRATOR_DATABASE_URL SAKHI_ADMIN_REVIEW_TOKEN

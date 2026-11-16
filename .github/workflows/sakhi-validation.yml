@@ -51,6 +51,7 @@ permissions:
 
 jobs:
   backend:
+    if: github.event_name != 'workflow_dispatch'
     name: Backend schema, types, unit tests and build
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -80,6 +81,7 @@ jobs:
         run: npm run build
 
   admin-review-postgres17:
+    if: github.event_name != 'workflow_dispatch'
     name: Admin review integration on isolated PostgreSQL 17
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -121,6 +123,7 @@ jobs:
         run: bash scripts/test-admin-review-database-integration.sh
 
   super-admin:
+    if: github.event_name != 'workflow_dispatch'
     name: Super Admin type-check, lint and build
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -146,6 +149,7 @@ jobs:
         run: npm run build
 
   flutter:
+    if: github.event_name != 'workflow_dispatch'
     name: Flutter analysis, tests and staging-connected debug APK
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -185,3 +189,43 @@ jobs:
           path: app/build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
           retention-days: 7
+
+  staging-staff-mfa:
+    name: Manual staging staff MFA lifecycle verification
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: staging
+    concurrency:
+      group: sakhi-staging-staff-mfa
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      SAKHI_ENV: staging
+      NODE_ENV: production
+      SAKHI_STAGING_MFA_DB_INTEGRATION: "true"
+      SAKHI_APP_DATABASE_URL: ${{ secrets.SAKHI_STAGING_APP_DATABASE_URL }}
+      SAKHI_MIGRATOR_DATABASE_URL: ${{ secrets.SAKHI_STAGING_MIGRATOR_DATABASE_URL }}
+    steps:
+      - name: Checkout selected branch
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.22.0"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Verify protected staging credentials are configured
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SAKHI_APP_DATABASE_URL" || { echo "::error::Missing staging environment secret SAKHI_STAGING_APP_DATABASE_URL"; exit 1; }
+          test -n "$SAKHI_MIGRATOR_DATABASE_URL" || { echo "::error::Missing staging environment secret SAKHI_STAGING_MIGRATOR_DATABASE_URL"; exit 1; }
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Generate Prisma Client
+        run: npm run prisma:generate
+      - name: Run synthetic staging staff MFA lifecycle
+        run: npx vitest run test/admin-mfa.database.integration.spec.ts --reporter=verbose
