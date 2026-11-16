@@ -261,7 +261,11 @@ export class EligibilityService {
               AND ${session.accountId}::uuid=NULLIF(current_setting('app.account_id',true),'')::uuid
             ) AS "memberInsertCondition",
             (
-              SELECT with_check FROM pg_policies
+              SELECT string_agg(
+                concat_ws('|', policyname, permissive, array_to_string(roles, ','), cmd, with_check),
+                E'\\n'
+              )
+              FROM pg_policies
               WHERE schemaname='public' AND tablename='audit_events'
                 AND cmd IN ('INSERT','ALL')
             ) AS "insertPolicy"
