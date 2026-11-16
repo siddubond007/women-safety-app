@@ -30,15 +30,15 @@ psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
 SELECT format(
   'CREATE ROLE sakhi_test_app LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS',
   :'app_password'
-) \\gexec
+) \gexec
 SELECT format(
   'CREATE ROLE sakhi_test_migrator LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION BYPASSRLS',
   :'migrator_password'
-) \\gexec
+) \gexec
 SELECT format(
   'CREATE ROLE sakhi_staging_app LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS',
   :'staging_role_password'
-) \\gexec
+) \gexec
 
 GRANT CONNECT ON DATABASE sakhi_test TO sakhi_test_app, sakhi_test_migrator;
 GRANT USAGE ON SCHEMA public TO sakhi_test_app;
