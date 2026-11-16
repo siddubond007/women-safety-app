@@ -117,9 +117,11 @@ export class PrismaService extends PrismaClient implements OnModuleDestroy {
                     set_config('app.system_job', 'false', true),
                     set_config('app.auth_session_digest', ${authSessionDigest}, true),
                     set_config('app.notification_recipient_id', '', true)`;
-                  return databaseTransactionStorage.run(tx, () =>
-                    (tx as unknown as Record<string, any>)[property][method](...args),
-                  );
+                  // This wrapper executes exactly one delegate operation inside
+                  // the transaction. Do not publish the short-lived transaction
+                  // through AsyncLocalStorage: an await continuation in the
+                  // caller must not inherit a transaction client after commit.
+                  return (tx as unknown as Record<string, any>)[property][method](...args);
                 });
               };
             },
