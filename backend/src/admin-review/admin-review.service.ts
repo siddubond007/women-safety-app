@@ -3550,6 +3550,7 @@ export class AdminReviewService {
         fullName: body.fullName,
         email: body.email,
         role: body.role,
+        customAccessToken: body.customAccessToken,
         isAuthorisedComplaintReviewer: body.isAuthorisedComplaintReviewer,
         clearanceLevel: body.clearanceLevel,
         permissions: body.permissions,
