@@ -59,10 +59,47 @@ psql "$SAKHI_MIGRATOR_DATABASE_URL" <<'SQL'
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO sakhi_test_app;
 GRANT USAGE ON ALL TYPES IN SCHEMA public TO sakhi_test_app;
 REVOKE ALL ON TABLE public._prisma_migrations FROM sakhi_test_app;
+
+-- Test-only staff security access mirrors the dedicated backend runtime role.
+-- This policy is installed only in the disposable sakhi_test database. The
+-- test app role remains NOBYPASSRLS and does not own these tables.
+GRANT SELECT, INSERT, UPDATE ON TABLE
+  public.admin_staff_accounts,
+  public.admin_staff_sessions,
+  public.admin_staff_mfa,
+  public.admin_staff_backup_codes,
+  public.admin_staff_recovery_requests
+TO sakhi_test_app;
+DO $test_staff_rls$
+DECLARE table_name text;
+DECLARE policy_name text;
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY[
+    'admin_staff_accounts',
+    'admin_staff_sessions',
+    'admin_staff_mfa',
+    'admin_staff_backup_codes',
+    'admin_staff_recovery_requests'
+  ] LOOP
+    policy_name := table_name || '_runtime_sakhi_test_app';
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_policies
+      WHERE schemaname='public' AND tablename=table_name AND policyname=policy_name
+    ) THEN
+      EXECUTE format(
+        'CREATE POLICY %I ON public.%I FOR ALL TO sakhi_test_app USING (true) WITH CHECK (true)',
+        policy_name, table_name
+      );
+    END IF;
+  END LOOP;
+END
+$test_staff_rls$;
 SQL
 
 export SAKHI_DB_INTEGRATION=true
 export SAKHI_OTP_MODE=disabled
+export SAKHI_ADMIN_STAFF_SESSION_SIGNING_KEY="$(openssl rand -base64 32)"
+export SAKHI_ADMIN_MFA_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 export SAKHI_ADMIN_REVIEW_TOKEN="$(openssl rand -hex 32)"
 export SAKHI_MANUAL_REVIEW_POLICY_APPROVED=true
 export SAKHI_MANUAL_REVIEW_EVIDENCE_PROCEDURE_APPROVED=true
