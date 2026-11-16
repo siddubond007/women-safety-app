@@ -55,7 +55,7 @@ npm run db:seed
 
 # Grant object access to the NOBYPASSRLS app role. These grants do not alter
 # RLS policies, enable bypass, or transfer table ownership.
-psql "$SAKHI_MIGRATOR_DATABASE_URL" <<'SQL'
+psql "postgresql://sakhi_test_migrator:${MIGRATOR_PASSWORD}@${PGHOST}:${PGPORT}/sakhi_test" <<'SQL'
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO sakhi_test_app;
 GRANT USAGE ON ALL TYPES IN SCHEMA public TO sakhi_test_app;
 REVOKE ALL ON TABLE public._prisma_migrations FROM sakhi_test_app;
