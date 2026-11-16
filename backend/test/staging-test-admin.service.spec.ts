@@ -515,7 +515,7 @@ describe("StagingTestAdminService", () => {
         },
       });
       expect(mfa.verifyLoginFactor).toHaveBeenCalledWith(staffRow.id, "123456");
-      expect(sessions.issueSession).toHaveBeenCalledWith(staffRow.id);
+      expect(sessions.issueSession).toHaveBeenCalledWith(staffRow.id, undefined, "INITIAL_SETUP");
     } finally {
       SakhiAdminRbacRegistry.resetForTesting();
     }
