@@ -241,10 +241,10 @@ export class EligibilityService {
 
       await tx.$executeRaw`
         INSERT INTO public.audit_events (
-          actor_type, actor_id, action, target_type, target_id,
+          id, actor_type, actor_id, action, target_type, target_id,
           outcome, request_id, redacted_metadata
         ) VALUES (
-          'MEMBER', ${session.accountId}::uuid,
+          ${randomUUID()}::uuid, 'MEMBER', ${session.accountId}::uuid,
           'eligibility.manual_review.submitted',
           'eligibility_submission', ${submission.id},
           'pending', ${randomUUID()},
