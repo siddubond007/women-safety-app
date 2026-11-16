@@ -71,8 +71,9 @@ GRANT SELECT, INSERT, UPDATE ON TABLE
   public.admin_staff_recovery_requests
 TO sakhi_test_app;
 DO $test_staff_rls$
-DECLARE table_name text;
-DECLARE policy_name text;
+DECLARE
+  table_name text;
+  policy_name text;
 BEGIN
   FOREACH table_name IN ARRAY ARRAY[
     'admin_staff_accounts',
