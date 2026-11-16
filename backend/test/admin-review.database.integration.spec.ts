@@ -5,6 +5,7 @@ import { ConfigModule, ConfigService } from "@nestjs/config";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
+import type { NextFunction, Request, Response } from "express";
 import { AuthController } from "../src/auth/auth.controller.js";
 import { AuthModule } from "../src/auth/auth.module.js";
 import { AuthenticationService } from "../src/auth/auth.service.js";
@@ -143,7 +144,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
 
       app = testingModule.createNestApplication();
       app.setGlobalPrefix("api/v1");
-      app.use((_request, _response, next) => runWithDatabaseRequestIdentity(next));
+      app.use((_request: Request, _response: Response, next: NextFunction) => runWithDatabaseRequestIdentity(next));
       app.useGlobalPipes(createGlobalValidationPipe());
       await app.init();
 
