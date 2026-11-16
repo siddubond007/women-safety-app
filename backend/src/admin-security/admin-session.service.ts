@@ -65,7 +65,11 @@ function verifySignedToken(token: string) {
 export class AdminSessionService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async issueSession(staffId: string, sessionFamilyId = randomUUID()) {
+  async issueSession(
+    staffId: string,
+    sessionFamilyId = randomUUID(),
+    authenticationMode: "INITIAL_SETUP" | "PASSWORD_MFA" = "PASSWORD_MFA",
+  ) {
     const sessionId = randomUUID();
     const expiresAt = new Date(Date.now() + SESSION_TTL_SECONDS * 1000);
     const token = signStaffSession(
@@ -77,10 +81,30 @@ export class AdminSessionService {
     await this.prisma.$transaction(async (tx) => {
       const staff = await tx.adminStaffAccount.findUnique({
         where: { id: staffId },
-        select: { id: true, status: true, suspendedAt: true, deletedAt: true },
+        select: {
+          id: true,
+          status: true,
+          suspendedAt: true,
+          deletedAt: true,
+          passwordHash: true,
+          mustResetPassword: true,
+        },
       });
       if (!staff || staff.status !== "ACTIVE" || staff.suspendedAt || staff.deletedAt) {
         throw new UnauthorizedException("The staff account is not active.");
+      }
+      const requiresInitialSetup = Boolean(
+        staff.mustResetPassword || staff.passwordHash === null,
+      );
+      if (
+        (authenticationMode === "INITIAL_SETUP" && !requiresInitialSetup) ||
+        (authenticationMode === "PASSWORD_MFA" && requiresInitialSetup)
+      ) {
+        throw new UnauthorizedException(
+          authenticationMode === "INITIAL_SETUP"
+            ? "Initial setup has already been completed. Sign in with password and TOTP."
+            : "Complete initial staff password setup before credential sign-in.",
+        );
       }
       await tx.adminStaffAccount.update({
         where: { id: staffId },
