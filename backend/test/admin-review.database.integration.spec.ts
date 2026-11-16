@@ -394,6 +394,27 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
       const owner = await createSyntheticMember("Synthetic RLS Owner");
       const other = await createSyntheticMember("Synthetic RLS Other Member");
 
+      // Create a real Member B eligibility row with the privileged disposable
+      // test migrator. Without this fixture, an empty result would be a false
+      // positive because there would be no Member B row for RLS to hide.
+      if (!cleanupClient) throw new Error("Integration-test migrator client is not ready.");
+      const otherSubmission = await cleanupClient.eligibilitySubmission.create({
+        data: {
+          accountId: other.accountId,
+          consentVersion: "synthetic-rls-v1",
+          consentAcceptedAt: new Date(),
+        },
+        select: { id: true, accountId: true },
+      });
+      const persistedOtherSubmission = await cleanupClient.eligibilitySubmission.findUnique({
+        where: { id: otherSubmission.id },
+        select: { id: true, accountId: true },
+      });
+      expect(persistedOtherSubmission).toEqual({
+        id: otherSubmission.id,
+        accountId: other.accountId,
+      });
+
       // Query through the actual application PrismaService, not the privileged
       // fixture/migrator connection. The request identity is transaction-local.
       const prisma = app.get(PrismaService);
