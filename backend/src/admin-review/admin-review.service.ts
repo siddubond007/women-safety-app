@@ -531,7 +531,7 @@ export class AdminReviewService {
     });
   }
 
-  private assertFullAdminMemberControl(token?: string): string {
+  private assertFullAdminMemberControl(token?: string): AuthenticatedAdminPrincipal {
     const principal = this.resolveAdminPrincipal(token);
     SakhiAdminRbacRegistry.assertRouteAccess(
       principal,
@@ -543,7 +543,7 @@ export class AdminReviewService {
         "Super Admin view and approve permissions are required for full member PII and eligibility overrides.",
       );
     }
-    return principal.reviewerLabel;
+    return principal;
   }
 
   private canRevealFullMemberPii(token?: string): boolean {
@@ -746,7 +746,8 @@ export class AdminReviewService {
     dto: DevelopmentMemberStateDto,
     token?: string,
   ) {
-    const reviewerLabel = this.assertModuleAccess(token, ["SUPER_ADMIN", "VERIFICATION_ADMIN"], "suspend", "Member account state changes").reviewerLabel;
+    const principal = this.assertModuleAccess(token, ["SUPER_ADMIN", "VERIFICATION_ADMIN"], "suspend", "Member account state changes");
+    const reviewerLabel = principal.reviewerLabel;
     this.assertDevelopmentMemberOverrides();
     if (
       (dto.accountStatus === undefined || dto.accountStatus === null) &&
@@ -830,6 +831,7 @@ export class AdminReviewService {
       await tx.auditEvent.create({
         data: {
           actorType: "ADMIN",
+          actorId: principal.staffId,
           action: "admin.dev_member_state.updated",
           targetType: "member_account",
           targetId: accountId,
@@ -863,7 +865,8 @@ export class AdminReviewService {
     dto: ManualEligibilityDecisionDto,
     token?: string,
   ) {
-    const reviewerLabel = this.assertModuleAccess(token, ["SUPER_ADMIN", "VERIFICATION_ADMIN"], "approve", "Eligibility decisions").reviewerLabel;
+    const principal = this.assertModuleAccess(token, ["SUPER_ADMIN", "VERIFICATION_ADMIN"], "approve", "Eligibility decisions");
+    const reviewerLabel = principal.reviewerLabel;
     const reason = dto.reason?.trim();
     if (!dto.reviewedEvidence) {
       throw new ConflictException(
@@ -939,6 +942,7 @@ export class AdminReviewService {
       await tx.auditEvent.create({
         data: {
           actorType: "ADMIN",
+          actorId: principal.staffId,
           action: approved
             ? "eligibility.manual_review.approved"
             : "eligibility.manual_review.rejected",
@@ -2154,7 +2158,8 @@ export class AdminReviewService {
   }
 
   async previewReportedMedia(uploadId: string, token?: string) {
-    const reviewerLabel = this.assertModuleAccess(token, ["SUPER_ADMIN", "CONTENT_MODERATOR"], "view", "Moderation evidence preview").reviewerLabel;
+    const principal = this.assertModuleAccess(token, ["SUPER_ADMIN", "CONTENT_MODERATOR"], "view", "Moderation evidence preview");
+    const reviewerLabel = principal.reviewerLabel;
     const cleanId = (uploadId ?? "").trim().replace(/^.*\/media\/object\//, "");
     if (!cleanId) {
       throw new BadRequestException("Provide a valid media upload ID.");
@@ -2191,6 +2196,7 @@ export class AdminReviewService {
       await anyPrisma.auditEvent.create({
         data: {
           actorType: "ADMIN",
+          actorId: principal.staffId,
           action: "admin.moderation.media_previewed",
           targetType: "media_asset",
           targetId: cleanId,
@@ -2410,7 +2416,8 @@ export class AdminReviewService {
   }
 
   async safetyConsoleOverview(token?: string) {
-    const reviewerLabel = this.assertModuleAccess(token, ["SUPER_ADMIN", "SOS_SAFETY_ADMIN"], "view", "SOS safety console").reviewerLabel;
+    const principal = this.assertModuleAccess(token, ["SUPER_ADMIN", "SOS_SAFETY_ADMIN"], "view", "SOS safety console");
+    const reviewerLabel = principal.reviewerLabel;
     const anyPrisma = this.prisma as Record<string, any>;
     const [rawSosEvents, contactsCount, stations, helplines, auditEvents] =
       await Promise.all([
@@ -2584,6 +2591,7 @@ export class AdminReviewService {
     await this.prisma.auditEvent.create({
       data: {
         actorType: "ADMIN",
+        actorId: principal.staffId,
         action: "admin.sos_console.viewed",
         targetType: "safety_sos_console",
         targetId: "module4_console",
@@ -3269,7 +3277,8 @@ export class AdminReviewService {
     body: Record<string, unknown>,
     token?: string,
   ) {
-    const reviewerLabel = this.assertFullAdminMemberControl(token);
+    const principal = this.assertFullAdminMemberControl(token);
+    const reviewerLabel = principal.reviewerLabel;
 
     const preset = String(body.preset ?? body.eligibilityStatus ?? "")
       .trim()
@@ -3418,6 +3427,7 @@ export class AdminReviewService {
       await tx.auditEvent.create({
         data: {
           actorType: "ADMIN",
+          actorId: principal.staffId,
           action:
             nextVerificationStatus === "VERIFIED"
               ? "eligibility.manual_review.approved"
