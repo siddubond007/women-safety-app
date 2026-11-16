@@ -41,6 +41,7 @@ SELECT format(
 ) \gexec
 
 GRANT CONNECT ON DATABASE sakhi_test TO sakhi_test_app, sakhi_test_migrator;
+GRANT CREATE ON DATABASE sakhi_test TO sakhi_test_migrator;
 GRANT USAGE ON SCHEMA public TO sakhi_test_app;
 GRANT USAGE, CREATE ON SCHEMA public TO sakhi_test_migrator;
 SQL
