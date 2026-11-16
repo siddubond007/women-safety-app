@@ -470,7 +470,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
       const bothReadsCompleted = new Promise<void>((resolve) => {
         releaseReads = resolve;
       });
-      const findFirstSpy = vi.spyOn(prisma.adminStaffAccount, "findFirst").mockImplementation(
+      const findFirstSpy = vi.spyOn(prisma.adminStaffAccount as any, "findFirst").mockImplementation(
         async (args: any) => {
           const row = await originalFindFirst(args);
           reads += 1;
