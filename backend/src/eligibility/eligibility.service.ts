@@ -5,6 +5,7 @@ import {
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { AuthenticationService } from "../auth/auth.service.js";
+import { createAuthenticatedMemberIdentity } from "../auth/member-identity.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type { StartManualReviewDto } from "./eligibility.dto.js";
 
