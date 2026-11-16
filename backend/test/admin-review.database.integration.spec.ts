@@ -431,7 +431,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
           reason: "Synthetic integration test approval.",
           reviewedEvidence: true,
         })
-        .expect(201);
+        .expect(200);
       expect(approval.body).toMatchObject({
         submissionId: approvedSubmissionId,
         accountId: approvedMember.accountId,
@@ -466,7 +466,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
           reason: "Synthetic integration test rejection.",
           reviewedEvidence: true,
         })
-        .expect(201);
+        .expect(200);
       expect(rejection.body).toMatchObject({
         submissionId: rejectedSubmissionId,
         accountId: rejectedMember.accountId,
