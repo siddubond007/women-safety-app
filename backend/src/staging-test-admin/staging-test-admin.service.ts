@@ -226,8 +226,7 @@ export class StagingTestAdminService {
         select: { role: true, passwordHash: true, mustResetPassword: true },
       });
       const requiresInitialSetup = Boolean(
-        setupState?.mustResetPassword ||
-        (setupState?.role === "SUPER_ADMIN" && setupState.passwordHash === null),
+        setupState?.mustResetPassword || setupState?.passwordHash === null,
       );
       if (!requiresInitialSetup) {
         throw new UnauthorizedException(
