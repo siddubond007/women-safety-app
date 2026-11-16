@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { createHash, createHmac, randomBytes, randomInt, randomUUID, scryptSync } from "node:crypto";
 import type { INestApplication } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
 import type { NextFunction, Request, Response } from "express";
@@ -591,6 +591,80 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
       expect(history.body.map((item: { outcome: string }) => item.outcome)).toEqual(
         expect.arrayContaining(["approve", "reject"]),
       );
+    }, 30000);
+
+    it("changes the staff password and revokes every active session in one PostgreSQL transaction", async () => {
+      if (!app || !cleanupClient) throw new Error("Integration-test services are not ready.");
+      const service = app.get(AdminReviewService);
+      vi.spyOn(service, "resolveAdminPrincipal").mockReturnValue({
+        staffId: integrationStaffId,
+        role: "SUPER_ADMIN",
+      } as never);
+
+      const extraSessionId = randomUUID();
+      await cleanupClient.adminStaffSession.create({
+        data: {
+          id: extraSessionId,
+          staffId: integrationStaffId,
+          sessionFamilyId: randomUUID(),
+          tokenDigest: createHash("sha256").update(randomBytes(32)).digest("hex"),
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        },
+      });
+
+      const before = await cleanupClient.adminStaffAccount.findUniqueOrThrow({
+        where: { id: integrationStaffId },
+        select: { passwordHash: true, mustResetPassword: true },
+      });
+      const activeBefore = await cleanupClient.adminStaffSession.count({
+        where: { staffId: integrationStaffId, revokedAt: null },
+      });
+      expect(activeBefore).toBeGreaterThanOrEqual(2);
+
+      const changed = await runWithDatabaseRequestIdentity(
+        () => service.resetAdminStaffPassword(
+          integrationStaffId,
+          { newPassword: "Synthetic-Integration-Password-2026" },
+          "staff-admin.synthetic-session",
+        ),
+        { adminStaffId: integrationStaffId, adminRole: "SUPER_ADMIN" },
+      );
+      expect(changed).toMatchObject({
+        updated: true,
+        staffCode: expect.any(String),
+        revokedSessions: activeBefore,
+      });
+
+      const after = await cleanupClient.adminStaffAccount.findUniqueOrThrow({
+        where: { id: integrationStaffId },
+        select: { passwordHash: true, mustResetPassword: true, failedLoginAttempts: true, lockedUntil: true },
+      });
+      expect(after.passwordHash).not.toBe(before.passwordHash);
+      expect(after.passwordHash).not.toContain("Synthetic-Integration-Password-2026");
+      expect(after.mustResetPassword).toBe(false);
+      expect(after.failedLoginAttempts).toBe(0);
+      expect(after.lockedUntil).toBeNull();
+
+      const sessionsAfter = await cleanupClient.adminStaffSession.findMany({
+        where: { staffId: integrationStaffId },
+        select: { revokedAt: true, revokeReason: true },
+      });
+      expect(sessionsAfter.length).toBeGreaterThanOrEqual(2);
+      expect(sessionsAfter.every((session) => session.revokedAt instanceof Date)).toBe(true);
+      expect(sessionsAfter.every((session) => session.revokeReason === "PASSWORD_CHANGED")).toBe(true);
+
+      const passwordAudit = await cleanupClient.auditEvent.findMany({
+        where: {
+          actorId: integrationStaffId,
+          targetId: integrationStaffId,
+          action: { in: ["admin.staff_password.changed", "admin.staff_sessions.revoked_all"] },
+        },
+        select: { action: true, redactedMetadata: true },
+      });
+      expect(passwordAudit.map((event) => event.action)).toEqual(
+        expect.arrayContaining(["admin.staff_password.changed", "admin.staff_sessions.revoked_all"]),
+      );
+      expect(JSON.stringify(passwordAudit)).not.toContain("Synthetic-Integration-Password-2026");
     }, 30000);
   },
 );
