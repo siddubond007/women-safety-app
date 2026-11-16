@@ -191,7 +191,9 @@ export class EligibilityService {
       throw new ConflictException("This account is not eligible to submit a new manual-review request.");
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.withMemberIdentity(
+      createAuthenticatedMemberIdentity({ accountId: session.accountId, sessionId: session.id }),
+      async (tx) => {
       const previousSubmission = await tx.eligibilitySubmission.findFirst({
         where: { accountId: session.accountId },
         orderBy: { submittedAt: "desc" },
