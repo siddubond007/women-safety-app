@@ -118,6 +118,8 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
       Reflect.defineMetadata("design:paramtypes", [EligibilityService], EligibilityController);
       Reflect.defineMetadata("design:paramtypes", [String, StartManualReviewDto], EligibilityController.prototype, "start");
       Reflect.defineMetadata("design:paramtypes", [PrismaService], AdminReviewService);
+      Reflect.defineMetadata("design:paramtypes", [PrismaService], AdminMfaService);
+      Reflect.defineMetadata("design:paramtypes", [PrismaService], AdminSessionService);
       Reflect.defineMetadata("design:paramtypes", [AdminReviewService], AdminReviewController);
       Reflect.defineMetadata("design:paramtypes", [String, String, String, String, String, String], AdminReviewController.prototype, "members");
       Reflect.defineMetadata("design:paramtypes", [String, String, DevelopmentMemberStateDto], AdminReviewController.prototype, "updateMemberState");
