@@ -34,11 +34,11 @@ describe("initial Super Admin password setup state", () => {
     expect(staff.mustResetPassword).toBe(true);
   });
 
-  it("does not force password setup for token-authenticated non-Super-Admin staff without a password hash", () => {
+  it("requires password setup for passwordless non-Super-Admin staff as well", () => {
     const staff = SakhiAdminRbacRegistry.refreshStaffRecordFromDatabase(
       row({ role: "VERIFICATION_ADMIN", passwordHash: null, mustResetPassword: false }),
     );
-    expect(staff.mustResetPassword).toBe(false);
+    expect(staff.mustResetPassword).toBe(true);
   });
 
   it("preserves an explicitly required password reset when a hash exists", () => {
