@@ -20,8 +20,12 @@ const ORIGINAL_ENV = Object.fromEntries(
   ENV_KEYS.map((key) => [key, process.env[key]]),
 ) as Record<(typeof ENV_KEYS)[number], string | undefined>;
 
-function createService(account: { id: string; status?: string } | null) {
+function createService(
+  account: { id: string; status?: string; verificationStatus?: string } | null,
+  hasProfile = Boolean(account),
+) {
   const tx = {
+    $queryRaw: vi.fn().mockResolvedValue([]),
     otpChallenge: {
       count: vi.fn().mockResolvedValue(0),
       create: vi.fn().mockResolvedValue({ id: "challenge-id" }),
@@ -38,7 +42,11 @@ function createService(account: { id: string; status?: string } | null) {
       update: vi.fn().mockResolvedValue({ id: account?.id ?? "account-id" }),
     },
     memberProfile: {
-      findUnique: vi.fn().mockResolvedValue(null),
+      findUnique: vi
+        .fn()
+        .mockResolvedValue(
+          hasProfile && account ? { accountId: account.id } : null,
+        ),
       create: vi.fn().mockResolvedValue({ accountId: "account-id" }),
       upsert: vi.fn(),
     },
@@ -68,7 +76,11 @@ function createService(account: { id: string; status?: string } | null) {
       findUnique: vi.fn().mockResolvedValue(account),
     },
     memberProfile: {
-      findUnique: vi.fn().mockResolvedValue(null),
+      findUnique: vi
+        .fn()
+        .mockResolvedValue(
+          hasProfile && account ? { accountId: account.id } : null,
+        ),
     },
     auditEvent: {
       findFirst: vi.fn().mockResolvedValue(null),
@@ -128,6 +140,31 @@ describe("AuthenticationService.requestOtp account checks", () => {
     expect(tx.auditEvent.createMany).not.toHaveBeenCalled();
   });
 
+  it("allows login for an existing account while rejecting duplicate registration under RLS", async () => {
+    const { service, tx } = createService({ id: "existing-account" });
+
+    const login = await service.requestOtp({
+      countryCode: "+91",
+      phoneNumber: "9876543210",
+      purpose: "login",
+    });
+
+    expect(login.challengeId).toBeTruthy();
+    expect(tx.otpChallenge.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          phoneE164: "+919876543210",
+          purpose: "LOGIN",
+          accountId: "existing-account",
+        }),
+      }),
+    );
+    expect(tx.$queryRaw).toHaveBeenCalledOnce();
+    expect(tx.memberProfile.findUnique).toHaveBeenCalledWith({
+      where: { accountId: "existing-account" },
+      select: { accountId: true },
+    });
+  });
   it("rejects registration OTP requests when the number already has an account", async () => {
     const { service, tx } = createService({ id: "existing-account" });
 
@@ -261,7 +298,9 @@ describe("AuthenticationService.requestOtp account checks", () => {
 
     expect(result.deliveryMode).toBe("staging_test_shared_code");
     expect(result).not.toHaveProperty("developmentCode");
-    expect(result.message).toMatch(/does not verify phone ownership or eligibility/);
+    expect(result.message).toMatch(
+      /does not verify phone ownership or eligibility/,
+    );
     expect(tx.otpChallenge.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -298,10 +337,13 @@ describe("AuthenticationService.requestOtp account checks", () => {
       verificationStatus: "UNVERIFIED",
       phoneE164,
     };
-    const { service, tx, prisma } = createService({
-      id: "staging-account",
-      status: "PENDING_VERIFICATION",
-    });
+    const { service, tx, prisma } = createService(
+      {
+        id: "staging-account",
+        status: "PENDING_VERIFICATION",
+      },
+      false,
+    );
     prisma.authSession.findUnique.mockResolvedValue({
       id: "staging-session",
       accountId: "staging-account",
@@ -339,7 +381,9 @@ describe("AuthenticationService.requestOtp account checks", () => {
     });
     expect(tx.memberProfile.create).toHaveBeenCalledOnce();
     expect(tx.memberConsent.create).toHaveBeenCalledOnce();
-    expect(result.profile.bio).toBe("A staging profile bio that must reach the directory.");
+    expect(result.profile.bio).toBe(
+      "A staging profile bio that must reach the directory.",
+    );
     expect(prisma.communityDirectoryProfile.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         accountId: "staging-account",
