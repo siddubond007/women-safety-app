@@ -3527,7 +3527,10 @@ export class AdminReviewService {
       "Creating Admin Staff Accounts",
     );
     if (!principal.permissions.create) throw new ForbiddenException("The create permission is required for Creating Admin Staff Accounts.");
-    if (body.role === "SUPER_ADMIN" && !principal.permissions.approve) {
+    // Normalize before authorization: the persistence helper also normalizes
+    // role names, so permission checks must use the same canonical value.
+    const normalizedRole = String(body.role ?? "").trim().toUpperCase();
+    if (normalizedRole === "SUPER_ADMIN" && !principal.permissions.approve) {
       throw new ForbiddenException("The approve permission is required to create a Super Admin account.");
     }
     const username = String(body.username ?? "").trim().toLowerCase();
@@ -3823,18 +3826,29 @@ export class AdminReviewService {
     };
 
     if (!verifyPassword(password, staff.passwordHash)) {
-      const failedLoginAttempts = Number(staff.failedLoginAttempts ?? 0) + 1;
-      const lockedUntil = failedLoginAttempts >= 5
-        ? new Date(now.getTime() + 15 * 60 * 1000)
-        : null;
       await this.prisma.$transaction(async (tx) => {
-        await tx.adminStaffAccount.update({
+        // Use a database-side increment so simultaneous failures cannot
+        // overwrite one another with the same stale count read at login.
+        const incremented = await tx.adminStaffAccount.update({
           where: { id: staff.id },
-          data: {
-            failedLoginAttempts: lockedUntil ? 0 : failedLoginAttempts,
-            lockedUntil,
-          },
+          data: { failedLoginAttempts: { increment: 1 } },
+          select: { failedLoginAttempts: true },
         });
+        const failedLoginAttempts = Number(incremented.failedLoginAttempts ?? 0);
+        const lockedUntil = failedLoginAttempts >= 5
+          ? new Date(now.getTime() + 15 * 60 * 1000)
+          : null;
+        if (lockedUntil) {
+          await tx.adminStaffAccount.update({
+            where: { id: staff.id },
+            data: { failedLoginAttempts: 0, lockedUntil },
+          });
+        } else {
+          await tx.adminStaffAccount.update({
+            where: { id: staff.id },
+            data: { lockedUntil: null },
+          });
+        }
         await tx.auditEvent.create({
           data: {
             actorType: "ADMIN",
