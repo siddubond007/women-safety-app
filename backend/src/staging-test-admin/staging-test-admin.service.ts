@@ -260,7 +260,11 @@ export class StagingTestAdminService {
       }
 
       await this.staffMfa.verifyLoginFactor(staffMatch.id, mfaCode);
-      const issued = await this.staffSessions.issueSession(staffMatch.id);
+      const issued = await this.staffSessions.issueSession(
+        staffMatch.id,
+        undefined,
+        "INITIAL_SETUP",
+      );
       staffMatch.lastLoginAt = new Date().toISOString();
       const principal = SakhiAdminRbacRegistry.principalFromStaff(staffMatch);
       return {
