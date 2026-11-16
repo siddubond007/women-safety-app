@@ -13,6 +13,8 @@ function createHarness(failAudit = false) {
       passwordHash: "old-password-hash",
       passwordUpdatedAt: null as Date | null,
       mustResetPassword: true,
+      accessTokenDigest: "a".repeat(64),
+      accessTokenPreview: "SAKHI-ST-••••",
       failedLoginAttempts: 4,
       lockedUntil: new Date("2030-01-01T00:00:00.000Z") as Date | null,
     },
@@ -95,12 +97,16 @@ describe("admin password change transaction", () => {
         where: { id: TARGET_ID },
         data: expect.objectContaining({
           mustResetPassword: false,
+          accessTokenDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+          accessTokenPreview: "REVOKED••••",
           failedLoginAttempts: 0,
           lockedUntil: null,
         }),
       }),
     );
     expect(state.account.passwordHash).not.toBe("old-password-hash");
+    expect(state.account.accessTokenDigest).not.toBe("a".repeat(64));
+    expect(state.account.accessTokenPreview).toBe("REVOKED••••");
     expect(state.account.passwordHash).not.toContain("Strong-Admin-Password-2026");
     expect(state.activeSessions).toBe(0);
     expect(state.audits).toHaveLength(2);
@@ -132,6 +138,8 @@ describe("admin password change transaction", () => {
     expect(tx.adminStaffSession.updateMany).toHaveBeenCalledTimes(1);
     expect(state.account.passwordHash).toBe("old-password-hash");
     expect(state.account.mustResetPassword).toBe(true);
+    expect(state.account.accessTokenDigest).toBe("a".repeat(64));
+    expect(state.account.accessTokenPreview).toBe("SAKHI-ST-••••");
     expect(state.activeSessions).toBe(2);
     expect(state.audits).toHaveLength(0);
   });
