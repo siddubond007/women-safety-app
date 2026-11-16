@@ -245,12 +245,26 @@ export class EligibilityService {
           accountId: string | null;
           adminStaffId: string | null;
           adminRole: string | null;
+          actorId: string;
+          memberInsertCondition: boolean;
+          insertPolicy: string | null;
         }>>`
           SELECT
             current_user AS "databaseRole",
             current_setting('app.account_id', true) AS "accountId",
             current_setting('app.admin_staff_id', true) AS "adminStaffId",
-            current_setting('app.admin_role', true) AS "adminRole"
+            current_setting('app.admin_role', true) AS "adminRole",
+            ${session.accountId} AS "actorId",
+            (
+              current_user IN ('sakhi_dev_app','sakhi_test_app','sakhi_staging_app')
+              AND 'MEMBER'='MEMBER'
+              AND ${session.accountId}::uuid=NULLIF(current_setting('app.account_id',true),'')::uuid
+            ) AS "memberInsertCondition",
+            (
+              SELECT with_check FROM pg_policies
+              WHERE schemaname='public' AND tablename='audit_events'
+                AND cmd IN ('INSERT','ALL')
+            ) AS "insertPolicy"
         `;
         console.info("[Sakhi PostgreSQL integration] eligibility audit RLS context", rlsContext);
       }
