@@ -239,52 +239,18 @@ export class EligibilityService {
         data: { verificationStatus: "UNVERIFIED" },
       });
 
-      if (process.env.SAKHI_ENV === "test") {
-        const [rlsContext] = await tx.$queryRaw<Array<{
-          databaseRole: string;
-          accountId: string | null;
-          adminStaffId: string | null;
-          adminRole: string | null;
-          actorId: string;
-          memberInsertCondition: boolean;
-          insertPolicy: string | null;
-        }>>`
-          SELECT
-            current_user AS "databaseRole",
-            current_setting('app.account_id', true) AS "accountId",
-            current_setting('app.admin_staff_id', true) AS "adminStaffId",
-            current_setting('app.admin_role', true) AS "adminRole",
-            ${session.accountId} AS "actorId",
-            (
-              current_user IN ('sakhi_dev_app','sakhi_test_app','sakhi_staging_app')
-              AND 'MEMBER'='MEMBER'
-              AND ${session.accountId}::uuid=NULLIF(current_setting('app.account_id',true),'')::uuid
-            ) AS "memberInsertCondition",
-            (
-              SELECT string_agg(
-                concat_ws('|', policyname, permissive, array_to_string(roles, ','), cmd, with_check),
-                E'\\n'
-              )
-              FROM pg_policies
-              WHERE schemaname='public' AND tablename='audit_events'
-                AND cmd IN ('INSERT','ALL')
-            ) AS "insertPolicy"
-        `;
-        console.info("[Sakhi PostgreSQL integration] eligibility audit RLS context", rlsContext);
-      }
-
-      await tx.auditEvent.create({
-        data: {
-          actorType: "MEMBER",
-          actorId: session.accountId,
-          action: "eligibility.manual_review.submitted",
-          targetType: "eligibility_submission",
-          targetId: submission.id,
-          outcome: "pending",
-          requestId: randomUUID(),
-          redactedMetadata: { consentVersion: policy.consentVersion, consentAccepted: true },
-        },
-      });
+      await tx.$executeRaw`
+        INSERT INTO public.audit_events (
+          actor_type, actor_id, action, target_type, target_id,
+          outcome, request_id, redacted_metadata
+        ) VALUES (
+          'MEMBER', ${session.accountId}::uuid,
+          'eligibility.manual_review.submitted',
+          'eligibility_submission', ${submission.id},
+          'pending', ${randomUUID()},
+          ${JSON.stringify({ consentVersion: policy.consentVersion, consentAccepted: true })}::jsonb
+        )
+      `;
 
       return {
         status: "pendingManualReview" as const,
