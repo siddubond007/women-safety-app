@@ -3863,7 +3863,7 @@ export class AdminReviewService {
           throw new UnauthorizedException("The admin account is no longer available.");
         }
         const failedLoginAttempts = Number(state.failedLoginAttempts ?? 0);
-        const lockedUntil = state.lockedUntil ? new Date(state.lockedUntil) : null;
+        const lockedUntil = state.lockedUntil;
         const locked = Boolean(lockedUntil && lockedUntil.getTime() > Date.now());
         await tx.auditEvent.create({
           data: {
