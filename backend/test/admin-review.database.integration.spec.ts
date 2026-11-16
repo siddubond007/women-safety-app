@@ -76,6 +76,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
     let cleanupClient: PrismaClient | undefined;
     let reviewerSessionToken = "";
     let integrationStaffId = "";
+    let integrationStaffEmail = "";
     const fixtureAccountIds: string[] = [];
 
     beforeAll(async () => {
@@ -166,6 +167,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
       // services. The integration API therefore exercises the real guard.
       integrationStaffId = randomUUID();
       const suffix = randomUUID().slice(0, 8);
+      integrationStaffEmail = `integration-admin-${suffix}@example.test`;
       const staffAccessToken = randomBytes(32).toString("base64url");
       const staffPasswordSalt = randomBytes(16).toString("hex");
       const staffPasswordDerived = scryptSync(randomBytes(32), staffPasswordSalt, 64, { N: 16384, r: 8, p: 1 }).toString("hex");
@@ -175,7 +177,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
           staffCode: "#SA-INT-" + suffix.toUpperCase(),
           username: "integration-admin-" + suffix,
           fullName: "Synthetic Integration Super Admin",
-          email: "integration-admin-" + suffix + "@example.test",
+          email: integrationStaffEmail,
           passwordHash: `scrypt$16384$8$1${staffPasswordSalt}${staffPasswordDerived}`,
           mustResetPassword: false,
           role: "SUPER_ADMIN",
@@ -481,11 +483,11 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
       try {
         const attempts = await Promise.allSettled([
           service.loginWithCredentials({
-            identifier: "integration-admin@example.test",
+            identifier: integrationStaffEmail,
             password: "wrong-password-one",
           }),
           service.loginWithCredentials({
-            identifier: "integration-admin@example.test",
+            identifier: integrationStaffEmail,
             password: "wrong-password-two",
           }),
         ]);
