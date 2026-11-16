@@ -223,8 +223,10 @@ jobs:
           set -euo pipefail
           test -n "$SAKHI_APP_DATABASE_URL" || { echo "::error::Missing staging environment secret SAKHI_STAGING_APP_DATABASE_URL"; exit 1; }
           test -n "$SAKHI_MIGRATOR_DATABASE_URL" || { echo "::error::Missing staging environment secret SAKHI_STAGING_MIGRATOR_DATABASE_URL"; exit 1; }
-      - name: Install locked dependencies
-        run: npm ci
+      - name: Install locked dependencies including test tooling
+        # NODE_ENV=production is required by the staging safety guard, but npm ci
+        # otherwise omits devDependencies such as Vitest. Explicitly include them.
+        run: npm ci --include=dev
       - name: Generate Prisma Client
         run: npm run prisma:generate
       - name: Run synthetic staging staff MFA lifecycle
