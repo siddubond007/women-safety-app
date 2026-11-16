@@ -185,25 +185,25 @@ describe("admin authentication security remediation", () => {
     expect(dto).not.toHaveProperty("initialPassword");
   });
 
-  it("counts concurrent failed password attempts atomically before applying the five-attempt lockout", async () => {
+  it("preserves the five-attempt lockout when concurrent stale login attempts arrive", async () => {
     let failedLoginAttempts = 3;
     let lockedUntil: Date | null = null;
-    const incrementCalls: number[] = [];
     const tx = {
-      adminStaffAccount: {
-        update: vi.fn(async ({ data }: { data: Record<string, any> }) => {
-          if (data.failedLoginAttempts?.increment === 1) {
-            failedLoginAttempts += 1;
-            incrementCalls.push(failedLoginAttempts);
-            return { failedLoginAttempts };
-          }
-          if (data.failedLoginAttempts === 0) failedLoginAttempts = 0;
-          if (Object.prototype.hasOwnProperty.call(data, "lockedUntil")) {
-            lockedUntil = data.lockedUntil;
-          }
-          return { failedLoginAttempts };
-        }),
-      },
+      $queryRaw: vi.fn(async (_query: TemplateStringsArray, _staffId: string) => {
+        // Simulate PostgreSQL's serialized row update: after the first
+        // transaction locks the account, the waiting update preserves it.
+        if (lockedUntil && lockedUntil.getTime() > Date.now()) {
+          return [{ failedLoginAttempts, lockedUntil }];
+        }
+        failedLoginAttempts += 1;
+        if (failedLoginAttempts >= 5) {
+          failedLoginAttempts = 0;
+          lockedUntil = new Date(Date.now() + 15 * 60 * 1000);
+        } else {
+          lockedUntil = null;
+        }
+        return [{ failedLoginAttempts, lockedUntil }];
+      }),
       auditEvent: { create: vi.fn().mockResolvedValue({}) },
     };
     const staff = {
@@ -217,9 +217,7 @@ describe("admin authentication security remediation", () => {
       passwordHash: null,
     };
     const prisma = {
-      adminStaffAccount: {
-        findFirst: vi.fn().mockResolvedValue(staff),
-      },
+      adminStaffAccount: { findFirst: vi.fn().mockResolvedValue(staff) },
       $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) =>
         callback(tx),
       ),
@@ -237,7 +235,10 @@ describe("admin authentication security remediation", () => {
     ]);
 
     expect(attempts.every((attempt) => attempt.status === "rejected")).toBe(true);
-    expect(incrementCalls).toEqual([4, 5]);
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
+    const sql = tx.$queryRaw.mock.calls[0]?.[0].join("") ?? "";
+    expect(sql).toContain("locked_until IS NOT NULL AND locked_until > NOW()");
+    expect(sql).toContain("failed_login_attempts + 1 >= 5");
     expect(failedLoginAttempts).toBe(0);
     expect(lockedUntil).toBeInstanceOf(Date);
     expect(tx.auditEvent.create).toHaveBeenCalledTimes(2);
