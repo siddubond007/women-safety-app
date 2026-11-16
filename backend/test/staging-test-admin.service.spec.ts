@@ -297,6 +297,8 @@ describe("StagingTestAdminService", () => {
     );
     expect(sessions.issueSession).toHaveBeenCalledWith(
       "2d5fce37-6aab-4cb4-8a6c-6a2d07f87e91",
+      undefined,
+      "INITIAL_SETUP",
     );
   });
 
