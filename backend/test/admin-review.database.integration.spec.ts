@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { createHash, randomBytes, randomInt } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomInt, randomUUID } from "node:crypto";
 import type { INestApplication } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -26,14 +26,52 @@ import { StartManualReviewDto } from "../src/eligibility/eligibility.dto.js";
 import { createGlobalValidationPipe } from "../src/common/validation/create-validation-pipe.js";
 import { validateRuntimeEnvironment, assertSakhiDatabaseTarget } from "../src/config/database-target.js";
 import { PrismaService } from "../src/database/prisma.service.js";
+import { AdminMfaService } from "../src/admin-security/admin-mfa.service.js";
+import { AdminSessionService } from "../src/admin-security/admin-session.service.js";
+import { runWithDatabaseRequestIdentity } from "../src/database/database-request-identity.context.js";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client.js";
+
+
+function decodeBase32(value: string): Buffer {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = 0;
+  let accumulator = 0;
+  const bytes: number[] = [];
+  for (const character of value.replace(/=+$/g, "").toUpperCase()) {
+    const digit = alphabet.indexOf(character);
+    if (digit < 0) throw new Error("Invalid test TOTP secret.");
+    accumulator = (accumulator << 5) | digit;
+    bits += 5;
+    if (bits >= 8) {
+      bytes.push((accumulator >>> (bits - 8)) & 0xff);
+      bits -= 8;
+    }
+  }
+  return Buffer.from(bytes);
+}
+
+function currentTotp(secret: string): string {
+  const counter = Math.floor(Date.now() / 30_000);
+  const message = Buffer.alloc(8);
+  message.writeBigUInt64BE(BigInt(counter));
+  const digest = createHmac("sha1", decodeBase32(secret)).update(message).digest();
+  const offset = digest[digest.length - 1]! & 0x0f;
+  const binary =
+    ((digest[offset]! & 0x7f) << 24) |
+    ((digest[offset + 1]! & 0xff) << 16) |
+    ((digest[offset + 2]! & 0xff) << 8) |
+    (digest[offset + 3]! & 0xff);
+  return String(binary % 1_000_000).padStart(6, "0");
+}
 
 describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
   "database-backed manual eligibility review workflow",
   () => {
     let app: INestApplication | undefined;
     let cleanupClient: PrismaClient | undefined;
+    let reviewerSessionToken = "";
+    let integrationStaffId = "";
     const fixtureAccountIds: string[] = [];
 
     beforeAll(async () => {
@@ -46,8 +84,10 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
       if ((process.env.HOST ?? "127.0.0.1") !== "127.0.0.1") {
         throw new Error("Admin-review integration tests require loopback.");
       }
-      if (process.env.SAKHI_ADMIN_REVIEW_TOKEN?.trim().length !== 64) {
-        throw new Error("The test runner did not provide its ephemeral reviewer token.");
+      process.env.SAKHI_ADMIN_STAFF_SESSION_SIGNING_KEY ??= Buffer.alloc(32, 0x73).toString("base64");
+      process.env.SAKHI_ADMIN_MFA_ENCRYPTION_KEY ??= Buffer.alloc(32, 0x5a).toString("base64");
+      if (process.env.SAKHI_ADMIN_STAFF_SESSION_SIGNING_KEY === process.env.SAKHI_ADMIN_MFA_ENCRYPTION_KEY) {
+        throw new Error("Test MFA encryption and staff session keys must be distinct.");
       }
       if (
         process.env.SAKHI_MANUAL_REVIEW_POLICY_APPROVED !== "true" ||
@@ -112,10 +152,56 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
           idleTimeoutMillis: 10000,
         }),
       });
+
+      // Create a disposable Super Admin through the migrator, then enroll MFA
+      // and issue a genuine DB-backed staff session through the application
+      // services. The integration API therefore exercises the real guard.
+      integrationStaffId = randomUUID();
+      const suffix = randomUUID().slice(0, 8);
+      const staffAccessToken = randomBytes(32).toString("base64url");
+      await cleanupClient.adminStaffAccount.create({
+        data: {
+          id: integrationStaffId,
+          staffCode: "#SA-INT-" + suffix.toUpperCase(),
+          username: "integration-admin-" + suffix,
+          fullName: "Synthetic Integration Super Admin",
+          email: "integration-admin-" + suffix + "@example.test",
+          role: "SUPER_ADMIN",
+          status: "ACTIVE",
+          accessTokenDigest: createHash("sha256").update(staffAccessToken).digest("hex"),
+          accessTokenPreview: "SAKHI-STAFF-••••",
+          isAuthorisedComplaintReviewer: true,
+          clearanceLevel: "LEVEL_4_MASTER_GOVERNANCE",
+          permissions: {
+            view: true, create: true, edit: true, approve: true,
+            suspend: true, export: true, delete: true,
+          },
+          createdBy: "Disposable PostgreSQL 17 integration test",
+        },
+      });
+
+      await runWithDatabaseRequestIdentity(
+        async () => {
+          const mfa = app!.get(AdminMfaService);
+          const sessions = app!.get(AdminSessionService);
+          const enrollment = await mfa.beginEnrollment(integrationStaffId);
+          await mfa.verifyEnrollment(integrationStaffId, currentTotp(enrollment.secret));
+          const issued = await sessions.issueSession(integrationStaffId);
+          reviewerSessionToken = issued.value;
+        },
+        { adminStaffId: integrationStaffId, adminRole: "SUPER_ADMIN" },
+      );
     }, 30000);
 
     afterAll(async () => {
       try {
+        if (cleanupClient && integrationStaffId) {
+          await cleanupClient.auditEvent.deleteMany({ where: { actorId: integrationStaffId } });
+          await cleanupClient.adminStaffSession.deleteMany({ where: { staffId: integrationStaffId } });
+          await cleanupClient.adminStaffBackupCode.deleteMany({ where: { staffId: integrationStaffId } });
+          await cleanupClient.adminStaffMfa.deleteMany({ where: { staffId: integrationStaffId } });
+          await cleanupClient.adminStaffAccount.deleteMany({ where: { id: integrationStaffId } });
+        }
         if (cleanupClient && fixtureAccountIds.length > 0) {
           const submissions = await cleanupClient.eligibilitySubmission.findMany({
             where: { accountId: { in: fixtureAccountIds } },
@@ -232,12 +318,12 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
 
     it("lists real database members and persists a development-only state override", async () => {
       if (!app) throw new Error("Integration-test API did not initialize.");
-      const reviewerToken = process.env.SAKHI_ADMIN_REVIEW_TOKEN!;
+      const reviewerToken = reviewerSessionToken;
       const member = await createSyntheticMember("Synthetic Admin State QA");
 
       const directory = await request(app.getHttpServer())
         .get("/api/v1/admin-review/members?page=1&pageSize=10&search=Synthetic%20Admin%20State%20QA")
-        .set("X-Sakhi-Admin-Token", reviewerToken)
+        .set("X-Sakhi-Staging-Admin-Session", reviewerToken)
         .expect(200);
       expect(directory.body.total).toBe(1);
       expect(directory.body.items).toEqual(
@@ -254,7 +340,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
 
       await request(app.getHttpServer())
         .post("/api/v1/admin-review/members/" + member.accountId + "/state")
-        .set("X-Sakhi-Admin-Token", reviewerToken)
+        .set("X-Sakhi-Staging-Admin-Session", reviewerToken)
         .send({
           accountStatus: "ACTIVE",
           verificationStatus: "VERIFIED",
@@ -289,7 +375,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
 
     it("persists submission, approval/rejection, member status and audit history", async () => {
       if (!app) throw new Error("Integration-test API did not initialize.");
-      const reviewerToken = process.env.SAKHI_ADMIN_REVIEW_TOKEN!;
+      const reviewerToken = reviewerSessionToken;
 
       const approvedMember = await createSyntheticMember("Synthetic Approval QA");
       const initialStatus = await request(app.getHttpServer())
@@ -322,7 +408,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
 
       const queueResponse = await request(app.getHttpServer())
         .get("/api/v1/admin-review/queue")
-        .set("X-Sakhi-Admin-Token", reviewerToken)
+        .set("X-Sakhi-Staging-Admin-Session", reviewerToken)
         .expect(200);
       expect(queueResponse.body).toEqual(
         expect.arrayContaining([
@@ -339,7 +425,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
 
       const approval = await request(app.getHttpServer())
         .post("/api/v1/admin-review/submissions/" + approvedSubmissionId + "/decision")
-        .set("X-Sakhi-Admin-Token", reviewerToken)
+        .set("X-Sakhi-Staging-Admin-Session", reviewerToken)
         .send({
           decision: "approve",
           reason: "Synthetic integration test approval.",
@@ -374,7 +460,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
 
       const rejection = await request(app.getHttpServer())
         .post("/api/v1/admin-review/submissions/" + rejectedSubmissionId + "/decision")
-        .set("X-Sakhi-Admin-Token", reviewerToken)
+        .set("X-Sakhi-Staging-Admin-Session", reviewerToken)
         .send({
           decision: "reject",
           reason: "Synthetic integration test rejection.",
@@ -398,7 +484,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
 
       const history = await request(app.getHttpServer())
         .get("/api/v1/admin-review/history")
-        .set("X-Sakhi-Admin-Token", reviewerToken)
+        .set("X-Sakhi-Staging-Admin-Session", reviewerToken)
         .expect(200);
       expect(history.body.map((item: { outcome: string }) => item.outcome)).toEqual(
         expect.arrayContaining(["approve", "reject"]),
