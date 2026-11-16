@@ -453,6 +453,78 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
       expect(visible.otherSubmissions).toEqual([]);
     }, 30000);
 
+    it("preserves the five-failure lockout across concurrent stale credential reads", async () => {
+      if (!app || !cleanupClient) throw new Error("Integration-test database clients are unavailable.");
+      const prisma = app.get(PrismaService);
+      const service = app.get(AdminReviewService);
+      await cleanupClient.adminStaffAccount.update({
+        where: { id: integrationStaffId },
+        data: { failedLoginAttempts: 4, lockedUntil: null },
+      });
+
+      const originalFindFirst = prisma.adminStaffAccount.findFirst.bind(prisma.adminStaffAccount);
+      let reads = 0;
+      let releaseReads!: () => void;
+      const bothReadsCompleted = new Promise<void>((resolve) => {
+        releaseReads = resolve;
+      });
+      const findFirstSpy = vi.spyOn(prisma.adminStaffAccount, "findFirst").mockImplementation(
+        async (args: any) => {
+          const row = await originalFindFirst(args);
+          reads += 1;
+          if (reads === 2) releaseReads();
+          await bothReadsCompleted;
+          return row;
+        },
+      );
+
+      try {
+        const attempts = await Promise.allSettled([
+          service.loginWithCredentials({
+            identifier: "integration-admin@example.test",
+            password: "wrong-password-one",
+          }),
+          service.loginWithCredentials({
+            identifier: "integration-admin@example.test",
+            password: "wrong-password-two",
+          }),
+        ]);
+        expect(attempts.every((attempt) => attempt.status === "rejected")).toBe(true);
+
+        const persisted = await cleanupClient.adminStaffAccount.findUnique({
+          where: { id: integrationStaffId },
+          select: { failedLoginAttempts: true, lockedUntil: true },
+        });
+        expect(persisted?.failedLoginAttempts).toBe(0);
+        expect(persisted?.lockedUntil).toBeInstanceOf(Date);
+        expect(persisted?.lockedUntil?.getTime()).toBeGreaterThan(Date.now());
+
+        const lockEvents = await cleanupClient.auditEvent.findMany({
+          where: {
+            targetId: integrationStaffId,
+            action: "admin.auth.account_locked",
+          },
+          select: { id: true, redactedMetadata: true },
+        });
+        expect(lockEvents.length).toBeGreaterThan(0);
+        expect(lockEvents.some((event) =>
+          (event.redactedMetadata as Record<string, unknown>)?.locked === true,
+        )).toBe(true);
+      } finally {
+        findFirstSpy.mockRestore();
+        await cleanupClient.adminStaffAccount.update({
+          where: { id: integrationStaffId },
+          data: { failedLoginAttempts: 0, lockedUntil: null },
+        });
+        await cleanupClient.auditEvent.deleteMany({
+          where: {
+            targetId: integrationStaffId,
+            action: { in: ["admin.auth.login_failed", "admin.auth.account_locked"] },
+          },
+        });
+      }
+    }, 30000);
+
     it("persists initial staff username, password hash and creation audit atomically", async () => {
       if (!app || !cleanupClient) throw new Error("Integration-test database clients are unavailable.");
       const prisma = app.get(PrismaService);
