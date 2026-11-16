@@ -24,6 +24,7 @@ STAGING_ROLE_PASSWORD="$(openssl rand -hex 32)"
 # The migrator is privileged only inside this disposable CI database. The app
 # role remains NOBYPASSRLS and never owns protected member-data tables.
 psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
+  -v ON_ERROR_STOP=1 \
   -v app_password="$APP_PASSWORD" \
   -v migrator_password="$MIGRATOR_PASSWORD" \
   -v staging_role_password="$STAGING_ROLE_PASSWORD" <<'SQL'
@@ -55,9 +56,8 @@ npm run db:seed
 
 # Grant object access to the NOBYPASSRLS app role. These grants do not alter
 # RLS policies, enable bypass, or transfer table ownership.
-psql "postgresql://sakhi_test_migrator:${MIGRATOR_PASSWORD}@${PGHOST}:${PGPORT}/sakhi_test" <<'SQL'
+psql -v ON_ERROR_STOP=1 "postgresql://sakhi_test_migrator:${MIGRATOR_PASSWORD}@${PGHOST}:${PGPORT}/sakhi_test" <<'SQL'
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO sakhi_test_app;
-GRANT USAGE ON ALL TYPES IN SCHEMA public TO sakhi_test_app;
 REVOKE ALL ON TABLE public._prisma_migrations FROM sakhi_test_app;
 
 -- Test-only staff security access mirrors the dedicated backend runtime role.
