@@ -1,0 +1,127 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { AdminReviewService } from "../src/admin-review/admin-review.service.js";
+import {
+  SakhiAdminRbacRegistry,
+  type AuthenticatedAdminPrincipal,
+} from "../src/admin-review/admin-rbac.helper.js";
+
+const restrictedSuperAdmin: AuthenticatedAdminPrincipal = {
+  staffId: "2d5fce37-6aab-4cb4-8a6c-6a2d07f87e91",
+  staffCode: "#SA-123",
+  reviewerLabel: "Restricted Super Admin",
+  fullName: "Restricted Super Admin",
+  email: "restricted@example.test",
+  role: "SUPER_ADMIN",
+  roleTitle: "Super Admin",
+  badgeLabel: "Super Admin",
+  clearanceLevel: "LEVEL_4_MASTER_GOVERNANCE",
+  isAuthorisedComplaintReviewer: true,
+  permissions: {
+    view: true,
+    create: true,
+    edit: true,
+    approve: false,
+    suspend: true,
+    export: true,
+    delete: true,
+  },
+  allowedRoutes: ["/admin-users"],
+};
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  SakhiAdminRbacRegistry.resetForTesting();
+});
+
+describe("admin authentication security remediation", () => {
+  it.each(["SUPER_ADMIN", "super_admin", " Super_Admin ", "super_admin  "])(
+    "requires approve permission for normalized role %s",
+    async (role) => {
+      vi.spyOn(SakhiAdminRbacRegistry, "ensureHydrated").mockResolvedValue(undefined);
+      const createSpy = vi
+        .spyOn(SakhiAdminRbacRegistry, "createStaffAccount")
+        .mockResolvedValue({ staff: {} as never, issuedAccessToken: "never-returned" });
+      const service = new AdminReviewService({} as never);
+      vi.spyOn(service, "resolveAdminPrincipal").mockReturnValue(restrictedSuperAdmin);
+
+      await expect(
+        service.createAdminStaff(
+          {
+            fullName: "New Super Admin",
+            email: "new.superadmin@example.test",
+            role,
+          },
+          "staff-admin.test",
+        ),
+      ).rejects.toThrow(/approve permission is required/i);
+      expect(createSpy).not.toHaveBeenCalled();
+    },
+  );
+
+  it("counts concurrent failed password attempts atomically before applying the five-attempt lockout", async () => {
+    let failedLoginAttempts = 3;
+    let lockedUntil: Date | null = null;
+    const incrementCalls: number[] = [];
+    const tx = {
+      adminStaffAccount: {
+        update: vi.fn(async ({ data }: { data: Record<string, any> }) => {
+          if (data.failedLoginAttempts?.increment === 1) {
+            failedLoginAttempts += 1;
+            incrementCalls.push(failedLoginAttempts);
+            return { failedLoginAttempts };
+          }
+          if (data.failedLoginAttempts === 0) failedLoginAttempts = 0;
+          if (Object.prototype.hasOwnProperty.call(data, "lockedUntil")) {
+            lockedUntil = data.lockedUntil;
+          }
+          return { failedLoginAttempts };
+        }),
+      },
+      auditEvent: { create: vi.fn().mockResolvedValue({}) },
+    };
+    const staff = {
+      id: restrictedSuperAdmin.staffId,
+      role: "SUPER_ADMIN",
+      status: "ACTIVE",
+      suspendedAt: null,
+      deletedAt: null,
+      lockedUntil: null,
+      failedLoginAttempts: 3,
+      passwordHash: null,
+    };
+    const prisma = {
+      adminStaffAccount: {
+        findFirst: vi.fn().mockResolvedValue(staff),
+      },
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) =>
+        callback(tx),
+      ),
+    };
+    const service = new AdminReviewService(
+      prisma as never,
+      undefined,
+      {} as never,
+      {} as never,
+    );
+
+    const attempts = await Promise.allSettled([
+      service.loginWithCredentials({ identifier: "restricted@example.test", password: "wrong-1" }),
+      service.loginWithCredentials({ identifier: "restricted@example.test", password: "wrong-2" }),
+    ]);
+
+    expect(attempts.every((attempt) => attempt.status === "rejected")).toBe(true);
+    expect(incrementCalls).toEqual([4, 5]);
+    expect(failedLoginAttempts).toBe(0);
+    expect(lockedUntil).toBeInstanceOf(Date);
+    expect(tx.auditEvent.create).toHaveBeenCalledTimes(2);
+    expect(tx.auditEvent.create).toHaveBeenLastCalledWith({
+      data: expect.objectContaining({
+        action: "admin.auth.account_locked",
+        redactedMetadata: expect.objectContaining({
+          failedLoginAttempts: 5,
+          locked: true,
+        }),
+      }),
+    });
+  });
+});
