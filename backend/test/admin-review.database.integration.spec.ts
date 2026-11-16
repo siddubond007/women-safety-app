@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { createHash, createHmac, randomBytes, randomInt, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomInt, randomUUID, scryptSync } from "node:crypto";
 import type { INestApplication } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -143,6 +143,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
 
       app = testingModule.createNestApplication();
       app.setGlobalPrefix("api/v1");
+      app.use((_request, _response, next) => runWithDatabaseRequestIdentity(next));
       app.useGlobalPipes(createGlobalValidationPipe());
       await app.init();
 
@@ -164,6 +165,8 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
       integrationStaffId = randomUUID();
       const suffix = randomUUID().slice(0, 8);
       const staffAccessToken = randomBytes(32).toString("base64url");
+      const staffPasswordSalt = randomBytes(16).toString("hex");
+      const staffPasswordDerived = scryptSync(randomBytes(32), staffPasswordSalt, 64, { N: 16384, r: 8, p: 1 }).toString("hex");
       await cleanupClient.adminStaffAccount.create({
         data: {
           id: integrationStaffId,
@@ -171,6 +174,8 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
           username: "integration-admin-" + suffix,
           fullName: "Synthetic Integration Super Admin",
           email: "integration-admin-" + suffix + "@example.test",
+          passwordHash: `scrypt$16384$8$1${staffPasswordSalt}${staffPasswordDerived}`,
+          mustResetPassword: false,
           role: "SUPER_ADMIN",
           status: "ACTIVE",
           accessTokenDigest: createHash("sha256").update(staffAccessToken).digest("hex"),
