@@ -81,6 +81,11 @@ function makeService() {
     adminStaffAccount: {
       findMany: vi.fn().mockResolvedValue([]),
       findFirst: vi.fn().mockResolvedValue(null),
+      findUnique: vi.fn().mockResolvedValue({
+        role: "SUPER_ADMIN",
+        passwordHash: null,
+        mustResetPassword: true,
+      }),
     },
     adminStaffMfa: {
       findUnique: vi.fn().mockResolvedValue(null),
@@ -293,6 +298,43 @@ describe("StagingTestAdminService", () => {
     expect(sessions.issueSession).toHaveBeenCalledWith(
       "2d5fce37-6aab-4cb4-8a6c-6a2d07f87e91",
     );
+  });
+
+  it("rejects the initial staff access token after password setup has completed", async () => {
+    const { service, prisma, mfa, sessions } = makeService();
+    const rawToken = "initial-staff-credential-after-setup";
+    prisma.adminStaffAccount.findFirst.mockResolvedValue({
+      id: "2d5fce37-6aab-4cb4-8a6c-6a2d07f87e91",
+      staffCode: "#VA-123",
+      fullName: "Configured Staff",
+      email: "configured.staff@example.test",
+      role: "VERIFICATION_ADMIN",
+      status: "ACTIVE",
+      suspendedAt: null,
+      deletedAt: null,
+      passwordHash: "scrypt$16384$8$1$fixture$" + "a".repeat(128),
+      mustResetPassword: false,
+      accessTokenDigest: createHash("sha256").update(rawToken).digest("hex"),
+      accessTokenPreview: "SAKHI-VA-••••",
+      isAuthorisedComplaintReviewer: false,
+      clearanceLevel: "LEVEL_2_ELIGIBILITY_SUPPORT",
+      permissions: {},
+      createdBy: "Test fixture",
+      lastLoginAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as any);
+    prisma.adminStaffAccount.findUnique.mockResolvedValue({
+      role: "VERIFICATION_ADMIN",
+      passwordHash: "scrypt$fixture",
+      mustResetPassword: false,
+    } as any);
+
+    await expect(service.loginWithToken(rawToken, "123456")).rejects.toThrow(
+      /first-time setup only.*password and TOTP/i,
+    );
+    expect(mfa.verifyLoginFactor).not.toHaveBeenCalled();
+    expect(sessions.issueSession).not.toHaveBeenCalled();
   });
 
   it("keeps password setup required when a passwordless Super Admin session is restored", async () => {
