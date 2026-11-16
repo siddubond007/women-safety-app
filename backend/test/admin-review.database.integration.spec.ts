@@ -18,6 +18,7 @@ import {
 import { AdminReviewController } from "../src/admin-review/admin-review.controller.js";
 import { AdminReviewModule } from "../src/admin-review/admin-review.module.js";
 import { AdminReviewService } from "../src/admin-review/admin-review.service.js";
+import { SakhiAdminRbacRegistry } from "../src/admin-review/admin-rbac.helper.js";
 import { GoogleDriveStorageService } from "../src/module2/google-drive-storage.service.js";
 import { AdminStaffSessionGuard } from "../src/admin-security/admin-staff-session.guard.js";
 import { ManualEligibilityDecisionDto } from "../src/admin-review/admin-review.dto.js";
@@ -450,6 +451,68 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
       expect(visible.otherAccount).toBeNull();
       expect(visible.otherProfile).toBeNull();
       expect(visible.otherSubmissions).toEqual([]);
+    }, 30000);
+
+    it("persists initial staff username, password hash and creation audit atomically", async () => {
+      if (!app || !cleanupClient) throw new Error("Integration-test database clients are unavailable.");
+      const prisma = app.get(PrismaService);
+      const suffix = randomBytes(6).toString("hex");
+      const passwordSalt = randomBytes(16).toString("hex");
+      const passwordDerived = scryptSync("Integration-Staff-Password-2026", passwordSalt, 64, {
+        N: 16384, r: 8, p: 1,
+      }).toString("hex");
+      const passwordHash = `scrypt$16384$8$1${passwordSalt}${passwordDerived}`;
+      let createdStaffId: string | undefined;
+      try {
+        const created = await runWithDatabaseRequestIdentity(
+          () => SakhiAdminRbacRegistry.createStaffAccount(
+            prisma,
+            {
+              fullName: "Atomic Integration Reviewer",
+              email: `atomic-reviewer-${suffix}@example.test`,
+              role: "READ_ONLY_AUDITOR",
+              username: `atomic-${suffix}`,
+              initialPasswordHash: passwordHash,
+              mustResetPassword: true,
+            },
+            "Disposable PostgreSQL 17 integration test",
+            integrationStaffId,
+          ),
+          { adminStaffId: integrationStaffId, adminRole: "SUPER_ADMIN" },
+        );
+        createdStaffId = created.staff.id;
+
+        const persisted = await cleanupClient.adminStaffAccount.findUnique({
+          where: { id: created.staff.id },
+        });
+        expect(persisted).toMatchObject({
+          id: created.staff.id,
+          username: `atomic-${suffix}`,
+          passwordHash,
+          mustResetPassword: true,
+        });
+        expect(persisted?.passwordUpdatedAt).toBeInstanceOf(Date);
+
+        const audit = await cleanupClient.auditEvent.findFirst({
+          where: {
+            action: "admin.staff_account.created",
+            targetId: created.staff.id,
+          },
+          select: { id: true, redactedMetadata: true },
+        });
+        expect(audit).not.toBeNull();
+        expect(JSON.stringify(audit?.redactedMetadata)).not.toContain(passwordHash);
+        expect(audit?.redactedMetadata).toMatchObject({
+          id: created.staff.id,
+          username: `atomic-${suffix}`,
+          mustResetPassword: true,
+        });
+      } finally {
+        if (createdStaffId) {
+          await cleanupClient.auditEvent.deleteMany({ where: { targetId: createdStaffId } });
+          await cleanupClient.adminStaffAccount.deleteMany({ where: { id: createdStaffId } });
+        }
+      }
     }, 30000);
 
     it("persists submission, approval/rejection, member status and audit history", async () => {
