@@ -3546,22 +3546,24 @@ export class AdminReviewService {
     }
     const created = await SakhiAdminRbacRegistry.createStaffAccount(
       this.prisma,
-      body,
+      {
+        fullName: body.fullName,
+        email: body.email,
+        role: body.role,
+        isAuthorisedComplaintReviewer: body.isAuthorisedComplaintReviewer,
+        clearanceLevel: body.clearanceLevel,
+        permissions: body.permissions,
+        username: username || undefined,
+        initialPasswordHash: initialPassword
+          ? hashAdminPasswordForStorage(initialPassword)
+          : undefined,
+        // Every newly provisioned staff account must complete its own
+        // first-login setup, even when an administrator supplied a starter password.
+        mustResetPassword: true,
+      },
       principal.reviewerLabel,
       principal.staffId,
     );
-    if (username && initialPassword) {
-      await this.prisma.adminStaffAccount.update({
-        where: { id: created.staff.id },
-        data: {
-          username,
-          passwordHash: hashAdminPasswordForStorage(initialPassword),
-          passwordUpdatedAt: new Date(),
-          mustResetPassword: true,
-        },
-      });
-      created.staff.username = username;
-    }
     return {
       created: true,
       staff: created.staff,
@@ -3869,6 +3871,12 @@ export class AdminReviewService {
       throw new UnauthorizedException("Invalid admin email/username or password.");
     }
 
+    if (staff.mustResetPassword) {
+      throw new UnauthorizedException(
+        "Complete first-time staff setup with the individual setup credential before using password sign-in.",
+      );
+    }
+
     // Password is only the first factor. A persistent, one-time-use TOTP or
     // backup-code factor is mandatory before issuing the MFA-bound session.
     await this.adminMfa.verifyLoginFactor(staff.id, body.mfaCode);
@@ -3960,6 +3968,11 @@ export class AdminReviewService {
           passwordHash,
           passwordUpdatedAt: now,
           mustResetPassword: false,
+          // The initial access token is a setup-only credential. Replace its
+          // digest atomically with password setup so the original token cannot
+          // authenticate again; the raw token is never stored.
+          accessTokenDigest: createHash("sha256").update(randomBytes(32)).digest("hex"),
+          accessTokenPreview: "REVOKED••••",
           failedLoginAttempts: 0,
           lockedUntil: null,
         },
