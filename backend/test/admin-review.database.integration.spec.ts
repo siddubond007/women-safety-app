@@ -317,14 +317,19 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
       });
 
       const accessToken = randomBytes(32).toString("base64url");
-      await cleanupClient.authSession.create({
+      const session = await cleanupClient.authSession.create({
         data: {
           accountId: account.id,
           tokenDigest: createHash("sha256").update(accessToken).digest("hex"),
           expiresAt: new Date(Date.now() + 60 * 60 * 1000),
         },
+        select: { id: true },
       });
-      return { accountId: account.id, authorization: "Bearer " + accessToken };
+      return {
+        accountId: account.id,
+        sessionId: session.id,
+        authorization: "Bearer " + accessToken,
+      };
     }
 
     it("lists real database members and persists a development-only state override", async () => {
@@ -382,6 +387,48 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
         .set("Authorization", member.authorization)
         .expect(200);
       expect(eligibility.body.eligibilityStatus).toBe("VERIFIED");
+    }, 30000);
+
+    it("isolates member account, profile and eligibility rows under the NOBYPASSRLS app role", async () => {
+      if (!app) throw new Error("Integration-test API did not initialize.");
+      const owner = await createSyntheticMember("Synthetic RLS Owner");
+      const other = await createSyntheticMember("Synthetic RLS Other Member");
+
+      // Query through the actual application PrismaService, not the privileged
+      // fixture/migrator connection. The request identity is transaction-local.
+      const prisma = app.get(PrismaService);
+      const visible = await runWithDatabaseRequestIdentity(
+        async () => {
+          const ownAccount = await prisma.memberAccount.findUnique({
+            where: { id: owner.accountId },
+            select: { id: true },
+          });
+          const otherAccount = await prisma.memberAccount.findUnique({
+            where: { id: other.accountId },
+            select: { id: true },
+          });
+          const ownProfile = await prisma.memberProfile.findUnique({
+            where: { accountId: owner.accountId },
+            select: { accountId: true },
+          });
+          const otherProfile = await prisma.memberProfile.findUnique({
+            where: { accountId: other.accountId },
+            select: { accountId: true },
+          });
+          const otherSubmissions = await prisma.eligibilitySubmission.findMany({
+            where: { accountId: other.accountId },
+            select: { id: true },
+          });
+          return { ownAccount, otherAccount, ownProfile, otherProfile, otherSubmissions };
+        },
+        { accountId: owner.accountId, sessionId: owner.sessionId },
+      );
+
+      expect(visible.ownAccount?.id).toBe(owner.accountId);
+      expect(visible.ownProfile?.accountId).toBe(owner.accountId);
+      expect(visible.otherAccount).toBeNull();
+      expect(visible.otherProfile).toBeNull();
+      expect(visible.otherSubmissions).toEqual([]);
     }, 30000);
 
     it("persists submission, approval/rejection, member status and audit history", async () => {
