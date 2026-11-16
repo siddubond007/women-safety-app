@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const enabled = process.env.SAKHI_DB_INTEGRATION === "true";
 
-describe.skipIf(!enabled)("staging-only staff MFA database boundary", () => {
+describe.skipIf(!enabled)("staff MFA database boundary", () => {
   let pool: Pool | undefined;
 
   beforeAll(async () => {
@@ -34,7 +34,7 @@ describe.skipIf(!enabled)("staging-only staff MFA database boundary", () => {
     await pool?.end();
   });
 
-  it("forces RLS and grants staff-security policies only to sakhi_staging_app", async () => {
+  it("forces RLS and verifies the isolated test and staging runtime policies", async () => {
     const result = await pool!.query<{
       table_name: string;
       rls_enabled: boolean;
@@ -80,7 +80,9 @@ describe.skipIf(!enabled)("staging-only staff MFA database boundary", () => {
       expect(row).toMatchObject({
         rls_enabled: true,
         rls_forced: true,
-        test_role_policy: false,
+        // The isolated CI harness explicitly creates this test-only policy
+        // so its non-production application role can exercise these tables.
+        test_role_policy: true,
         staging_role_policy: true,
       });
     }
