@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { randomBytes, scryptSync } from "node:crypto";
 import { AdminReviewService } from "../src/admin-review/admin-review.service.js";
 import {
   SakhiAdminRbacRegistry,
@@ -57,6 +58,92 @@ describe("admin authentication security remediation", () => {
       expect(createSpy).not.toHaveBeenCalled();
     },
   );
+
+  it("requires password plus TOTP for subsequent sign-ins after setup", async () => {
+    const password = "Established-Admin-Password-2026";
+    const salt = randomBytes(16).toString("hex");
+    const hash = scryptSync(password, salt, 64, { N: 16384, r: 8, p: 1 }).toString("hex");
+    const staff = {
+      id: restrictedSuperAdmin.staffId,
+      staffCode: "#SA-123",
+      fullName: "Configured Super Admin",
+      email: "configured@example.test",
+      username: "configured.admin",
+      role: "SUPER_ADMIN",
+      status: "ACTIVE",
+      suspendedAt: null,
+      deletedAt: null,
+      lockedUntil: null,
+      passwordHash: `scrypt$16384$8$1${salt}${hash}`,
+      mustResetPassword: false,
+      clearanceLevel: "LEVEL_4_MASTER_GOVERNANCE",
+      isAuthorisedComplaintReviewer: true,
+      permissions: restrictedSuperAdmin.permissions,
+    };
+    const tx = {
+      adminStaffAccount: { update: vi.fn().mockResolvedValue({}) },
+      auditEvent: { create: vi.fn().mockResolvedValue({}) },
+    };
+    const prisma = {
+      adminStaffAccount: { findFirst: vi.fn().mockResolvedValue(staff) },
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx)),
+    };
+    const mfa = { verifyLoginFactor: vi.fn().mockResolvedValue({ method: "TOTP" }) };
+    const sessions = {
+      issueSession: vi.fn().mockResolvedValue({
+        value: "staff-admin.verified-session",
+        expiresAt: new Date(Date.now() + 60_000),
+      }),
+    };
+    const service = new AdminReviewService(prisma as never, undefined, mfa as never, sessions as never);
+
+    const result = await service.loginWithCredentials({
+      identifier: "configured.admin",
+      password,
+      mfaCode: "123456",
+    });
+
+    expect(result).toMatchObject({ authenticated: true, mode: "credential_session", mustResetPassword: false });
+    expect(mfa.verifyLoginFactor).toHaveBeenCalledWith(staff.id, "123456");
+    expect(sessions.issueSession).toHaveBeenCalledWith(staff.id);
+  });
+
+  it("does not allow password sign-in until first-time password setup is completed", async () => {
+    const password = "Temporary-Admin-Password-2026";
+    const salt = randomBytes(16).toString("hex");
+    const hash = scryptSync(password, salt, 64, { N: 16384, r: 8, p: 1 }).toString("hex");
+    const staff = {
+      id: restrictedSuperAdmin.staffId,
+      staffCode: "#SA-123",
+      fullName: "Pending Setup Admin",
+      email: "pending@example.test",
+      username: "pending.admin",
+      role: "SUPER_ADMIN",
+      status: "ACTIVE",
+      suspendedAt: null,
+      deletedAt: null,
+      lockedUntil: null,
+      passwordHash: `scrypt$16384$8$1${salt}${hash}`,
+      mustResetPassword: true,
+      clearanceLevel: "LEVEL_4_MASTER_GOVERNANCE",
+      isAuthorisedComplaintReviewer: true,
+      permissions: restrictedSuperAdmin.permissions,
+    };
+    const prisma = {
+      adminStaffAccount: { findFirst: vi.fn().mockResolvedValue(staff) },
+    };
+    const mfa = { verifyLoginFactor: vi.fn() };
+    const sessions = { issueSession: vi.fn() };
+    const service = new AdminReviewService(prisma as never, undefined, mfa as never, sessions as never);
+
+    await expect(service.loginWithCredentials({
+      identifier: "pending.admin",
+      password,
+      mfaCode: "123456",
+    })).rejects.toThrow(/complete first-time staff setup/i);
+    expect(mfa.verifyLoginFactor).not.toHaveBeenCalled();
+    expect(sessions.issueSession).not.toHaveBeenCalled();
+  });
 
   it("passes only a password hash into the atomic staff-creation transaction", async () => {
     vi.spyOn(SakhiAdminRbacRegistry, "ensureHydrated").mockResolvedValue(undefined);
