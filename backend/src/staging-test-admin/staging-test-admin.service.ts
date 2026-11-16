@@ -223,9 +223,13 @@ export class StagingTestAdminService {
       // the token cannot be used as a login factor again.
       const setupState = await this.prisma.adminStaffAccount.findUnique({
         where: { id: staffMatch.id },
-        select: { mustResetPassword: true },
+        select: { role: true, passwordHash: true, mustResetPassword: true },
       });
-      if (!setupState?.mustResetPassword) {
+      const requiresInitialSetup = Boolean(
+        setupState?.mustResetPassword ||
+        (setupState?.role === "SUPER_ADMIN" && setupState.passwordHash === null),
+      );
+      if (!requiresInitialSetup) {
         throw new UnauthorizedException(
           "The initial staff access token is for first-time setup only. Sign in with username/email, password and TOTP.",
         );
