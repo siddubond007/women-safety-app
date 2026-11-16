@@ -218,6 +218,18 @@ export class StagingTestAdminService {
 
     const staffMatch = await this.lookupRawStaffCredential(clean);
     if (staffMatch) {
+      // Policy B: the individual access token is accepted only while the
+      // account is explicitly in first-time setup. Once a password is set,
+      // the token cannot be used as a login factor again.
+      const setupState = await this.prisma.adminStaffAccount.findUnique({
+        where: { id: staffMatch.id },
+        select: { mustResetPassword: true },
+      });
+      if (!setupState?.mustResetPassword) {
+        throw new UnauthorizedException(
+          "The initial staff access token is for first-time setup only. Sign in with username/email, password and TOTP.",
+        );
+      }
       setAdminDatabaseIdentity(staffMatch.id, staffMatch.role);
       const mfa = await this.prisma.adminStaffMfa.findUnique({
         where: { staffId: staffMatch.id },
