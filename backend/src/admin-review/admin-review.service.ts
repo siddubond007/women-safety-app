@@ -3852,7 +3852,8 @@ export class AdminReviewService {
               WHEN failed_login_attempts + 1 >= 5
                 THEN NOW() + INTERVAL '15 minutes'
               ELSE NULL
-            END
+            END,
+            updated_at = NOW()
           WHERE id = ${staff.id}::uuid
           RETURNING
             failed_login_attempts AS "failedLoginAttempts",
