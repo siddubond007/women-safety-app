@@ -239,6 +239,22 @@ export class EligibilityService {
         data: { verificationStatus: "UNVERIFIED" },
       });
 
+      if (process.env.SAKHI_ENV === "test") {
+        const [rlsContext] = await tx.$queryRaw<Array<{
+          databaseRole: string;
+          accountId: string | null;
+          adminStaffId: string | null;
+          adminRole: string | null;
+        }>>`
+          SELECT
+            current_user AS "databaseRole",
+            current_setting('app.account_id', true) AS "accountId",
+            current_setting('app.admin_staff_id', true) AS "adminStaffId",
+            current_setting('app.admin_role', true) AS "adminRole"
+        `;
+        console.info("[Sakhi PostgreSQL integration] eligibility audit RLS context", rlsContext);
+      }
+
       await tx.auditEvent.create({
         data: {
           actorType: "MEMBER",
