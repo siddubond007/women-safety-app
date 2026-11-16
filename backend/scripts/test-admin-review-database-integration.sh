@@ -50,6 +50,7 @@ export SAKHI_APP_DATABASE_URL="postgresql://sakhi_test_app:${APP_PASSWORD}@${PGH
 export SAKHI_MIGRATOR_DATABASE_URL="postgresql://sakhi_test_migrator:${MIGRATOR_PASSWORD}@${PGHOST}:${PGPORT}/sakhi_test?schema=public"
 
 npm run db:migrate:deploy
+npm run prisma:generate
 npm run db:seed
 
 # Grant object access to the NOBYPASSRLS app role. These grants do not alter
