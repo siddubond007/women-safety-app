@@ -911,6 +911,8 @@ export class SakhiAdminRbacRegistry {
       clearanceLevel?: string;
       permissions?: Partial<GranularRolePermissions>;
       mustResetPassword?: boolean;
+      username?: string;
+      initialPasswordHash?: string;
     },
     createdByLabel: string,
     actorStaffId?: string,
@@ -1006,6 +1008,7 @@ export class SakhiAdminRbacRegistry {
       role: rawRole,
       status: "ACTIVE",
       mustResetPassword: dto.mustResetPassword === true,
+      username: dto.username?.trim().toLowerCase() || null,
       accessTokenDigest,
       accessTokenPreview,
       isAuthorisedComplaintReviewer:
@@ -1027,6 +1030,12 @@ export class SakhiAdminRbacRegistry {
       "created",
       createdByLabel,
       actorStaffId,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      dto.initialPasswordHash,
     );
     return { staff, issuedAccessToken };
   }
@@ -1320,6 +1329,7 @@ export class SakhiAdminRbacRegistry {
     originalStatus?: AdminStaffRecord["status"],
     originalEmail?: string,
     emailChangeReason?: string,
+    initialPasswordHash?: string,
   ): Promise<void> {
     const anyPrisma = prisma as unknown as Record<string, any>;
     if (typeof anyPrisma.$transaction !== "function") {
@@ -1331,6 +1341,7 @@ export class SakhiAdminRbacRegistry {
     const safeMetadata = {
       id: staff.id,
       staffCode: staff.staffCode,
+      username: staff.username ?? null,
       fullName: staff.fullName,
       email: staff.email,
       role: staff.role,
@@ -1362,6 +1373,11 @@ export class SakhiAdminRbacRegistry {
         }
 
         const staffData = {
+          username: staff.username ?? null,
+          ...(outcome === "created" ? {
+            passwordHash: initialPasswordHash ?? null,
+            passwordUpdatedAt: initialPasswordHash ? new Date(staff.createdAt) : null,
+          } : {}),
           fullName: staff.fullName,
           email: staff.email,
           role: staff.role,
