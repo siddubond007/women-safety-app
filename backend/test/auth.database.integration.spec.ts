@@ -236,6 +236,35 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
         isDemo: true,
       });
 
+      // Existing profiles remain visible to their owner during auth lookup.
+      // Duplicate registration must fail; login must return the existing
+      // account.
+      await request(app.getHttpServer())
+        .post("/api/v1/auth/otp/request")
+        .send({ countryCode: "+1", phoneNumber, purpose: "registration" })
+        .expect(409);
+
+      const loginOtp = await request(app.getHttpServer())
+        .post("/api/v1/auth/otp/request")
+        .send({ countryCode: "+1", phoneNumber, purpose: "login" })
+        .expect(200);
+
+      const loginResponse = await request(app.getHttpServer())
+        .post("/api/v1/auth/otp/verify")
+        .send({
+          challengeId: loginOtp.body.challengeId,
+          code: loginOtp.body.developmentCode,
+        })
+        .expect(200);
+      expect(loginResponse.body).toMatchObject({
+        status: "verified",
+        accountState: "pendingVerification",
+      });
+
+      await request(app.getHttpServer())
+        .post("/api/v1/auth/logout")
+        .set("Authorization", "Bearer " + loginResponse.body.accessToken)
+        .expect(200);
       await request(app.getHttpServer())
         .post("/api/v1/auth/logout")
         .set("Authorization", authorization)
@@ -243,6 +272,7 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
         .expect(({ body }) =>
           expect(body).toMatchObject({ status: "signed_out" }),
         );
+
 
       await request(app.getHttpServer())
         .get("/api/v1/auth/me")
