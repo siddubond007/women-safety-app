@@ -482,14 +482,20 @@ describe.skipIf(process.env.SAKHI_DB_INTEGRATION !== "true")(
 
       try {
         const attempts = await Promise.allSettled([
-          service.loginWithCredentials({
-            identifier: integrationStaffEmail,
-            password: "wrong-password-one",
-          }),
-          service.loginWithCredentials({
-            identifier: integrationStaffEmail,
-            password: "wrong-password-two",
-          }),
+          runWithDatabaseRequestIdentity(
+            () => service.loginWithCredentials({
+              identifier: integrationStaffEmail,
+              password: "wrong-password-one",
+            }),
+            { adminStaffId: integrationStaffId, adminRole: "SUPER_ADMIN" },
+          ),
+          runWithDatabaseRequestIdentity(
+            () => service.loginWithCredentials({
+              identifier: integrationStaffEmail,
+              password: "wrong-password-two",
+            }),
+            { adminStaffId: integrationStaffId, adminRole: "SUPER_ADMIN" },
+          ),
         ]);
         expect(attempts.every((attempt) => attempt.status === "rejected")).toBe(true);
 
