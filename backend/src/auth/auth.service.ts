@@ -643,17 +643,21 @@ export class AuthenticationService {
       });
       this.assertOtpWindow(requestCount);
 
+      // RLS hides member profiles from anonymous auth lookups. Resolve the
+      // account first, then scope the profile read to that single account.
       const account = await tx.memberAccount.findUnique({
         where: { phoneE164 },
-        select: {
-          id: true,
-          profile: { select: { accountId: true } },
-        },
+        select: { id: true },
       });
-
-      const isRegistered = Boolean(
-        account && (!("profile" in account) || account.profile !== null),
-      );
+      let isRegistered = false;
+      if (account) {
+        await tx.$queryRaw`SELECT set_config('app.account_id', ${account.id}, true)`;
+        const existingProfile = await tx.memberProfile.findUnique({
+          where: { accountId: account.id },
+          select: { accountId: true },
+        });
+        isRegistered = existingProfile !== null;
+      }
 
       if (dto.purpose === "registration" && isRegistered) {
         throw new ConflictException(
@@ -861,14 +865,25 @@ export class AuthenticationService {
         };
       }
 
+      // Account visibility is granted by auth_lookup, but private profile
+      // visibility is owner-scoped. Bind the discovered account before read.
       let account = await tx.memberAccount.findUnique({
         where: { phoneE164: challenge.phoneE164 },
-        include: { profile: { select: { accountId: true } } },
+        select: {
+          id: true,
+          status: true,
+          verificationStatus: true,
+        },
       });
-
-      const isRegistered = Boolean(
-        account && (!("profile" in account) || account.profile !== null),
-      );
+      let isRegistered = false;
+      if (account) {
+        await tx.$queryRaw`SELECT set_config('app.account_id', ${account.id}, true)`;
+        const existingProfile = await tx.memberProfile.findUnique({
+          where: { accountId: account.id },
+          select: { accountId: true },
+        });
+        isRegistered = existingProfile !== null;
+      }
 
       if (challenge.purpose === "LOGIN" && !isRegistered) {
         await tx.otpChallenge.update({
@@ -908,7 +923,7 @@ export class AuthenticationService {
             verificationStatus: "UNVERIFIED",
           },
         });
-        account = { ...created, profile: null };
+        account = created;
       }
 
       if (!account) {
