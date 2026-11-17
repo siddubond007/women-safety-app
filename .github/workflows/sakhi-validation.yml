@@ -209,7 +209,7 @@ jobs:
       NODE_ENV: production
       SAKHI_STAGING_MFA_DB_INTEGRATION: "true"
       SAKHI_APP_DATABASE_URL: ${{ secrets.SAKHI_STAGING_APP_DATABASE_URL }}
-      SAKHI_MIGRATOR_DATABASE_URL: ${{ secrets.SAKHI_STAGING_MIGRATOR_DATABASE_URL }}
+      SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL: ${{ secrets.SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL }}
     steps:
       - name: Checkout selected branch
         uses: actions/checkout@v4
@@ -224,7 +224,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$SAKHI_APP_DATABASE_URL" || { echo "::error::Missing staging environment secret SAKHI_STAGING_APP_DATABASE_URL"; exit 1; }
-          test -n "$SAKHI_MIGRATOR_DATABASE_URL" || { echo "::error::Missing staging environment secret SAKHI_STAGING_MIGRATOR_DATABASE_URL"; exit 1; }
+          test -n "$SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL" || { echo "::error::Missing staging environment secret SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL"; exit 1; }
       - name: Provision and verify Supabase staging CA
         run: bash scripts/prepare-staging-db-ca.sh
       - name: Install locked dependencies including test tooling
