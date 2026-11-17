@@ -384,7 +384,7 @@ BEGIN
        OR (
          am.roleid = cleanup_role
          AND NOT (
-           EXISTS (SELECT 1 FROM pg_roles p WHERE p.oid = am.member AND p.rolname = 'postgres')
+           am.member = (SELECT oid FROM pg_roles WHERE rolname = current_user)
            AND EXISTS (SELECT 1 FROM pg_roles s WHERE s.oid = am.grantor AND s.rolname = 'supabase_admin')
            AND am.admin_option IS TRUE
            AND am.inherit_option IS FALSE
