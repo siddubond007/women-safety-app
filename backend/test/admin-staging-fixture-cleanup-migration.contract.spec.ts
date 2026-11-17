@@ -43,11 +43,15 @@ describe("staging synthetic MFA fixture-cleanup role migration contract", () => 
     expect(migration).not.toMatch(/GRANT\s+SELECT\s+ON\s+TABLE\s+public\.admin_staff_(sessions|mfa|backup_codes|recovery_requests)/i);
   });
 
-  it("fails closed if the cleanup role can own or truncate protected staff tables", () => {
+  it("fails closed if the cleanup role can own, truncate, or read unapproved columns", () => {
     expect(migration).toContain(
       "has_table_privilege(cleanup_role,c.oid,'TRUNCATE')",
     );
     expect(migration).toContain("must not own or truncate P0 staff-security tables");
     expect(migration).toContain("NOT c.relrowsecurity OR NOT c.relforcerowsecurity");
+    expect(migration).toContain("information_schema.column_privileges");
+    expect(migration).toContain("unexpected column-level privilege");
+    expect(migration).toContain("cp.column_name IN ('id','email','staff_code')");
+    expect(migration).toContain("AND cp.column_name = 'staff_id'");
   });
 });
