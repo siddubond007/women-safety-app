@@ -22,6 +22,7 @@ MIGRATOR_PASSWORD="$(openssl rand -hex 32)"
 STAGING_ROLE_PASSWORD="$(openssl rand -hex 32)"
 STAGING_MIGRATOR_PASSWORD="$(openssl rand -hex 32)"
 STAGING_FIXTURE_CLEANUP_PASSWORD="$(openssl rand -hex 32)"
+SUPABASE_ADMIN_PASSWORD="$(openssl rand -hex 32)"
 
 # The migrator is privileged only inside this disposable CI database. The app
 # role remains NOBYPASSRLS and never owns protected member-data tables.
@@ -31,7 +32,8 @@ psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v migrator_password="$MIGRATOR_PASSWORD" \
   -v staging_role_password="$STAGING_ROLE_PASSWORD" \
   -v staging_migrator_password="$STAGING_MIGRATOR_PASSWORD" \
-  -v staging_fixture_cleanup_password="$STAGING_FIXTURE_CLEANUP_PASSWORD" <<'SQL'
+  -v staging_fixture_cleanup_password="$STAGING_FIXTURE_CLEANUP_PASSWORD" \
+  -v supabase_admin_password="$SUPABASE_ADMIN_PASSWORD" <<'SQL'
 SELECT format(
   'CREATE ROLE sakhi_test_app LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS',
   :'app_password'
@@ -53,11 +55,15 @@ SELECT format(
   'CREATE ROLE sakhi_staging_fixture_cleanup LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS',
   :'staging_fixture_cleanup_password'
 ) \gexec
+SELECT format(
+  'CREATE ROLE supabase_admin LOGIN PASSWORD %L SUPERUSER',
+  :'supabase_admin_password'
+) \gexec
 
-GRANT CONNECT ON DATABASE sakhi_test TO sakhi_test_app, sakhi_test_migrator, sakhi_staging_migrator, sakhi_staging_fixture_cleanup;
+GRANT CONNECT ON DATABASE sakhi_test TO sakhi_test_app, sakhi_test_migrator, sakhi_staging_migrator, sakhi_staging_fixture_cleanup, supabase_admin;
 GRANT CREATE ON DATABASE sakhi_test TO sakhi_test_migrator;
-GRANT USAGE ON SCHEMA public TO sakhi_test_app, sakhi_staging_migrator, sakhi_staging_fixture_cleanup;
-GRANT USAGE, CREATE ON SCHEMA public TO sakhi_test_migrator;
+GRANT USAGE ON SCHEMA public TO sakhi_test_app, sakhi_staging_fixture_cleanup;
+GRANT USAGE, CREATE ON SCHEMA public TO sakhi_test_migrator, sakhi_staging_migrator, postgres;
 SQL
 
 export SAKHI_APP_DATABASE_URL="postgresql://sakhi_test_app:${APP_PASSWORD}@${PGHOST}:${PGPORT}/sakhi_test?schema=public"
@@ -90,21 +96,29 @@ npm run db:migrate:deploy
 restore_admin_migrations
 trap - EXIT
 
-# Reproduce the actual Supabase ownership boundary: the migrator owns the
-# account table and Prisma ledger, while postgres owns the four child tables.
-# The CI-only ownership setup is disposable and does not change staging.
+# Reproduce the actual Supabase ownership boundary and role capabilities:
+# sakhi_staging_migrator owns accounts; postgres owns child tables; postgres
+# is not a superuser but can SET ROLE to the migrator for account-table DDL.
 psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v ON_ERROR_STOP=1 <<'SQL'
-ALTER TABLE public.admin_staff_accounts OWNER TO sakhi_test_migrator;
+ALTER TABLE public.admin_staff_accounts OWNER TO sakhi_staging_migrator;
 ALTER TABLE public.admin_staff_sessions OWNER TO postgres;
 ALTER TABLE public.admin_staff_mfa OWNER TO postgres;
 ALTER TABLE public.admin_staff_backup_codes OWNER TO postgres;
 ALTER TABLE public.admin_staff_recovery_requests OWNER TO postgres;
 
+SET ROLE supabase_admin;
+GRANT sakhi_staging_fixture_cleanup TO postgres
+  WITH ADMIN OPTION, INHERIT FALSE, SET FALSE;
+RESET ROLE;
+
+GRANT sakhi_staging_migrator TO postgres WITH INHERIT FALSE, SET TRUE;
+ALTER ROLE postgres NOSUPERUSER NOCREATEDB NOCREATEROLE BYPASSRLS;
+
 DO $owner_boundary$
 BEGIN
   IF pg_get_userbyid((SELECT relowner FROM pg_class WHERE oid='public._prisma_migrations'::regclass)) <> 'sakhi_test_migrator'
-     OR pg_get_userbyid((SELECT relowner FROM pg_class WHERE oid='public.admin_staff_accounts'::regclass)) <> 'sakhi_test_migrator'
+     OR pg_get_userbyid((SELECT relowner FROM pg_class WHERE oid='public.admin_staff_accounts'::regclass)) <> 'sakhi_staging_migrator'
      OR EXISTS (
        SELECT 1 FROM pg_class
        WHERE oid IN (
@@ -114,15 +128,17 @@ BEGIN
          'public.admin_staff_recovery_requests'::regclass
        )
        AND pg_get_userbyid(relowner) <> 'postgres'
-     ) THEN
-    RAISE EXCEPTION 'Disposable CI database does not reproduce the staging table-owner boundary';
+     )
+     OR NOT pg_has_role('postgres','sakhi_staging_migrator','SET')
+     OR NOT has_schema_privilege('postgres','public','CREATE') THEN
+    RAISE EXCEPTION 'Disposable CI database does not reproduce the Supabase table-owner and role-switch boundary';
   END IF;
 END
 $owner_boundary$;
 SQL
 
-# These owner-scoped DDL files are executed as postgres in CI, matching the
-# Supabase SQL Editor owner context. No staging credential is present here.
+# Run as a newly authenticated non-superuser postgres session. The migration
+# must SET ROLE to the account-table owner and use postgres for child tables.
 psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v ON_ERROR_STOP=1 -f "${MIGRATION_ROOT}/20261117140000_single_use_admin_bootstrap_credential/migration.sql"
 psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
@@ -136,18 +152,19 @@ npx prisma migrate resolve --applied 20261117150000_staging_mfa_fixture_cleanup_
 npm run prisma:generate
 npm run db:seed
 
-# Grant object access to the NOBYPASSRLS app role as the disposable database
-# owner. These grants do not alter staging or transfer any staging ownership.
-psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
+# Use the disposable CI-only Supabase admin role for test fixture grants.
+# This role is never present in staging and is not used to execute the migrations.
+psql "postgresql://supabase_admin:${SUPABASE_ADMIN_PASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v ON_ERROR_STOP=1 <<'SQL'
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO sakhi_test_app;
 REVOKE ALL ON TABLE public._prisma_migrations FROM sakhi_test_app;
 
 -- The integration suite uses sakhi_test_migrator only as a disposable fixture
 -- setup/inspection helper. It is deliberately separate from the staging
--- migrator and receives DML (not ownership or TRUNCATE) on the four tables
--- whose owners were changed above to reproduce Supabase staging.
+-- migrator and receives DML (not ownership or TRUNCATE) on the five staff
+-- tables whose ownership reproduces the Supabase staging boundary.
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
+  public.admin_staff_accounts,
   public.admin_staff_sessions,
   public.admin_staff_mfa,
   public.admin_staff_backup_codes,
