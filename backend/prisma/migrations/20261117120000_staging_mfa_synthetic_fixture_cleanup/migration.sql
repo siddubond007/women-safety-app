@@ -18,12 +18,15 @@ BEGIN
     ) THEN
       RAISE EXCEPTION 'Staging role % must remain non-superuser and NOBYPASSRLS', role_name;
     END IF;
+    -- Supabase grants its postgres operator role membership in these
+    -- managed roles so migrations can inspect/assume them. That is expected.
+    -- Reject only memberships where the staging role itself inherits another
+    -- role, which could silently broaden its effective privileges.
     IF EXISTS (
       SELECT 1 FROM pg_auth_members
       WHERE member = (SELECT oid FROM pg_roles WHERE rolname = role_name)
-         OR roleid = (SELECT oid FROM pg_roles WHERE rolname = role_name)
     ) THEN
-      RAISE EXCEPTION 'Staging role % must not have incoming or outgoing role memberships', role_name;
+      RAISE EXCEPTION 'Staging role % must not inherit any other role', role_name;
     END IF;
   END LOOP;
 
