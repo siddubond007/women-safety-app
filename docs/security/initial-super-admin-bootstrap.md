@@ -15,34 +15,46 @@ This process is for the first Super Admin on the dedicated Sakhi staging environ
 
 ## Dedicated MFA fixture-cleanup database role
 
-The staging MFA integration must never use the schema-migrator credential for teardown. The schema migrator owns schema objects and can perform destructive DDL; it is not a test-cleanup identity.
+The staging MFA integration must never use the schema-migrator credential for teardown. The separate `sakhi_staging_fixture_cleanup` login is a restricted, non-owner cleanup identity.
 
-Before applying the dedicated fixture-cleanup migration, create a separate login role in the Supabase SQL editor. Generate a 32-byte random password locally and do not commit or paste it into chat:
+The live staging preflight already found this role with the required login restrictions, database CONNECT, and public-schema USAGE. **Do not recreate it, rotate its password, or add role memberships as part of this PR.** If a future preflight finds the role missing or its attributes differ, stop and obtain separate approval before changing live role configuration.
+
+The migration permits only the existing Supabase-managed membership where `postgres` is a member of `sakhi_staging_fixture_cleanup`, granted by `supabase_admin` with ADMIN enabled and INHERIT/SET disabled. It rejects membership granted to the cleanup role and every other membership shape. Do not add any other membership, ownership, schema CREATE, database CREATE, or TRUNCATE privilege.
+
+## Owner-aware application of the two admin migrations
+
+The live staging ownership inspection found:
+
+- `sakhi_staging_migrator` owns `admin_staff_accounts` and `_prisma_migrations`.
+- Supabase `postgres` owns `admin_staff_sessions`, `admin_staff_mfa`, `admin_staff_backup_codes`, and `admin_staff_recovery_requests`.
+- The restricted migrator has no direct table privileges on those four child tables and cannot create their RLS policies or change their grants.
+
+Do not transfer ownership or grant the migrator broader privileges to work around this. The two PR #49 migrations must be applied in the Supabase SQL Editor while the execution role is `postgres`, then recorded as applied using the existing restricted Prisma migrator. Do not run `prisma migrate deploy` for these two migrations on staging.
+
+After the PR is separately approved for the staging database change, use the exact migration SQL from the reviewed PR branch and apply them in this order:
+
+1. `backend/prisma/migrations/20261117140000_single_use_admin_bootstrap_credential/migration.sql`
+2. `backend/prisma/migrations/20261117150000_staging_mfa_fixture_cleanup_role/migration.sql`
+
+Confirm the SQL Editor is executing as `postgres`. Execute each complete file as-is, including its transaction boundaries. Do not edit the SQL in the editor and do not continue if either migration reports an error. The migration files are available on the reviewed branch: [bootstrap credential migration](https://github.com/siddubond007/women-safety-app/blob/fix/staging-super-admin-bootstrap-20261117/backend/prisma/migrations/20261117140000_single_use_admin_bootstrap_credential/migration.sql) and [fixture-cleanup migration](https://github.com/siddubond007/women-safety-app/blob/fix/staging-super-admin-bootstrap-20261117/backend/prisma/migrations/20261117150000_staging_mfa_fixture_cleanup_role/migration.sql).
+
+Only after both SQL files have completed successfully, use the protected operator environment with the existing `SAKHI_STAGING_MIGRATOR_DATABASE_URL` supplied as `SAKHI_MIGRATOR_DATABASE_URL`, the pinned Supabase CA, `SAKHI_ENV=staging`, and `NODE_ENV=production`. From the backend directory, record the two already-applied migrations:
 
 ```powershell
-$cleanupPassword = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLowerInvariant()
+$env:SAKHI_ALLOW_STAGING_ADMIN_MIGRATION_RESOLVE = "YES_APPLY_20261117_ADMIN_BOOTSTRAP_AND_FIXTURE_CLEANUP"
+npx prisma migrate resolve --applied 20261117140000_single_use_admin_bootstrap_credential
+npx prisma migrate resolve --applied 20261117150000_staging_mfa_fixture_cleanup_role
+npx prisma migrate status
+Remove-Item Env:SAKHI_ALLOW_STAGING_ADMIN_MIGRATION_RESOLVE
 ```
 
-Run the following SQL after replacing the password placeholder locally:
+The staging Prisma guard permits this approval phrase only for those two exact `--applied` targets. It does not authorize `migrate deploy`, `--rolled-back`, arbitrary SQL execution, or other migration names. Never place database URLs or passwords in chat, source files, shell transcripts, or CI logs.
 
-```sql
-CREATE ROLE sakhi_staging_fixture_cleanup
-  LOGIN PASSWORD '<64-character lowercase hex password generated locally>'
-  NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
-
-GRANT CONNECT ON DATABASE postgres TO sakhi_staging_fixture_cleanup;
-GRANT USAGE ON SCHEMA public TO sakhi_staging_fixture_cleanup;
-```
-
-Do not grant this role membership in another role, ownership of any table, schema CREATE, database CREATE, or TRUNCATE. The reviewed fixture-cleanup migration grants only the required column-level SELECT and row-filtered DELETE privileges across the five staff-security tables. Its postflight checks fail if the role can own or truncate those tables.
-
-After the migration has been reviewed and applied, add this secret to the protected GitHub Actions `staging` environment:
+After the migration ledger is verified, the separate MFA lifecycle job may be configured only after its own approval. Add this secret to the protected GitHub Actions `staging` environment:
 
 - `SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL`: the Supabase session-pooler URL for user `sakhi_staging_fixture_cleanup.wmlpokholjfadyohdlgo`, database `postgres`, port `5432`, TLS `sslmode=verify-full`, and schema `public`.
 
-Use the locally generated 64-character hex password in that URL. Keep `SAKHI_STAGING_MIGRATOR_DATABASE_URL` separate and never expose it to the MFA integration job. The MFA workflow is manual-dispatch-only and must use only the dedicated fixture-cleanup secret for teardown.
-
-Do not create the role, add the GitHub secret, or apply the migration until the operator has separately approved the staging database change.
+Keep `SAKHI_STAGING_MIGRATOR_DATABASE_URL` separate and never expose it to the MFA integration job. The MFA workflow is manual-dispatch-only and must use only the dedicated fixture-cleanup secret for teardown. Do not add the GitHub secret or run the staging MFA job until separately approved.
 
 ## Generate the credential locally
 
