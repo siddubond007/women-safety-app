@@ -6,15 +6,15 @@ set -euo pipefail
 : "${RUNNER_TEMP:?GitHub Actions runner temp directory is unavailable}"
 : "${GITHUB_ENV:?GitHub Actions environment file is unavailable}"
 
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ca_source="${script_dir}/../certs/prod-ca-2021.crt"
 ca_file="${RUNNER_TEMP}/prod-ca-2021.crt"
-curl --fail --silent --show-error --location --retry 3 \
-  https://supabase.com/prod-ca-2021.crt \
-  --output "$ca_file"
+test -s "$ca_source"
+cp "$ca_source" "$ca_file"
 test -s "$ca_file"
 
-# Pin the official Supabase Root 2021 CA fingerprint. Never trust a
-# certificate downloaded over HTTPS without independently checking its
-# expected identity.
+# Pin the official Supabase Root 2021 CA fingerprint. The certificate is
+# checked into the repository so CI does not depend on a mutable download URL.
 actual_fingerprint="$(
   openssl x509 -in "$ca_file" -noout -fingerprint -sha256 |
     sed 's/.*=//; s/://g' |
