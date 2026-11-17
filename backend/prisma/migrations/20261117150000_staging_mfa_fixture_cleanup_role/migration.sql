@@ -83,6 +83,26 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'Fixture cleanup role must never own a P0 staff-security table';
   END IF;
+
+  IF NOT pg_has_role('postgres','sakhi_staging_migrator','SET') THEN
+    RAISE EXCEPTION 'Supabase postgres must be able to SET ROLE to the staging migrator for the account-table policy changes';
+  END IF;
+
+  IF (SELECT relowner FROM pg_class WHERE oid='public.admin_staff_accounts'::regclass)
+       IS DISTINCT FROM (SELECT oid FROM pg_roles WHERE rolname='sakhi_staging_migrator')
+     OR EXISTS (
+       SELECT 1
+       FROM pg_class c
+       WHERE c.oid IN (
+         'public.admin_staff_sessions'::regclass,
+         'public.admin_staff_mfa'::regclass,
+         'public.admin_staff_backup_codes'::regclass,
+         'public.admin_staff_recovery_requests'::regclass
+       )
+       AND c.relowner IS DISTINCT FROM (SELECT oid FROM pg_roles WHERE rolname='postgres')
+     ) THEN
+    RAISE EXCEPTION 'P0 staff tables do not match the reviewed Supabase owner boundary';
+  END IF;
 END
 $fixture_cleanup_role_preflight$;
 
