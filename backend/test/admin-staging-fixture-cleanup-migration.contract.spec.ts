@@ -20,7 +20,7 @@ describe("staging synthetic MFA fixture-cleanup role migration contract", () => 
     expect(migration).toContain("NOT rolreplication");
     expect(migration).toContain("am.member = cleanup_role");
     expect(migration).toContain("am.roleid = cleanup_role");
-    expect(migration).toContain("p.rolname = 'postgres'");
+    expect(migration).toContain("am.member = (SELECT oid FROM pg_roles WHERE rolname = current_user)");
     expect(migration).toContain("s.rolname = 'supabase_admin'");
     expect(migration).toContain("am.admin_option IS TRUE");
     expect(migration).toContain("am.inherit_option IS FALSE");
@@ -28,8 +28,9 @@ describe("staging synthetic MFA fixture-cleanup role migration contract", () => 
     expect(migration).toContain("unsupported role membership");
     expect(migration).toContain("c.relowner = cleanup_role");
     expect(migration).toContain("session_user <> 'postgres'");
-    expect(migration).toContain("rolname='postgres' AND rolsuper");
-    expect(migration).toContain("pg_has_role('postgres','sakhi_staging_migrator','SET')");
+    expect(migration).toContain("rolname = current_user");
+    expect(migration).toContain("AND NOT rolsuper");
+    expect(migration).toContain("pg_has_role(current_user,'sakhi_staging_migrator','SET')");
     expect(migration).toContain("P0 staff tables do not match the reviewed Supabase owner boundary");
     expect(migration).toContain("SET ROLE sakhi_staging_migrator;");
     expect(migration).toContain("RESET ROLE;");
