@@ -320,9 +320,10 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
       "COMPLAINT_REVIEWER",
       () => mfa.beginEnrollment(passwordStaffId),
     );
+    const passwordEnrollmentStep = Math.floor(Date.now() / 30_000);
     const passwordEnrollmentCode = totpAtStep(
       passwordEnrollment.secret,
-      currentStep,
+      passwordEnrollmentStep,
     );
     await withIdentity(passwordStaffId, "COMPLAINT_REVIEWER", () =>
       mfa.verifyEnrollment(passwordStaffId, passwordEnrollmentCode),
@@ -335,7 +336,7 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
           adminReview.loginWithCredentials({
             identifier: passwordStaffEmail,
             password: passwordStaffPassword,
-            mfaCode: totpAtStep(passwordEnrollment.secret, currentStep + 1),
+            mfaCode: totpAtStep(passwordEnrollment.secret, passwordEnrollmentStep + 1),
           }),
         {},
       );
@@ -353,7 +354,8 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
       () => stagingAdmin.startStaffMfaEnrollment(approverCredential),
       {},
     );
-    const approverCode = totpAtStep(approverEnrollment.secret, currentStep);
+    const approverEnrollmentStep = Math.floor(Date.now() / 30_000);
+    const approverCode = totpAtStep(approverEnrollment.secret, approverEnrollmentStep);
     await runWithDatabaseRequestIdentity(
       () =>
         stagingAdmin.verifyStaffMfaEnrollment(approverCredential, approverCode),
