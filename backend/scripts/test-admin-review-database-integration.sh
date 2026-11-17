@@ -45,7 +45,7 @@ SELECT format(
 SELECT format(
   'CREATE ROLE sakhi_staging_migrator LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS',
   :'staging_migrator_password'
-) \\gexec
+) \gexec
 
 GRANT CONNECT ON DATABASE sakhi_test TO sakhi_test_app, sakhi_test_migrator, sakhi_staging_migrator;
 GRANT CREATE ON DATABASE sakhi_test TO sakhi_test_migrator;
