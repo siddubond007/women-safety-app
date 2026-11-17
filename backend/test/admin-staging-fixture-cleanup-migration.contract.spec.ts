@@ -10,7 +10,7 @@ const migration = readFileSync(
 );
 
 describe("staging synthetic MFA fixture-cleanup role migration contract", () => {
-  it("requires a restricted login role with no role memberships or object ownership", () => {
+  it("requires a restricted login role and rejects unsupported memberships or ownership", () => {
     expect(migration).toContain("sakhi_staging_fixture_cleanup");
     expect(migration).toContain("rolcanlogin");
     expect(migration).toContain("NOT rolsuper");
@@ -27,6 +27,10 @@ describe("staging synthetic MFA fixture-cleanup role migration contract", () => 
     expect(migration).toContain("am.set_option IS FALSE");
     expect(migration).toContain("unsupported role membership");
     expect(migration).toContain("c.relowner = cleanup_role");
+    expect(migration).toContain("pg_has_role('postgres','sakhi_staging_migrator','SET')");
+    expect(migration).toContain("P0 staff tables do not match the reviewed Supabase owner boundary");
+    expect(migration).toContain("SET ROLE sakhi_staging_migrator;");
+    expect(migration).toContain("RESET ROLE;");
   });
 
   it("grants only fixture-cleanup column reads and row-filtered deletes", () => {
