@@ -28,8 +28,9 @@ The live staging ownership inspection found:
 - `sakhi_staging_migrator` owns `admin_staff_accounts` and `_prisma_migrations`.
 - Supabase `postgres` owns `admin_staff_sessions`, `admin_staff_mfa`, `admin_staff_backup_codes`, and `admin_staff_recovery_requests`.
 - The restricted migrator has no direct table privileges on those four child tables and cannot create their RLS policies or change their grants.
+- Supabase `postgres` is not a superuser. It can `SET ROLE sakhi_staging_migrator` for the account-table operations, then reset to `postgres` for child-table operations.
 
-Do not transfer ownership or grant the migrator broader privileges to work around this. The two PR #49 migrations must be applied in the Supabase SQL Editor while the execution role is `postgres`, then recorded as applied using the existing restricted Prisma migrator. Do not run `prisma migrate deploy` for these two migrations on staging.
+Do not transfer ownership or grant the migrator broader privileges to work around this. The reviewed migration explicitly preflights the owner split and the `SET ROLE` capability, applies account-table grants and policies under `sakhi_staging_migrator`, then applies child-table grants and policies as `postgres`. The two PR #49 migrations must be applied in the Supabase SQL Editor while the execution role is `postgres`, then recorded as applied using the existing restricted Prisma migrator. Do not run `prisma migrate deploy` for these two migrations on staging.
 
 After the PR is separately approved for the staging database change, use the exact migration SQL from the reviewed PR branch and apply them in this order:
 
