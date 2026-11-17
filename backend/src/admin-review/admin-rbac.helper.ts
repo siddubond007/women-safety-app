@@ -919,6 +919,7 @@ export class SakhiAdminRbacRegistry {
     createdByLabel: string,
     actorStaffId?: string,
     staffId?: string,
+    transactionClient?: unknown,
   ): Promise<{ staff: AdminStaffRecord; issuedAccessToken: string }> {
     await this.ensureHydrated(prisma);
 
@@ -1038,6 +1039,7 @@ export class SakhiAdminRbacRegistry {
       undefined,
       undefined,
       dto.initialPasswordHash,
+      transactionClient,
     );
     return { staff, issuedAccessToken };
   }
@@ -1246,7 +1248,7 @@ export class SakhiAdminRbacRegistry {
     }
 
     try {
-      await anyPrisma.$transaction(async (tx: any) => {
+      const persist = async (tx: any) => {
         if (existing.role === "SUPER_ADMIN" && existing.status === "ACTIVE") {
           const activeSuperAdmins = await tx.adminStaffAccount.count({
             where: { role: "SUPER_ADMIN", status: "ACTIVE" },
@@ -1332,6 +1334,7 @@ export class SakhiAdminRbacRegistry {
     originalEmail?: string,
     emailChangeReason?: string,
     initialPasswordHash?: string,
+    transactionClient?: unknown,
   ): Promise<void> {
     const anyPrisma = prisma as unknown as Record<string, any>;
     if (typeof anyPrisma.$transaction !== "function") {
@@ -1473,8 +1476,13 @@ export class SakhiAdminRbacRegistry {
             },
           },
         });
-      }, { isolationLevel: "Serializable" });
-      this.staffMap.set(staff.id, staff);
+      };
+      if (transactionClient) {
+        await persist(transactionClient);
+      } else {
+        await anyPrisma.$transaction(persist, { isolationLevel: "Serializable" });
+        this.staffMap.set(staff.id, staff);
+      }
     } catch (error) {
       this.hydrated = false;
       this.hydrationPromise = null;
