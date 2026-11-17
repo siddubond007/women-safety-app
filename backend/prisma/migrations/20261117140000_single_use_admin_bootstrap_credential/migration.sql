@@ -36,7 +36,7 @@ CREATE TABLE public.admin_bootstrap_credentials (
 ALTER TABLE public.admin_bootstrap_credentials ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.admin_bootstrap_credentials FORCE ROW LEVEL SECURITY;
 
-REVOKE ALL ON TABLE public.admin_bootstrap_credentials FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.admin_bootstrap_credentials FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT, INSERT, UPDATE ON TABLE public.admin_bootstrap_credentials TO sakhi_staging_app;
 
 CREATE POLICY admin_bootstrap_credentials_select
@@ -106,6 +106,10 @@ BEGIN
   IF has_table_privilege('sakhi_staging_app', 'public.admin_bootstrap_credentials', 'DELETE')
      OR has_table_privilege('anon', 'public.admin_bootstrap_credentials', 'SELECT')
      OR has_table_privilege('authenticated', 'public.admin_bootstrap_credentials', 'SELECT')
+     OR has_table_privilege('service_role', 'public.admin_bootstrap_credentials', 'SELECT')
+     OR has_table_privilege('service_role', 'public.admin_bootstrap_credentials', 'INSERT')
+     OR has_table_privilege('service_role', 'public.admin_bootstrap_credentials', 'UPDATE')
+     OR has_table_privilege('service_role', 'public.admin_bootstrap_credentials', 'DELETE')
      OR NOT has_table_privilege('sakhi_staging_app', 'public.admin_bootstrap_credentials', 'SELECT')
      OR NOT has_table_privilege('sakhi_staging_app', 'public.admin_bootstrap_credentials', 'INSERT')
      OR NOT has_table_privilege('sakhi_staging_app', 'public.admin_bootstrap_credentials', 'UPDATE') THEN
