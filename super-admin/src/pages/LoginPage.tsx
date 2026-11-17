@@ -13,14 +13,14 @@ interface LoginPageProps {
   onCredentialAuthenticate?: (identifier: string, password: string, mfaCode: string) => Promise<void>;
 }
 
-type LoginStage = "token" | "bootstrap" | "mfa" | "verify-enrollment" | "backup-codes" | "recovery";
+type LoginStage = "credentials" | "token" | "bootstrap" | "mfa" | "verify-enrollment" | "backup-codes" | "recovery";
 
 export function LoginPage({ onAuthenticate, onCredentialAuthenticate }: LoginPageProps) {
   const [token, setToken] = useState("");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
-  const [stage, setStage] = useState<LoginStage>("token");
+  const [stage, setStage] = useState<LoginStage>(onCredentialAuthenticate ? "credentials" : "token");
   const [enrollmentSecret, setEnrollmentSecret] = useState("");
   const [otpauthUri, setOtpauthUri] = useState("");
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
@@ -188,7 +188,7 @@ export function LoginPage({ onAuthenticate, onCredentialAuthenticate }: LoginPag
           <div className="login-card-mark"><ShieldCheck size={24} /></div>
           <div className="login-card-kicker">{staging ? "STAGING ADMIN & STAFF PORTAL" : "LOCAL ADMIN & STAFF PORTAL"}</div>
           <h2 id="login-title">
-            {stage === "mfa" ? "Verify your authenticator" :
+            {stage === "credentials" ? "Staff sign in" : stage === "mfa" ? "Verify your authenticator" :
               stage === "verify-enrollment" ? "Enroll your authenticator" :
                 stage === "backup-codes" ? "Save your backup codes" :
                   stage === "bootstrap" ? "Create the initial Super Admin" : "Admin or Reviewer Sign In"}
@@ -204,11 +204,14 @@ export function LoginPage({ onAuthenticate, onCredentialAuthenticate }: LoginPag
                     ? "The one-time bootstrap credential can create exactly one initial Super Admin account. It cannot create a privileged session."
                     : stage === "recovery"
                       ? "Enter the one-time recovery token issued by an independent MFA-verified Super Admin. Your existing staff token is also required."
-                    : staging
-                      ? "First sign-in or password not set yet? Use your individual staff access token here, then verify your authenticator. After verification, Sakhi will ask you to create your password if required. The email/password form is for later sign-ins."
-                      : "Enter the local development/test reviewer token."}
+                    : stage === "credentials"
+                      ? "Use your assigned admin email or username, password and authenticator code. First-time account setup is a separate protected process."
+                      : staging
+                        ? "Use the individual staff access token only for first-time setup. Existing staff should use the separate email, password and authenticator sign-in."
+                        : "Enter the local development/test reviewer token."}
           </p>
 
+          {stage !== "credentials" && (
           <form onSubmit={submit}>
             <label className="member-form-label" htmlFor="reviewer-token">
               {stage === "bootstrap" ? "One-time bootstrap credential" : "Staff Access Token"} <span>Required</span>
@@ -341,23 +344,31 @@ export function LoginPage({ onAuthenticate, onCredentialAuthenticate }: LoginPag
               <ArrowRight size={17} />
             </button>
           </form>
-          {onCredentialAuthenticate && stage === "token" && (
-            <>
-              <p className="login-card-description" style={{ marginTop: 18, textAlign: "center" }}>Already set your password? Sign in with your assigned admin email or username, password and authenticator. If this is your first sign-in and you have no password yet, use the staff access token section above instead.</p>
-              <form onSubmit={submitCredentials} className="login-credential-form">
-                <label className="member-form-label" htmlFor="admin-identifier">Admin email or username <span>Required</span></label>
-                <input id="admin-identifier" className="admin-review-token-input" value={credentialIdentifier} onChange={(event) => setCredentialIdentifier(event.target.value)} autoComplete="username" required />
-                <label className="member-form-label" htmlFor="admin-password">Password <span>Required</span></label>
-                <input id="admin-password" className="admin-review-token-input" type="password" value={credentialPassword} onChange={(event) => setCredentialPassword(event.target.value)} autoComplete="current-password" required />
-                <label className="member-form-label" htmlFor="admin-mfa-code">Authenticator / backup code <span>Required</span></label>
-                <input id="admin-mfa-code" className="admin-review-token-input" value={credentialMfaCode} onChange={(event) => setCredentialMfaCode(event.target.value)} autoComplete="one-time-code" required />
-                <button className="button login-submit" type="submit" disabled={isSubmitting || !credentialIdentifier.trim() || !credentialPassword || !credentialMfaCode.trim()}>
-                  {isSubmitting ? "Verifying credentials..." : "Sign in with credentials"} <ArrowRight size={16} />
-                </button>
-              </form>
-            </>
           )}
-
+          {onCredentialAuthenticate && stage === "credentials" && (
+            <form onSubmit={submitCredentials} className="login-credential-form">
+              <label className="member-form-label" htmlFor="admin-identifier">Admin email or username <span>Required</span></label>
+              <input id="admin-identifier" className="admin-review-token-input" value={credentialIdentifier} onChange={(event) => setCredentialIdentifier(event.target.value)} autoComplete="username" required />
+              <label className="member-form-label" htmlFor="admin-password">Password <span>Required</span></label>
+              <input id="admin-password" className="admin-review-token-input" type="password" value={credentialPassword} onChange={(event) => setCredentialPassword(event.target.value)} autoComplete="current-password" required />
+              <label className="member-form-label" htmlFor="admin-mfa-code">Authenticator / backup code <span>Required</span></label>
+              <input id="admin-mfa-code" className="admin-review-token-input" value={credentialMfaCode} onChange={(event) => setCredentialMfaCode(event.target.value)} autoComplete="one-time-code" required />
+              {error && <p className="admin-review-error" role="alert">{error}</p>}
+              <button className="button button--primary login-submit" type="submit" disabled={isSubmitting || !credentialIdentifier.trim() || !credentialPassword || !credentialMfaCode.trim()}>
+                {isSubmitting ? "Verifying credentials..." : "Sign in"} <ArrowRight size={16} />
+              </button>
+            </form>
+          )}
+          {onCredentialAuthenticate && stage === "credentials" && (
+            <button className="button login-submit" type="button" disabled={isSubmitting} onClick={() => { setError(""); setStage("token"); }}>
+              First-time staff setup / initial bootstrap <ArrowRight size={16} />
+            </button>
+          )}
+          {onCredentialAuthenticate && stage !== "credentials" && (
+            <button className="button login-submit" type="button" disabled={isSubmitting} onClick={() => { setError(""); setStage("credentials"); }}>
+              Back to staff sign in <ArrowRight size={16} />
+            </button>
+          )}
           {stage === "mfa" && (
             <button className="button login-submit" type="button" disabled={isSubmitting} onClick={requestRecovery}>
               Request supervised MFA recovery
