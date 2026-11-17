@@ -52,7 +52,7 @@ SELECT format(
 SELECT format(
   'CREATE ROLE sakhi_staging_fixture_cleanup LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS',
   :'staging_fixture_cleanup_password'
-) \\gexec
+) \gexec
 
 GRANT CONNECT ON DATABASE sakhi_test TO sakhi_test_app, sakhi_test_migrator, sakhi_staging_migrator, sakhi_staging_fixture_cleanup;
 GRANT CREATE ON DATABASE sakhi_test TO sakhi_test_migrator;
