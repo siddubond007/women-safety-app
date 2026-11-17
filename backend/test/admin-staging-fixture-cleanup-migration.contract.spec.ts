@@ -53,9 +53,9 @@ describe("staging synthetic MFA fixture-cleanup role migration contract", () => 
     );
     expect(migration).toContain("must not own or truncate P0 staff-security tables");
     expect(migration).toContain("NOT c.relrowsecurity OR NOT c.relforcerowsecurity");
-    expect(migration).toContain("information_schema.column_privileges");
+    expect(migration).toContain("FROM pg_attribute a");
     expect(migration).toContain("unexpected column-level privilege");
-    expect(migration).toContain("cp.column_name IN ('id','email','staff_code')");
-    expect(migration).toContain("AND cp.column_name = 'staff_id'");
+    expect(migration).toContain("a.attname IN ('id','email','staff_code')");
+    expect(migration).toContain("AND a.attname = 'staff_id'");
   });
 });
