@@ -23,6 +23,7 @@ STAGING_ROLE_PASSWORD="$(openssl rand -hex 32)"
 STAGING_MIGRATOR_PASSWORD="$(openssl rand -hex 32)"
 STAGING_FIXTURE_CLEANUP_PASSWORD="$(openssl rand -hex 32)"
 SUPABASE_ADMIN_PASSWORD="$(openssl rand -hex 32)"
+SUPABASE_POSTGRES_PASSWORD="$(openssl rand -hex 32)"
 
 # The migrator is privileged only inside this disposable CI database. The app
 # role remains NOBYPASSRLS and never owns protected member-data tables.
@@ -33,7 +34,8 @@ psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v staging_role_password="$STAGING_ROLE_PASSWORD" \
   -v staging_migrator_password="$STAGING_MIGRATOR_PASSWORD" \
   -v staging_fixture_cleanup_password="$STAGING_FIXTURE_CLEANUP_PASSWORD" \
-  -v supabase_admin_password="$SUPABASE_ADMIN_PASSWORD" <<'SQL'
+  -v supabase_admin_password="$SUPABASE_ADMIN_PASSWORD" \
+  -v supabase_postgres_password="$SUPABASE_POSTGRES_PASSWORD" <<'SQL'
 SELECT format(
   'CREATE ROLE sakhi_test_app LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS',
   :'app_password'
@@ -58,6 +60,10 @@ SELECT format(
 SELECT format(
   'CREATE ROLE supabase_admin LOGIN PASSWORD %L SUPERUSER',
   :'supabase_admin_password'
+) \gexec
+SELECT format(
+  'CREATE ROLE sakhi_test_supabase_postgres LOGIN PASSWORD %L NOSUPERUSER CREATEDB CREATEROLE NOBYPASSRLS',
+  :'supabase_postgres_password'
 ) \gexec
 
 GRANT CONNECT ON DATABASE sakhi_test TO sakhi_test_app, sakhi_test_migrator, sakhi_staging_migrator, sakhi_staging_fixture_cleanup, supabase_admin;
@@ -102,22 +108,17 @@ trap - EXIT
 psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v ON_ERROR_STOP=1 <<'SQL'
 ALTER TABLE public.admin_staff_accounts OWNER TO sakhi_staging_migrator;
-ALTER TABLE public.admin_staff_sessions OWNER TO postgres;
-ALTER TABLE public.admin_staff_mfa OWNER TO postgres;
-ALTER TABLE public.admin_staff_backup_codes OWNER TO postgres;
-ALTER TABLE public.admin_staff_recovery_requests OWNER TO postgres;
+ALTER TABLE public.admin_staff_sessions OWNER TO sakhi_test_supabase_postgres;
+ALTER TABLE public.admin_staff_mfa OWNER TO sakhi_test_supabase_postgres;
+ALTER TABLE public.admin_staff_backup_codes OWNER TO sakhi_test_supabase_postgres;
+ALTER TABLE public.admin_staff_recovery_requests OWNER TO sakhi_test_supabase_postgres;
 
 SET ROLE supabase_admin;
-GRANT sakhi_staging_migrator TO postgres
-  WITH ADMIN OPTION, INHERIT FALSE, SET FALSE;
-GRANT sakhi_staging_fixture_cleanup TO postgres
+GRANT sakhi_staging_migrator TO sakhi_test_supabase_postgres
+  WITH ADMIN OPTION, INHERIT TRUE, SET TRUE;
+GRANT sakhi_staging_fixture_cleanup TO sakhi_test_supabase_postgres
   WITH ADMIN OPTION, INHERIT FALSE, SET FALSE;
 RESET ROLE;
-
--- Reproduce the second, self-granted membership row observed in staging:
--- postgres can inherit and SET ROLE to sakhi_staging_migrator.
-GRANT sakhi_staging_migrator TO postgres WITH INHERIT TRUE, SET TRUE;
-ALTER ROLE postgres NOSUPERUSER CREATEDB CREATEROLE BYPASSRLS;
 
 DO $owner_boundary$
 BEGIN
@@ -131,10 +132,10 @@ BEGIN
          'public.admin_staff_backup_codes'::regclass,
          'public.admin_staff_recovery_requests'::regclass
        )
-       AND pg_get_userbyid(relowner) <> 'postgres'
+       AND pg_get_userbyid(relowner) <> 'sakhi_test_supabase_postgres'
      )
-     OR NOT pg_has_role('postgres','sakhi_staging_migrator','SET')
-     OR NOT has_schema_privilege('postgres','public','CREATE') THEN
+     OR NOT pg_has_role('sakhi_test_supabase_postgres','sakhi_staging_migrator','SET')
+     OR NOT has_schema_privilege('sakhi_test_supabase_postgres','public','CREATE') THEN
     RAISE EXCEPTION 'Disposable CI database does not reproduce the Supabase table-owner and role-switch boundary';
   END IF;
 END
@@ -144,9 +145,11 @@ SQL
 # Run as a newly authenticated non-superuser postgres session. The migration
 # must SET ROLE to the account-table owner and use postgres for child tables.
 psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
-  -v ON_ERROR_STOP=1 -f "${MIGRATION_ROOT}/20261117140000_single_use_admin_bootstrap_credential/migration.sql"
+  -v ON_ERROR_STOP=1 -c "SET ROLE sakhi_test_supabase_postgres" \
+  -f "${MIGRATION_ROOT}/20261117140000_single_use_admin_bootstrap_credential/migration.sql"
 psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
-  -v ON_ERROR_STOP=1 -f "${MIGRATION_ROOT}/20261117150000_staging_mfa_fixture_cleanup_role/migration.sql"
+  -v ON_ERROR_STOP=1 -c "SET ROLE sakhi_test_supabase_postgres" \
+  -f "${MIGRATION_ROOT}/20261117150000_staging_mfa_fixture_cleanup_role/migration.sql"
 
 # The test migrator owns _prisma_migrations and can safely record only the
 # exact migrations already applied above by the table owner.
