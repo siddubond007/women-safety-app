@@ -57,16 +57,17 @@ FROM sakhi_staging_app;
 
 -- Grant only the columns used by the synthetic-fixture filters and the
 -- DELETE statements. No child-table SELECT policy is created for the migrator.
-GRANT SELECT (id, email, staff_code), DELETE
+GRANT SELECT (id, email, staff_code)
   ON TABLE public.admin_staff_accounts TO sakhi_staging_migrator;
-GRANT SELECT (staff_id), DELETE
-  ON TABLE public.admin_staff_sessions TO sakhi_staging_migrator;
-GRANT SELECT (staff_id), DELETE
-  ON TABLE public.admin_staff_mfa TO sakhi_staging_migrator;
-GRANT SELECT (staff_id), DELETE
-  ON TABLE public.admin_staff_backup_codes TO sakhi_staging_migrator;
-GRANT SELECT (staff_id), DELETE
-  ON TABLE public.admin_staff_recovery_requests TO sakhi_staging_migrator;
+GRANT DELETE ON TABLE public.admin_staff_accounts TO sakhi_staging_migrator;
+GRANT SELECT (staff_id)
+  ON TABLE public.admin_staff_sessions, public.admin_staff_mfa,
+  public.admin_staff_backup_codes, public.admin_staff_recovery_requests
+  TO sakhi_staging_migrator;
+GRANT DELETE ON TABLE
+  public.admin_staff_sessions, public.admin_staff_mfa,
+  public.admin_staff_backup_codes, public.admin_staff_recovery_requests
+  TO sakhi_staging_migrator;
 
 -- The account policy lets the migrator identify fixture accounts only.
 -- The child policies reference that restricted view and cannot match real staff.
