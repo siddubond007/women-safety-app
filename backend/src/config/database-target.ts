@@ -1,5 +1,5 @@
 export type SakhiEnvironment = "dev" | "test" | "staging";
-export type DatabasePurpose = "app" | "migrator";
+export type DatabasePurpose = "app" | "migrator" | "fixture-cleanup";
 
 export interface ParsedSakhiDatabaseTarget {
   environment: SakhiEnvironment;
@@ -56,12 +56,20 @@ export function assertSakhiDatabaseTarget(
       ? environment === "test"
         ? "sakhi_test_app"
         : "sakhi_dev_app"
+      : purpose === "fixture-cleanup"
+      ? environment === "test"
+        ? "sakhi_test_fixture_cleanup"
+        : "sakhi_dev_fixture_cleanup"
       : environment === "test"
         ? "sakhi_test_migrator"
         : "sakhi_dev_migrator";
+  const stagingRoleName =
+    purpose === "fixture-cleanup"
+      ? "sakhi_staging_fixture_cleanup"
+      : `sakhi_staging_${purpose}`;
   const username =
     environment === "staging"
-      ? `sakhi_staging_${purpose}.${STAGING_SUPABASE_PROJECT_REF}`
+      ? `${stagingRoleName}.${STAGING_SUPABASE_PROJECT_REF}`
       : localUsername;
 
   const protocolIsPostgres =
