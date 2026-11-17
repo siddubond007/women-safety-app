@@ -15,7 +15,8 @@ const ENV_KEYS = [
   "SAKHI_STAGING_TEST_ADMIN_TOKEN",
   "SAKHI_STAGING_TEST_ADMIN_REVIEWER_LABEL",
   "SAKHI_STAGING_FULL_ADMIN_ENABLED",
-  "SAKHI_STAGING_FULL_ADMIN_TOKEN",
+  "SAKHI_STAGING_FULL_ADMIN_TOKEN_SHA256",
+  "SAKHI_STAGING_FULL_ADMIN_TOKEN_EXPIRES_AT",
   "SAKHI_STAGING_FULL_ADMIN_REVIEWER_LABEL",
   "SAKHI_ADMIN_CORS_ORIGIN",
   "SAKHI_ADMIN_STAFF_SESSION_SIGNING_KEY",
@@ -65,7 +66,14 @@ async function createStaffSession(
 function makeService() {
   const transactionIdentities: Array<{ adminStaffId?: string; adminRole?: string } | undefined> = [];
   const tx = {
-    adminStaffAccount: { create: vi.fn().mockResolvedValue({}) },
+    adminStaffAccount: {
+      create: vi.fn().mockResolvedValue({}),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+    adminBootstrapCredential: {
+      create: vi.fn().mockResolvedValue({}),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
     memberAccount: { create: vi.fn().mockResolvedValue({ id: "synthetic-account" }) },
     memberProfile: { create: vi.fn().mockResolvedValue({ accountId: "synthetic-account" }) },
     authSession: { create: vi.fn().mockResolvedValue({ id: "synthetic-session" }) },
@@ -88,6 +96,9 @@ function makeService() {
       }),
     },
     adminStaffMfa: {
+      findUnique: vi.fn().mockResolvedValue(null),
+    },
+    adminBootstrapCredential: {
       findUnique: vi.fn().mockResolvedValue(null),
     },
     auditEvent: {
@@ -141,8 +152,11 @@ describe("StagingTestAdminService", () => {
     process.env.SAKHI_STAGING_TEST_ADMIN_REVIEWER_LABEL =
       "Friend Testing Reviewer";
     process.env.SAKHI_STAGING_FULL_ADMIN_ENABLED = "true";
-    process.env.SAKHI_STAGING_FULL_ADMIN_TOKEN =
-      "full-staging-admin-secret-token-is-over-32-chars";
+    process.env.SAKHI_STAGING_FULL_ADMIN_TOKEN_SHA256 = createHash("sha256")
+      .update("full-staging-admin-secret-token-is-over-32-chars")
+      .digest("hex");
+    process.env.SAKHI_STAGING_FULL_ADMIN_TOKEN_EXPIRES_AT =
+      new Date(Date.now() + 60 * 60 * 1000).toISOString();
     process.env.SAKHI_STAGING_FULL_ADMIN_REVIEWER_LABEL = "Staging Super Admin";
     process.env.SAKHI_ADMIN_CORS_ORIGIN =
       "https://sakhi-staging-admin.onrender.com";
