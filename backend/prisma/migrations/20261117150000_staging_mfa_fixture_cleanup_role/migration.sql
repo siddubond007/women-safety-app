@@ -330,23 +330,31 @@ BEGIN
   -- for the row-filtered policies and cleanup queries.
   IF EXISTS (
     SELECT 1
-    FROM information_schema.column_privileges cp
-    WHERE cp.grantee = 'sakhi_staging_fixture_cleanup'
-      AND cp.table_schema = 'public'
-      AND cp.table_name IN (
+    FROM pg_attribute a
+    JOIN pg_class c ON c.oid = a.attrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname IN (
         'admin_staff_accounts','admin_staff_sessions','admin_staff_mfa',
         'admin_staff_backup_codes','admin_staff_recovery_requests'
       )
-      AND NOT (
-        cp.privilege_type = 'SELECT'
-        AND (
-          (cp.table_name = 'admin_staff_accounts'
-            AND cp.column_name IN ('id','email','staff_code'))
-          OR
-          (cp.table_name IN (
-            'admin_staff_sessions','admin_staff_mfa',
-            'admin_staff_backup_codes','admin_staff_recovery_requests'
-          ) AND cp.column_name = 'staff_id')
+      AND a.attnum > 0
+      AND NOT a.attisdropped
+      AND (
+        has_column_privilege(cleanup_role,c.oid,a.attname,'INSERT')
+        OR has_column_privilege(cleanup_role,c.oid,a.attname,'UPDATE')
+        OR has_column_privilege(cleanup_role,c.oid,a.attname,'REFERENCES')
+        OR (
+          has_column_privilege(cleanup_role,c.oid,a.attname,'SELECT')
+          AND NOT (
+            (c.relname = 'admin_staff_accounts'
+              AND a.attname IN ('id','email','staff_code'))
+            OR
+            (c.relname IN (
+              'admin_staff_sessions','admin_staff_mfa',
+              'admin_staff_backup_codes','admin_staff_recovery_requests'
+            ) AND a.attname = 'staff_id')
+          )
         )
       )
   ) THEN
