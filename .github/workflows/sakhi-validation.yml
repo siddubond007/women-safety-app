@@ -246,7 +246,7 @@ jobs:
             const raw = process.env[key];
             if (!raw) throw new Error(`Missing ${key}`);
             const url = new URL(raw);
-            const configuredCa = (url.searchParams.get("sslrootcert") ?? "").replaceAll("\\\\", "/");
+            const configuredCa = (url.searchParams.get("sslrootcert") ?? "").replaceAll("\\", "/");
             if (!configuredCa.endsWith("/prod-ca-2021.crt") && configuredCa !== "prod-ca-2021.crt") {
               throw new Error(`${key} must reference the pinned Supabase prod-ca-2021.crt trust anchor.`);
             }
