@@ -143,6 +143,17 @@ psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO sakhi_test_app;
 REVOKE ALL ON TABLE public._prisma_migrations FROM sakhi_test_app;
 
+-- The integration suite uses sakhi_test_migrator only as a disposable fixture
+-- setup/inspection helper. It is deliberately separate from the staging
+-- migrator and receives DML (not ownership or TRUNCATE) on the four tables
+-- whose owners were changed above to reproduce Supabase staging.
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
+  public.admin_staff_sessions,
+  public.admin_staff_mfa,
+  public.admin_staff_backup_codes,
+  public.admin_staff_recovery_requests
+TO sakhi_test_migrator;
+
 -- Test-only staff security access mirrors the dedicated backend runtime role.
 -- This policy is installed only in the disposable sakhi_test database. The
 -- test app role remains NOBYPASSRLS and does not own these tables.
