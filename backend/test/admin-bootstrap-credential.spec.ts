@@ -12,7 +12,9 @@ const ENV_KEYS = [
   "SAKHI_STAGING_FULL_ADMIN_TOKEN_SHA256",
   "SAKHI_STAGING_FULL_ADMIN_TOKEN_EXPIRES_AT",
 ] as const;
-const originalEnv = new Map(ENV_KEYS.map((key) => [key, process.env[key]]));
+const originalEnv = new Map<string, string | undefined>(
+  ENV_KEYS.map((key) => [key, process.env[key]] as const),
+);
 const now = new Date("2026-11-17T12:00:00.000Z");
 const token = "a-secure-bootstrap-token-that-is-never-committed";
 const digest = createHash("sha256").update(token).digest("hex");
