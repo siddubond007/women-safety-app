@@ -580,15 +580,30 @@ export class SakhiAdminRbacRegistry {
     prisma: PrismaService,
   ): Promise<void> {
     const anyPrisma = prisma as unknown as Record<string, any>;
-    if (!anyPrisma.adminStaffAccount?.findMany) {
+    if (typeof anyPrisma.adminStaffAccount?.findMany !== "function") {
       throw new ServiceUnavailableException(
         "The authoritative admin staff account table is required for bootstrap.",
       );
     }
-    this.staffMap.clear();
-    this.hydrated = false;
-    this.hydrationPromise = null;
+
+    // Hydrate the other registry-backed data if this is the first request,
+    // then make a second uncaught read of the authoritative staff table. The
+    // direct read deliberately fails closed instead of accepting the legacy
+    // audit-snapshot fallback when the database is unavailable.
     await this.ensureHydrated(prisma);
+    const rows = await anyPrisma.adminStaffAccount.findMany({
+      orderBy: { createdAt: "asc" },
+    });
+    if (!Array.isArray(rows)) {
+      throw new ServiceUnavailableException(
+        "The authoritative admin staff account table returned an invalid result.",
+      );
+    }
+    this.staffMap.clear();
+    for (const row of rows) {
+      const mapped = this.mapDbRowToStaff(row);
+      this.staffMap.set(mapped.id, mapped);
+    }
   }
 
   static async ensureHydrated(prisma: PrismaService): Promise<void> {
