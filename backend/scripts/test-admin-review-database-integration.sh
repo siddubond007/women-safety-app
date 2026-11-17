@@ -20,6 +20,7 @@ export HOST=127.0.0.1
 APP_PASSWORD="$(openssl rand -hex 32)"
 MIGRATOR_PASSWORD="$(openssl rand -hex 32)"
 STAGING_ROLE_PASSWORD="$(openssl rand -hex 32)"
+STAGING_MIGRATOR_PASSWORD="$(openssl rand -hex 32)"
 
 # The migrator is privileged only inside this disposable CI database. The app
 # role remains NOBYPASSRLS and never owns protected member-data tables.
@@ -27,7 +28,8 @@ psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v ON_ERROR_STOP=1 \
   -v app_password="$APP_PASSWORD" \
   -v migrator_password="$MIGRATOR_PASSWORD" \
-  -v staging_role_password="$STAGING_ROLE_PASSWORD" <<'SQL'
+  -v staging_role_password="$STAGING_ROLE_PASSWORD" \\
+  -v staging_migrator_password="$STAGING_MIGRATOR_PASSWORD" <<'SQL'
 SELECT format(
   'CREATE ROLE sakhi_test_app LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS',
   :'app_password'
@@ -41,14 +43,15 @@ SELECT format(
   :'staging_role_password'
 ) \gexec
 
-GRANT CONNECT ON DATABASE sakhi_test TO sakhi_test_app, sakhi_test_migrator;
+GRANT CONNECT ON DATABASE sakhi_test TO sakhi_test_app, sakhi_test_migrator, sakhi_staging_migrator;
 GRANT CREATE ON DATABASE sakhi_test TO sakhi_test_migrator;
-GRANT USAGE ON SCHEMA public TO sakhi_test_app;
+GRANT USAGE ON SCHEMA public TO sakhi_test_app, sakhi_staging_migrator;
 GRANT USAGE, CREATE ON SCHEMA public TO sakhi_test_migrator;
 SQL
 
 export SAKHI_APP_DATABASE_URL="postgresql://sakhi_test_app:${APP_PASSWORD}@${PGHOST}:${PGPORT}/sakhi_test?schema=public"
 export SAKHI_MIGRATOR_DATABASE_URL="postgresql://sakhi_test_migrator:${MIGRATOR_PASSWORD}@${PGHOST}:${PGPORT}/sakhi_test?schema=public"
+export SAKHI_STAGING_MIGRATOR_DATABASE_URL="postgresql://sakhi_staging_migrator:${STAGING_MIGRATOR_PASSWORD}@${PGHOST}:${PGPORT}/sakhi_test?schema=public"
 
 npm run db:migrate:deploy
 npm run prisma:generate
