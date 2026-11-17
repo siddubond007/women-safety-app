@@ -117,7 +117,7 @@ RESET ROLE;
 -- Reproduce the second, self-granted membership row observed in staging:
 -- postgres can inherit and SET ROLE to sakhi_staging_migrator.
 GRANT sakhi_staging_migrator TO postgres WITH INHERIT TRUE, SET TRUE;
-ALTER ROLE postgres NOSUPERUSER NOCREATEDB NOCREATEROLE BYPASSRLS;
+ALTER ROLE postgres NOSUPERUSER CREATEDB CREATEROLE BYPASSRLS;
 
 DO $owner_boundary$
 BEGIN
