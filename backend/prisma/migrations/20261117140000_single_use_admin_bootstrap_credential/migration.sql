@@ -36,7 +36,22 @@ CREATE TABLE public.admin_bootstrap_credentials (
 ALTER TABLE public.admin_bootstrap_credentials ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.admin_bootstrap_credentials FORCE ROW LEVEL SECURITY;
 
-REVOKE ALL ON TABLE public.admin_bootstrap_credentials FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.admin_bootstrap_credentials FROM PUBLIC;
+
+DO $bootstrap_role_revocations$
+DECLARE
+  role_name text;
+BEGIN
+  FOREACH role_name IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
+      EXECUTE format(
+        'REVOKE ALL ON TABLE public.admin_bootstrap_credentials FROM %I',
+        role_name
+      );
+    END IF;
+  END LOOP;
+END
+$bootstrap_role_revocations$;
 GRANT SELECT, INSERT, UPDATE ON TABLE public.admin_bootstrap_credentials TO sakhi_staging_app;
 
 CREATE POLICY admin_bootstrap_credentials_select
@@ -83,7 +98,22 @@ BEGIN
 END;
 $function$;
 
-REVOKE ALL ON FUNCTION public.guard_admin_bootstrap_credential_consumption() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.guard_admin_bootstrap_credential_consumption() FROM PUBLIC;
+
+DO $bootstrap_function_revocations$
+DECLARE
+  role_name text;
+BEGIN
+  FOREACH role_name IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
+      EXECUTE format(
+        'REVOKE ALL ON FUNCTION public.guard_admin_bootstrap_credential_consumption() FROM %I',
+        role_name
+      );
+    END IF;
+  END LOOP;
+END
+$bootstrap_function_revocations$;
 
 CREATE TRIGGER admin_bootstrap_credentials_one_way_consumption
   BEFORE UPDATE ON public.admin_bootstrap_credentials
@@ -104,17 +134,26 @@ BEGIN
   END IF;
 
   IF has_table_privilege('sakhi_staging_app', 'public.admin_bootstrap_credentials', 'DELETE')
-     OR has_table_privilege('anon', 'public.admin_bootstrap_credentials', 'SELECT')
-     OR has_table_privilege('authenticated', 'public.admin_bootstrap_credentials', 'SELECT')
-     OR has_table_privilege('service_role', 'public.admin_bootstrap_credentials', 'SELECT')
-     OR has_table_privilege('service_role', 'public.admin_bootstrap_credentials', 'INSERT')
-     OR has_table_privilege('service_role', 'public.admin_bootstrap_credentials', 'UPDATE')
-     OR has_table_privilege('service_role', 'public.admin_bootstrap_credentials', 'DELETE')
      OR NOT has_table_privilege('sakhi_staging_app', 'public.admin_bootstrap_credentials', 'SELECT')
      OR NOT has_table_privilege('sakhi_staging_app', 'public.admin_bootstrap_credentials', 'INSERT')
      OR NOT has_table_privilege('sakhi_staging_app', 'public.admin_bootstrap_credentials', 'UPDATE') THEN
     RAISE EXCEPTION 'Bootstrap credential grants are broader or narrower than intended';
   END IF;
+
+  -- Supabase roles are not present in the isolated vanilla PostgreSQL CI
+  -- database. Verify them when present, without making migration portability
+  -- depend on Supabase-managed role creation.
+  FOR role_name IN
+    SELECT rolname FROM pg_roles
+    WHERE rolname IN ('anon', 'authenticated', 'service_role')
+  LOOP
+    IF has_table_privilege(role_name, 'public.admin_bootstrap_credentials', 'SELECT')
+       OR has_table_privilege(role_name, 'public.admin_bootstrap_credentials', 'INSERT')
+       OR has_table_privilege(role_name, 'public.admin_bootstrap_credentials', 'UPDATE')
+       OR has_table_privilege(role_name, 'public.admin_bootstrap_credentials', 'DELETE') THEN
+      RAISE EXCEPTION 'Bootstrap credential table is exposed to role %', role_name;
+    END IF;
+  END LOOP;
 END
 $bootstrap_postflight$;
 
