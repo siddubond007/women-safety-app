@@ -121,6 +121,8 @@ CREATE TRIGGER admin_bootstrap_credentials_one_way_consumption
   EXECUTE FUNCTION public.guard_admin_bootstrap_credential_consumption();
 
 DO $bootstrap_postflight$
+DECLARE
+  role_name text;
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_class c
