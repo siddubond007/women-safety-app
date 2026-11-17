@@ -20,6 +20,18 @@ function getMigrationDatasourceUrl(): string {
     const bootstrapApproved =
       process.env.SAKHI_ALLOW_STAGING_BOOTSTRAP ===
       "YES_BOOTSTRAP_SAKHI_STAGING_EMPTY_DATABASE";
+    const commandArgs = process.argv.slice(2);
+    const adminMigrationResolveTargets = new Set([
+      "20261117140000_single_use_admin_bootstrap_credential",
+      "20261117150000_staging_mfa_fixture_cleanup_role",
+    ]);
+    const adminMigrationResolveApproved =
+      commandGroup === "migrate" &&
+      commandAction === "resolve" &&
+      commandArgs[2] === "--applied" &&
+      adminMigrationResolveTargets.has(commandArgs[3] ?? "") &&
+      process.env.SAKHI_ALLOW_STAGING_ADMIN_MIGRATION_RESOLVE ===
+        "YES_APPLY_20261117_ADMIN_BOOTSTRAP_AND_FIXTURE_CLEANUP";
     const readOnlyCommand =
       commandGroup === "generate" ||
       commandGroup === "validate" ||
@@ -56,10 +68,10 @@ function getMigrationDatasourceUrl(): string {
       if (
         commandGroup === "migrate" &&
         commandAction === "resolve" &&
-        !bootstrapApproved
+        !(bootstrapApproved || adminMigrationResolveApproved)
       ) {
         throw new Error(
-          "Staging migrate resolve is restricted to an explicitly approved fresh-schema bootstrap.",
+          "Staging migrate resolve is restricted to an explicitly approved fresh-schema bootstrap or one of the two reviewed 2026-11-17 admin migrations.",
         );
       }
       if (
