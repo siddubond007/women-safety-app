@@ -570,6 +570,27 @@ export class SakhiAdminRbacRegistry {
     return staff;
   }
 
+  /**
+   * Rebuild the staff cache from the authoritative database table. Unlike the
+   * legacy hydration fallback, this never resurrects deleted accounts from
+   * audit snapshots. Used at bootstrap boundaries after out-of-band staging
+   * account resets and before the initial account is created.
+   */
+  static async reloadStaffRegistryFromDatabase(
+    prisma: PrismaService,
+  ): Promise<void> {
+    const anyPrisma = prisma as unknown as Record<string, any>;
+    if (!anyPrisma.adminStaffAccount?.findMany) {
+      throw new ServiceUnavailableException(
+        "The authoritative admin staff account table is required for bootstrap.",
+      );
+    }
+    this.staffMap.clear();
+    this.hydrated = false;
+    this.hydrationPromise = null;
+    await this.ensureHydrated(prisma);
+  }
+
   static async ensureHydrated(prisma: PrismaService): Promise<void> {
     if (this.hydrated) return;
     if (this.hydrationPromise) return this.hydrationPromise;
@@ -602,8 +623,11 @@ export class SakhiAdminRbacRegistry {
         }
       }
 
-      // Fallback to AuditEvent snapshots if table not yet migrated or empty
-      if (prisma.auditEvent?.findMany) {
+      // Audit snapshots are a legacy fallback only when the staff table is
+      // unavailable. An existing but empty staff table is authoritative: in
+      // particular, never resurrect accounts intentionally removed during a
+      // staging reset from historical audit metadata.
+      if (!loadedStaffFromTable && prisma.auditEvent?.findMany) {
         const snaps = await prisma.auditEvent
           .findMany({
             where: { action: "module10.admin_staff.snapshot" },
@@ -616,7 +640,7 @@ export class SakhiAdminRbacRegistry {
           if (meta && typeof meta.id === "string") {
             if (meta.deleted === true) {
               this.staffMap.delete(meta.id);
-            } else if (!loadedStaffFromTable || !this.staffMap.has(meta.id)) {
+            } else {
               const mapped = this.mapDbRowToStaff(meta);
               this.staffMap.set(mapped.id, mapped);
             }
