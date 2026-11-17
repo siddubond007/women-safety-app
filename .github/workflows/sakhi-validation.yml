@@ -192,11 +192,9 @@ jobs:
 
   staging-staff-mfa:
     name: Manual staging staff MFA lifecycle verification
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' &&
-       github.event.pull_request.number == 49 &&
-       github.event.pull_request.head.ref == 'fix/staging-super-admin-bootstrap-20261117')
+    # Staging database credentials must never be exposed to pull-request code.
+    # Run this job only through an explicitly approved workflow_dispatch.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: staging
