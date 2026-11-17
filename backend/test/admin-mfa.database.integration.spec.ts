@@ -184,35 +184,40 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
   afterAll(async () => {
     try {
       if (cleanup) {
-        // Cleanup must be all-or-nothing. Keep the least-privilege app role
-        // free of DELETE; the dedicated staging migrator receives only the
-        // narrow DELETE grants required for these synthetic fixture tables.
-        await cleanup.query("BEGIN");
+        // Pin every statement to one connection so the teardown is truly
+        // atomic. Keep the app role free of DELETE; the dedicated staging
+        // migrator can delete only rows identified as synthetic MFA fixtures.
+        const client = await cleanup.connect();
         try {
-          await cleanup.query(
-            "DELETE FROM public.admin_staff_recovery_requests WHERE staff_id = ANY($1::uuid[])",
-            [ids],
-          );
-          await cleanup.query(
-            "DELETE FROM public.admin_staff_backup_codes WHERE staff_id = ANY($1::uuid[])",
-            [ids],
-          );
-          await cleanup.query(
-            "DELETE FROM public.admin_staff_sessions WHERE staff_id = ANY($1::uuid[])",
-            [ids],
-          );
-          await cleanup.query(
-            "DELETE FROM public.admin_staff_mfa WHERE staff_id = ANY($1::uuid[])",
-            [ids],
-          );
-          await cleanup.query(
-            "DELETE FROM public.admin_staff_accounts WHERE id = ANY($1::uuid[])",
-            [ids],
-          );
-          await cleanup.query("COMMIT");
-        } catch (error) {
-          await cleanup.query("ROLLBACK");
-          throw error;
+          await client.query("BEGIN");
+          try {
+            await client.query(
+              "DELETE FROM public.admin_staff_recovery_requests WHERE staff_id = ANY($1::uuid[])",
+              [ids],
+            );
+            await client.query(
+              "DELETE FROM public.admin_staff_backup_codes WHERE staff_id = ANY($1::uuid[])",
+              [ids],
+            );
+            await client.query(
+              "DELETE FROM public.admin_staff_sessions WHERE staff_id = ANY($1::uuid[])",
+              [ids],
+            );
+            await client.query(
+              "DELETE FROM public.admin_staff_mfa WHERE staff_id = ANY($1::uuid[])",
+              [ids],
+            );
+            await client.query(
+              "DELETE FROM public.admin_staff_accounts WHERE id = ANY($1::uuid[])",
+              [ids],
+            );
+            await client.query("COMMIT");
+          } catch (error) {
+            await client.query("ROLLBACK");
+            throw error;
+          }
+        } finally {
+          client.release();
         }
       }
     } finally {
