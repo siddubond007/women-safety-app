@@ -46,11 +46,14 @@ services:
         value: v1
       - key: SAKHI_ADMIN_MFA_ENCRYPTION_KEY_V1
         sync: false
-      # One-time bootstrap only; disable after the initial Super Admin is enrolled.
+      # Bootstrap remains disabled until an operator configures a one-time
+      # token digest and absolute expiry after the reviewed migrations deploy.
       - key: SAKHI_STAGING_FULL_ADMIN_ENABLED
-        value: "true"
-      - key: SAKHI_STAGING_FULL_ADMIN_TOKEN
-        generateValue: true
+        value: "false"
+      - key: SAKHI_STAGING_FULL_ADMIN_TOKEN_SHA256
+        sync: false
+      - key: SAKHI_STAGING_FULL_ADMIN_TOKEN_EXPIRES_AT
+        sync: false
       - key: SAKHI_STAGING_FULL_ADMIN_REVIEWER_LABEL
         value: Sakhi Staging Super Admin
       - key: SAKHI_GOOGLE_DRIVE_CLIENT_ID
