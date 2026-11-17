@@ -358,6 +358,12 @@ export class StagingTestAdminService {
         () =>
           this.prisma.$transaction(
             async (tx) => {
+              // A previous process may still have the pre-reset staff cache.
+              // Rehydrate from the live table inside this transaction before
+              // evaluating bootstrap eligibility or duplicate identities.
+              await SakhiAdminRbacRegistry.reloadStaffRegistryFromDatabase(
+                tx as unknown as PrismaService,
+              );
               const existingSuperAdmin = await tx.adminStaffAccount.findFirst({
                 where: { role: "SUPER_ADMIN" },
                 select: { id: true },
