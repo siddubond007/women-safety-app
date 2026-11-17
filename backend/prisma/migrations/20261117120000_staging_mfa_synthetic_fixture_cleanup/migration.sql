@@ -212,10 +212,22 @@ BEGIN
           'admin_staff_accounts_mfa_fixture_cleanup_select',
           'admin_staff_accounts_mfa_fixture_cleanup_delete'
         )) OR
-        (p.tablename='admin_staff_sessions' AND p.policyname='admin_staff_sessions_mfa_fixture_cleanup_delete') OR
-        (p.tablename='admin_staff_mfa' AND p.policyname='admin_staff_mfa_mfa_fixture_cleanup_delete') OR
-        (p.tablename='admin_staff_backup_codes' AND p.policyname='admin_staff_backup_codes_mfa_fixture_cleanup_delete') OR
-        (p.tablename='admin_staff_recovery_requests' AND p.policyname='admin_staff_recovery_requests_mfa_fixture_cleanup_delete')
+        (p.tablename='admin_staff_sessions' AND p.policyname IN (
+          'admin_staff_sessions_mfa_fixture_cleanup_delete',
+          'admin_staff_sessions_mfa_fixture_cleanup_select'
+        )) OR
+        (p.tablename='admin_staff_mfa' AND p.policyname IN (
+          'admin_staff_mfa_mfa_fixture_cleanup_delete',
+          'admin_staff_mfa_mfa_fixture_cleanup_select'
+        )) OR
+        (p.tablename='admin_staff_backup_codes' AND p.policyname IN (
+          'admin_staff_backup_codes_mfa_fixture_cleanup_delete',
+          'admin_staff_backup_codes_mfa_fixture_cleanup_select'
+        )) OR
+        (p.tablename='admin_staff_recovery_requests' AND p.policyname IN (
+          'admin_staff_recovery_requests_mfa_fixture_cleanup_delete',
+          'admin_staff_recovery_requests_mfa_fixture_cleanup_select'
+        ))
       )
   ) THEN
     RAISE EXCEPTION 'Unexpected permissive policy exists for sakhi_staging_migrator on a P0 table';
