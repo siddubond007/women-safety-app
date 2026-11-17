@@ -182,30 +182,43 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
   }, 30_000);
 
   afterAll(async () => {
-    if (cleanup) {
-      await cleanup.query(
-        "DELETE FROM public.admin_staff_recovery_requests WHERE staff_id = ANY($1::uuid[])",
-        [ids],
-      );
-      await cleanup.query(
-        "DELETE FROM public.admin_staff_backup_codes WHERE staff_id = ANY($1::uuid[])",
-        [ids],
-      );
-      await cleanup.query(
-        "DELETE FROM public.admin_staff_sessions WHERE staff_id = ANY($1::uuid[])",
-        [ids],
-      );
-      await cleanup.query(
-        "DELETE FROM public.admin_staff_mfa WHERE staff_id = ANY($1::uuid[])",
-        [ids],
-      );
-      await cleanup.query(
-        "DELETE FROM public.admin_staff_accounts WHERE id = ANY($1::uuid[])",
-        [ids],
-      );
-      await cleanup.end();
+    try {
+      if (cleanup) {
+        // Cleanup must be all-or-nothing. Keep the least-privilege app role
+        // free of DELETE; the dedicated staging migrator receives only the
+        // narrow DELETE grants required for these synthetic fixture tables.
+        await cleanup.query("BEGIN");
+        try {
+          await cleanup.query(
+            "DELETE FROM public.admin_staff_recovery_requests WHERE staff_id = ANY($1::uuid[])",
+            [ids],
+          );
+          await cleanup.query(
+            "DELETE FROM public.admin_staff_backup_codes WHERE staff_id = ANY($1::uuid[])",
+            [ids],
+          );
+          await cleanup.query(
+            "DELETE FROM public.admin_staff_sessions WHERE staff_id = ANY($1::uuid[])",
+            [ids],
+          );
+          await cleanup.query(
+            "DELETE FROM public.admin_staff_mfa WHERE staff_id = ANY($1::uuid[])",
+            [ids],
+          );
+          await cleanup.query(
+            "DELETE FROM public.admin_staff_accounts WHERE id = ANY($1::uuid[])",
+            [ids],
+          );
+          await cleanup.query("COMMIT");
+        } catch (error) {
+          await cleanup.query("ROLLBACK");
+          throw error;
+        }
+      }
+    } finally {
+      await cleanup?.end();
+      await prisma?.$disconnect();
     }
-    await prisma?.$disconnect();
   });
 
   it("enrolls synthetic staff, enforces TOTP replay and one-time recovery codes, and revokes sessions on approved recovery", async () => {
