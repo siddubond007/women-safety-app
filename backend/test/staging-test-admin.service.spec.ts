@@ -68,6 +68,7 @@ function makeService() {
   const tx = {
     adminStaffAccount: {
       create: vi.fn().mockResolvedValue({}),
+      findFirst: vi.fn().mockResolvedValue(null),
       findMany: vi.fn().mockResolvedValue([]),
     },
     adminBootstrapCredential: {
