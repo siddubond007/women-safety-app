@@ -228,8 +228,12 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
 
   it("enrolls synthetic staff, enforces TOTP replay and one-time recovery codes, and revokes sessions on approved recovery", async () => {
     const testStartedAt = performance.now();
-    const mark = (stage: string) => console.info(`[admin-mfa.database.integration] ${stage} (${Math.round(performance.now() - testStartedAt)}ms)`);
+    const mark = (stage: string) =>
+      console.info(
+        `[admin-mfa.database.integration] ${stage} (${Math.round(performance.now() - testStartedAt)}ms)`,
+      );
     let targetSessionToken = "";
+    mark("starting target enrollment");
     const targetEnrollment = await runWithDatabaseRequestIdentity(
       () => stagingAdmin.startStaffMfaEnrollment(targetCredential),
       {},
@@ -264,9 +268,13 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
     expect(targetCodes.encryptedSecret).not.toBe(targetEnrollment.secret);
 
     const realNow = Date.now;
+    const targetLoginStep = Math.floor(realNow() / 30_000);
     Date.now = () => realNow() + 30_000;
     try {
-      const nextStepCode = totpAtStep(targetEnrollment.secret, currentStep + 1);
+      const nextStepCode = totpAtStep(
+        targetEnrollment.secret,
+        targetLoginStep + 1,
+      );
       const login = await runWithDatabaseRequestIdentity(
         () => stagingAdmin.loginWithToken(targetCredential, nextStepCode),
         {},
@@ -329,6 +337,7 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
       mfa.verifyEnrollment(passwordStaffId, passwordEnrollmentCode),
     );
     const passwordLoginNow = Date.now;
+    const passwordLoginStep = Math.floor(passwordLoginNow() / 30_000);
     Date.now = () => passwordLoginNow() + 30_000;
     try {
       const credentialLogin = await runWithDatabaseRequestIdentity(
@@ -336,7 +345,10 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
           adminReview.loginWithCredentials({
             identifier: passwordStaffEmail,
             password: passwordStaffPassword,
-            mfaCode: totpAtStep(passwordEnrollment.secret, passwordEnrollmentStep + 1),
+            mfaCode: totpAtStep(
+              passwordEnrollment.secret,
+              passwordLoginStep + 1,
+            ),
           }),
         {},
       );
@@ -355,7 +367,10 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
       {},
     );
     const approverEnrollmentStep = Math.floor(Date.now() / 30_000);
-    const approverCode = totpAtStep(approverEnrollment.secret, approverEnrollmentStep);
+    const approverCode = totpAtStep(
+      approverEnrollment.secret,
+      approverEnrollmentStep,
+    );
     await runWithDatabaseRequestIdentity(
       () =>
         stagingAdmin.verifyStaffMfaEnrollment(approverCredential, approverCode),
