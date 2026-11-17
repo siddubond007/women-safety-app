@@ -86,38 +86,22 @@ BEGIN
 END
 $fixture_cleanup_role_preflight$;
 
--- Remove any broad table-level grants before adding the exact cleanup rights.
-REVOKE ALL ON TABLE
-  public.admin_staff_accounts,
-  public.admin_staff_sessions,
-  public.admin_staff_mfa,
-  public.admin_staff_backup_codes,
-  public.admin_staff_recovery_requests
-FROM sakhi_staging_fixture_cleanup;
+-- The account table is owned by sakhi_staging_migrator, while the
+-- child tables are owned by Supabase postgres. Use the exact existing
+-- postgres -> migrator SET membership only for account-table DDL.
+SET ROLE sakhi_staging_migrator;
+
+REVOKE ALL ON TABLE public.admin_staff_accounts
+  FROM sakhi_staging_fixture_cleanup;
 
 GRANT SELECT (id, email, staff_code)
   ON TABLE public.admin_staff_accounts
   TO sakhi_staging_fixture_cleanup;
 
-GRANT DELETE ON TABLE
-  public.admin_staff_accounts,
-  public.admin_staff_sessions,
-  public.admin_staff_mfa,
-  public.admin_staff_backup_codes,
-  public.admin_staff_recovery_requests
-TO sakhi_staging_fixture_cleanup;
+GRANT DELETE ON TABLE public.admin_staff_accounts
+  TO sakhi_staging_fixture_cleanup;
 
-GRANT SELECT (staff_id)
-  ON TABLE
-    public.admin_staff_sessions,
-    public.admin_staff_mfa,
-    public.admin_staff_backup_codes,
-    public.admin_staff_recovery_requests
-TO sakhi_staging_fixture_cleanup;
-
-DO $fixture_cleanup_policies$
-DECLARE
-  item RECORD;
+DO $fixture_cleanup_account_policies$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
@@ -140,7 +124,39 @@ BEGIN
       FOR DELETE TO sakhi_staging_fixture_cleanup
       USING (email LIKE 'mfa-%@example.test' AND staff_code LIKE 'SYN-MFA-%');
   END IF;
+END
+$fixture_cleanup_account_policies$;
 
+RESET ROLE;
+
+-- The four child tables are owned by the Supabase postgres role executing
+-- this migration. Keep their cleanup privileges column-scoped and row-filtered.
+REVOKE ALL ON TABLE
+  public.admin_staff_sessions,
+  public.admin_staff_mfa,
+  public.admin_staff_backup_codes,
+  public.admin_staff_recovery_requests
+FROM sakhi_staging_fixture_cleanup;
+
+GRANT DELETE ON TABLE
+  public.admin_staff_sessions,
+  public.admin_staff_mfa,
+  public.admin_staff_backup_codes,
+  public.admin_staff_recovery_requests
+TO sakhi_staging_fixture_cleanup;
+
+GRANT SELECT (staff_id)
+  ON TABLE
+    public.admin_staff_sessions,
+    public.admin_staff_mfa,
+    public.admin_staff_backup_codes,
+    public.admin_staff_recovery_requests
+TO sakhi_staging_fixture_cleanup;
+
+DO $fixture_cleanup_child_policies$
+DECLARE
+  item RECORD;
+BEGIN
   FOR item IN
     SELECT * FROM (VALUES
       ('admin_staff_sessions'),
@@ -178,7 +194,7 @@ BEGIN
     END IF;
   END LOOP;
 END
-$fixture_cleanup_policies$;
+$fixture_cleanup_child_policies$;
 
 DO $fixture_cleanup_postflight$
 DECLARE
