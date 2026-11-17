@@ -21,6 +21,7 @@ APP_PASSWORD="$(openssl rand -hex 32)"
 MIGRATOR_PASSWORD="$(openssl rand -hex 32)"
 STAGING_ROLE_PASSWORD="$(openssl rand -hex 32)"
 STAGING_MIGRATOR_PASSWORD="$(openssl rand -hex 32)"
+STAGING_FIXTURE_CLEANUP_PASSWORD="$(openssl rand -hex 32)"
 
 # The migrator is privileged only inside this disposable CI database. The app
 # role remains NOBYPASSRLS and never owns protected member-data tables.
@@ -29,7 +30,8 @@ psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v app_password="$APP_PASSWORD" \
   -v migrator_password="$MIGRATOR_PASSWORD" \
   -v staging_role_password="$STAGING_ROLE_PASSWORD" \
-  -v staging_migrator_password="$STAGING_MIGRATOR_PASSWORD" <<'SQL'
+  -v staging_migrator_password="$STAGING_MIGRATOR_PASSWORD" \
+  -v staging_fixture_cleanup_password="$STAGING_FIXTURE_CLEANUP_PASSWORD" <<'SQL'
 SELECT format(
   'CREATE ROLE sakhi_test_app LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS',
   :'app_password'
@@ -47,15 +49,21 @@ SELECT format(
   :'staging_migrator_password'
 ) \gexec
 
-GRANT CONNECT ON DATABASE sakhi_test TO sakhi_test_app, sakhi_test_migrator, sakhi_staging_migrator;
+SELECT format(
+  'CREATE ROLE sakhi_staging_fixture_cleanup LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS',
+  :'staging_fixture_cleanup_password'
+) \\gexec
+
+GRANT CONNECT ON DATABASE sakhi_test TO sakhi_test_app, sakhi_test_migrator, sakhi_staging_migrator, sakhi_staging_fixture_cleanup;
 GRANT CREATE ON DATABASE sakhi_test TO sakhi_test_migrator;
-GRANT USAGE ON SCHEMA public TO sakhi_test_app, sakhi_staging_migrator;
+GRANT USAGE ON SCHEMA public TO sakhi_test_app, sakhi_staging_migrator, sakhi_staging_fixture_cleanup;
 GRANT USAGE, CREATE ON SCHEMA public TO sakhi_test_migrator;
 SQL
 
 export SAKHI_APP_DATABASE_URL="postgresql://sakhi_test_app:${APP_PASSWORD}@${PGHOST}:${PGPORT}/sakhi_test?schema=public"
 export SAKHI_MIGRATOR_DATABASE_URL="postgresql://sakhi_test_migrator:${MIGRATOR_PASSWORD}@${PGHOST}:${PGPORT}/sakhi_test?schema=public"
 export SAKHI_STAGING_MIGRATOR_DATABASE_URL="postgresql://sakhi_staging_migrator:${STAGING_MIGRATOR_PASSWORD}@${PGHOST}:${PGPORT}/sakhi_test?schema=public"
+export SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL="postgresql://sakhi_staging_fixture_cleanup:${STAGING_FIXTURE_CLEANUP_PASSWORD}@${PGHOST}:${PGPORT}/sakhi_test?schema=public"
 
 npm run db:migrate:deploy
 npm run prisma:generate
