@@ -121,6 +121,13 @@ GRANT sakhi_staging_fixture_cleanup TO sakhi_test_supabase_postgres
   WITH ADMIN OPTION, INHERIT FALSE, SET FALSE;
 RESET ROLE;
 
+-- Match the second membership row observed in Supabase: postgres grants
+-- itself SET/INHERIT access to the migrator using its managed ADMIN option.
+SET ROLE sakhi_test_supabase_postgres;
+GRANT sakhi_staging_migrator TO sakhi_test_supabase_postgres
+  WITH INHERIT TRUE, SET TRUE;
+RESET ROLE;
+
 DO $owner_boundary$
 BEGIN
   IF pg_get_userbyid((SELECT relowner FROM pg_class WHERE oid='public._prisma_migrations'::regclass)) <> 'sakhi_test_migrator'
@@ -151,7 +158,6 @@ SQL
 export PGPASSWORD="$SUPABASE_POSTGRES_PASSWORD"
 psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v ON_ERROR_STOP=1 <<'SQL'
-GRANT sakhi_staging_migrator TO postgres WITH INHERIT TRUE, SET TRUE;
 DO $role_assertion$
 BEGIN
   IF current_user <> 'postgres'
