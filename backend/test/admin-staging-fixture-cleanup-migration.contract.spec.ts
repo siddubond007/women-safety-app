@@ -18,7 +18,14 @@ describe("staging synthetic MFA fixture-cleanup role migration contract", () => 
     expect(migration).toContain("NOT rolcreatedb");
     expect(migration).toContain("NOT rolcreaterole");
     expect(migration).toContain("NOT rolreplication");
-    expect(migration).toContain("WHERE member = cleanup_role OR roleid = cleanup_role");
+    expect(migration).toContain("am.member = cleanup_role");
+    expect(migration).toContain("am.roleid = cleanup_role");
+    expect(migration).toContain("p.rolname = 'postgres'");
+    expect(migration).toContain("s.rolname = 'supabase_admin'");
+    expect(migration).toContain("am.admin_option IS TRUE");
+    expect(migration).toContain("am.inherit_option IS FALSE");
+    expect(migration).toContain("am.set_option IS FALSE");
+    expect(migration).toContain("unsupported role membership");
     expect(migration).toContain("c.relowner = cleanup_role");
   });
 
