@@ -102,9 +102,10 @@ npm run db:migrate:deploy
 restore_admin_migrations
 trap - EXIT
 
-# Reproduce the actual Supabase ownership boundary and role capabilities:
-# sakhi_staging_migrator owns accounts; postgres owns child tables; postgres
-# is not a superuser but can SET ROLE to the migrator for account-table DDL.
+# Reproduce Supabase's real role names and privilege boundary. Rename the
+# container's bootstrap superuser out of the way, then rename the prepared
+# non-superuser stand-in to "postgres". This lets migrations run with
+# session_user=current_user=postgres and no superuser privilege, as in staging.
 psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v ON_ERROR_STOP=1 <<'SQL'
 ALTER TABLE public.admin_staff_accounts OWNER TO sakhi_staging_migrator;
@@ -115,7 +116,7 @@ ALTER TABLE public.admin_staff_recovery_requests OWNER TO sakhi_test_supabase_po
 
 SET ROLE supabase_admin;
 GRANT sakhi_staging_migrator TO sakhi_test_supabase_postgres
-  WITH ADMIN OPTION, INHERIT TRUE, SET TRUE;
+  WITH ADMIN OPTION, INHERIT FALSE, SET FALSE;
 GRANT sakhi_staging_fixture_cleanup TO sakhi_test_supabase_postgres
   WITH ADMIN OPTION, INHERIT FALSE, SET FALSE;
 RESET ROLE;
@@ -140,16 +141,35 @@ BEGIN
   END IF;
 END
 $owner_boundary$;
+
+ALTER ROLE postgres RENAME TO sakhi_ci_bootstrap_superuser;
+ALTER ROLE sakhi_test_supabase_postgres RENAME TO postgres;
 SQL
 
-# Run as a newly authenticated non-superuser postgres session. The migration
-# must SET ROLE to the account-table owner and use postgres for child tables.
+# Continue with the new non-superuser postgres login, not the renamed
+# container bootstrap superuser.
+export PGPASSWORD="$SUPABASE_POSTGRES_PASSWORD"
 psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
-  -v ON_ERROR_STOP=1 -c "SET ROLE sakhi_test_supabase_postgres" \
-  -f "${MIGRATION_ROOT}/20261117140000_single_use_admin_bootstrap_credential/migration.sql"
+  -v ON_ERROR_STOP=1 <<'SQL'
+GRANT sakhi_staging_migrator TO postgres WITH INHERIT TRUE, SET TRUE;
+DO $role_assertion$
+BEGIN
+  IF current_user <> 'postgres'
+     OR (SELECT rolsuper FROM pg_roles WHERE rolname=current_user)
+     OR NOT pg_has_role(current_user,'sakhi_staging_migrator','SET') THEN
+    RAISE EXCEPTION 'CI postgres role is not the expected non-superuser migration owner';
+  END IF;
+END
+$role_assertion$;
+SQL
+
+# Execute both migrations as the non-superuser postgres login. The second
+# migration switches to the account-table owner only for those account DDL
+# operations, then RESET ROLE returns to this postgres owner context.
 psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
-  -v ON_ERROR_STOP=1 -c "SET ROLE sakhi_test_supabase_postgres" \
-  -f "${MIGRATION_ROOT}/20261117150000_staging_mfa_fixture_cleanup_role/migration.sql"
+  -v ON_ERROR_STOP=1 -f "${MIGRATION_ROOT}/20261117140000_single_use_admin_bootstrap_credential/migration.sql"
+psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
+  -v ON_ERROR_STOP=1 -f "${MIGRATION_ROOT}/20261117150000_staging_mfa_fixture_cleanup_role/migration.sql"
 
 # The test migrator owns _prisma_migrations and can safely record only the
 # exact migrations already applied above by the table owner.
