@@ -1272,7 +1272,7 @@ export class SakhiAdminRbacRegistry {
     }
 
     try {
-      const persist = async (tx: any) => {
+      await anyPrisma.$transaction(async (tx: any) => {
         if (existing.role === "SUPER_ADMIN" && existing.status === "ACTIVE") {
           const activeSuperAdmins = await tx.adminStaffAccount.count({
             where: { role: "SUPER_ADMIN", status: "ACTIVE" },
@@ -1361,7 +1361,7 @@ export class SakhiAdminRbacRegistry {
     transactionClient?: unknown,
   ): Promise<void> {
     const anyPrisma = prisma as unknown as Record<string, any>;
-    if (typeof anyPrisma.$transaction !== "function") {
+    if (!transactionClient && typeof anyPrisma.$transaction !== "function") {
       throw new ServiceUnavailableException(
         "Admin staff changes require transactional database and audit support.",
       );
@@ -1386,7 +1386,7 @@ export class SakhiAdminRbacRegistry {
     };
 
     try {
-      await anyPrisma.$transaction(async (tx: any) => {
+      const persist = async (tx: any) => {
         if (
           outcome !== "created" &&
           originalRole === "SUPER_ADMIN" &&
