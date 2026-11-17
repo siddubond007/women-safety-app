@@ -28,7 +28,7 @@ psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v ON_ERROR_STOP=1 \
   -v app_password="$APP_PASSWORD" \
   -v migrator_password="$MIGRATOR_PASSWORD" \
-  -v staging_role_password="$STAGING_ROLE_PASSWORD" \\
+  -v staging_role_password="$STAGING_ROLE_PASSWORD" \
   -v staging_migrator_password="$STAGING_MIGRATOR_PASSWORD" <<'SQL'
 SELECT format(
   'CREATE ROLE sakhi_test_app LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS',
@@ -42,6 +42,10 @@ SELECT format(
   'CREATE ROLE sakhi_staging_app LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS',
   :'staging_role_password'
 ) \gexec
+SELECT format(
+  'CREATE ROLE sakhi_staging_migrator LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS',
+  :'staging_migrator_password'
+) \\gexec
 
 GRANT CONNECT ON DATABASE sakhi_test TO sakhi_test_app, sakhi_test_migrator, sakhi_staging_migrator;
 GRANT CREATE ON DATABASE sakhi_test TO sakhi_test_migrator;
