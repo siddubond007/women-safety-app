@@ -48,6 +48,7 @@ describe.skipIf(!enabled)("staff MFA database boundary", () => {
       test_role_policy: boolean;
       staging_role_policy: boolean;
       migrator_cleanup_policy: boolean;
+      migrator_fixture_select_policy: boolean;
       app_can_delete: boolean;
       migrator_can_delete: boolean;
       migrator_can_select_whole_child_table: boolean;
@@ -79,6 +80,15 @@ describe.skipIf(!enabled)("staff MFA database boundary", () => {
             AND p.qual LIKE '%mfa-%@example.test%'
             AND p.qual LIKE '%SYN-MFA-%'
         ) AS migrator_cleanup_policy,
+        EXISTS (
+          SELECT 1 FROM pg_policies p
+          WHERE p.schemaname='public'
+            AND p.tablename=c.relname
+            AND 'sakhi_staging_migrator'=ANY(p.roles)
+            AND p.cmd='SELECT'
+            AND p.qual LIKE '%mfa-%@example.test%'
+            AND p.qual LIKE '%SYN-MFA-%'
+        ) AS migrator_fixture_select_policy,
         has_table_privilege('sakhi_staging_app', c.oid, 'DELETE') AS app_can_delete,
         has_table_privilege('sakhi_staging_migrator', c.oid, 'DELETE') AS migrator_can_delete,
         CASE
@@ -116,6 +126,7 @@ describe.skipIf(!enabled)("staff MFA database boundary", () => {
         test_role_policy: true,
         staging_role_policy: true,
         migrator_cleanup_policy: true,
+        migrator_fixture_select_policy: true,
         app_can_delete: false,
         migrator_can_delete: true,
         migrator_fixture_column_select: true,
@@ -148,8 +159,7 @@ describe.skipIf(!enabled)("staff MFA database boundary", () => {
         ],
       ],
     );
-    // Two narrowly scoped account policies (SELECT + DELETE), plus one
-    // synthetic-fixture-only DELETE policy for each child table.
-    expect(policyCount.rows[0]?.count).toBe(6);
+    // Two account policies plus SELECT + DELETE on each of four child tables.
+    expect(policyCount.rows[0]?.count).toBe(10);
   });
 });
