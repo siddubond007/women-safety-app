@@ -27,6 +27,8 @@ describe("staging synthetic MFA fixture-cleanup role migration contract", () => 
     expect(migration).toContain("am.set_option IS FALSE");
     expect(migration).toContain("unsupported role membership");
     expect(migration).toContain("c.relowner = cleanup_role");
+    expect(migration).toContain("session_user <> 'postgres'");
+    expect(migration).toContain("rolname='postgres' AND rolsuper");
     expect(migration).toContain("pg_has_role('postgres','sakhi_staging_migrator','SET')");
     expect(migration).toContain("P0 staff tables do not match the reviewed Supabase owner boundary");
     expect(migration).toContain("SET ROLE sakhi_staging_migrator;");
