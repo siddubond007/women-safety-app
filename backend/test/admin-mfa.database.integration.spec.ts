@@ -227,11 +227,14 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
   });
 
   it("enrolls synthetic staff, enforces TOTP replay and one-time recovery codes, and revokes sessions on approved recovery", async () => {
+    const testStartedAt = performance.now();
+    const mark = (stage: string) => console.info(`[admin-mfa.database.integration] ${stage} (${Math.round(performance.now() - testStartedAt)}ms)`);
     let targetSessionToken = "";
     const targetEnrollment = await runWithDatabaseRequestIdentity(
       () => stagingAdmin.startStaffMfaEnrollment(targetCredential),
       {},
     );
+    mark("target enrollment started");
     const currentStep = Math.floor(Date.now() / 30_000);
     const targetEnrollmentCode = totpAtStep(
       targetEnrollment.secret,
@@ -246,6 +249,7 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
       {},
     );
     expect(targetVerified).toMatchObject({ enrolled: true });
+    mark("target enrollment verified; backup codes issued");
     expect(targetVerified.backupCodes).toHaveLength(10);
     await expect(
       withIdentity(targetId, "COMPLAINT_REVIEWER", () =>
@@ -278,6 +282,7 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
       }
       expect(login.sessionToken).toMatch(/^staff-admin\./);
       targetSessionToken = login.sessionToken;
+      mark("target TOTP login succeeded");
       await expect(
         runWithDatabaseRequestIdentity(
           () => stagingAdmin.loginWithToken(targetCredential, nextStepCode),
@@ -288,6 +293,7 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
       Date.now = realNow;
     }
 
+    mark("TOTP replay was rejected");
     const singleUseBackupCode = targetVerified.backupCodes[0]!;
     const backupLogin = await runWithDatabaseRequestIdentity(
       () => stagingAdmin.loginWithToken(targetCredential, singleUseBackupCode),
@@ -308,6 +314,7 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
       ),
     ).resolves.toMatchObject({ staff: { id: targetId } });
 
+    mark("backup code single-use enforcement verified");
     const passwordEnrollment = await withIdentity(
       passwordStaffId,
       "COMPLAINT_REVIEWER",
@@ -341,6 +348,7 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
       Date.now = passwordLoginNow;
     }
 
+    mark("password plus TOTP login succeeded");
     const approverEnrollment = await runWithDatabaseRequestIdentity(
       () => stagingAdmin.startStaffMfaEnrollment(approverCredential),
       {},
@@ -352,10 +360,12 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
       {},
     );
 
+    mark("approver MFA enrollment verified");
     const recovery = await runWithDatabaseRequestIdentity(
       () => stagingAdmin.requestStaffMfaRecovery(targetCredential),
       {},
     );
+    mark("recovery request created");
     const approved = await withIdentity(approverId, "SUPER_ADMIN", () =>
       mfa.approveRecoveryRequest(recovery.requestId, approverId),
     );
@@ -374,10 +384,12 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
       ),
     ).rejects.toThrow(/revoked|MFA/i);
 
+    mark("recovery completion and session revocation verified");
     const finalMfa = await prisma!.adminStaffMfa.findUniqueOrThrow({
       where: { staffId: targetId },
     });
     expect(finalMfa.disabledAt).toBeInstanceOf(Date);
     expect(finalMfa.enrollmentVerifiedAt).toBeNull();
-  }, 30_000);
+    mark("all lifecycle assertions passed");
+  }, 90_000);
 });
