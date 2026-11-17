@@ -108,11 +108,15 @@ ALTER TABLE public.admin_staff_backup_codes OWNER TO postgres;
 ALTER TABLE public.admin_staff_recovery_requests OWNER TO postgres;
 
 SET ROLE supabase_admin;
+GRANT sakhi_staging_migrator TO postgres
+  WITH ADMIN OPTION, INHERIT FALSE, SET FALSE;
 GRANT sakhi_staging_fixture_cleanup TO postgres
   WITH ADMIN OPTION, INHERIT FALSE, SET FALSE;
 RESET ROLE;
 
-GRANT sakhi_staging_migrator TO postgres WITH INHERIT FALSE, SET TRUE;
+-- Reproduce the second, self-granted membership row observed in staging:
+-- postgres can inherit and SET ROLE to sakhi_staging_migrator.
+GRANT sakhi_staging_migrator TO postgres WITH INHERIT TRUE, SET TRUE;
 ALTER ROLE postgres NOSUPERUSER NOCREATEDB NOCREATEROLE BYPASSRLS;
 
 DO $owner_boundary$
