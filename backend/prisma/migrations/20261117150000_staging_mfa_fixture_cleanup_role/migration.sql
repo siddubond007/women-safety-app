@@ -1,5 +1,16 @@
 BEGIN;
 
+-- The reviewed owner split is specific to the non-superuser Supabase postgres
+-- login. Refuse execution through a superuser or another session identity.
+DO $fixture_cleanup_execution_preflight$
+BEGIN
+  IF session_user <> 'postgres'
+     OR EXISTS (SELECT 1 FROM pg_roles WHERE rolname='postgres' AND rolsuper) THEN
+    RAISE EXCEPTION 'Run this migration as the non-superuser postgres login, not as a superuser';
+  END IF;
+END
+$fixture_cleanup_execution_preflight$;
+
 -- The schema migrator remains the owner of the staging schema and is never
 -- used by the MFA integration teardown. This separate login is deliberately
 -- not an owner, member of another role, schema creator, or table truncator.
