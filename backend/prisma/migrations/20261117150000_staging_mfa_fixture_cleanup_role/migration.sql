@@ -1,12 +1,18 @@
 BEGIN;
 
--- The reviewed owner split is specific to the non-superuser Supabase postgres
--- login. Refuse execution through a superuser or another session identity.
+-- The migration must execute under the non-superuser Supabase postgres
+-- role. CI connects through its disposable bootstrap superuser, then SET ROLEs
+-- to a dedicated non-superuser stand-in with the same table-owner boundaries.
 DO $fixture_cleanup_execution_preflight$
 BEGIN
   IF session_user <> 'postgres'
-     OR EXISTS (SELECT 1 FROM pg_roles WHERE rolname='postgres' AND rolsuper) THEN
-    RAISE EXCEPTION 'Run this migration as the non-superuser postgres login, not as a superuser';
+     OR NOT EXISTS (
+       SELECT 1 FROM pg_roles
+       WHERE rolname = current_user
+         AND NOT rolsuper
+         AND NOT rolbypassrls
+     ) THEN
+    RAISE EXCEPTION 'Run this migration under the non-superuser Supabase postgres role, not a superuser role';
   END IF;
 END
 $fixture_cleanup_execution_preflight$;
@@ -43,7 +49,7 @@ BEGIN
        OR (
          am.roleid = cleanup_role
          AND NOT (
-           EXISTS (SELECT 1 FROM pg_roles p WHERE p.oid = am.member AND p.rolname = 'postgres')
+           am.member = (SELECT oid FROM pg_roles WHERE rolname = current_user)
            AND EXISTS (SELECT 1 FROM pg_roles s WHERE s.oid = am.grantor AND s.rolname = 'supabase_admin')
            AND am.admin_option IS TRUE
            AND am.inherit_option IS FALSE
@@ -95,8 +101,8 @@ BEGIN
     RAISE EXCEPTION 'Fixture cleanup role must never own a P0 staff-security table';
   END IF;
 
-  IF NOT pg_has_role('postgres','sakhi_staging_migrator','SET') THEN
-    RAISE EXCEPTION 'Supabase postgres must be able to SET ROLE to the staging migrator for the account-table policy changes';
+  IF NOT pg_has_role(current_user,'sakhi_staging_migrator','SET') THEN
+    RAISE EXCEPTION 'The executing Supabase owner role must be able to SET ROLE to the staging migrator for the account-table policy changes';
   END IF;
 
   IF (SELECT relowner FROM pg_class WHERE oid='public.admin_staff_accounts'::regclass)
@@ -110,7 +116,7 @@ BEGIN
          'public.admin_staff_backup_codes'::regclass,
          'public.admin_staff_recovery_requests'::regclass
        )
-       AND c.relowner IS DISTINCT FROM (SELECT oid FROM pg_roles WHERE rolname='postgres')
+       AND c.relowner IS DISTINCT FROM (SELECT oid FROM pg_roles WHERE rolname=current_user)
      ) THEN
     RAISE EXCEPTION 'P0 staff tables do not match the reviewed Supabase owner boundary';
   END IF;
@@ -160,8 +166,8 @@ $fixture_cleanup_account_policies$;
 
 RESET ROLE;
 
--- The four child tables are owned by the Supabase postgres role executing
--- this migration. Keep their cleanup privileges column-scoped and row-filtered.
+-- The four child tables are owned by the non-superuser Supabase owner role
+-- executing this migration. Keep cleanup privileges column-scoped and row-filtered.
 REVOKE ALL ON TABLE
   public.admin_staff_sessions,
   public.admin_staff_mfa,
