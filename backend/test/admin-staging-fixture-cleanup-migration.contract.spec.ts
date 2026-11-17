@@ -41,6 +41,6 @@ describe("staging synthetic MFA fixture-cleanup role migration contract", () => 
       "has_table_privilege(cleanup_role,c.oid,'TRUNCATE')",
     );
     expect(migration).toContain("must not own or truncate P0 staff-security tables");
-    expect(migration).toContain("ENABLE ROW LEVEL SECURITY");
+    expect(migration).toContain("NOT c.relrowsecurity OR NOT c.relforcerowsecurity");
   });
 });
