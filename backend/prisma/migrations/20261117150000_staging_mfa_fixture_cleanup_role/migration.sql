@@ -289,6 +289,34 @@ BEGIN
     RAISE EXCEPTION 'Fixture cleanup role is missing a required DELETE grant';
   END IF;
 
+  -- Table-level REVOKE does not remove independent column grants. Fail closed
+  -- if any column privilege exists outside the exact fixture metadata needed
+  -- for the row-filtered policies and cleanup queries.
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.column_privileges cp
+    WHERE cp.grantee = 'sakhi_staging_fixture_cleanup'
+      AND cp.table_schema = 'public'
+      AND cp.table_name IN (
+        'admin_staff_accounts','admin_staff_sessions','admin_staff_mfa',
+        'admin_staff_backup_codes','admin_staff_recovery_requests'
+      )
+      AND NOT (
+        cp.privilege_type = 'SELECT'
+        AND (
+          (cp.table_name = 'admin_staff_accounts'
+            AND cp.column_name IN ('id','email','staff_code'))
+          OR
+          (cp.table_name IN (
+            'admin_staff_sessions','admin_staff_mfa',
+            'admin_staff_backup_codes','admin_staff_recovery_requests'
+          ) AND cp.column_name = 'staff_id')
+        )
+      )
+  ) THEN
+    RAISE EXCEPTION 'Fixture cleanup role has an unexpected column-level privilege';
+  END IF;
+
   IF EXISTS (
     SELECT 1
     FROM pg_auth_members am
