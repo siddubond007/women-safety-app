@@ -57,12 +57,12 @@ export function assertSakhiDatabaseTarget(
         ? "sakhi_test_app"
         : "sakhi_dev_app"
       : purpose === "fixture-cleanup"
-      ? environment === "test"
-        ? "sakhi_test_fixture_cleanup"
-        : "sakhi_dev_fixture_cleanup"
-      : environment === "test"
-        ? "sakhi_test_migrator"
-        : "sakhi_dev_migrator";
+        ? environment === "test"
+          ? "sakhi_test_fixture_cleanup"
+          : "sakhi_dev_fixture_cleanup"
+        : environment === "test"
+          ? "sakhi_test_migrator"
+          : "sakhi_dev_migrator";
   const stagingRoleName =
     purpose === "fixture-cleanup"
       ? "sakhi_staging_fixture_cleanup"
