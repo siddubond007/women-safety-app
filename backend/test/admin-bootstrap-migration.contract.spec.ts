@@ -23,13 +23,17 @@ describe("single-use initial Super Admin bootstrap migration contract", () => {
     expect(migration).toContain("ENABLE ROW LEVEL SECURITY");
     expect(migration).toContain("FORCE ROW LEVEL SECURITY");
     expect(migration).toContain(
-      "FROM PUBLIC, anon, authenticated, service_role",
+      "REVOKE ALL ON TABLE public.admin_bootstrap_credentials FROM PUBLIC",
     );
+    expect(migration).toContain(
+      "REVOKE ALL ON TABLE public.admin_bootstrap_credentials FROM %I",
+    );
+    expect(migration).toContain("WHERE rolname IN ('anon', 'authenticated', 'service_role')");
     expect(migration).toContain(
       "GRANT SELECT, INSERT, UPDATE ON TABLE public.admin_bootstrap_credentials TO sakhi_staging_app",
     );
     expect(migration).toContain(
-      "has_table_privilege('service_role', 'public.admin_bootstrap_credentials', 'DELETE')",
+      "has_table_privilege(role_name, 'public.admin_bootstrap_credentials', 'DELETE')",
     );
   });
 
