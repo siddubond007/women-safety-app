@@ -51,6 +51,7 @@ permissions:
 
 jobs:
   backend:
+    if: github.event_name != 'workflow_dispatch'
     name: Backend schema, types, unit tests and build
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -79,7 +80,50 @@ jobs:
       - name: Build backend
         run: npm run build
 
+  admin-review-postgres17:
+    if: github.event_name != 'workflow_dispatch'
+    name: Admin review integration on isolated PostgreSQL 17
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: sakhi-ci-postgres
+          POSTGRES_DB: sakhi_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sakhi_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: sakhi-ci-postgres
+      PGDATABASE: sakhi_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.22.0"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run isolated PostgreSQL 17 admin-review integration
+        run: bash scripts/test-admin-review-database-integration.sh
+
   super-admin:
+    if: github.event_name != 'workflow_dispatch'
     name: Super Admin type-check, lint and build
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -105,6 +149,7 @@ jobs:
         run: npm run build
 
   flutter:
+    if: github.event_name != 'workflow_dispatch'
     name: Flutter analysis, tests and staging-connected debug APK
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -144,3 +189,47 @@ jobs:
           path: app/build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
           retention-days: 7
+
+  staging-staff-mfa:
+    name: Manual staging staff MFA lifecycle verification
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: staging
+    concurrency:
+      group: sakhi-staging-staff-mfa
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      SAKHI_ENV: staging
+      NODE_ENV: production
+      SAKHI_STAGING_MFA_DB_INTEGRATION: "true"
+      SAKHI_APP_DATABASE_URL: ${{ secrets.SAKHI_STAGING_APP_DATABASE_URL }}
+      SAKHI_MIGRATOR_DATABASE_URL: ${{ secrets.SAKHI_STAGING_MIGRATOR_DATABASE_URL }}
+    steps:
+      - name: Checkout selected branch
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.22.0"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Verify protected staging credentials are configured
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SAKHI_APP_DATABASE_URL" || { echo "::error::Missing staging environment secret SAKHI_STAGING_APP_DATABASE_URL"; exit 1; }
+          test -n "$SAKHI_MIGRATOR_DATABASE_URL" || { echo "::error::Missing staging environment secret SAKHI_STAGING_MIGRATOR_DATABASE_URL"; exit 1; }
+      - name: Provision and verify Supabase staging CA
+        run: bash scripts/prepare-staging-db-ca.sh
+      - name: Install locked dependencies including test tooling
+        # NODE_ENV=production is required by the staging safety guard, but npm ci
+        # otherwise omits devDependencies such as Vitest. Explicitly include them.
+        run: npm ci --include=dev
+      - name: Generate Prisma Client
+        run: npm run prisma:generate
+      - name: Run synthetic staging staff MFA lifecycle
+        run: npx vitest run test/admin-mfa.database.integration.spec.ts --reporter=verbose

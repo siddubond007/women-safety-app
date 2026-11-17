@@ -218,6 +218,21 @@ export class StagingTestAdminService {
 
     const staffMatch = await this.lookupRawStaffCredential(clean);
     if (staffMatch) {
+      // Policy B: the individual access token is accepted only while the
+      // account is explicitly in first-time setup. Once a password is set,
+      // the token cannot be used as a login factor again.
+      const setupState = await this.prisma.adminStaffAccount.findUnique({
+        where: { id: staffMatch.id },
+        select: { role: true, passwordHash: true, mustResetPassword: true },
+      });
+      const requiresInitialSetup = Boolean(
+        setupState?.mustResetPassword || setupState?.passwordHash === null,
+      );
+      if (!requiresInitialSetup) {
+        throw new UnauthorizedException(
+          "The initial staff access token is for first-time setup only. Sign in with username/email, password and TOTP.",
+        );
+      }
       setAdminDatabaseIdentity(staffMatch.id, staffMatch.role);
       const mfa = await this.prisma.adminStaffMfa.findUnique({
         where: { staffId: staffMatch.id },
@@ -245,7 +260,11 @@ export class StagingTestAdminService {
       }
 
       await this.staffMfa.verifyLoginFactor(staffMatch.id, mfaCode);
-      const issued = await this.staffSessions.issueSession(staffMatch.id);
+      const issued = await this.staffSessions.issueSession(
+        staffMatch.id,
+        undefined,
+        "INITIAL_SETUP",
+      );
       staffMatch.lastLoginAt = new Date().toISOString();
       const principal = SakhiAdminRbacRegistry.principalFromStaff(staffMatch);
       return {
@@ -305,7 +324,7 @@ export class StagingTestAdminService {
         () =>
           SakhiAdminRbacRegistry.createStaffAccount(
             this.prisma,
-            { fullName, email, role: "SUPER_ADMIN" },
+            { fullName, email, role: "SUPER_ADMIN", mustResetPassword: true },
             "One-time protected Super Admin bootstrap",
             bootstrapStaffId,
             bootstrapStaffId,
@@ -494,6 +513,9 @@ export class StagingTestAdminService {
     await SakhiAdminRbacRegistry.ensureHydrated(this.prisma);
     const validated = await this.staffSessions.validateSession(sessionToken ?? "");
     const credential = this.assertSessionToken(sessionToken);
+    const currentStaff = SakhiAdminRbacRegistry.refreshStaffRecordFromDatabase(
+      validated.staff as unknown as Record<string, unknown>,
+    );
     const principal = credential.principal;
     if (!principal) {
       throw new UnauthorizedException(
@@ -515,7 +537,7 @@ export class StagingTestAdminService {
       permissions: principal.permissions,
       allowedRoutes: principal.allowedRoutes,
       mode: "staging_full_admin" as const,
-      mustResetPassword: Boolean(validated.staff.mustResetPassword),
+      mustResetPassword: Boolean(currentStaff.mustResetPassword),
       message: `Active ${principal.roleTitle} session.`,
     };
   }

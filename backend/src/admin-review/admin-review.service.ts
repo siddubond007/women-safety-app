@@ -531,7 +531,7 @@ export class AdminReviewService {
     });
   }
 
-  private assertFullAdminMemberControl(token?: string): string {
+  private assertFullAdminMemberControl(token?: string): AuthenticatedAdminPrincipal {
     const principal = this.resolveAdminPrincipal(token);
     SakhiAdminRbacRegistry.assertRouteAccess(
       principal,
@@ -543,7 +543,7 @@ export class AdminReviewService {
         "Super Admin view and approve permissions are required for full member PII and eligibility overrides.",
       );
     }
-    return principal.reviewerLabel;
+    return principal;
   }
 
   private canRevealFullMemberPii(token?: string): boolean {
@@ -746,7 +746,8 @@ export class AdminReviewService {
     dto: DevelopmentMemberStateDto,
     token?: string,
   ) {
-    const reviewerLabel = this.assertModuleAccess(token, ["SUPER_ADMIN", "VERIFICATION_ADMIN"], "suspend", "Member account state changes").reviewerLabel;
+    const principal = this.assertModuleAccess(token, ["SUPER_ADMIN", "VERIFICATION_ADMIN"], "suspend", "Member account state changes");
+    const reviewerLabel = principal.reviewerLabel;
     this.assertDevelopmentMemberOverrides();
     if (
       (dto.accountStatus === undefined || dto.accountStatus === null) &&
@@ -830,6 +831,7 @@ export class AdminReviewService {
       await tx.auditEvent.create({
         data: {
           actorType: "ADMIN",
+          actorId: principal.staffId,
           action: "admin.dev_member_state.updated",
           targetType: "member_account",
           targetId: accountId,
@@ -863,7 +865,8 @@ export class AdminReviewService {
     dto: ManualEligibilityDecisionDto,
     token?: string,
   ) {
-    const reviewerLabel = this.assertModuleAccess(token, ["SUPER_ADMIN", "VERIFICATION_ADMIN"], "approve", "Eligibility decisions").reviewerLabel;
+    const principal = this.assertModuleAccess(token, ["SUPER_ADMIN", "VERIFICATION_ADMIN"], "approve", "Eligibility decisions");
+    const reviewerLabel = principal.reviewerLabel;
     const reason = dto.reason?.trim();
     if (!dto.reviewedEvidence) {
       throw new ConflictException(
@@ -939,6 +942,7 @@ export class AdminReviewService {
       await tx.auditEvent.create({
         data: {
           actorType: "ADMIN",
+          actorId: principal.staffId,
           action: approved
             ? "eligibility.manual_review.approved"
             : "eligibility.manual_review.rejected",
@@ -2154,7 +2158,8 @@ export class AdminReviewService {
   }
 
   async previewReportedMedia(uploadId: string, token?: string) {
-    const reviewerLabel = this.assertModuleAccess(token, ["SUPER_ADMIN", "CONTENT_MODERATOR"], "view", "Moderation evidence preview").reviewerLabel;
+    const principal = this.assertModuleAccess(token, ["SUPER_ADMIN", "CONTENT_MODERATOR"], "view", "Moderation evidence preview");
+    const reviewerLabel = principal.reviewerLabel;
     const cleanId = (uploadId ?? "").trim().replace(/^.*\/media\/object\//, "");
     if (!cleanId) {
       throw new BadRequestException("Provide a valid media upload ID.");
@@ -2191,6 +2196,7 @@ export class AdminReviewService {
       await anyPrisma.auditEvent.create({
         data: {
           actorType: "ADMIN",
+          actorId: principal.staffId,
           action: "admin.moderation.media_previewed",
           targetType: "media_asset",
           targetId: cleanId,
@@ -2410,7 +2416,8 @@ export class AdminReviewService {
   }
 
   async safetyConsoleOverview(token?: string) {
-    const reviewerLabel = this.assertModuleAccess(token, ["SUPER_ADMIN", "SOS_SAFETY_ADMIN"], "view", "SOS safety console").reviewerLabel;
+    const principal = this.assertModuleAccess(token, ["SUPER_ADMIN", "SOS_SAFETY_ADMIN"], "view", "SOS safety console");
+    const reviewerLabel = principal.reviewerLabel;
     const anyPrisma = this.prisma as Record<string, any>;
     const [rawSosEvents, contactsCount, stations, helplines, auditEvents] =
       await Promise.all([
@@ -2584,6 +2591,7 @@ export class AdminReviewService {
     await this.prisma.auditEvent.create({
       data: {
         actorType: "ADMIN",
+        actorId: principal.staffId,
         action: "admin.sos_console.viewed",
         targetType: "safety_sos_console",
         targetId: "module4_console",
@@ -3269,7 +3277,8 @@ export class AdminReviewService {
     body: Record<string, unknown>,
     token?: string,
   ) {
-    const reviewerLabel = this.assertFullAdminMemberControl(token);
+    const principal = this.assertFullAdminMemberControl(token);
+    const reviewerLabel = principal.reviewerLabel;
 
     const preset = String(body.preset ?? body.eligibilityStatus ?? "")
       .trim()
@@ -3418,6 +3427,7 @@ export class AdminReviewService {
       await tx.auditEvent.create({
         data: {
           actorType: "ADMIN",
+          actorId: principal.staffId,
           action:
             nextVerificationStatus === "VERIFIED"
               ? "eligibility.manual_review.approved"
@@ -3517,7 +3527,10 @@ export class AdminReviewService {
       "Creating Admin Staff Accounts",
     );
     if (!principal.permissions.create) throw new ForbiddenException("The create permission is required for Creating Admin Staff Accounts.");
-    if (body.role === "SUPER_ADMIN" && !principal.permissions.approve) {
+    // Normalize before authorization: the persistence helper also normalizes
+    // role names, so permission checks must use the same canonical value.
+    const normalizedRole = String(body.role ?? "").trim().toUpperCase();
+    if (normalizedRole === "SUPER_ADMIN" && !principal.permissions.approve) {
       throw new ForbiddenException("The approve permission is required to create a Super Admin account.");
     }
     const username = String(body.username ?? "").trim().toLowerCase();
@@ -3533,22 +3546,25 @@ export class AdminReviewService {
     }
     const created = await SakhiAdminRbacRegistry.createStaffAccount(
       this.prisma,
-      body,
+      {
+        fullName: body.fullName,
+        email: body.email,
+        role: body.role,
+        customAccessToken: body.customAccessToken,
+        isAuthorisedComplaintReviewer: body.isAuthorisedComplaintReviewer,
+        clearanceLevel: body.clearanceLevel,
+        permissions: body.permissions,
+        username: username || undefined,
+        initialPasswordHash: initialPassword
+          ? hashAdminPasswordForStorage(initialPassword)
+          : undefined,
+        // Every newly provisioned staff account must complete its own
+        // first-login setup, even when an administrator supplied a starter password.
+        mustResetPassword: true,
+      },
       principal.reviewerLabel,
       principal.staffId,
     );
-    if (username && initialPassword) {
-      await this.prisma.adminStaffAccount.update({
-        where: { id: created.staff.id },
-        data: {
-          username,
-          passwordHash: hashAdminPasswordForStorage(initialPassword),
-          passwordUpdatedAt: new Date(),
-          mustResetPassword: true,
-        },
-      });
-      created.staff.username = username;
-    }
     return {
       created: true,
       staff: created.staff,
@@ -3813,36 +3829,67 @@ export class AdminReviewService {
     };
 
     if (!verifyPassword(password, staff.passwordHash)) {
-      const failedLoginAttempts = Number(staff.failedLoginAttempts ?? 0) + 1;
-      const lockedUntil = failedLoginAttempts >= 5
-        ? new Date(now.getTime() + 15 * 60 * 1000)
-        : null;
       await this.prisma.$transaction(async (tx) => {
-        await tx.adminStaffAccount.update({
-          where: { id: staff.id },
-          data: {
-            failedLoginAttempts: lockedUntil ? 0 : failedLoginAttempts,
-            lockedUntil,
-          },
-        });
+        // One conditional UPDATE serializes concurrent failures on the staff
+        // row. A request that was already in flight when the fifth failure
+        // locked the account must preserve that lock instead of clearing it.
+        const rows = await tx.$queryRaw<Array<{
+          failedLoginAttempts: number;
+          lockedUntil: Date | null;
+        }>>`
+          UPDATE admin_staff_accounts
+          SET
+            failed_login_attempts = CASE
+              WHEN locked_until IS NOT NULL AND locked_until > NOW()
+                THEN failed_login_attempts
+              WHEN failed_login_attempts + 1 >= 5
+                THEN 0
+              ELSE failed_login_attempts + 1
+            END,
+            locked_until = CASE
+              WHEN locked_until IS NOT NULL AND locked_until > NOW()
+                THEN locked_until
+              WHEN failed_login_attempts + 1 >= 5
+                THEN NOW() + INTERVAL '15 minutes'
+              ELSE NULL
+            END,
+            updated_at = NOW()
+          WHERE id = ${staff.id}::uuid
+          RETURNING
+            failed_login_attempts AS "failedLoginAttempts",
+            locked_until AS "lockedUntil"
+        `;
+        const state = rows[0];
+        if (!state) {
+          throw new UnauthorizedException("The admin account is no longer available.");
+        }
+        const failedLoginAttempts = Number(state.failedLoginAttempts ?? 0);
+        const lockedUntil = state.lockedUntil;
+        const locked = Boolean(lockedUntil && lockedUntil.getTime() > Date.now());
         await tx.auditEvent.create({
           data: {
             actorType: "ADMIN",
             actorId: staff.id,
-            action: lockedUntil ? "admin.auth.account_locked" : "admin.auth.login_failed",
+            action: locked ? "admin.auth.account_locked" : "admin.auth.login_failed",
             targetType: "admin_staff_account",
             targetId: staff.id,
             outcome: "denied",
             requestId: randomUUID(),
             redactedMetadata: {
               identifierHash: createHash("sha256").update(identifier).digest("hex").slice(0, 16),
-              failedLoginAttempts,
-              locked: Boolean(lockedUntil),
+              failedLoginAttempts: locked ? 5 : failedLoginAttempts,
+              locked,
             },
           },
         });
       });
       throw new UnauthorizedException("Invalid admin email/username or password.");
+    }
+
+    if (staff.mustResetPassword) {
+      throw new UnauthorizedException(
+        "Complete first-time staff setup with the individual setup credential before using password sign-in.",
+      );
     }
 
     // Password is only the first factor. A persistent, one-time-use TOTP or
@@ -3925,13 +3972,71 @@ export class AdminReviewService {
     const salt = randomBytes(16).toString("hex");
     const derived = scryptSync(newPassword, salt, 64, { N: 16384, r: 8, p: 1 }).toString("hex");
     const passwordHash = `scrypt$16384$8$1$${salt}$${derived}`;
-    const updated = await this.prisma.adminStaffAccount.update({
-      where: { id: staffId },
-      data: { passwordHash, passwordUpdatedAt: new Date(), mustResetPassword: false, failedLoginAttempts: 0, lockedUntil: null },
-      select: { id: true, staffCode: true },
-    });
-    if (this.adminSessions) await this.adminSessions.revokeAllForStaff(staffId, "PASSWORD_CHANGED");
-    return { updated: true as const, staffCode: updated.staffCode };
+    // Bind the authenticated administrator as the database actor before the
+    // transaction so audit_events RLS evaluates the same request identity.
+    setAdminDatabaseIdentity(principal.staffId, principal.role);
+    const now = new Date();
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.adminStaffAccount.update({
+        where: { id: staffId },
+        data: {
+          passwordHash,
+          passwordUpdatedAt: now,
+          mustResetPassword: false,
+          // The initial access token is a setup-only credential. Replace its
+          // digest atomically with password setup so the original token cannot
+          // authenticate again; the raw token is never stored.
+          accessTokenDigest: createHash("sha256").update(randomBytes(32)).digest("hex"),
+          accessTokenPreview: "REVOKED••••",
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+        },
+        select: { id: true, staffCode: true },
+      });
+      const revoked = await tx.adminStaffSession.updateMany({
+        where: { staffId, revokedAt: null },
+        data: { revokedAt: now, revokeReason: "PASSWORD_CHANGED" },
+      });
+
+      // Both security events commit or roll back with the credential and
+      // session changes. Never include the password or password hash.
+      await tx.auditEvent.create({
+        data: {
+          actorType: "ADMIN",
+          actorId: principal.staffId,
+          action: "admin.staff_password.changed",
+          targetType: "admin_staff_account",
+          targetId: staffId,
+          outcome: "success",
+          requestId: randomUUID(),
+          redactedMetadata: {
+            passwordUpdatedAt: now.toISOString(),
+            mustResetPassword: false,
+          },
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          actorType: "ADMIN",
+          actorId: principal.staffId,
+          action: "admin.staff_sessions.revoked_all",
+          targetType: "admin_staff_account",
+          targetId: staffId,
+          outcome: "success",
+          requestId: randomUUID(),
+          redactedMetadata: {
+            reason: "PASSWORD_CHANGED",
+            revokedSessions: revoked.count,
+          },
+        },
+      });
+      return { updated, revokedSessions: revoked.count };
+    }, { isolationLevel: "Serializable" });
+    return {
+      updated: true as const,
+      staffCode: result.updated.staffCode,
+      revokedSessions: result.revokedSessions,
+    };
   }
 
 }

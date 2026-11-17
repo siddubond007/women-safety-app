@@ -58,6 +58,53 @@ describe("AdminSessionService", () => {
     });
   });
 
+  it("rechecks first-time setup state inside the session-creation transaction", async () => {
+    process.env.SAKHI_ADMIN_STAFF_SESSION_SIGNING_KEY =
+      Buffer.alloc(32, 0x73).toString("base64");
+    const now = new Date();
+    const createHarness = (account: Record<string, unknown>) => {
+      const tx = {
+        adminStaffAccount: {
+          findUnique: vi.fn().mockResolvedValue({ id: STAFF_ID, status: "ACTIVE", ...account }),
+          update: vi.fn().mockResolvedValue({ id: STAFF_ID }),
+        },
+        adminStaffMfa: {
+          findUnique: vi.fn().mockResolvedValue({ enrollmentVerifiedAt: now, disabledAt: null }),
+        },
+        adminStaffSession: { create: vi.fn().mockResolvedValue({ id: "session-id" }) },
+        auditEvent: { create: vi.fn().mockResolvedValue({ id: "audit-id" }) },
+      };
+      const prisma = {
+        $transaction: vi.fn(async (callback: (txArg: any) => Promise<unknown>) => callback(tx)),
+      } as unknown as PrismaService;
+      return { service: new AdminSessionService(prisma), tx };
+    };
+
+    const pendingSetup = createHarness({ passwordHash: null, mustResetPassword: true });
+    await expect(
+      pendingSetup.service.issueSession(STAFF_ID, undefined, "INITIAL_SETUP"),
+    ).resolves.toMatchObject({ sessionId: expect.any(String) });
+    expect(pendingSetup.tx.adminStaffSession.create).toHaveBeenCalledTimes(1);
+
+    const completedSetup = createHarness({
+      passwordHash: "scrypt$fixture",
+      mustResetPassword: false,
+    });
+    await expect(
+      completedSetup.service.issueSession(STAFF_ID, undefined, "INITIAL_SETUP"),
+    ).rejects.toThrow(/setup has already been completed/i);
+    expect(completedSetup.tx.adminStaffSession.create).not.toHaveBeenCalled();
+
+    const passwordLoginBeforeSetup = createHarness({
+      passwordHash: "scrypt$fixture",
+      mustResetPassword: true,
+    });
+    await expect(
+      passwordLoginBeforeSetup.service.issueSession(STAFF_ID),
+    ).rejects.toThrow(/complete initial staff password setup/i);
+    expect(passwordLoginBeforeSetup.tx.adminStaffSession.create).not.toHaveBeenCalled();
+  });
+
   it("stores only token digests, validates persistent sessions, rotates and revokes on rotated-token reuse", async () => {
     process.env.SAKHI_ADMIN_STAFF_SESSION_SIGNING_KEY =
       Buffer.alloc(32, 0x73).toString("base64");

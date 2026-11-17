@@ -81,6 +81,11 @@ function makeService() {
     adminStaffAccount: {
       findMany: vi.fn().mockResolvedValue([]),
       findFirst: vi.fn().mockResolvedValue(null),
+      findUnique: vi.fn().mockResolvedValue({
+        role: "SUPER_ADMIN",
+        passwordHash: null,
+        mustResetPassword: true,
+      }),
     },
     adminStaffMfa: {
       findUnique: vi.fn().mockResolvedValue(null),
@@ -242,6 +247,141 @@ describe("StagingTestAdminService", () => {
     ).rejects.toThrow(/individual staff first-factor credential/i);
   });
 
+  it("allows an existing passwordless Super Admin to complete token-plus-MFA login and marks password setup required", async () => {
+    const { service, prisma, sessions, mfa } = makeService();
+    const rawToken = "initial-super-admin-first-factor-token";
+    prisma.adminStaffAccount.findFirst.mockResolvedValue({
+      id: "2d5fce37-6aab-4cb4-8a6c-6a2d07f87e91",
+      staffCode: "#SA-123",
+      fullName: "Initial Super Admin",
+      email: "initial.superadmin@example.test",
+      role: "SUPER_ADMIN",
+      status: "ACTIVE",
+      suspendedAt: null,
+      deletedAt: null,
+      passwordHash: null,
+      mustResetPassword: false,
+      accessTokenDigest: createHash("sha256").update(rawToken).digest("hex"),
+      accessTokenPreview: "SAKHI-SA-••••",
+      isAuthorisedComplaintReviewer: true,
+      clearanceLevel: "LEVEL_4_MASTER_GOVERNANCE",
+      permissions: {
+        view: true, create: true, edit: true, approve: true,
+        suspend: true, export: true, delete: true,
+      },
+      createdBy: "One-time protected Super Admin bootstrap",
+      lastLoginAt: null,
+      createdAt: new Date("2026-11-14T00:00:00.000Z"),
+      updatedAt: new Date("2026-11-14T00:00:00.000Z"),
+    } as any);
+    prisma.adminStaffMfa.findUnique.mockResolvedValue({
+      enrollmentVerifiedAt: new Date("2026-11-14T00:00:00.000Z"),
+      disabledAt: null,
+    } as any);
+    mfa.verifyLoginFactor.mockResolvedValue({ verified: true } as any);
+    sessions.issueSession.mockResolvedValue({
+      value: "staff-admin.test-session",
+      expiresAt: new Date(Date.now() + 60_000),
+    } as any);
+
+    const result = await service.loginWithToken(rawToken, "123456");
+
+    expect(result).toMatchObject({
+      authenticated: true,
+      role: "SUPER_ADMIN",
+      mustResetPassword: true,
+    });
+    expect(mfa.verifyLoginFactor).toHaveBeenCalledWith(
+      "2d5fce37-6aab-4cb4-8a6c-6a2d07f87e91",
+      "123456",
+    );
+    expect(sessions.issueSession).toHaveBeenCalledWith(
+      "2d5fce37-6aab-4cb4-8a6c-6a2d07f87e91",
+      undefined,
+      "INITIAL_SETUP",
+    );
+  });
+
+  it("rejects the initial staff access token after password setup has completed", async () => {
+    const { service, prisma, mfa, sessions } = makeService();
+    const rawToken = "initial-staff-credential-after-setup";
+    prisma.adminStaffAccount.findFirst.mockResolvedValue({
+      id: "2d5fce37-6aab-4cb4-8a6c-6a2d07f87e91",
+      staffCode: "#VA-123",
+      fullName: "Configured Staff",
+      email: "configured.staff@example.test",
+      role: "VERIFICATION_ADMIN",
+      status: "ACTIVE",
+      suspendedAt: null,
+      deletedAt: null,
+      passwordHash: "scrypt$16384$8$1$fixture$" + "a".repeat(128),
+      mustResetPassword: false,
+      accessTokenDigest: createHash("sha256").update(rawToken).digest("hex"),
+      accessTokenPreview: "SAKHI-VA-••••",
+      isAuthorisedComplaintReviewer: false,
+      clearanceLevel: "LEVEL_2_ELIGIBILITY_SUPPORT",
+      permissions: {},
+      createdBy: "Test fixture",
+      lastLoginAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as any);
+    prisma.adminStaffAccount.findUnique.mockResolvedValue({
+      role: "VERIFICATION_ADMIN",
+      passwordHash: "scrypt$fixture",
+      mustResetPassword: false,
+    } as any);
+
+    await expect(service.loginWithToken(rawToken, "123456")).rejects.toThrow(
+      /first-time setup only.*password and TOTP/i,
+    );
+    expect(mfa.verifyLoginFactor).not.toHaveBeenCalled();
+    expect(sessions.issueSession).not.toHaveBeenCalled();
+  });
+
+  it("keeps password setup required when a passwordless Super Admin session is restored", async () => {
+    const { service, prisma, sessions } = makeService();
+    const row = {
+      id: "2d5fce37-6aab-4cb4-8a6c-6a2d07f87e91",
+      staffCode: "#SA-123",
+      fullName: "Initial Super Admin",
+      email: "initial.superadmin@example.test",
+      role: "SUPER_ADMIN",
+      status: "ACTIVE",
+      passwordHash: null,
+      mustResetPassword: false,
+      accessTokenDigest: "a".repeat(64),
+      accessTokenPreview: "SAKHI-SA-••••",
+      isAuthorisedComplaintReviewer: true,
+      clearanceLevel: "LEVEL_4_MASTER_GOVERNANCE",
+      permissions: {
+        view: true, create: true, edit: true, approve: true,
+        suspend: true, export: true, delete: true,
+      },
+      createdBy: "One-time protected Super Admin bootstrap",
+      lastLoginAt: null,
+      createdAt: new Date("2026-11-14T00:00:00.000Z"),
+      updatedAt: new Date("2026-11-14T00:00:00.000Z"),
+    };
+    prisma.adminStaffAccount.findMany.mockResolvedValue([row] as any);
+    await SakhiAdminRbacRegistry.ensureHydrated(prisma as unknown as PrismaService);
+    const staff = SakhiAdminRbacRegistry.listStaff()[0];
+    if (!staff) throw new Error("Super Admin fixture did not hydrate.");
+    const sessionToken = SakhiAdminRbacRegistry.createSignedStaffSessionToken(
+      staff,
+      process.env.SAKHI_ADMIN_STAFF_SESSION_SIGNING_KEY!,
+    ).value;
+    sessions.validateSession.mockResolvedValue({ staff: row } as any);
+
+    const result = await service.sessionFromToken(sessionToken);
+
+    expect(result).toMatchObject({
+      authenticated: true,
+      role: "SUPER_ADMIN",
+      mustResetPassword: true,
+    });
+  });
+
   it("exposes the one-time bootstrap setup only while no Super Admin exists", async () => {
     const { service, prisma, sessions } = makeService();
     const fullToken = "full-staging-admin-secret-token-is-over-32-chars";
@@ -284,6 +424,10 @@ describe("StagingTestAdminService", () => {
     const accountCreate = tx.adminStaffAccount.create.mock.calls[0]?.[0];
     const auditCreate = tx.auditEvent.create.mock.calls[0]?.[0];
     expect(accountCreate.data.id).toEqual(expect.any(String));
+    expect(accountCreate.data).toMatchObject({
+      role: "SUPER_ADMIN",
+      mustResetPassword: true,
+    });
     expect(auditCreate.data).toMatchObject({
       actorType: "ADMIN",
       actorId: accountCreate.data.id,
@@ -371,7 +515,7 @@ describe("StagingTestAdminService", () => {
         },
       });
       expect(mfa.verifyLoginFactor).toHaveBeenCalledWith(staffRow.id, "123456");
-      expect(sessions.issueSession).toHaveBeenCalledWith(staffRow.id);
+      expect(sessions.issueSession).toHaveBeenCalledWith(staffRow.id, undefined, "INITIAL_SETUP");
     } finally {
       SakhiAdminRbacRegistry.resetForTesting();
     }

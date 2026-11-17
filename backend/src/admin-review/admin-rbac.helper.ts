@@ -734,7 +734,9 @@ export class SakhiAdminRbacRegistry {
       email: String(r.email ?? "admin@sakhi.org.in"),
       role,
       status: r.status,
-      mustResetPassword: Boolean(r.mustResetPassword),
+      // Every staff account must establish a password before ordinary
+      // credential sign-in. This also repairs legacy passwordless staff rows.
+      mustResetPassword: Boolean(r.mustResetPassword) || r.passwordHash === null,
       accessTokenDigest: String(r.accessTokenDigest ?? ""),
       accessTokenPreview: String(r.accessTokenPreview ?? "SAKHI-STAFF-••••"),
       isAuthorisedComplaintReviewer:
@@ -910,6 +912,9 @@ export class SakhiAdminRbacRegistry {
       isAuthorisedComplaintReviewer?: boolean;
       clearanceLevel?: string;
       permissions?: Partial<GranularRolePermissions>;
+      mustResetPassword?: boolean;
+      username?: string;
+      initialPasswordHash?: string;
     },
     createdByLabel: string,
     actorStaffId?: string,
@@ -1004,6 +1009,8 @@ export class SakhiAdminRbacRegistry {
       email,
       role: rawRole,
       status: "ACTIVE",
+      mustResetPassword: dto.mustResetPassword === true,
+      username: dto.username?.trim().toLowerCase() || null,
       accessTokenDigest,
       accessTokenPreview,
       isAuthorisedComplaintReviewer:
@@ -1025,6 +1032,12 @@ export class SakhiAdminRbacRegistry {
       "created",
       createdByLabel,
       actorStaffId,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      dto.initialPasswordHash,
     );
     return { staff, issuedAccessToken };
   }
@@ -1318,6 +1331,7 @@ export class SakhiAdminRbacRegistry {
     originalStatus?: AdminStaffRecord["status"],
     originalEmail?: string,
     emailChangeReason?: string,
+    initialPasswordHash?: string,
   ): Promise<void> {
     const anyPrisma = prisma as unknown as Record<string, any>;
     if (typeof anyPrisma.$transaction !== "function") {
@@ -1329,10 +1343,12 @@ export class SakhiAdminRbacRegistry {
     const safeMetadata = {
       id: staff.id,
       staffCode: staff.staffCode,
+      username: staff.username ?? null,
       fullName: staff.fullName,
       email: staff.email,
       role: staff.role,
       status: staff.status,
+      mustResetPassword: Boolean(staff.mustResetPassword),
       isAuthorisedComplaintReviewer: staff.isAuthorisedComplaintReviewer,
       clearanceLevel: staff.clearanceLevel,
       permissions: staff.permissions,
@@ -1359,10 +1375,16 @@ export class SakhiAdminRbacRegistry {
         }
 
         const staffData = {
+          username: staff.username ?? null,
+          ...(outcome === "created" ? {
+            passwordHash: initialPasswordHash ?? null,
+            passwordUpdatedAt: initialPasswordHash ? new Date(staff.createdAt) : null,
+          } : {}),
           fullName: staff.fullName,
           email: staff.email,
           role: staff.role,
           status: staff.status,
+          mustResetPassword: Boolean(staff.mustResetPassword),
           accessTokenDigest: staff.accessTokenDigest,
           accessTokenPreview: staff.accessTokenPreview,
           isAuthorisedComplaintReviewer: staff.isAuthorisedComplaintReviewer,

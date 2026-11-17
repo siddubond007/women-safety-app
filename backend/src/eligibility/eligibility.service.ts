@@ -192,6 +192,15 @@ export class EligibilityService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      // Bind the authenticated member identity on this exact transaction
+      // before writing the submission, member state, or audit event.
+      await tx.$queryRaw`SELECT
+        set_config('app.account_id', ${session.accountId}, true),
+        set_config('app.session_id', ${session.id}, true),
+        set_config('app.admin_staff_id', '', true),
+        set_config('app.admin_role', '', true),
+        set_config('app.auth_lookup', 'false', true),
+        set_config('app.system_job', 'false', true)`;
       const previousSubmission = await tx.eligibilitySubmission.findFirst({
         where: { accountId: session.accountId },
         orderBy: { submittedAt: "desc" },
@@ -230,18 +239,18 @@ export class EligibilityService {
         data: { verificationStatus: "UNVERIFIED" },
       });
 
-      await tx.auditEvent.create({
-        data: {
-          actorType: "MEMBER",
-          actorId: session.accountId,
-          action: "eligibility.manual_review.submitted",
-          targetType: "eligibility_submission",
-          targetId: submission.id,
-          outcome: "pending",
-          requestId: randomUUID(),
-          redactedMetadata: { consentVersion: policy.consentVersion, consentAccepted: true },
-        },
-      });
+      await tx.$executeRaw`
+        INSERT INTO public.audit_events (
+          id, actor_type, actor_id, action, target_type, target_id,
+          outcome, request_id, redacted_metadata
+        ) VALUES (
+          ${randomUUID()}::uuid, 'MEMBER', ${session.accountId}::uuid,
+          'eligibility.manual_review.submitted',
+          'eligibility_submission', ${submission.id},
+          'pending', ${randomUUID()},
+          ${JSON.stringify({ consentVersion: policy.consentVersion, consentAccepted: true })}::jsonb
+        )
+      `;
 
       return {
         status: "pendingManualReview" as const,
