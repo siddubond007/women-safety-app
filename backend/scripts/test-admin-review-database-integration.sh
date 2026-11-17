@@ -65,13 +65,81 @@ export SAKHI_MIGRATOR_DATABASE_URL="postgresql://sakhi_test_migrator:${MIGRATOR_
 export SAKHI_STAGING_MIGRATOR_DATABASE_URL="postgresql://sakhi_staging_migrator:${STAGING_MIGRATOR_PASSWORD}@${PGHOST}:${PGPORT}/sakhi_test?schema=public"
 export SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL="postgresql://sakhi_staging_fixture_cleanup:${STAGING_FIXTURE_CLEANUP_PASSWORD}@${PGHOST}:${PGPORT}/sakhi_test?schema=public"
 
+# Apply the predecessor migrations with the disposable CI migrator, but hold
+# the two new admin migrations back: staging must apply them in the Supabase
+# table-owner context, then let the restricted Prisma migrator record them.
+MIGRATION_ROOT="prisma/migrations"
+MIGRATION_HOLD_DIR="$(mktemp -d)"
+MANUAL_ADMIN_MIGRATIONS=(
+  "20261117140000_single_use_admin_bootstrap_credential"
+  "20261117150000_staging_mfa_fixture_cleanup_role"
+)
+restore_admin_migrations() {
+  for migration in "${MANUAL_ADMIN_MIGRATIONS[@]}"; do
+    if [[ -d "${MIGRATION_HOLD_DIR}/${migration}" ]]; then
+      mv "${MIGRATION_HOLD_DIR}/${migration}" "${MIGRATION_ROOT}/${migration}"
+    fi
+  done
+  rmdir "${MIGRATION_HOLD_DIR}" 2>/dev/null || true
+}
+trap restore_admin_migrations EXIT
+for migration in "${MANUAL_ADMIN_MIGRATIONS[@]}"; do
+  mv "${MIGRATION_ROOT}/${migration}" "${MIGRATION_HOLD_DIR}/${migration}"
+done
 npm run db:migrate:deploy
+restore_admin_migrations
+trap - EXIT
+
+# Reproduce the actual Supabase ownership boundary: the migrator owns the
+# account table and Prisma ledger, while postgres owns the four child tables.
+# The CI-only ownership setup is disposable and does not change staging.
+psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
+  -v ON_ERROR_STOP=1 <<'SQL'
+ALTER TABLE public.admin_staff_accounts OWNER TO sakhi_test_migrator;
+ALTER TABLE public.admin_staff_sessions OWNER TO postgres;
+ALTER TABLE public.admin_staff_mfa OWNER TO postgres;
+ALTER TABLE public.admin_staff_backup_codes OWNER TO postgres;
+ALTER TABLE public.admin_staff_recovery_requests OWNER TO postgres;
+
+DO $owner_boundary$
+BEGIN
+  IF pg_get_userbyid((SELECT relowner FROM pg_class WHERE oid='public._prisma_migrations'::regclass)) <> 'sakhi_test_migrator'
+     OR pg_get_userbyid((SELECT relowner FROM pg_class WHERE oid='public.admin_staff_accounts'::regclass)) <> 'sakhi_test_migrator'
+     OR EXISTS (
+       SELECT 1 FROM pg_class
+       WHERE oid IN (
+         'public.admin_staff_sessions'::regclass,
+         'public.admin_staff_mfa'::regclass,
+         'public.admin_staff_backup_codes'::regclass,
+         'public.admin_staff_recovery_requests'::regclass
+       )
+       AND pg_get_userbyid(relowner) <> 'postgres'
+     ) THEN
+    RAISE EXCEPTION 'Disposable CI database does not reproduce the staging table-owner boundary';
+  END IF;
+END
+$owner_boundary$;
+SQL
+
+# These owner-scoped DDL files are executed as postgres in CI, matching the
+# Supabase SQL Editor owner context. No staging credential is present here.
+psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
+  -v ON_ERROR_STOP=1 -f "${MIGRATION_ROOT}/20261117140000_single_use_admin_bootstrap_credential/migration.sql"
+psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
+  -v ON_ERROR_STOP=1 -f "${MIGRATION_ROOT}/20261117150000_staging_mfa_fixture_cleanup_role/migration.sql"
+
+# The test migrator owns _prisma_migrations and can safely record only the
+# exact migrations already applied above by the table owner.
+npx prisma migrate resolve --applied 20261117140000_single_use_admin_bootstrap_credential
+npx prisma migrate resolve --applied 20261117150000_staging_mfa_fixture_cleanup_role
+
 npm run prisma:generate
 npm run db:seed
 
-# Grant object access to the NOBYPASSRLS app role. These grants do not alter
-# RLS policies, enable bypass, or transfer table ownership.
-psql -v ON_ERROR_STOP=1 "postgresql://sakhi_test_migrator:${MIGRATOR_PASSWORD}@${PGHOST}:${PGPORT}/sakhi_test" <<'SQL'
+# Grant object access to the NOBYPASSRLS app role as the disposable database
+# owner. These grants do not alter staging or transfer any staging ownership.
+psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
+  -v ON_ERROR_STOP=1 <<'SQL'
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO sakhi_test_app;
 REVOKE ALL ON TABLE public._prisma_migrations FROM sakhi_test_app;
 
