@@ -21,11 +21,26 @@ BEGIN
     RAISE EXCEPTION 'sakhi_staging_fixture_cleanup must exist as a restricted login role before this migration';
   END IF;
 
+  -- Supabase may grant a custom migration-support role to its managed
+  -- postgres role. Permit only that exact administrative membership:
+  -- postgres cannot SET ROLE or inherit cleanup privileges, while all other
+  -- memberships (including membership granted to another role) remain denied.
   IF EXISTS (
-    SELECT 1 FROM pg_auth_members
-    WHERE member = cleanup_role OR roleid = cleanup_role
+    SELECT 1
+    FROM pg_auth_members am
+    WHERE am.member = cleanup_role
+       OR (
+         am.roleid = cleanup_role
+         AND NOT (
+           EXISTS (SELECT 1 FROM pg_roles p WHERE p.oid = am.member AND p.rolname = 'postgres')
+           AND EXISTS (SELECT 1 FROM pg_roles s WHERE s.oid = am.grantor AND s.rolname = 'supabase_admin')
+           AND am.admin_option IS TRUE
+           AND am.inherit_option IS FALSE
+           AND am.set_option IS FALSE
+         )
+       )
   ) THEN
-    RAISE EXCEPTION 'Fixture cleanup role must not inherit or grant membership in any other role';
+    RAISE EXCEPTION 'Fixture cleanup role has an unsupported role membership';
   END IF;
 
   IF NOT has_database_privilege(cleanup_role, current_database(), 'CONNECT')
@@ -275,10 +290,21 @@ BEGIN
   END IF;
 
   IF EXISTS (
-    SELECT 1 FROM pg_auth_members
-    WHERE member=cleanup_role OR roleid=cleanup_role
+    SELECT 1
+    FROM pg_auth_members am
+    WHERE am.member = cleanup_role
+       OR (
+         am.roleid = cleanup_role
+         AND NOT (
+           EXISTS (SELECT 1 FROM pg_roles p WHERE p.oid = am.member AND p.rolname = 'postgres')
+           AND EXISTS (SELECT 1 FROM pg_roles s WHERE s.oid = am.grantor AND s.rolname = 'supabase_admin')
+           AND am.admin_option IS TRUE
+           AND am.inherit_option IS FALSE
+           AND am.set_option IS FALSE
+         )
+       )
   ) THEN
-    RAISE EXCEPTION 'Fixture cleanup role must not inherit or grant membership in another role';
+    RAISE EXCEPTION 'Fixture cleanup role has an unsupported role membership';
   END IF;
 END
 $fixture_cleanup_postflight$;
