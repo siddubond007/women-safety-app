@@ -13,6 +13,37 @@ This process is for the first Super Admin on the dedicated Sakhi staging environ
 - The token does not create an authenticated session. The new Super Admin must enroll and verify TOTP before any privileged session can be issued.
 - The bootstrap endpoint is not enabled by setting a plaintext token. The legacy `SAKHI_STAGING_FULL_ADMIN_TOKEN` variable is not read by the hardened implementation.
 
+## Dedicated MFA fixture-cleanup database role
+
+The staging MFA integration must never use the schema-migrator credential for teardown. The schema migrator owns schema objects and can perform destructive DDL; it is not a test-cleanup identity.
+
+Before applying the dedicated fixture-cleanup migration, create a separate login role in the Supabase SQL editor. Generate a 32-byte random password locally and do not commit or paste it into chat:
+
+```powershell
+$cleanupPassword = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLowerInvariant()
+```
+
+Run the following SQL after replacing the password placeholder locally:
+
+```sql
+CREATE ROLE sakhi_staging_fixture_cleanup
+  LOGIN PASSWORD '<64-character lowercase hex password generated locally>'
+  NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+
+GRANT CONNECT ON DATABASE postgres TO sakhi_staging_fixture_cleanup;
+GRANT USAGE ON SCHEMA public TO sakhi_staging_fixture_cleanup;
+```
+
+Do not grant this role membership in another role, ownership of any table, schema CREATE, database CREATE, or TRUNCATE. The reviewed fixture-cleanup migration grants only the required column-level SELECT and row-filtered DELETE privileges across the five staff-security tables. Its postflight checks fail if the role can own or truncate those tables.
+
+After the migration has been reviewed and applied, add this secret to the protected GitHub Actions `staging` environment:
+
+- `SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL`: the Supabase session-pooler URL for user `sakhi_staging_fixture_cleanup.wmlpokholjfadyohdlgo`, database `postgres`, port `5432`, TLS `sslmode=verify-full`, and schema `public`.
+
+Use the locally generated 64-character hex password in that URL. Keep `SAKHI_STAGING_MIGRATOR_DATABASE_URL` separate and never expose it to the MFA integration job. The MFA workflow is manual-dispatch-only and must use only the dedicated fixture-cleanup secret for teardown.
+
+Do not create the role, add the GitHub secret, or apply the migration until the operator has separately approved the staging database change.
+
 ## Generate the credential locally
 
 Use a trusted local terminal. Do not paste the plaintext token into chat, GitHub, source files, issue comments, CI logs, or a shared document.
