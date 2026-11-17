@@ -10,7 +10,6 @@ BEGIN
        SELECT 1 FROM pg_roles
        WHERE rolname = current_user
          AND NOT rolsuper
-         AND NOT rolbypassrls
      ) THEN
     RAISE EXCEPTION 'Run this migration under the non-superuser Supabase postgres role, not a superuser role';
   END IF;
