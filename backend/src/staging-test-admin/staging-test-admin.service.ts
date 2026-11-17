@@ -55,15 +55,57 @@ function assertAdminAuthEnvironment(): void {
   }
 }
 
-export function getFullAdminSecret(): string | null {
+const BOOTSTRAP_CREDENTIAL_MAX_TTL_MS = 24 * 60 * 60 * 1000;
+const BOOTSTRAP_CREDENTIAL_ID = "initial-super-admin";
+
+export interface FullAdminBootstrapConfig {
+  tokenDigest: string;
+  expiresAt: Date;
+}
+
+/**
+ * Reads only the SHA-256 digest and absolute expiry from staging configuration.
+ * The plaintext bootstrap token is never loaded by the backend process.
+ */
+export function getFullAdminBootstrapConfig(
+  now = new Date(),
+): FullAdminBootstrapConfig | null {
   if (
     process.env.SAKHI_ENV !== "staging" ||
     process.env.NODE_ENV !== "production" ||
     process.env.SAKHI_STAGING_FULL_ADMIN_ENABLED !== "true"
-  )
+  ) {
     return null;
-  const secret = process.env.SAKHI_STAGING_FULL_ADMIN_TOKEN?.trim() ?? "";
-  return secret.length >= 32 ? secret : null;
+  }
+
+  const tokenDigest =
+    process.env.SAKHI_STAGING_FULL_ADMIN_TOKEN_SHA256?.trim().toLowerCase() ?? "";
+  const expiresAtValue =
+    process.env.SAKHI_STAGING_FULL_ADMIN_TOKEN_EXPIRES_AT?.trim() ?? "";
+  if (!/^[a-f0-9]{64}$/.test(tokenDigest) || !expiresAtValue) return null;
+
+  const expiryMs = Date.parse(expiresAtValue);
+  const nowMs = now.getTime();
+  if (
+    !Number.isFinite(expiryMs) ||
+    expiryMs <= nowMs ||
+    expiryMs > nowMs + BOOTSTRAP_CREDENTIAL_MAX_TTL_MS
+  ) {
+    return null;
+  }
+
+  return { tokenDigest, expiresAt: new Date(expiryMs) };
+}
+
+export function matchesBootstrapCredential(
+  provided: string | undefined,
+  expectedDigest: string,
+): boolean {
+  const clean = provided?.trim() ?? "";
+  if (!clean || !/^[a-f0-9]{64}$/i.test(expectedDigest)) return false;
+  const actualDigest = createHash("sha256").update(clean).digest();
+  const expected = Buffer.from(expectedDigest, "hex");
+  return expected.length === actualDigest.length && timingSafeEqual(actualDigest, expected);
 }
 
 function requireStaffSessionSigningKey(): string {
@@ -121,29 +163,27 @@ export class StagingTestAdminService {
 
   private assertMasterCredential(provided?: string): {
     scope: "full-admin";
-    secret: string;
+    tokenDigest: string;
+    expiresAt: Date;
     reviewerLabel: string;
   } {
     assertStagingEnvironment();
     if (!provided?.trim()) {
       throw new UnauthorizedException("A staging bootstrap credential is required.");
     }
-    const fullSecret = getFullAdminSecret();
-    if (!fullSecret) {
+    const config = getFullAdminBootstrapConfig();
+    if (!config) {
       throw new ServiceUnavailableException(
-        "The one-time staging Super Admin bootstrap credential is not configured.",
+        "The one-time staging Super Admin bootstrap credential is missing, expired, or misconfigured.",
       );
     }
-    const providedDigest = createHash("sha256")
-      .update(provided.trim())
-      .digest();
-    const expectedDigest = createHash("sha256").update(fullSecret).digest();
-    if (!timingSafeEqual(expectedDigest, providedDigest)) {
+    if (!matchesBootstrapCredential(provided, config.tokenDigest)) {
       throw new UnauthorizedException("The staging bootstrap credential is invalid.");
     }
     return {
       scope: "full-admin",
-      secret: fullSecret,
+      tokenDigest: config.tokenDigest,
+      expiresAt: config.expiresAt,
       reviewerLabel: reviewerLabelForScope(),
     };
   }
@@ -194,26 +234,31 @@ export class StagingTestAdminService {
 
     // The one-time bootstrap credential is not a staff login credential. It
     // may only reveal that protected first-Super-Admin setup is available.
-    const bootstrapSecret = getFullAdminSecret();
-    if (bootstrapSecret) {
-      const suppliedDigest = createHash("sha256").update(clean).digest();
-      const expectedDigest = createHash("sha256").update(bootstrapSecret).digest();
-      if (timingSafeEqual(suppliedDigest, expectedDigest)) {
-        const existingSuperAdmin = await this.prisma.adminStaffAccount.findFirst({
+    const bootstrapConfig = getFullAdminBootstrapConfig();
+    if (
+      bootstrapConfig &&
+      matchesBootstrapCredential(clean, bootstrapConfig.tokenDigest)
+    ) {
+      const [existingSuperAdmin, consumedBootstrap] = await Promise.all([
+        this.prisma.adminStaffAccount.findFirst({
           where: { role: "SUPER_ADMIN" },
           select: { id: true },
-        });
-        if (existingSuperAdmin) {
-          throw new UnauthorizedException(
-            "Initial Super Admin bootstrap is permanently closed. Use an individual staff credential.",
-          );
-        }
-        return {
-          authenticated: false as const,
-          bootstrapRequired: true as const,
-          message: "The initial Super Admin account must be created and enrolled in MFA.",
-        };
+        }),
+        this.prisma.adminBootstrapCredential.findUnique({
+          where: { id: BOOTSTRAP_CREDENTIAL_ID },
+          select: { consumedAt: true },
+        }),
+      ]);
+      if (existingSuperAdmin || consumedBootstrap) {
+        throw new UnauthorizedException(
+          "Initial Super Admin bootstrap is permanently closed. Use an individual staff credential.",
+        );
       }
+      return {
+        authenticated: false as const,
+        bootstrapRequired: true as const,
+        message: "The initial Super Admin account must be created and enrolled in MFA.",
+      };
     }
 
     const staffMatch = await this.lookupRawStaffCredential(clean);
@@ -305,33 +350,68 @@ export class StagingTestAdminService {
         "The one-time Super Admin bootstrap credential is invalid.",
       );
     }
-    const existingSuperAdmins = await this.prisma.adminStaffAccount.findMany({
-      where: { role: "SUPER_ADMIN" },
-      select: { id: true },
-      take: 1,
-    });
-    if (existingSuperAdmins.length > 0) {
-      throw new ConflictException(
-        "A Super Admin account already exists; bootstrap is permanently closed.",
-      );
-    }
-    let created: Awaited<ReturnType<typeof SakhiAdminRbacRegistry.createStaffAccount>>;
-    // Bootstrap is unauthenticated; establish the new staff identity only for
-    // this transaction so its matching ADMIN audit insert satisfies RLS.
+
     const bootstrapStaffId = randomUUID();
+    let created: Awaited<ReturnType<typeof SakhiAdminRbacRegistry.createStaffAccount>>;
     try {
       created = await runWithDatabaseRequestIdentity(
         () =>
-          SakhiAdminRbacRegistry.createStaffAccount(
-            this.prisma,
-            { fullName, email, role: "SUPER_ADMIN", mustResetPassword: true },
-            "One-time protected Super Admin bootstrap",
-            bootstrapStaffId,
-            bootstrapStaffId,
+          this.prisma.$transaction(
+            async (tx) => {
+              const existingSuperAdmin = await tx.adminStaffAccount.findFirst({
+                where: { role: "SUPER_ADMIN" },
+                select: { id: true },
+              });
+              if (existingSuperAdmin) {
+                throw new ConflictException(
+                  "A Super Admin account already exists; bootstrap is permanently closed.",
+                );
+              }
+
+              // The singleton primary key and one-way database trigger make
+              // credential consumption durable, single-use, and race-safe.
+              await tx.adminBootstrapCredential.create({
+                data: {
+                  id: BOOTSTRAP_CREDENTIAL_ID,
+                  tokenDigest: credential.tokenDigest,
+                  expiresAt: credential.expiresAt,
+                },
+              });
+              const consumed = await tx.adminBootstrapCredential.updateMany({
+                where: {
+                  id: BOOTSTRAP_CREDENTIAL_ID,
+                  tokenDigest: credential.tokenDigest,
+                  consumedAt: null,
+                  expiresAt: { gt: new Date() },
+                },
+                data: { consumedAt: new Date() },
+              });
+              if (consumed.count !== 1) {
+                throw new ConflictException(
+                  "The one-time Super Admin bootstrap credential is expired or already consumed.",
+                );
+              }
+
+              return SakhiAdminRbacRegistry.createStaffAccount(
+                tx as unknown as PrismaService,
+                {
+                  fullName,
+                  email,
+                  role: "SUPER_ADMIN",
+                  mustResetPassword: true,
+                },
+                "One-time protected Super Admin bootstrap",
+                bootstrapStaffId,
+                bootstrapStaffId,
+                tx,
+              );
+            },
+            { isolationLevel: "Serializable" },
           ),
         { adminStaffId: bootstrapStaffId, adminRole: "SUPER_ADMIN" },
       );
     } catch (error) {
+      if (error instanceof ConflictException) throw error;
       const errorRecord =
         error && typeof error === "object"
           ? (error as { code?: unknown; meta?: { target?: unknown }; message?: unknown })
@@ -343,14 +423,22 @@ export class StagingTestAdminService {
       if (
         errorRecord?.code === "P2002" &&
         (uniqueTarget.includes("created_by") ||
-          errorMessage.includes("admin_staff_one_time_super_admin_bootstrap_unique"))
+          errorMessage.includes("admin_staff_one_time_super_admin_bootstrap_unique") ||
+          errorMessage.includes("admin_bootstrap_credentials_pkey"))
       ) {
         throw new ConflictException(
-          "The one-time Super Admin bootstrap has already been completed.",
+          "The one-time Super Admin bootstrap has already been completed or consumed.",
         );
       }
       throw error;
     }
+
+    // The helper deliberately defers its in-memory cache update while using
+    // the outer transaction. Refresh only after the account + credential +
+    // audit transaction has committed.
+    SakhiAdminRbacRegistry.refreshStaffRecordFromDatabase(
+      created.staff as unknown as Record<string, unknown>,
+    );
     return {
       created: true as const,
       staffCode: created.staff.staffCode,
