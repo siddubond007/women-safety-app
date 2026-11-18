@@ -45,7 +45,22 @@ export function LoginPage({ onCredentialAuthenticate }: LoginPageProps) {
     }
   }
   useEffect(() => {
-    void refreshBootstrapStatus();
+    let active = true;
+    adminAuthService
+      .getSuperAdminBootstrapStatus()
+      .then((status) => {
+        if (!active) return;
+        setBootstrapAvailable(status.available);
+        setStage(status.available ? "signup" : "signin");
+      })
+      .catch(() => {
+        if (!active) return;
+        setBootstrapAvailable(false);
+        setStage("signin");
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   async function submitSignup(event: FormEvent<HTMLFormElement>) {
@@ -214,7 +229,7 @@ export function LoginPage({ onCredentialAuthenticate }: LoginPageProps) {
           </div>
 
           {stage === "loading" && (
-            <h2 id="login-title">Checking secure setup…</h2>
+            <h2 id="login-title">Checking secure setupâ€¦</h2>
           )}
 
           {stage === "signup" && (
@@ -307,7 +322,7 @@ export function LoginPage({ onCredentialAuthenticate }: LoginPageProps) {
                   }
                 >
                   {isSubmitting
-                    ? "Creating secure account…"
+                    ? "Creating secure accountâ€¦"
                     : "Register Super Admin"}{" "}
                   <ArrowRight size={17} />
                 </button>
@@ -376,7 +391,7 @@ export function LoginPage({ onCredentialAuthenticate }: LoginPageProps) {
                   type="submit"
                   disabled={isSubmitting || mfaCode.trim().length !== 6}
                 >
-                  {isSubmitting ? "Verifying…" : "Verify and enable MFA"}{" "}
+                  {isSubmitting ? "Verifyingâ€¦" : "Verify and enable MFA"}{" "}
                   <ArrowRight size={17} />
                 </button>
               </form>
@@ -473,7 +488,7 @@ export function LoginPage({ onCredentialAuthenticate }: LoginPageProps) {
                     !mfaCode.trim()
                   }
                 >
-                  {isSubmitting ? "Verifying credentials…" : "Sign in"}{" "}
+                  {isSubmitting ? "Verifying credentialsâ€¦" : "Sign in"}{" "}
                   <ArrowRight size={17} />
                 </button>
               </form>
