@@ -60,10 +60,10 @@ SELECT format(
   :'supabase_postgres_password'
 ) \gexec
 
-GRANT CONNECT ON DATABASE sakhi_test TO sakhi_test_app, sakhi_test_migrator, sakhi_staging_migrator, sakhi_staging_fixture_cleanup, postgres;
+GRANT CONNECT ON DATABASE sakhi_test TO sakhi_test_app, sakhi_test_migrator, sakhi_staging_migrator, sakhi_staging_fixture_cleanup, sakhi_test_supabase_postgres;
 GRANT CREATE ON DATABASE sakhi_test TO sakhi_test_migrator;
 GRANT USAGE ON SCHEMA public TO sakhi_test_app, sakhi_staging_fixture_cleanup;
-GRANT USAGE, CREATE ON SCHEMA public TO sakhi_test_migrator, sakhi_staging_migrator, postgres;
+GRANT USAGE, CREATE ON SCHEMA public TO sakhi_test_migrator, sakhi_staging_migrator, sakhi_test_supabase_postgres;
 SQL
 
 # Reproduce Supabase's administrator identity, not merely its role name.
@@ -135,7 +135,7 @@ trap - EXIT
 # container's bootstrap superuser out of the way, then rename the prepared
 # non-superuser stand-in to "postgres". This lets migrations run with
 # session_user=current_user=postgres and no superuser privilege, as in staging.
-psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
+psql "postgresql://supabase_admin:${SUPABASE_ADMIN_PASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v ON_ERROR_STOP=1 <<'SQL'
 ALTER TABLE public.admin_staff_accounts OWNER TO sakhi_staging_migrator;
 ALTER TABLE public.admin_staff_sessions OWNER TO postgres;
@@ -284,15 +284,3 @@ REVOKE ALL ON TABLE public._prisma_migrations FROM sakhi_test_app;
 
 -- The integration suite uses sakhi_test_migrator only as a disposable fixture
 -- setup/inspection helper. It is deliberately separate from the staging
--- migrator and receives DML (not ownership or TRUNCATE) on the five staff
--- tables whose ownership reproduces the Supabase staging boundary.
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
-  public.admin_staff_accounts,
-  public.admin_staff_sessions,
-  public.admin_staff_mfa,
-  public.admin_staff_backup_codes,
-  public.admin_staff_recovery_requests
-TO sakhi_test_migrator;
-
--- Test-only staff security access mirrors the dedicated backend runtime role.
--- This policy is installed only in the disposable sakhi_test database. The
