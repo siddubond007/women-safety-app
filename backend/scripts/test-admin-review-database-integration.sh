@@ -158,16 +158,18 @@ SQL
 
 # Execute the bootstrap migration under the non-superuser role context.
 psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
-  -v ON_ERROR_STOP=1 \
-  -c "SET ROLE sakhi_test_supabase_postgres" \
-  -f "${MIGRATION_ROOT}/20261117140000_single_use_admin_bootstrap_credential/migration.sql"
+  -v ON_ERROR_STOP=1 <<SQL
+SET ROLE sakhi_test_supabase_postgres;
+\\i ${MIGRATION_ROOT}/20261117140000_single_use_admin_bootstrap_credential/migration.sql
+SQL
 
 # The second migration checks session_user=postgres and current_user is
 # non-superuser, then switches to the account-table owner only for account DDL.
 psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
-  -v ON_ERROR_STOP=1 \
-  -c "SET ROLE sakhi_test_supabase_postgres" \
-  -f "${MIGRATION_ROOT}/20261117150000_staging_mfa_fixture_cleanup_role/migration.sql"
+  -v ON_ERROR_STOP=1 <<SQL
+SET ROLE sakhi_test_supabase_postgres;
+\\i ${MIGRATION_ROOT}/20261117150000_staging_mfa_fixture_cleanup_role/migration.sql
+SQL
 
 # The test migrator owns _prisma_migrations and can safely record only the
 # exact migrations already applied above by the table owner.
