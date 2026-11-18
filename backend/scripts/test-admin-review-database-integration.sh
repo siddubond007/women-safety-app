@@ -85,7 +85,6 @@ psql "postgresql://sakhi_ci_role_renamer:${SUPABASE_RENAMER_PASSWORD}@${PGHOST}:
   -v ON_ERROR_STOP=1 <<'SQL'
 ALTER ROLE postgres RENAME TO supabase_admin;
 ALTER ROLE sakhi_test_supabase_postgres RENAME TO postgres;
-DROP ROLE sakhi_ci_role_renamer;
 
 DO $supabase_role_identity$
 BEGIN
@@ -105,6 +104,13 @@ BEGIN
   END IF;
 END
 $supabase_role_identity$;
+SQL
+
+# The temporary renamer cannot drop its own active session role. Remove it
+# from a separate connection authenticated as the renamed bootstrap admin.
+psql "postgresql://supabase_admin:${SUPABASE_ADMIN_PASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
+  -v ON_ERROR_STOP=1 <<'SQL'
+DROP ROLE sakhi_ci_role_renamer;
 SQL
 
 # All subsequent ordinary PG connections must authenticate as the restricted
