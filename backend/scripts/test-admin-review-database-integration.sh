@@ -158,7 +158,7 @@ SQL
 
 # Emit the exact disposable role-membership rows used by the migration preflight.
 # This is metadata only; it contains no credentials or application data.
-psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \\
+psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v ON_ERROR_STOP=1 <<'SQL'
 SET ROLE sakhi_test_supabase_postgres;
 SELECT granted.rolname AS granted_role,
