@@ -34,6 +34,11 @@ export class StagingTestAdminBootstrapDto {
   @IsEmail()
   @MaxLength(254)
   email!: string;
+
+  @IsString()
+  @MinLength(12)
+  @MaxLength(128)
+  password!: string;
 }
 
 export class StagingTestAccessDecisionDto {

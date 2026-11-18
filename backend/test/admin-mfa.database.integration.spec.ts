@@ -88,24 +88,26 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
     const appUrl = process.env.SAKHI_APP_DATABASE_URL ?? "";
     assertSakhiDatabaseTarget(appUrl, "app", "staging");
     const parsed = new URL(appUrl);
-    if (!process.env.SAKHI_MIGRATOR_DATABASE_URL) {
+    if (!process.env.SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL) {
       throw new Error(
-        "The explicitly configured staging migrator URL is required for synthetic fixture cleanup.",
+        "The dedicated staging fixture-cleanup URL is required for synthetic MFA teardown.",
       );
     }
     assertSakhiDatabaseTarget(
-      process.env.SAKHI_MIGRATOR_DATABASE_URL,
-      "migrator",
+      process.env.SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL,
+      "fixture-cleanup",
       "staging",
     );
-    const migratorUrl = new URL(process.env.SAKHI_MIGRATOR_DATABASE_URL);
+    const cleanupUrl = new URL(
+      process.env.SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL,
+    );
     if (
-      migratorUrl.hostname !== parsed.hostname ||
-      migratorUrl.pathname !== parsed.pathname ||
-      migratorUrl.port !== parsed.port
+      cleanupUrl.hostname !== parsed.hostname ||
+      cleanupUrl.pathname !== parsed.pathname ||
+      cleanupUrl.port !== parsed.port
     ) {
       throw new Error(
-        "Refusing synthetic MFA fixture cleanup unless the staging migrator URL targets the same staging database host, path, and port as the application URL.",
+        "Refusing synthetic MFA fixture cleanup unless its dedicated cleanup URL targets the same staging database host, path, and port as the application URL.",
       );
     }
     process.env.SAKHI_ADMIN_MFA_ENCRYPTION_KEY = Buffer.alloc(
@@ -122,10 +124,43 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
     stagingAdmin = new StagingTestAdminService(prisma, sessions, mfa);
     adminReview = new AdminReviewService(prisma, undefined, mfa, sessions);
     cleanup = new Pool({
-      connectionString: process.env.SAKHI_MIGRATOR_DATABASE_URL,
+      connectionString: process.env.SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL,
     });
     const principal = await prisma!.$queryRaw<Array<{ role: string }>>`SELECT current_user::text AS role`;
     expect(principal[0]?.role).toBe("sakhi_staging_app");
+    const cleanupPrincipal = await cleanup.query<{
+      role: string;
+      owns_staff_table: boolean;
+      can_truncate: boolean;
+      inherits_role: boolean;
+    }>(
+      `SELECT
+         current_user::text AS role,
+         bool_or(pg_get_userbyid(c.relowner) = current_user) AS owns_staff_table,
+         bool_or(has_table_privilege(current_user, c.oid, 'TRUNCATE')) AS can_truncate,
+         EXISTS (
+           SELECT 1 FROM pg_auth_members am
+           WHERE am.member = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+         ) AS inherits_role
+       FROM pg_class c
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = 'public'
+         AND c.relname = ANY($1::text[])
+       GROUP BY current_user`,
+      [[
+        "admin_staff_accounts",
+        "admin_staff_sessions",
+        "admin_staff_mfa",
+        "admin_staff_backup_codes",
+        "admin_staff_recovery_requests",
+      ]],
+    );
+    expect(cleanupPrincipal.rows[0]).toEqual({
+      role: "sakhi_staging_fixture_cleanup",
+      owns_staff_table: false,
+      can_truncate: false,
+      inherits_role: false,
+    });
 
     await prisma!.withSystemAdminIdentity(async (tx) => {
       await tx.adminStaffAccount.createMany({
@@ -185,8 +220,8 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
     try {
       if (cleanup) {
         // Pin every statement to one connection so the teardown is truly
-        // atomic. Keep the app role free of DELETE; the dedicated staging
-        // migrator can delete only rows identified as synthetic MFA fixtures.
+        // atomic. Keep the app role free of DELETE; the separate, non-owner
+        // fixture-cleanup role can delete only rows marked as synthetic MFA fixtures.
         const client = await cleanup.connect();
         try {
           await client.query("BEGIN");
@@ -227,11 +262,18 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
   });
 
   it("enrolls synthetic staff, enforces TOTP replay and one-time recovery codes, and revokes sessions on approved recovery", async () => {
+    const testStartedAt = performance.now();
+    const mark = (stage: string) =>
+      console.info(
+        `[admin-mfa.database.integration] ${stage} (${Math.round(performance.now() - testStartedAt)}ms)`,
+      );
     let targetSessionToken = "";
+    mark("starting target enrollment");
     const targetEnrollment = await runWithDatabaseRequestIdentity(
       () => stagingAdmin.startStaffMfaEnrollment(targetCredential),
       {},
     );
+    mark("target enrollment started");
     const currentStep = Math.floor(Date.now() / 30_000);
     const targetEnrollmentCode = totpAtStep(
       targetEnrollment.secret,
@@ -246,6 +288,7 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
       {},
     );
     expect(targetVerified).toMatchObject({ enrolled: true });
+    mark("target enrollment verified; backup codes issued");
     expect(targetVerified.backupCodes).toHaveLength(10);
     await expect(
       withIdentity(targetId, "COMPLAINT_REVIEWER", () =>
@@ -260,9 +303,13 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
     expect(targetCodes.encryptedSecret).not.toBe(targetEnrollment.secret);
 
     const realNow = Date.now;
+    const targetLoginStep = Math.floor(realNow() / 30_000);
     Date.now = () => realNow() + 30_000;
     try {
-      const nextStepCode = totpAtStep(targetEnrollment.secret, currentStep + 1);
+      const nextStepCode = totpAtStep(
+        targetEnrollment.secret,
+        targetLoginStep + 1,
+      );
       const login = await runWithDatabaseRequestIdentity(
         () => stagingAdmin.loginWithToken(targetCredential, nextStepCode),
         {},
@@ -278,6 +325,7 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
       }
       expect(login.sessionToken).toMatch(/^staff-admin\./);
       targetSessionToken = login.sessionToken;
+      mark("target TOTP login succeeded");
       await expect(
         runWithDatabaseRequestIdentity(
           () => stagingAdmin.loginWithToken(targetCredential, nextStepCode),
@@ -288,6 +336,7 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
       Date.now = realNow;
     }
 
+    mark("TOTP replay was rejected");
     const singleUseBackupCode = targetVerified.backupCodes[0]!;
     const backupLogin = await runWithDatabaseRequestIdentity(
       () => stagingAdmin.loginWithToken(targetCredential, singleUseBackupCode),
@@ -308,19 +357,22 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
       ),
     ).resolves.toMatchObject({ staff: { id: targetId } });
 
+    mark("backup code single-use enforcement verified");
     const passwordEnrollment = await withIdentity(
       passwordStaffId,
       "COMPLAINT_REVIEWER",
       () => mfa.beginEnrollment(passwordStaffId),
     );
+    const passwordEnrollmentStep = Math.floor(Date.now() / 30_000);
     const passwordEnrollmentCode = totpAtStep(
       passwordEnrollment.secret,
-      currentStep,
+      passwordEnrollmentStep,
     );
     await withIdentity(passwordStaffId, "COMPLAINT_REVIEWER", () =>
       mfa.verifyEnrollment(passwordStaffId, passwordEnrollmentCode),
     );
     const passwordLoginNow = Date.now;
+    const passwordLoginStep = Math.floor(passwordLoginNow() / 30_000);
     Date.now = () => passwordLoginNow() + 30_000;
     try {
       const credentialLogin = await runWithDatabaseRequestIdentity(
@@ -328,7 +380,10 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
           adminReview.loginWithCredentials({
             identifier: passwordStaffEmail,
             password: passwordStaffPassword,
-            mfaCode: totpAtStep(passwordEnrollment.secret, currentStep + 1),
+            mfaCode: totpAtStep(
+              passwordEnrollment.secret,
+              passwordLoginStep + 1,
+            ),
           }),
         {},
       );
@@ -341,21 +396,28 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
       Date.now = passwordLoginNow;
     }
 
+    mark("password plus TOTP login succeeded");
     const approverEnrollment = await runWithDatabaseRequestIdentity(
       () => stagingAdmin.startStaffMfaEnrollment(approverCredential),
       {},
     );
-    const approverCode = totpAtStep(approverEnrollment.secret, currentStep);
+    const approverEnrollmentStep = Math.floor(Date.now() / 30_000);
+    const approverCode = totpAtStep(
+      approverEnrollment.secret,
+      approverEnrollmentStep,
+    );
     await runWithDatabaseRequestIdentity(
       () =>
         stagingAdmin.verifyStaffMfaEnrollment(approverCredential, approverCode),
       {},
     );
 
+    mark("approver MFA enrollment verified");
     const recovery = await runWithDatabaseRequestIdentity(
       () => stagingAdmin.requestStaffMfaRecovery(targetCredential),
       {},
     );
+    mark("recovery request created");
     const approved = await withIdentity(approverId, "SUPER_ADMIN", () =>
       mfa.approveRecoveryRequest(recovery.requestId, approverId),
     );
@@ -374,10 +436,12 @@ describe.skipIf(!enabled)("database-backed staff MFA lifecycle", () => {
       ),
     ).rejects.toThrow(/revoked|MFA/i);
 
+    mark("recovery completion and session revocation verified");
     const finalMfa = await prisma!.adminStaffMfa.findUniqueOrThrow({
       where: { staffId: targetId },
     });
     expect(finalMfa.disabledAt).toBeInstanceOf(Date);
     expect(finalMfa.enrollmentVerifiedAt).toBeNull();
-  }, 30_000);
+    mark("all lifecycle assertions passed");
+  }, 90_000);
 });

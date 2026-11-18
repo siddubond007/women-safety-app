@@ -2,6 +2,12 @@ name: Sakhi validation
 
 on:
   workflow_dispatch:
+    inputs:
+      run_staging_mfa:
+        description: "Run the separately approved live staging MFA lifecycle job (leave false for validation only)"
+        required: true
+        type: boolean
+        default: false
   push:
     branches:
       - main
@@ -51,7 +57,7 @@ permissions:
 
 jobs:
   backend:
-    if: github.event_name != 'workflow_dispatch'
+    if: github.event_name != 'workflow_dispatch' || inputs.run_staging_mfa != true
     name: Backend schema, types, unit tests and build
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -81,7 +87,7 @@ jobs:
         run: npm run build
 
   admin-review-postgres17:
-    if: github.event_name != 'workflow_dispatch'
+    if: github.event_name != 'workflow_dispatch' || inputs.run_staging_mfa != true
     name: Admin review integration on isolated PostgreSQL 17
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -123,7 +129,7 @@ jobs:
         run: bash scripts/test-admin-review-database-integration.sh
 
   super-admin:
-    if: github.event_name != 'workflow_dispatch'
+    if: github.event_name != 'workflow_dispatch' || inputs.run_staging_mfa != true
     name: Super Admin type-check, lint and build
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -149,7 +155,7 @@ jobs:
         run: npm run build
 
   flutter:
-    if: github.event_name != 'workflow_dispatch'
+    if: github.event_name != 'workflow_dispatch' || inputs.run_staging_mfa != true
     name: Flutter analysis, tests and staging-connected debug APK
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -192,7 +198,9 @@ jobs:
 
   staging-staff-mfa:
     name: Manual staging staff MFA lifecycle verification
-    if: github.event_name == 'workflow_dispatch'
+    # Staging database credentials must never be exposed to pull-request code.
+    # Run this job only through an explicitly approved workflow_dispatch.
+    if: github.event_name == 'workflow_dispatch' && inputs.run_staging_mfa == true && github.ref == 'refs/heads/fix/staging-super-admin-bootstrap-20261117'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: staging
@@ -206,8 +214,6 @@ jobs:
       SAKHI_ENV: staging
       NODE_ENV: production
       SAKHI_STAGING_MFA_DB_INTEGRATION: "true"
-      SAKHI_APP_DATABASE_URL: ${{ secrets.SAKHI_STAGING_APP_DATABASE_URL }}
-      SAKHI_MIGRATOR_DATABASE_URL: ${{ secrets.SAKHI_STAGING_MIGRATOR_DATABASE_URL }}
     steps:
       - name: Checkout selected branch
         uses: actions/checkout@v4
@@ -218,11 +224,14 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - name: Verify protected staging credentials are configured
+        env:
+          SAKHI_APP_DATABASE_URL: ${{ secrets.SAKHI_STAGING_APP_DATABASE_URL }}
+          SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL: ${{ secrets.SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL }}
         shell: bash
         run: |
           set -euo pipefail
           test -n "$SAKHI_APP_DATABASE_URL" || { echo "::error::Missing staging environment secret SAKHI_STAGING_APP_DATABASE_URL"; exit 1; }
-          test -n "$SAKHI_MIGRATOR_DATABASE_URL" || { echo "::error::Missing staging environment secret SAKHI_STAGING_MIGRATOR_DATABASE_URL"; exit 1; }
+          test -n "$SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL" || { echo "::error::Missing staging environment secret SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL"; exit 1; }
       - name: Provision and verify Supabase staging CA
         run: bash scripts/prepare-staging-db-ca.sh
       - name: Install locked dependencies including test tooling
@@ -232,4 +241,28 @@ jobs:
       - name: Generate Prisma Client
         run: npm run prisma:generate
       - name: Run synthetic staging staff MFA lifecycle
-        run: npx vitest run test/admin-mfa.database.integration.spec.ts --reporter=verbose
+        env:
+          SAKHI_APP_DATABASE_URL: ${{ secrets.SAKHI_STAGING_APP_DATABASE_URL }}
+          SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL: ${{ secrets.SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { spawnSync } from "node:child_process";
+          for (const key of ["SAKHI_APP_DATABASE_URL", "SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL"]) {
+            const raw = process.env[key];
+            if (!raw) throw new Error(`Missing ${key}`);
+            const url = new URL(raw);
+            const configuredCa = (url.searchParams.get("sslrootcert") ?? "").replaceAll("\\", "/");
+            if (!configuredCa.endsWith("/prod-ca-2021.crt") && configuredCa !== "prod-ca-2021.crt") {
+              throw new Error(`${key} must reference the pinned Supabase prod-ca-2021.crt trust anchor.`);
+            }
+            if (url.searchParams.get("sslmode") !== "verify-full") {
+              throw new Error(`${key} must retain sslmode=verify-full.`);
+            }
+            url.searchParams.set("sslrootcert", process.env.SAKHI_DB_CA_FILE ?? "");
+            process.env[key] = url.toString();
+          }
+          const result = spawnSync("npx", ["vitest", "run", "test/admin-mfa.database.integration.spec.ts", "--reporter=verbose"], { stdio: "inherit", env: process.env });
+          if (result.error) throw result.error;
+          process.exit(result.status ?? 1);
+          NODE

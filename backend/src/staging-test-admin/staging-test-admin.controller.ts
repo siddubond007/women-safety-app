@@ -153,6 +153,12 @@ export class StagingTestAdminController {
     };
   }
 
+  @Get("bootstrap/status")
+  bootstrapStatus(@Headers("origin") origin: string | undefined) {
+    this.stagingAdmin.assertAdminOrigin(origin);
+    return this.stagingAdmin.getSuperAdminBootstrapStatus();
+  }
+
   @Post("bootstrap/super-admin")
   @HttpCode(200)
   bootstrapSuperAdmin(
@@ -164,6 +170,7 @@ export class StagingTestAdminController {
       dto.token,
       dto.fullName,
       dto.email,
+      dto.password,
     );
   }
 

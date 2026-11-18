@@ -60,8 +60,12 @@ export class AdminStaffSessionGuard implements CanActivate {
         "Admin authentication is available only on the dedicated staging service or loopback development/test backend.",
       );
     }
+    const isBootstrapStatusRoute =
+      request.method.toUpperCase() === "GET" &&
+      path.endsWith("/staging-test-admin/bootstrap/status");
     const isFirstFactorRoute =
-      request.method.toUpperCase() === "POST" &&
+      isBootstrapStatusRoute ||
+      (request.method.toUpperCase() === "POST" &&
       [
         "/staging-test-admin/session",
         "/admin-review/auth/login",
@@ -70,10 +74,10 @@ export class AdminStaffSessionGuard implements CanActivate {
         "/staging-test-admin/staff-mfa/verify-enrollment",
         "/staging-test-admin/staff-mfa/recovery/request",
         "/staging-test-admin/staff-mfa/recovery/complete",
-      ].some((suffix) => path.endsWith(suffix));
+      ].some((suffix) => path.endsWith(suffix)));
 
-    // Only explicit first-factor/enrollment/bootstrap endpoints are public to
-    // this guard. Every other admin route requires a DB-backed staff session.
+    // Only the non-secret bootstrap availability check and explicit
+    // first-factor/enrollment endpoints are public to this guard.
     if (isFirstFactorRoute) return true;
     if (!token?.startsWith("staff-admin.")) {
       throw new UnauthorizedException(

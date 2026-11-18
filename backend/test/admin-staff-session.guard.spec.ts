@@ -52,6 +52,22 @@ describe("AdminStaffSessionGuard", () => {
     vi.restoreAllMocks();
   });
 
+  it("allows only the non-secret Super Admin bootstrap status check without a session", async () => {
+    process.env.SAKHI_ENV = "staging";
+    process.env.NODE_ENV = "production";
+    process.env.SAKHI_ADMIN_CORS_ORIGIN = "https://sakhi-admin.example.test";
+    const request = {
+      method: "GET",
+      originalUrl: "/api/v1/staging-test-admin/bootstrap/status",
+      path: "/api/v1/staging-test-admin/bootstrap/status",
+      headers: { origin: "https://sakhi-admin.example.test" },
+    };
+    const sessions = { validateSession: vi.fn() };
+    const guard = new AdminStaffSessionGuard(sessions as any);
+    await expect(guard.canActivate(contextFor(request))).resolves.toBe(true);
+    expect(sessions.validateSession).not.toHaveBeenCalled();
+  });
+
   it("validates the persistent cookie session, enforces origin and CSRF, and refreshes current staff role data", async () => {
     process.env.SAKHI_ENV = "staging";
     process.env.NODE_ENV = "production";

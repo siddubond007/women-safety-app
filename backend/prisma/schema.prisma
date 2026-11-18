@@ -1214,3 +1214,16 @@ model MenstrualTrackerPreference {
 
   @@map("menstrual_tracker_preferences")
 }
+
+
+/// One-way, singleton record for the initial Super Admin bootstrap.
+/// The token digest is never stored as plaintext and the consumed marker is immutable.
+model AdminBootstrapCredential {
+  id         String    @id @default("initial-super-admin") @db.VarChar(64)
+  tokenDigest String   @map("token_digest") @db.VarChar(64)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("admin_bootstrap_credentials")
+}
