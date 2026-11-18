@@ -121,6 +121,19 @@ SQL
 # supabase_admin grantor while retaining the disposable bootstrap connection.
 psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v ON_ERROR_STOP=1 <<'SQL'
+-- The bootstrap superuser must explicitly SET ROLE before attributing the
+-- membership grants to supabase_admin. GRANTED BY alone cannot impersonate
+-- another role when current_user is still the bootstrap "postgres" role.
+SET ROLE supabase_admin;
+
+DO $grantor_context$
+BEGIN
+  IF current_user <> 'supabase_admin' OR NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN
+    RAISE EXCEPTION 'Expected the disposable grant operation to execute as superuser supabase_admin';
+  END IF;
+END
+$grantor_context$;
+
 GRANT sakhi_staging_migrator TO sakhi_test_supabase_postgres
   WITH ADMIN OPTION, INHERIT FALSE, SET FALSE
   GRANTED BY supabase_admin;
@@ -165,6 +178,7 @@ BEGIN
   END IF;
 END
 $fixture_cleanup_membership_assertion$;
+RESET ROLE;
 SQL
 
 psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
@@ -284,43 +298,3 @@ DECLARE
   policy_name text;
 BEGIN
   FOREACH table_name IN ARRAY ARRAY[
-    'admin_staff_accounts',
-    'admin_staff_sessions',
-    'admin_staff_mfa',
-    'admin_staff_backup_codes',
-    'admin_staff_recovery_requests'
-  ] LOOP
-    policy_name := table_name || '_runtime_sakhi_test_app';
-    IF NOT EXISTS (
-      SELECT 1 FROM pg_policies
-      WHERE schemaname='public' AND tablename=table_name AND policyname=policy_name
-    ) THEN
-      EXECUTE format(
-        'CREATE POLICY %I ON public.%I FOR ALL TO sakhi_test_app USING (true) WITH CHECK (true)',
-        policy_name, table_name
-      );
-    END IF;
-  END LOOP;
-END
-$test_staff_rls$;
-SQL
-
-export SAKHI_DB_INTEGRATION=true
-export SAKHI_OTP_MODE=disabled
-export SAKHI_ADMIN_STAFF_SESSION_SIGNING_KEY="$(openssl rand -base64 32)"
-export SAKHI_ADMIN_MFA_ENCRYPTION_KEY="$(openssl rand -base64 32)"
-export SAKHI_ADMIN_REVIEW_TOKEN="$(openssl rand -hex 32)"
-export SAKHI_MANUAL_REVIEW_POLICY_APPROVED=true
-export SAKHI_MANUAL_REVIEW_EVIDENCE_PROCEDURE_APPROVED=true
-export SAKHI_MANUAL_REVIEW_CONSENT_VERSION=integration-test-v1
-export SAKHI_MANUAL_REVIEW_CONSENT_TEXT="TEST ONLY: synthetic fixtures; no real identity evidence is collected."
-export SAKHI_MANUAL_REVIEW_DESCRIPTION="TEST ONLY: exercise the manual-review API state machine with synthetic accounts."
-export SAKHI_MANUAL_REVIEW_DATA_HANDLING_DESCRIPTION="TEST ONLY: no real member or identity evidence data is used."
-export SAKHI_MANUAL_REVIEW_RETENTION_DESCRIPTION="TEST ONLY: integration fixtures are deleted by the migrator cleanup step."
-
-npm run test:db-admin-review
-
-# Verify forced RLS metadata for staff-security tables against the same disposable PostgreSQL 17 database.
-NODE_ENV=test npx vitest run test/admin-mfa-role-boundary.database.integration.spec.ts --reporter=verbose
-
-unset SAKHI_APP_DATABASE_URL SAKHI_MIGRATOR_DATABASE_URL SAKHI_ADMIN_REVIEW_TOKEN
