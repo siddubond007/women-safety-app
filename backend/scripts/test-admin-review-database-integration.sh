@@ -115,9 +115,9 @@ ALTER TABLE public.admin_staff_backup_codes OWNER TO sakhi_test_supabase_postgre
 ALTER TABLE public.admin_staff_recovery_requests OWNER TO sakhi_test_supabase_postgres;
 SQL
 
--- Connect as supabase_admin rather than SET ROLE: PostgreSQL records
--- session authorization as the role grantor for these managed memberships.
--- The migration preflight intentionally requires this exact grantor.
+# Connect as supabase_admin rather than SET ROLE: PostgreSQL records
+# session authorization as the role grantor for these managed memberships.
+# The migration preflight intentionally requires this exact grantor.
 psql "postgresql://supabase_admin:${SUPABASE_ADMIN_PASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v ON_ERROR_STOP=1 <<'SQL'
 GRANT sakhi_staging_migrator TO sakhi_test_supabase_postgres
