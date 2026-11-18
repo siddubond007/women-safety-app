@@ -156,6 +156,27 @@ SQL
 # migration. This preserves session_user=postgres while current_user has the
 # same non-superuser ownership and role-switch boundary as live staging.
 
+# Emit the exact disposable role-membership rows used by the migration preflight.
+# This is metadata only; it contains no credentials or application data.
+psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \\
+  -v ON_ERROR_STOP=1 <<'SQL'
+SET ROLE sakhi_test_supabase_postgres;
+SELECT granted.rolname AS granted_role,
+       member.rolname AS member_role,
+       grantor.rolname AS grantor_role,
+       am.admin_option,
+       am.inherit_option,
+       am.set_option
+FROM pg_auth_members am
+JOIN pg_roles granted ON granted.oid = am.roleid
+JOIN pg_roles member ON member.oid = am.member
+JOIN pg_roles grantor ON grantor.oid = am.grantor
+WHERE granted.rolname = 'sakhi_staging_fixture_cleanup'
+   OR member.rolname = 'sakhi_staging_fixture_cleanup'
+ORDER BY granted.rolname, member.rolname, grantor.rolname;
+RESET ROLE;
+SQL
+
 # Execute the bootstrap migration under the non-superuser role context.
 psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v ON_ERROR_STOP=1 <<SQL
