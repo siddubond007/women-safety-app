@@ -1,4 +1,4 @@
-# Initial Super Admin bootstrap — staging operator runbook
+# Initial Super Admin bootstrap â€” staging operator runbook
 
 This process is for the first Super Admin on the dedicated Sakhi staging environment only. It is not a normal staff-login method.
 
@@ -88,11 +88,11 @@ Do not add the plaintext token to Render. Confirm the deployed backend release c
 ## Complete initial setup
 
 1. Open the official Sakhi staging Admin Portal over HTTPS.
-2. Select **First-time staff setup / initial bootstrap**.
-3. Enter the plaintext token locally, then the initial Super Admin name and email.
-4. Complete authenticator enrollment and verify the current six-digit TOTP code.
-5. Save the one-time staff access token and ten backup codes in a password manager.
-6. Complete the initial password setup and sign in using email/username, password, and TOTP.
+2. On the first-time registration screen, enter the plaintext one-time token, Super Admin full name, email, and the password you want to use (minimum 12 characters).
+3. Submit registration. The backend stores only the scrypt password hash; the plaintext password is not returned or displayed.
+4. Enroll an authenticator and verify its current six-digit TOTP code. Privileged sign-in is not available until MFA verification succeeds.
+5. Save the ten single-use recovery codes in a password manager. The one-time bootstrap access token is setup-only; do not treat it as a normal sign-in credential.
+6. Return to the Admin Portal sign-in screen and sign in with the email, the password chosen in step 2, and your authenticator TOTP code.
 7. Verify a second bootstrap attempt is rejected and the database shows one consumed bootstrap record.
 8. Remove the bootstrap enable flag and remove the digest/expiry variables from Render. Keep no reusable bootstrap token configured.
 
