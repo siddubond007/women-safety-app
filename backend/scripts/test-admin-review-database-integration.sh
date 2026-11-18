@@ -113,6 +113,7 @@ ALTER TABLE public.admin_staff_sessions OWNER TO sakhi_test_supabase_postgres;
 ALTER TABLE public.admin_staff_mfa OWNER TO sakhi_test_supabase_postgres;
 ALTER TABLE public.admin_staff_backup_codes OWNER TO sakhi_test_supabase_postgres;
 ALTER TABLE public.admin_staff_recovery_requests OWNER TO sakhi_test_supabase_postgres;
+SQL
 
 -- Connect as supabase_admin rather than SET ROLE: PostgreSQL records
 -- session authorization as the role grantor for these managed memberships.
@@ -124,6 +125,9 @@ GRANT sakhi_staging_migrator TO sakhi_test_supabase_postgres
 GRANT sakhi_staging_fixture_cleanup TO sakhi_test_supabase_postgres
   WITH ADMIN OPTION, INHERIT FALSE, SET FALSE;
 SQL
+
+psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \\
+  -v ON_ERROR_STOP=1 <<'SQL'
 
 -- Match the second membership row observed in Supabase: postgres grants
 -- itself SET/INHERIT access to the migrator using its managed ADMIN option.
