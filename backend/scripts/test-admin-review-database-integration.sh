@@ -126,7 +126,7 @@ GRANT sakhi_staging_fixture_cleanup TO sakhi_test_supabase_postgres
   WITH ADMIN OPTION, INHERIT FALSE, SET FALSE;
 SQL
 
-psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \\
+psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v ON_ERROR_STOP=1 <<'SQL'
 
 -- Match the second membership row observed in Supabase: postgres grants
