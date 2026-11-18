@@ -422,12 +422,23 @@ describe("StagingTestAdminService", () => {
     ).rejects.toThrow(/legacy shared and stateless staging admin sessions are disabled/i);
   });
 
+  it("reports first-Super-Admin registration only while the setup credential is valid and unused", async () => {
+    const { service, prisma } = makeService();
+    await expect(service.getSuperAdminBootstrapStatus()).resolves.toEqual({ available: true });
+    prisma.adminBootstrapCredential.findUnique.mockResolvedValue({ consumedAt: new Date() } as any);
+    await expect(service.getSuperAdminBootstrapStatus()).resolves.toEqual({ available: false });
+    prisma.adminBootstrapCredential.findUnique.mockResolvedValue(null);
+    prisma.adminStaffAccount.findFirst.mockResolvedValue({ id: "existing-super-admin" } as any);
+    await expect(service.getSuperAdminBootstrapStatus()).resolves.toEqual({ available: false });
+  });
+
   it("creates the initial Super Admin and audit event under the same bootstrap RLS identity", async () => {
     const { service, prisma, tx, transactionIdentities } = makeService();
     const result = await service.bootstrapSuperAdmin(
       "full-staging-admin-secret-token-is-over-32-chars",
       "Initial Super Admin",
       "initial.superadmin@example.test",
+      "a-very-strong-super-admin-password",
     );
 
     expect(result).toMatchObject({
@@ -441,7 +452,8 @@ describe("StagingTestAdminService", () => {
     expect(accountCreate.data.id).toEqual(expect.any(String));
     expect(accountCreate.data).toMatchObject({
       role: "SUPER_ADMIN",
-      mustResetPassword: true,
+      mustResetPassword: false,
+      passwordHash: expect.stringMatching(/^scrypt\$16384\$8\$1\$/),
     });
     expect(auditCreate.data).toMatchObject({
       actorType: "ADMIN",
@@ -473,6 +485,7 @@ describe("StagingTestAdminService", () => {
         "full-staging-admin-secret-token-is-over-32-chars",
         "Initial Super Admin",
         "initial.superadmin@example.test",
+        "a-very-strong-super-admin-password",
       ),
     ).rejects.toThrow(/bootstrap has already been completed/i);
     expect(createSpy).toHaveBeenCalledTimes(1);

@@ -335,15 +335,27 @@ export const adminAuthService = {
     }
     this.clearLocalSession();
   },
+  async getSuperAdminBootstrapStatus(): Promise<{ available: boolean }> {
+    const response = await fetch(API_BASE_URL + "/staging-test-admin/bootstrap/status", {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      credentials: "include",
+      cache: "no-store",
+    });
+    const data = (await response.json().catch(() => ({}))) as { available?: boolean };
+    if (!response.ok) throw new Error("Could not check initial Super Admin registration availability.");
+    return { available: data.available === true };
+  },
   async bootstrapSuperAdmin(
     token: string,
     fullName: string,
     email: string,
+    password: string,
   ): Promise<{ created: true; staffCode: string; accessToken: string; mfaEnrollmentRequired: true }> {
     const response = await fetch(`${API_BASE_URL}/staging-test-admin/bootstrap/super-admin`, {
       method: "POST",
       headers: { Accept: "application/json", "Content-Type": "application/json" },
-      body: JSON.stringify({ token, fullName, email }),
+      body: JSON.stringify({ token, fullName, email, password }),
       credentials: "include",
       cache: "no-store",
     });

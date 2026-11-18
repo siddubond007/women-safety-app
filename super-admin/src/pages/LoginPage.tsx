@@ -1,154 +1,142 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { ArrowRight, LockKeyhole, ShieldCheck, Sparkles } from "lucide-react";
 import { BrandMark } from "../components/BrandMark";
 import { StatusPill } from "../components/StatusPill";
 import {
   adminAuthService,
   isStagingTestAdminMode,
-  type AdminAuthResult,
 } from "../services/auth/adminAuthService";
 
 interface LoginPageProps {
-  onAuthenticate: (token: string, mfaCode?: string) => Promise<AdminAuthResult>;
-  onCredentialAuthenticate?: (identifier: string, password: string, mfaCode: string) => Promise<void>;
+  onAuthenticate?: (token: string, mfaCode?: string) => Promise<unknown>;
+  onCredentialAuthenticate?: (
+    identifier: string,
+    password: string,
+    mfaCode: string,
+  ) => Promise<void>;
 }
+type LoginStage = "loading" | "signin" | "signup" | "enroll" | "backup";
 
-type LoginStage = "credentials" | "token" | "bootstrap" | "mfa" | "verify-enrollment" | "backup-codes" | "recovery";
-
-export function LoginPage({ onAuthenticate, onCredentialAuthenticate }: LoginPageProps) {
-  const [token, setToken] = useState("");
+export function LoginPage({ onCredentialAuthenticate }: LoginPageProps) {
+  const [stage, setStage] = useState<LoginStage>("loading");
+  const [bootstrapAvailable, setBootstrapAvailable] = useState(false);
+  const [setupKey, setSetupKey] = useState("");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
-  const [code, setCode] = useState("");
-  const [stage, setStage] = useState<LoginStage>(onCredentialAuthenticate ? "credentials" : "token");
+  const [password, setPassword] = useState("");
+  const [identifier, setIdentifier] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
+  const [setupToken, setSetupToken] = useState("");
   const [enrollmentSecret, setEnrollmentSecret] = useState("");
   const [otpauthUri, setOtpauthUri] = useState("");
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
-  const [recoveryRequestId, setRecoveryRequestId] = useState("");
-  const [recoveryToken, setRecoveryToken] = useState("");
-  const [recoveryMessage, setRecoveryMessage] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [credentialIdentifier, setCredentialIdentifier] = useState("");
-  const [credentialPassword, setCredentialPassword] = useState("");
-  const [credentialMfaCode, setCredentialMfaCode] = useState("");
-  const [tokenAcknowledged, setTokenAcknowledged] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
+  async function refreshBootstrapStatus() {
+    try {
+      const status = await adminAuthService.getSuperAdminBootstrapStatus();
+      setBootstrapAvailable(status.available);
+      setStage(status.available ? "signup" : "signin");
+    } catch {
+      setBootstrapAvailable(false);
+      setStage("signin");
+    }
+  }
+  useEffect(() => {
+    void refreshBootstrapStatus();
+  }, []);
+
+  async function submitSignup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     setIsSubmitting(true);
     try {
-      if (stage === "backup-codes") {
-        setStage("mfa");
-        setCode("");
-        return;
-      }
-
-      if (stage === "recovery") {
-        await adminAuthService.completeMfaRecovery(token.trim(), recoveryToken.trim());
-        setRecoveryToken("");
-        setRecoveryRequestId("");
-        setStage("token");
-        setCode("");
-        setRecoveryMessage("MFA recovery completed. Sign in with your staff token and enroll a new authenticator.");
-        return;
-      }
-
-      if (stage === "bootstrap") {
-        const created = await adminAuthService.bootstrapSuperAdmin(
-          token.trim(),
-          fullName.trim(),
-          email.trim(),
-        );
-        setToken(created.accessToken);
-        setTokenAcknowledged(false);
-        const enrollment = await adminAuthService.startMfaEnrollment(created.accessToken);
-        setEnrollmentSecret(enrollment.secret);
-        setOtpauthUri(enrollment.otpauthUri);
-        setStage("verify-enrollment");
-        return;
-      }
-
-      if (stage === "verify-enrollment") {
-        const result = await adminAuthService.verifyMfaEnrollment(token.trim(), code.trim());
-        setBackupCodes(result.backupCodes);
-        setCode("");
-        setStage("backup-codes");
-        return;
-      }
-
-      const result = await onAuthenticate(
-        token.trim(),
-        stage === "mfa" ? code.trim() : undefined,
+      const created = await adminAuthService.bootstrapSuperAdmin(
+        setupKey.trim(),
+        fullName.trim(),
+        email.trim(),
+        password,
       );
-      if (result.authenticated) {
-        setToken("");
-        setCode("");
-        return;
-      }
-      if (result.bootstrapRequired) {
-        setStage("bootstrap");
-        return;
-      }
-      if (result.mfaEnrollmentRequired) {
-        const enrollment = await adminAuthService.startMfaEnrollment(token.trim());
-        setEnrollmentSecret(enrollment.secret);
-        setOtpauthUri(enrollment.otpauthUri);
-        setStage("verify-enrollment");
-        setCode("");
-        return;
-      }
-      if (result.mfaRequired) {
-        setStage("mfa");
-        setCode("");
-      }
+      setSetupToken(created.accessToken);
+      setSetupKey("");
+      setPassword("");
+      const enrollment = await adminAuthService.startMfaEnrollment(
+        created.accessToken,
+      );
+      setEnrollmentSecret(enrollment.secret);
+      setOtpauthUri(enrollment.otpauthUri);
+      setStage("enroll");
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : "Reviewer authentication failed.";
       setError(
-        /initial super admin bootstrap is permanently closed/i.test(message)
-          ? "That is the one-time bootstrap credential, not your personal staff access token. Bootstrap is closed because a Super Admin already exists. Clear this value and enter the individual staff token issued to your account; your TOTP code is entered in the next step. If you no longer have that staff token, it must be reissued through an authorized Super Admin account-recovery process."
-          : message,
+        cause instanceof Error
+          ? cause.message
+          : "Initial Super Admin registration failed.",
       );
     } finally {
       setIsSubmitting(false);
     }
   }
 
-  async function submitCredentials(event: FormEvent<HTMLFormElement>) {
+  async function verifyEnrollment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
-    if (!onCredentialAuthenticate) return;
     setIsSubmitting(true);
     try {
-      await onCredentialAuthenticate(credentialIdentifier.trim(), credentialPassword, credentialMfaCode.trim());
-      setCredentialPassword("");
-      setCredentialMfaCode("");
+      const result = await adminAuthService.verifyMfaEnrollment(
+        setupToken,
+        mfaCode.trim(),
+      );
+      setBackupCodes(result.backupCodes);
+      setMfaCode("");
+      setStage("backup");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Credential sign-in failed.");
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Authenticator verification failed.",
+      );
     } finally {
       setIsSubmitting(false);
     }
   }
 
-  async function requestRecovery() {
+  async function submitSignin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     setError("");
+    if (!onCredentialAuthenticate) {
+      setError("Email/password sign-in is unavailable in this build.");
+      return;
+    }
     setIsSubmitting(true);
     try {
-      const request = await adminAuthService.requestMfaRecovery(token.trim());
-      setRecoveryRequestId(request.requestId);
-      setStage("recovery");
-      setRecoveryMessage("Your request is awaiting approval by a separate MFA-verified Super Admin. Enter the recovery token only after it is delivered to you through the approved out-of-band channel.");
+      await onCredentialAuthenticate(
+        identifier.trim(),
+        loginPassword,
+        mfaCode.trim(),
+      );
+      setLoginPassword("");
+      setMfaCode("");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "MFA recovery request failed.");
+      setError(cause instanceof Error ? cause.message : "Sign-in failed.");
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  function finishBootstrap() {
+    setSetupToken("");
+    setEnrollmentSecret("");
+    setOtpauthUri("");
+    setBackupCodes([]);
+    setFullName("");
+    setEmail("");
+    setStage("signin");
+    setBootstrapAvailable(false);
   }
 
   const staging = isStagingTestAdminMode;
-  const needsCode = stage === "mfa" || stage === "verify-enrollment";
-
   return (
     <main className="login-page">
       <div className="login-orb login-orb--one" aria-hidden="true" />
@@ -156,238 +144,383 @@ export function LoginPage({ onAuthenticate, onCredentialAuthenticate }: LoginPag
       <header className="login-topbar">
         <BrandMark />
         <StatusPill tone="demo">
-          <span className="status-pill__dot" /> {staging ? "STAGING RBAC PORTAL" : "DEV / TEST RBAC PORTAL"}
+          <span className="status-pill__dot" />{" "}
+          {staging ? "STAGING ADMIN PORTAL" : "DEV / TEST ADMIN PORTAL"}
         </StatusPill>
       </header>
       <div className="login-layout">
         <section className="login-story">
           <div className="login-eyebrow">
-            <span className="login-eyebrow__star"><Sparkles size={14} /></span> THE SAKHI OPERATIONS SPACE
+            <span className="login-eyebrow__star">
+              <Sparkles size={14} />
+            </span>{" "}
+            THE SAKHI OPERATIONS SPACE
           </div>
-          <h1>Care begins with<br /><em>clarity.</em></h1>
+          <h1>
+            Care begins with
+            <br />
+            <em>clarity.</em>
+          </h1>
           <p className="login-story-copy">
-            Role-based administration for Super Admin and the six specialized Normal Admin roles.
+            Secure role-based administration for the Super Admin and six
+            specialized Normal Admin roles.
           </p>
           <div className="login-feature-list">
             <div>
-              <span className="login-feature-icon"><ShieldCheck size={18} /></span>
-              <span><strong>Individual staff identity</strong><small>Shared full-admin bootstrap sessions are disabled. Privileged access requires an individual active staff account.</small></span>
+              <span className="login-feature-icon">
+                <ShieldCheck size={18} />
+              </span>
+              <span>
+                <strong>Individual staff identity</strong>
+                <small>
+                  Every administrator signs in with their own email and
+                  password.
+                </small>
+              </span>
             </div>
             <div>
-              <span className="login-feature-icon"><LockKeyhole size={18} /></span>
-              <span><strong>Mandatory authenticator MFA</strong><small>RFC 6238 TOTP, replay protection, single-use backup codes and independent Super Admin recovery approval.</small></span>
+              <span className="login-feature-icon">
+                <LockKeyhole size={18} />
+              </span>
+              <span>
+                <strong>Mandatory authenticator MFA</strong>
+                <small>
+                  RFC 6238 TOTP, replay protection and single-use backup codes.
+                </small>
+              </span>
             </div>
             <div>
-              <span className="login-feature-icon"><ShieldCheck size={18} /></span>
-              <span><strong>Server-side session control</strong><small>Privileged staff sessions are persisted, rotated and revoked on the server, using a protected HttpOnly cookie.</small></span>
+              <span className="login-feature-icon">
+                <ShieldCheck size={18} />
+              </span>
+              <span>
+                <strong>One-time Super Admin registration</strong>
+                <small>
+                  Initial registration closes permanently after the first
+                  account is created.
+                </small>
+              </span>
             </div>
           </div>
         </section>
-
         <section className="login-card" aria-labelledby="login-title">
-          <div className="login-card-mark"><ShieldCheck size={24} /></div>
-          <div className="login-card-kicker">{staging ? "STAGING ADMIN & STAFF PORTAL" : "LOCAL ADMIN & STAFF PORTAL"}</div>
-          <h2 id="login-title">
-            {stage === "credentials" ? "Staff sign in" : stage === "mfa" ? "Verify your authenticator" :
-              stage === "verify-enrollment" ? "Enroll your authenticator" :
-                stage === "backup-codes" ? "Save your backup codes" :
-                  stage === "bootstrap" ? "Create the initial Super Admin" : "Admin or Reviewer Sign In"}
-          </h2>
-          <p className="login-card-description">
-            {stage === "mfa"
-              ? "Enter the current six-digit code from your authenticator, or one unused backup code."
-              : stage === "verify-enrollment"
-                ? "Add this Sakhi Admin account to an RFC 6238-compatible authenticator, then verify with its current six-digit code."
-                : stage === "backup-codes"
-                  ? "These backup codes are shown once. Store them somewhere private and separate from your authenticator."
-                  : stage === "bootstrap"
-                    ? "The one-time bootstrap credential can create exactly one initial Super Admin account. It cannot create a privileged session."
-                    : stage === "recovery"
-                      ? "Enter the one-time recovery token issued by an independent MFA-verified Super Admin. Your existing staff token is also required."
-                    : stage === "credentials"
-                      ? "Use your assigned admin email or username, password and authenticator code. First-time account setup is a separate protected process."
-                      : staging
-                        ? "Use the individual staff access token only for first-time setup. Existing staff should use the separate email, password and authenticator sign-in."
-                        : "Enter the local development/test reviewer token."}
-          </p>
+          <div className="login-card-mark">
+            <ShieldCheck size={24} />
+          </div>
+          <div className="login-card-kicker">
+            {staging
+              ? "STAGING ADMIN & STAFF PORTAL"
+              : "LOCAL ADMIN & STAFF PORTAL"}
+          </div>
 
-          {stage !== "credentials" && (
-          <form onSubmit={submit}>
-            <label className="member-form-label" htmlFor="reviewer-token">
-              {stage === "bootstrap" ? "One-time bootstrap credential" : "Staff Access Token"} <span>Required</span>
-            </label>
-            <input
-              id="reviewer-token"
-              className="admin-review-token-input"
-              type="password"
-              autoComplete="off"
-              value={token}
-              onChange={(event) => setToken(event.target.value)}
-              minLength={8}
-              required
-              aria-describedby="reviewer-token-help"
-            />
-            <p id="reviewer-token-help" className="admin-review-help">
-              {stage === "bootstrap"
-                ? <>This credential is accepted only to create the first Super Admin account, once.</>
-                : staging
-                  ? <>Use your personal staff credential issued by the Super Admin.</>
-                  : <>Use the configured local development/test reviewer credential.</>}
-            </p>
+          {stage === "loading" && (
+            <h2 id="login-title">Checking secure setup…</h2>
+          )}
 
-            {stage === "bootstrap" && (
-              <>
-                <label className="member-form-label" htmlFor="bootstrap-name">Initial Super Admin full name <span>Required</span></label>
-                <input id="bootstrap-name" className="admin-review-token-input" value={fullName} onChange={(event) => setFullName(event.target.value)} minLength={3} maxLength={120} required />
-                <label className="member-form-label" htmlFor="bootstrap-email">Initial Super Admin email <span>Required</span></label>
-                <input id="bootstrap-email" className="admin-review-token-input" type="email" value={email} onChange={(event) => setEmail(event.target.value)} maxLength={254} required />
-              </>
-            )}
-
-            {stage === "recovery" && (
-              <>
-                <label className="member-form-label" htmlFor="mfa-recovery-token">
-                  Approved one-time recovery token <span>Required</span>
+          {stage === "signup" && (
+            <>
+              <h2 id="login-title">Create the first Super Admin</h2>
+              <p className="login-card-description">
+                This one-time registration creates the initial Super Admin
+                account. Set your password now, then enroll and verify your
+                authenticator before the account can sign in.
+              </p>
+              <form onSubmit={submitSignup}>
+                <label className="member-form-label" htmlFor="setup-key">
+                  One-time Super Admin setup key <span>Required</span>
                 </label>
                 <input
-                  id="mfa-recovery-token"
+                  id="setup-key"
                   className="admin-review-token-input"
                   type="password"
                   autoComplete="off"
-                  value={recoveryToken}
-                  onChange={(event) => setRecoveryToken(event.target.value)}
-                  minLength={32}
+                  value={setupKey}
+                  onChange={(e) => setSetupKey(e.target.value)}
+                  minLength={8}
                   required
                 />
-              </>
-            )}
-
-            {stage === "verify-enrollment" && (
-              <div className="admin-review-help" role="group" aria-label="Authenticator setup">
-                <p><strong>Your individual staff access token — save this now</strong></p>
-                <code style={{ overflowWrap: "anywhere", userSelect: "all" }}>{token}</code>
-                <p>This token is shown only during initial setup. Store it in your password manager. It is different from your six-digit authenticator code.</p>
-                <label style={{ display: "flex", alignItems: "flex-start", gap: 8, margin: "12px 0" }}>
-                  <input type="checkbox" checked={tokenAcknowledged} onChange={(event) => setTokenAcknowledged(event.target.checked)} />
-                  <span>I have securely saved my individual staff access token.</span>
-                </label>
-                <p><strong>Manual setup secret</strong></p>
-                <code>{enrollmentSecret}</code>
-                <p>Authenticator setup URI:</p>
-                <code style={{ overflowWrap: "anywhere" }}>{otpauthUri}</code>
-              </div>
-            )}
-
-            {stage === "backup-codes" && (
-              <div className="admin-review-help" role="group" aria-label="Single-use backup codes">
-                <strong>Save all ten backup codes now</strong>
-                <ul>
-                  {backupCodes.map((backupCode) => <li key={backupCode}><code>{backupCode}</code></li>)}
-                </ul>
-              </div>
-            )}
-
-            {needsCode && (
-              <>
-                <label className="member-form-label" htmlFor="mfa-code">
-                  {stage === "verify-enrollment" ? "Authenticator verification code" : "Authenticator or backup code"}
-                  <span>Required</span>
+                <p className="admin-review-help">
+                  This is a one-time registration authorization, not a staff
+                  login or access token.
+                </p>
+                <label className="member-form-label" htmlFor="superadmin-name">
+                  Full name <span>Required</span>
                 </label>
                 <input
-                  id="mfa-code"
+                  id="superadmin-name"
                   className="admin-review-token-input"
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  value={code}
-                  onChange={(event) => setCode(event.target.value)}
-                  minLength={6}
-                  maxLength={128}
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  minLength={3}
+                  maxLength={120}
+                  autoComplete="name"
                   required
                 />
-              </>
-            )}
-
-            {error && <p className="admin-review-error" role="alert">{error}</p>}
-            {recoveryMessage && <p className="admin-review-help" role="status">{recoveryMessage}</p>}
-            {recoveryRequestId && (
-              <p className="admin-review-help" role="status">
-                Recovery request created: <code>{recoveryRequestId}</code>. An independent MFA-verified Super Admin must approve it.
-              </p>
-            )}
-
-            <button
-              className="button button--primary login-submit"
-              type="submit"
-              disabled={
-                isSubmitting ||
-                token.trim().length < 8 ||
-                (needsCode && code.trim().length < 6) ||
-                (stage === "verify-enrollment" && !tokenAcknowledged) ||
-                (stage === "recovery" && recoveryToken.trim().length < 32) ||
-                (stage === "bootstrap" && (fullName.trim().length < 3 || !email.includes("@")))
-              }
-            >
-              {isSubmitting
-                ? "Verifying..."
-                : stage === "backup-codes"
-                  ? "I saved my backup codes"
-                  : stage === "verify-enrollment"
-                    ? "Verify and enable MFA"
-                    : stage === "mfa"
-                      ? "Verify and sign in"
-                      : stage === "bootstrap"
-                        ? "Create Super Admin and enroll MFA"
-                        : stage === "recovery"
-                          ? "Complete MFA recovery"
-                          : "Continue"}
-              <ArrowRight size={17} />
-            </button>
-          </form>
-          )}
-          {onCredentialAuthenticate && stage === "credentials" && (
-            <form onSubmit={submitCredentials} className="login-credential-form">
-              <label className="member-form-label" htmlFor="admin-identifier">Admin email or username <span>Required</span></label>
-              <input id="admin-identifier" className="admin-review-token-input" value={credentialIdentifier} onChange={(event) => setCredentialIdentifier(event.target.value)} autoComplete="username" required />
-              <label className="member-form-label" htmlFor="admin-password">Password <span>Required</span></label>
-              <input id="admin-password" className="admin-review-token-input" type="password" value={credentialPassword} onChange={(event) => setCredentialPassword(event.target.value)} autoComplete="current-password" required />
-              <label className="member-form-label" htmlFor="admin-mfa-code">Authenticator / backup code <span>Required</span></label>
-              <input id="admin-mfa-code" className="admin-review-token-input" value={credentialMfaCode} onChange={(event) => setCredentialMfaCode(event.target.value)} autoComplete="one-time-code" required />
-              {error && <p className="admin-review-error" role="alert">{error}</p>}
-              <button className="button button--primary login-submit" type="submit" disabled={isSubmitting || !credentialIdentifier.trim() || !credentialPassword || !credentialMfaCode.trim()}>
-                {isSubmitting ? "Verifying credentials..." : "Sign in"} <ArrowRight size={16} />
+                <label className="member-form-label" htmlFor="superadmin-email">
+                  Admin email <span>Required</span>
+                </label>
+                <input
+                  id="superadmin-email"
+                  className="admin-review-token-input"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  maxLength={254}
+                  autoComplete="email"
+                  required
+                />
+                <label
+                  className="member-form-label"
+                  htmlFor="superadmin-password"
+                >
+                  Create password <span>Required</span>
+                </label>
+                <input
+                  id="superadmin-password"
+                  className="admin-review-token-input"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  minLength={12}
+                  maxLength={128}
+                  autoComplete="new-password"
+                  required
+                />
+                <p className="admin-review-help">
+                  Use at least 12 characters. Your password is securely hashed
+                  and stored; it is never displayed again.
+                </p>
+                {error && (
+                  <p className="admin-review-error" role="alert">
+                    {error}
+                  </p>
+                )}
+                <button
+                  className="button button--primary login-submit"
+                  type="submit"
+                  disabled={
+                    isSubmitting ||
+                    setupKey.trim().length < 8 ||
+                    fullName.trim().length < 3 ||
+                    !email.includes("@") ||
+                    password.length < 12
+                  }
+                >
+                  {isSubmitting
+                    ? "Creating secure account…"
+                    : "Register Super Admin"}{" "}
+                  <ArrowRight size={17} />
+                </button>
+              </form>
+              <button
+                className="button login-submit"
+                type="button"
+                disabled={isSubmitting}
+                onClick={() => {
+                  setError("");
+                  setStage("signin");
+                }}
+              >
+                Already registered? Sign in
               </button>
-            </form>
+            </>
           )}
-          {onCredentialAuthenticate && stage === "credentials" && (
-            <button className="button login-submit" type="button" disabled={isSubmitting} onClick={() => { setError(""); setStage("token"); }}>
-              First-time staff setup / initial bootstrap <ArrowRight size={16} />
-            </button>
+
+          {stage === "enroll" && (
+            <>
+              <h2 id="login-title">Set up your authenticator</h2>
+              <p className="login-card-description">
+                Add this account to an RFC 6238-compatible authenticator app.
+                Then enter its current six-digit code to enable MFA.
+              </p>
+              <div
+                className="admin-review-help"
+                role="group"
+                aria-label="Authenticator setup"
+              >
+                <p>
+                  <strong>Manual setup secret</strong>
+                </p>
+                <code style={{ overflowWrap: "anywhere", userSelect: "all" }}>
+                  {enrollmentSecret}
+                </code>
+                <p>
+                  <strong>Authenticator setup URI</strong>
+                </p>
+                <code style={{ overflowWrap: "anywhere", userSelect: "all" }}>
+                  {otpauthUri}
+                </code>
+              </div>
+              <form onSubmit={verifyEnrollment}>
+                <label className="member-form-label" htmlFor="enrollment-code">
+                  Six-digit authenticator code <span>Required</span>
+                </label>
+                <input
+                  id="enrollment-code"
+                  className="admin-review-token-input"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  value={mfaCode}
+                  onChange={(e) => setMfaCode(e.target.value)}
+                  minLength={6}
+                  maxLength={6}
+                  required
+                />
+                {error && (
+                  <p className="admin-review-error" role="alert">
+                    {error}
+                  </p>
+                )}
+                <button
+                  className="button button--primary login-submit"
+                  type="submit"
+                  disabled={isSubmitting || mfaCode.trim().length !== 6}
+                >
+                  {isSubmitting ? "Verifying…" : "Verify and enable MFA"}{" "}
+                  <ArrowRight size={17} />
+                </button>
+              </form>
+            </>
           )}
-          {onCredentialAuthenticate && stage !== "credentials" && (
-            <button className="button login-submit" type="button" disabled={isSubmitting} onClick={() => { setError(""); setStage("credentials"); }}>
-              Back to staff sign in <ArrowRight size={16} />
-            </button>
+
+          {stage === "backup" && (
+            <>
+              <h2 id="login-title">Save your recovery codes</h2>
+              <p className="login-card-description">
+                Your authenticator is verified. Save these single-use recovery
+                codes in a secure password manager. They will not be shown
+                again.
+              </p>
+              <div
+                className="admin-review-help"
+                role="group"
+                aria-label="Single-use recovery codes"
+              >
+                <strong>Super Admin backup codes</strong>
+                <ul>
+                  {backupCodes.map((code) => (
+                    <li key={code}>
+                      <code>{code}</code>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <button
+                className="button button--primary login-submit"
+                type="button"
+                onClick={finishBootstrap}
+              >
+                I saved my recovery codes <ArrowRight size={17} />
+              </button>
+            </>
           )}
-          {stage === "mfa" && (
-            <button className="button login-submit" type="button" disabled={isSubmitting} onClick={requestRecovery}>
-              Request supervised MFA recovery
-            </button>
+
+          {stage === "signin" && (
+            <>
+              <h2 id="login-title">Admin sign in</h2>
+              <p className="login-card-description">
+                Sign in with your assigned admin email, password and
+                authenticator code.
+              </p>
+              <form onSubmit={submitSignin} className="login-credential-form">
+                <label className="member-form-label" htmlFor="admin-identifier">
+                  Admin email <span>Required</span>
+                </label>
+                <input
+                  id="admin-identifier"
+                  className="admin-review-token-input"
+                  type="email"
+                  value={identifier}
+                  onChange={(e) => setIdentifier(e.target.value)}
+                  autoComplete="username"
+                  required
+                />
+                <label className="member-form-label" htmlFor="admin-password">
+                  Password <span>Required</span>
+                </label>
+                <input
+                  id="admin-password"
+                  className="admin-review-token-input"
+                  type="password"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  autoComplete="current-password"
+                  required
+                />
+                <label className="member-form-label" htmlFor="admin-mfa-code">
+                  Authenticator / backup code <span>Required</span>
+                </label>
+                <input
+                  id="admin-mfa-code"
+                  className="admin-review-token-input"
+                  value={mfaCode}
+                  onChange={(e) => setMfaCode(e.target.value)}
+                  autoComplete="one-time-code"
+                  required
+                />
+                {error && (
+                  <p className="admin-review-error" role="alert">
+                    {error}
+                  </p>
+                )}
+                <button
+                  className="button button--primary login-submit"
+                  type="submit"
+                  disabled={
+                    isSubmitting ||
+                    !identifier.trim() ||
+                    !loginPassword ||
+                    !mfaCode.trim()
+                  }
+                >
+                  {isSubmitting ? "Verifying credentials…" : "Sign in"}{" "}
+                  <ArrowRight size={17} />
+                </button>
+              </form>
+              {bootstrapAvailable && (
+                <button
+                  className="button login-submit"
+                  type="button"
+                  onClick={() => {
+                    setError("");
+                    setStage("signup");
+                  }}
+                >
+                  First-time Super Admin registration <ArrowRight size={17} />
+                </button>
+              )}
+              <button
+                className="button login-submit"
+                type="button"
+                onClick={() => void refreshBootstrapStatus()}
+              >
+                Refresh registration status
+              </button>
+            </>
           )}
 
           <div className="demo-notice">
-            <span className="demo-notice-icon"><LockKeyhole size={17} /></span>
+            <span className="demo-notice-icon">
+              <LockKeyhole size={17} />
+            </span>
             <div>
               <strong>Role-Based Access Control (RBAC)</strong>
-              <p>Access is enforced by the backend for each staff role. Frontend route visibility is not an authorization boundary.</p>
+              <p>
+                Backend authorization is enforced for every staff role. Frontend
+                route visibility is not an authorization boundary.
+              </p>
             </div>
           </div>
-          <div className="login-card-footer">Sakhi Administration <span>-</span> Secure Staff Authentication</div>
+          <div className="login-card-footer">
+            Sakhi Administration <span>-</span> Secure Staff Authentication
+          </div>
         </section>
       </div>
       <footer className="login-footer">
         <span>SAKHI - PRIVATE ADMINISTRATION UI</span>
-        <span><LockKeyhole size={13} /> {staging ? "Staging RBAC" : "Dev/test RBAC"}</span>
+        <span>
+          <LockKeyhole size={13} /> {staging ? "Staging RBAC" : "Dev/test RBAC"}
+        </span>
       </footer>
     </main>
   );

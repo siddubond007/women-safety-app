@@ -10,6 +10,7 @@ import {
   createHash,
   randomBytes,
   randomUUID,
+  scryptSync,
   timingSafeEqual,
 } from "node:crypto";
 import { PrismaService } from "../database/prisma.service.js";
@@ -339,10 +340,28 @@ export class StagingTestAdminService {
     );
   }
 
+  async getSuperAdminBootstrapStatus() {
+    assertAdminAuthEnvironment();
+    const config = getFullAdminBootstrapConfig();
+    if (!config) return { available: false as const };
+    const [existingSuperAdmin, consumedBootstrap] = await Promise.all([
+      this.prisma.adminStaffAccount.findFirst({
+        where: { role: "SUPER_ADMIN", status: { not: "REVOKED" } },
+        select: { id: true },
+      }),
+      this.prisma.adminBootstrapCredential.findUnique({
+        where: { id: BOOTSTRAP_CREDENTIAL_ID },
+        select: { consumedAt: true },
+      }),
+    ]);
+    return { available: !existingSuperAdmin && !consumedBootstrap } as const;
+  }
+
   async bootstrapSuperAdmin(
     bootstrapToken: string | undefined,
     fullName: string,
     email: string,
+    password: string,
   ) {
     const credential = this.assertMasterCredential(bootstrapToken);
     if (credential.scope !== "full-admin") {
@@ -351,6 +370,16 @@ export class StagingTestAdminService {
       );
     }
 
+    if (typeof password !== "string" || password.trim().length < 12 || password.length > 128) {
+      throw new ConflictException("The initial Super Admin password must be between 12 and 128 characters.");
+    }
+    const passwordSalt = randomBytes(16).toString("hex");
+    const passwordDerived = scryptSync(password, passwordSalt, 64, {
+      N: 16384,
+      r: 8,
+      p: 1,
+    }).toString("hex");
+    const initialPasswordHash = "scrypt$16384$8$1$" + passwordSalt + "$" + passwordDerived;
     const bootstrapStaffId = randomUUID();
     let created: Awaited<ReturnType<typeof SakhiAdminRbacRegistry.createStaffAccount>>;
     try {
@@ -404,7 +433,8 @@ export class StagingTestAdminService {
                   fullName,
                   email,
                   role: "SUPER_ADMIN",
-                  mustResetPassword: true,
+                  mustResetPassword: false,
+                  initialPasswordHash,
                 },
                 "One-time protected Super Admin bootstrap",
                 bootstrapStaffId,
