@@ -115,15 +115,56 @@ ALTER TABLE public.admin_staff_backup_codes OWNER TO sakhi_test_supabase_postgre
 ALTER TABLE public.admin_staff_recovery_requests OWNER TO sakhi_test_supabase_postgres;
 SQL
 
-# Connect as supabase_admin rather than SET ROLE: PostgreSQL records
-# session authorization as the role grantor for these managed memberships.
-# The migration preflight intentionally requires this exact grantor.
-psql "postgresql://supabase_admin:${SUPABASE_ADMIN_PASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
+# PostgreSQL records role grants issued by any superuser as granted by
+# the cluster bootstrap superuser, regardless of the connected superuser.
+# Use the PostgreSQL 17 GRANTED BY clause to reproduce Supabase's explicit
+# supabase_admin grantor while retaining the disposable bootstrap connection.
+psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v ON_ERROR_STOP=1 <<'SQL'
 GRANT sakhi_staging_migrator TO sakhi_test_supabase_postgres
-  WITH ADMIN OPTION, INHERIT FALSE, SET FALSE;
+  WITH ADMIN OPTION, INHERIT FALSE, SET FALSE
+  GRANTED BY supabase_admin;
 GRANT sakhi_staging_fixture_cleanup TO sakhi_test_supabase_postgres
-  WITH ADMIN OPTION, INHERIT FALSE, SET FALSE;
+  WITH ADMIN OPTION, INHERIT FALSE, SET FALSE
+  GRANTED BY supabase_admin;
+
+DO $fixture_cleanup_membership_assertion$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_auth_members am
+    JOIN pg_roles granted ON granted.oid = am.roleid
+    JOIN pg_roles member ON member.oid = am.member
+    JOIN pg_roles grantor ON grantor.oid = am.grantor
+    WHERE granted.rolname = 'sakhi_staging_fixture_cleanup'
+      AND member.rolname = 'sakhi_test_supabase_postgres'
+      AND grantor.rolname = 'supabase_admin'
+      AND am.admin_option IS TRUE
+      AND am.inherit_option IS FALSE
+      AND am.set_option IS FALSE
+  ) THEN
+    RAISE EXCEPTION 'CI fixture-cleanup membership was not recorded with the required supabase_admin grantor and restricted options';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM pg_auth_members am
+    WHERE am.member = (SELECT oid FROM pg_roles WHERE rolname = 'sakhi_staging_fixture_cleanup')
+       OR (
+         am.roleid = (SELECT oid FROM pg_roles WHERE rolname = 'sakhi_staging_fixture_cleanup')
+         AND NOT (
+           am.member = (SELECT oid FROM pg_roles WHERE rolname = 'sakhi_test_supabase_postgres')
+           AND am.grantor = (SELECT oid FROM pg_roles WHERE rolname = 'supabase_admin')
+           AND am.admin_option IS TRUE
+           AND am.inherit_option IS FALSE
+           AND am.set_option IS FALSE
+         )
+       )
+  ) THEN
+    RAISE EXCEPTION 'CI fixture-cleanup role has an additional or unsupported membership';
+  END IF;
+END
+$fixture_cleanup_membership_assertion$;
 SQL
 
 psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
