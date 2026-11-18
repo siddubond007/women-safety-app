@@ -2,6 +2,12 @@ name: Sakhi validation
 
 on:
   workflow_dispatch:
+    inputs:
+      run_staging_mfa:
+        description: "Run the separately approved live staging MFA lifecycle job (leave false for validation only)"
+        required: true
+        type: boolean
+        default: false
   push:
     branches:
       - main
@@ -51,7 +57,7 @@ permissions:
 
 jobs:
   backend:
-    if: github.event_name != 'workflow_dispatch'
+    if: github.event_name != 'workflow_dispatch' || inputs.run_staging_mfa != true
     name: Backend schema, types, unit tests and build
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -81,7 +87,7 @@ jobs:
         run: npm run build
 
   admin-review-postgres17:
-    if: github.event_name != 'workflow_dispatch'
+    if: github.event_name != 'workflow_dispatch' || inputs.run_staging_mfa != true
     name: Admin review integration on isolated PostgreSQL 17
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -123,7 +129,7 @@ jobs:
         run: bash scripts/test-admin-review-database-integration.sh
 
   super-admin:
-    if: github.event_name != 'workflow_dispatch'
+    if: github.event_name != 'workflow_dispatch' || inputs.run_staging_mfa != true
     name: Super Admin type-check, lint and build
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -149,7 +155,7 @@ jobs:
         run: npm run build
 
   flutter:
-    if: github.event_name != 'workflow_dispatch'
+    if: github.event_name != 'workflow_dispatch' || inputs.run_staging_mfa != true
     name: Flutter analysis, tests and staging-connected debug APK
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -194,7 +200,7 @@ jobs:
     name: Manual staging staff MFA lifecycle verification
     # Staging database credentials must never be exposed to pull-request code.
     # Run this job only through an explicitly approved workflow_dispatch.
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/fix/staging-super-admin-bootstrap-20261117'
+    if: github.event_name == 'workflow_dispatch' && inputs.run_staging_mfa == true && github.ref == 'refs/heads/fix/staging-super-admin-bootstrap-20261117'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: staging
