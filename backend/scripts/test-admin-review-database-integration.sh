@@ -23,6 +23,7 @@ STAGING_ROLE_PASSWORD="$(openssl rand -hex 32)"
 STAGING_MIGRATOR_PASSWORD="$(openssl rand -hex 32)"
 STAGING_FIXTURE_CLEANUP_PASSWORD="$(openssl rand -hex 32)"
 SUPABASE_POSTGRES_PASSWORD="$(openssl rand -hex 32)"
+SUPABASE_RENAMER_PASSWORD="$(openssl rand -hex 32)"
 
 # The migrator is privileged only inside this disposable CI database. The app
 # role remains NOBYPASSRLS and never owns protected member-data tables.
@@ -33,7 +34,8 @@ psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v staging_role_password="$STAGING_ROLE_PASSWORD" \
   -v staging_migrator_password="$STAGING_MIGRATOR_PASSWORD" \
   -v staging_fixture_cleanup_password="$STAGING_FIXTURE_CLEANUP_PASSWORD" \
-  -v supabase_postgres_password="$SUPABASE_POSTGRES_PASSWORD" <<'SQL'
+  -v supabase_postgres_password="$SUPABASE_POSTGRES_PASSWORD" \
+  -v supabase_renamer_password="$SUPABASE_RENAMER_PASSWORD" <<'SQL'
 SELECT format(
   'CREATE ROLE sakhi_test_app LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS',
   :'app_password'
@@ -59,8 +61,12 @@ SELECT format(
   'CREATE ROLE sakhi_test_supabase_postgres LOGIN PASSWORD %L NOSUPERUSER CREATEDB CREATEROLE BYPASSRLS',
   :'supabase_postgres_password'
 ) \gexec
+SELECT format(
+  'CREATE ROLE sakhi_ci_role_renamer LOGIN SUPERUSER PASSWORD %L',
+  :'supabase_renamer_password'
+) \gexec
 
-GRANT CONNECT ON DATABASE sakhi_test TO sakhi_test_app, sakhi_test_migrator, sakhi_staging_migrator, sakhi_staging_fixture_cleanup, sakhi_test_supabase_postgres;
+GRANT CONNECT ON DATABASE sakhi_test TO sakhi_test_app, sakhi_test_migrator, sakhi_staging_migrator, sakhi_staging_fixture_cleanup, sakhi_test_supabase_postgres, sakhi_ci_role_renamer;
 GRANT CREATE ON DATABASE sakhi_test TO sakhi_test_migrator;
 GRANT USAGE ON SCHEMA public TO sakhi_test_app, sakhi_staging_fixture_cleanup;
 GRANT USAGE, CREATE ON SCHEMA public TO sakhi_test_migrator, sakhi_staging_migrator, sakhi_test_supabase_postgres;
@@ -71,10 +77,15 @@ SQL
 # bootstrap superuser OID. Rename that actual role to supabase_admin, then
 # rename the prepared restricted stand-in to postgres for migration execution.
 SUPABASE_ADMIN_PASSWORD="$PGPASSWORD"
-psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
+# A separate temporary superuser must perform the rename: PostgreSQL forbids
+# the active session user from renaming itself, even when it is a superuser.
+# The original bootstrap role's OID is retained, so its later membership
+# grants are attributed to supabase_admin after the rename.
+psql "postgresql://sakhi_ci_role_renamer:${SUPABASE_RENAMER_PASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v ON_ERROR_STOP=1 <<'SQL'
 ALTER ROLE postgres RENAME TO supabase_admin;
 ALTER ROLE sakhi_test_supabase_postgres RENAME TO postgres;
+DROP ROLE sakhi_ci_role_renamer;
 
 DO $supabase_role_identity$
 BEGIN
