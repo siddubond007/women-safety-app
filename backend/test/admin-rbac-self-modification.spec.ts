@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AdminReviewService } from "../src/admin-review/admin-review.service.js";
-import { SakhiAdminRbacRegistry } from "../src/admin-review/admin-rbac.helper.js";
+import {
+  ADMIN_ROLE_DEFINITIONS,
+  SakhiAdminRbacRegistry,
+} from "../src/admin-review/admin-rbac.helper.js";
 
 const STAFF_ID = "2d5fce37-6aab-4cb4-8a6c-6a2d07f87e91";
 
@@ -92,7 +95,7 @@ describe("Super Admin self-modification boundary", () => {
       isAuthorisedComplaintReviewer: false,
       clearanceLevel: null,
       permissions: {
-        ...SakhiAdminRbacRegistry.getRoleDefaults("VERIFICATION_ADMIN"),
+        ...ADMIN_ROLE_DEFINITIONS.VERIFICATION_ADMIN.defaultPermissions,
       },
       createdBy: "test",
       lastLoginAt: null,
