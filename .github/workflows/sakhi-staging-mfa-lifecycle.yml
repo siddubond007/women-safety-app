@@ -85,7 +85,7 @@ jobs:
           NODE
 
       - name: Install backend dependencies
-        run: npm ci
+        run: npm ci --include=dev
 
       - name: Generate Prisma client
         run: npm run prisma:generate
