@@ -255,19 +255,19 @@ async function state(postgres) {
     `SELECT
        to_regclass('public.admin_staff_mfa') IS NOT NULL AS mfa_table_exists,
        EXISTS (
-         SELECT 1 FROM information_schema.columns
-         WHERE table_schema='public' AND table_name='admin_staff_mfa'
-           AND column_name='enrollment_verified_at'
+         SELECT 1 FROM pg_attribute
+         WHERE attrelid='public.admin_staff_mfa'::regclass
+           AND attname='enrollment_verified_at' AND attnum > 0 AND NOT attisdropped
        ) AS has_enrollment_verified_at,
        EXISTS (
-         SELECT 1 FROM information_schema.columns
-         WHERE table_schema='public' AND table_name='admin_staff_mfa'
-           AND column_name='disabled_at'
+         SELECT 1 FROM pg_attribute
+         WHERE attrelid='public.admin_staff_mfa'::regclass
+           AND attname='disabled_at' AND attnum > 0 AND NOT attisdropped
        ) AS has_disabled_at,
        EXISTS (
-         SELECT 1 FROM information_schema.columns
-         WHERE table_schema='public' AND table_name='admin_staff_accounts'
-           AND column_name='mfa_enabled'
+         SELECT 1 FROM pg_attribute
+         WHERE attrelid='public.admin_staff_accounts'::regclass
+           AND attname='mfa_enabled' AND attnum > 0 AND NOT attisdropped
        ) AS legacy_flag_present`,
   );
   const legacyMfa = legacyMfaResult.rows[0];
