@@ -34,10 +34,11 @@ The Supabase-managed `supabase_admin` role still has its own default ACL entries
 
 ## Staging database application and verification
 
-The three Stage 4 migrations were applied atomically to the active `sakhi-friend-testing` staging project using the reviewed owner split:
+The three Stage 4A/4B DDL migrations were applied atomically to the active `sakhi-friend-testing` staging project using the reviewed owner split. The pending predecessor `20261118130000_remove_legacy_admin_mfa_flag` was also audited: its target legacy column is already absent, and the authoritative `admin_staff_mfa.enrollment_verified_at` and `disabled_at` columns are present. Its intended postcondition is therefore already satisfied; the four-migration target will record this no-op cleanup migration together with the three Stage 4 migrations.
 
 - 40 protected tables owned by `sakhi_staging_migrator`
 - 10 protected tables owned by `postgres`
+- `20261118130000_remove_legacy_admin_mfa_flag` (postcondition already satisfied; legacy flag column absent)
 - `20261119140000_admin_staff_role_constraints`
 - `20261119150000_secure_admin_bootstrap_function_search_path`
 - `20261119160000_revoke_data_api_roles_from_member_data`
@@ -57,7 +58,7 @@ The migration SQL was first dry-run in one transaction and rolled back; the comm
 
 ### Prisma migration history reconciliation
 
-The DDL is committed in staging. At the time of this update, the Prisma `_prisma_migrations` table still has 38 previously applied migrations and does not yet record the three Stage 4 migrations. A dedicated, postcondition-gated GitHub Actions job is configured to reconcile only those exact three migration records. It does not execute DDL; it first verifies the live database postconditions, then runs `prisma migrate resolve --applied` with the dedicated migrator connection. It triggers only on a commit whose message contains `[STAGE4_LEDGER_RESOLVE]`.
+The DDL is committed in staging. At the time of this update, the Prisma `_prisma_migrations` table still has 38 previously applied migrations and does not yet record the four-migration Stage 4 target. The first reconciliation preflight correctly stopped because `20261118130000_remove_legacy_admin_mfa_flag` was an additional pending predecessor. The exact reviewed target and its tests have now been expanded to include that migration. A dedicated, postcondition-gated GitHub Actions job is configured to reconcile only those exact four migration records. It does not execute DDL; it first verifies the live database postconditions, then runs `prisma migrate resolve --applied` with the dedicated migrator connection. It triggers only on a commit whose message contains `[STAGE4_LEDGER_RESOLVE]`.
 
 ## CI and release status
 
