@@ -87,7 +87,7 @@ describe("Reviewed staging migration contract", () => {
     expect(stage4Runner).toContain('EXPECTED_TARGET="20261119140000_admin_staff_role_constraints,20261119150000_secure_admin_bootstrap_function_search_path,20261119160000_revoke_data_api_roles_from_member_data"');
     expect(stage4Runner).toContain('APPROVAL_PHRASE="YES_APPLY_20261119_STAGE4_RBAC_RLS"');
     expect(stage4Runner).toContain('SAKHI_STAGING_POSTGRES_DATABASE_URL');
-    expect(stage4Runner).toContain('SAKHI_STAGING_SUPABASE_CA_CERT');
+    expect(stage4Executor).toContain('prod-ca-2021.crt');
     expect(stage4Runner).toContain("node scripts/staging-preflight.cjs migrations");
     expect(stage4Runner).toContain("node scripts/staging-stage4-migration.cjs");
     expect(stage4Runner).not.toContain("npm run db:migrate:deploy");
