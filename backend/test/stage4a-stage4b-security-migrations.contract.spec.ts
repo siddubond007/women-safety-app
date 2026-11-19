@@ -27,6 +27,10 @@ const stage4MigrationRunner = readFileSync(
   new URL("../scripts/staging-stage4-migration.cjs", import.meta.url),
   "utf8",
 );
+const stage4LedgerResolver = readFileSync(
+  new URL("../scripts/staging-stage4-ledger-resolve.cjs", import.meta.url),
+  "utf8",
+);
 const reviewedMigrationRouter = readFileSync(
   new URL("../scripts/staging-migrate-reviewed.sh", import.meta.url),
   "utf8",
@@ -100,6 +104,12 @@ describe("Stage 4B database isolation hardening", () => {
       { encoding: "utf8" },
     );
     expect(nodeCheck.status, nodeCheck.stderr).toBe(0);
+    const ledgerCheck = spawnSync(
+      process.execPath,
+      ["--check", fileURLToPath(new URL("../scripts/staging-stage4-ledger-resolve.cjs", import.meta.url))],
+      { encoding: "utf8" },
+    );
+    expect(ledgerCheck.status, ledgerCheck.stderr).toBe(0);
 
     if (process.platform !== "win32") {
       for (const script of [
@@ -124,11 +134,14 @@ describe("Stage 4B database isolation hardening", () => {
     expect(stage4MigrationRunner).toContain("roleAndConnectionPreflight");
     expect(stage4MigrationRunner).toContain("verifyOwners");
     expect(stage4MigrationRunner).toContain('"prisma", "migrate", "resolve"');
+    expect(stage4LedgerResolver).toContain("Stage 4 database postconditions are not all satisfied");
+    expect(stage4LedgerResolver).toContain('"prisma", "migrate", "resolve"');
     expect(reviewedMigrationRouter).toContain("never run through generic Prisma migrate deploy");
     expect(reviewedMigrationRouter).toContain("staging-apply-stage4-reviewed.sh");
     expect(prismaConfig).toContain("stage4MigrationResolveApproved");
     expect(prismaConfig).toContain("!stage3b2MigrationApproved");
     expect(stage4Workflow).toContain("workflow_dispatch");
+    expect(stage4Workflow).toContain("[STAGE4_LEDGER_RESOLVE]");
     expect(stage4Workflow).toContain("environment: staging");
     expect(stage4Workflow).toContain("SAKHI_STAGING_POSTGRES_DATABASE_URL");
     expect(stage4Workflow).toContain("YES_APPLY_20261119_STAGE4_RBAC_RLS");
