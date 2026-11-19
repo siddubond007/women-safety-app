@@ -3,6 +3,10 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+const legacyMfaMigration = readFileSync(
+  new URL("../prisma/migrations/20261118130000_remove_legacy_admin_mfa_flag/migration.sql", import.meta.url),
+  "utf8",
+);
 const roleMigration = readFileSync(
   new URL("../prisma/migrations/20261119140000_admin_staff_role_constraints/migration.sql", import.meta.url),
   "utf8",
@@ -45,6 +49,15 @@ const stage4Workflow = readFileSync(
 );
 
 describe("Stage 4A admin-role database constraints", () => {
+  it("preflights authoritative per-staff MFA columns through pg_catalog without broadening grants", () => {
+    expect(legacyMfaMigration).toContain("public.admin_staff_mfa'::regclass");
+    expect(legacyMfaMigration).toContain("FROM pg_attribute");
+    expect(legacyMfaMigration).toContain("enrollment_verified_at");
+    expect(legacyMfaMigration).toContain("disabled_at");
+    expect(legacyMfaMigration).not.toContain("information_schema.columns");
+    expect(legacyMfaMigration).toContain("DROP COLUMN IF EXISTS mfa_enabled");
+  });
+
   it("requires explicit staff role and status rather than privilege-bearing defaults", () => {
     const model = schema.match(/model AdminStaffAccount\s*\{([\s\S]*?)^\}/m)?.[1] ?? "";
     expect(model).toMatch(/^\s*role\s+String\s+@db\.VarChar\(40\)/m);
