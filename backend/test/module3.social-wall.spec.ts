@@ -99,11 +99,13 @@ describe("Module 3 Social Wall, Google Drive Hierarchy & Reactions", () => {
 });
 
 it("persists media-only posts and attaches the member-owned media ID with metadata", async () => {
+  const accountId = "11111111-2222-4333-8444-555555555555";
+  const sessionId = "22222222-3333-4444-8555-666666666666";
   const uploadId = "a1111111-2222-4333-8444-555555555555";
   const createdAt = new Date("2026-10-20T09:00:00.000Z");
   const savedPost = {
     id: "b2222222-3333-4444-8555-666666666666",
-    authorAccountId: "member-1",
+    authorAccountId: accountId,
     authorName: "Test Member",
     authorUsername: "@test_member",
     authorAvatar: "assets/images/profile/avatar_siddhu.webp",
@@ -130,33 +132,35 @@ it("persists media-only posts and attaches the member-owned media ID with metada
     deletedAt: null,
   };
   const tx = {
-    mediaAsset: {
-      findMany: vi.fn().mockResolvedValue([{ id: uploadId }]),
-      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
-    },
-    communityPost: {
-      create: vi.fn().mockResolvedValue(savedPost),
-    },
-    auditEvent: {
-      create: vi.fn().mockResolvedValue({ id: "audit-1" }),
-    },
-  };
-  const auth = {
-    authenticateAuthorization: vi.fn().mockResolvedValue({
-      accountId: "member-1",
-      account: { status: "ACTIVE", verificationStatus: "VERIFIED" },
-    }),
-  };
-  const prisma = {
     memberProfile: {
       findUnique: vi.fn().mockResolvedValue({
         displayName: "Test Member",
         username: "@test_member",
         avatarAsset: "assets/images/profile/avatar_siddhu.webp",
+        isVerified: true,
       }),
     },
-    $transaction: vi.fn(async (work: (client: typeof tx) => Promise<unknown>) =>
-      work(tx),
+    mediaAsset: {
+      findMany: vi.fn().mockResolvedValue([{ id: uploadId }]),
+      findUnique: vi.fn().mockResolvedValue({ contentType: "image/jpeg" }),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
+    communityPost: {
+      findUnique: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockResolvedValue(savedPost),
+    },
+    auditEvent: { create: vi.fn().mockResolvedValue({ id: "audit-1" }) },
+  };
+  const auth = {
+    authenticateAuthorization: vi.fn().mockResolvedValue({
+      id: sessionId,
+      accountId,
+      account: { status: "ACTIVE", verificationStatus: "VERIFIED" },
+    }),
+  };
+  const prisma = {
+    withMemberIdentity: vi.fn(
+      async (_identity: unknown, work: (client: typeof tx) => Promise<unknown>) => work(tx),
     ),
   };
   const service = new Module2Service(
@@ -195,7 +199,7 @@ it("persists media-only posts and attaches the member-owned media ID with metada
     expect.objectContaining({
       where: expect.objectContaining({
         id: { in: [uploadId] },
-        ownerAccountId: "member-1",
+        ownerAccountId: accountId,
         postId: null,
         status: "UPLOADED",
       }),
@@ -209,35 +213,36 @@ it("persists media-only posts and attaches the member-owned media ID with metada
 });
 
 it("rejects an upload ID that is not an unattached media asset owned by the caller", async () => {
+  const accountId = "11111111-2222-4333-8444-555555555555";
+  const sessionId = "22222222-3333-4444-8555-666666666666";
   const uploadId = "a1111111-2222-4333-8444-555555555555";
   const tx = {
-    mediaAsset: {
-      findMany: vi.fn().mockResolvedValue([]),
-      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
-    },
-    communityPost: {
-      create: vi.fn(),
-    },
-    auditEvent: {
-      create: vi.fn(),
-    },
-  };
-  const auth = {
-    authenticateAuthorization: vi.fn().mockResolvedValue({
-      accountId: "member-1",
-      account: { status: "ACTIVE", verificationStatus: "VERIFIED" },
-    }),
-  };
-  const prisma = {
     memberProfile: {
       findUnique: vi.fn().mockResolvedValue({
         displayName: "Test Member",
         username: "@test_member",
         avatarAsset: "assets/images/profile/avatar_siddhu.webp",
+        isVerified: true,
       }),
     },
-    $transaction: vi.fn(async (work: (client: typeof tx) => Promise<unknown>) =>
-      work(tx),
+    mediaAsset: {
+      findMany: vi.fn().mockResolvedValue([]),
+      findUnique: vi.fn().mockResolvedValue(null),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
+    communityPost: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn() },
+    auditEvent: { create: vi.fn() },
+  };
+  const auth = {
+    authenticateAuthorization: vi.fn().mockResolvedValue({
+      id: sessionId,
+      accountId,
+      account: { status: "ACTIVE", verificationStatus: "VERIFIED" },
+    }),
+  };
+  const prisma = {
+    withMemberIdentity: vi.fn(
+      async (_identity: unknown, work: (client: typeof tx) => Promise<unknown>) => work(tx),
     ),
   };
   const service = new Module2Service(
@@ -255,32 +260,22 @@ it("rejects an upload ID that is not an unattached media asset owned by the call
 });
 
 it("denies an unrelated verified member access to private media before downloading it", async () => {
+  const viewerId = "33333333-4444-4555-8666-777777777777";
+  const ownerId = "44444444-5555-4666-8777-888888888888";
+  const sessionId = "22222222-3333-4444-8555-666666666666";
   const uploadId = "a1111111-2222-4333-8444-555555555555";
   const auth = {
     authenticateAuthorization: vi.fn().mockResolvedValue({
-      accountId: "viewer-2",
+      id: sessionId,
+      accountId: viewerId,
       account: { status: "ACTIVE", verificationStatus: "VERIFIED" },
     }),
   };
-  const prisma = {
-    auditEvent: {
-      findFirst: vi.fn().mockResolvedValue({
-        id: "audit-media-1",
-        actorId: "owner-1",
-        targetId: uploadId,
-        action: "module2.media.uploaded",
-        redactedMetadata: {
-          driveFileId: "private-drive-file",
-          provider: "google_drive",
-          contentType: "image/png",
-        },
-        createdAt: new Date("2026-10-20T09:00:00.000Z"),
-      }),
-    },
+  const tx = {
     mediaAsset: {
       findUnique: vi.fn().mockResolvedValue({
         id: uploadId,
-        ownerAccountId: "owner-1",
+        ownerAccountId: ownerId,
         postId: null,
         purpose: "PROFILE_PHOTO",
         status: "ATTACHED",
@@ -289,11 +284,21 @@ it("denies an unrelated verified member access to private media before downloadi
         driveFileId: "private-drive-file",
         contentType: "image/png",
         storageProvider: "GOOGLE_DRIVE",
+        sha256Checksum: "a".repeat(64),
+        byteSize: 3,
       }),
     },
     directMessage: { findFirst: vi.fn().mockResolvedValue(null) },
+    communityPost: { findUnique: vi.fn().mockResolvedValue(null) },
+    communityDirectoryProfile: { findUnique: vi.fn().mockResolvedValue(null) },
+    memberFollow: { findUnique: vi.fn().mockResolvedValue(null) },
   };
-  const drive = { downloadFile: vi.fn() };
+  const prisma = {
+    withMemberIdentity: vi.fn(
+      async (_identity: unknown, work: (client: typeof tx) => Promise<unknown>) => work(tx),
+    ),
+  };
+  const drive = { downloadMemberMediaFile: vi.fn() };
   const service = new Module2Service(
     auth as unknown as AuthenticationService,
     prisma as unknown as PrismaService,
@@ -303,44 +308,36 @@ it("denies an unrelated verified member access to private media before downloadi
   await expect(
     service.resolveMediaObject("Bearer viewer-token", uploadId),
   ).rejects.toBeInstanceOf(ForbiddenException);
-  expect(drive.downloadFile).not.toHaveBeenCalled();
+  expect(drive.downloadMemberMediaFile).not.toHaveBeenCalled();
 });
 
 it("restricts a direct-message attachment to its two participants and requires request acceptance", async () => {
+  const senderId = "55555555-6666-4777-8888-999999999999";
+  const recipientId = "66666666-7777-4888-8999-aaaaaaaaaaaa";
+  const strangerId = "77777777-8888-4999-8aaa-bbbbbbbbbbbb";
+  const sessionId = "22222222-3333-4444-8555-666666666666";
   const uploadId = "a2222222-2222-4333-8444-555555555555";
-  let viewerId = "recipient-1";
+  let viewerId = recipientId;
   const auth = {
     authenticateAuthorization: vi.fn().mockImplementation(async () => ({
+      id: sessionId,
       accountId: viewerId,
       account: { status: "ACTIVE", verificationStatus: "VERIFIED" },
     })),
   };
-  const auditEvent = {
-    id: "audit-dm-media",
-    actorId: "sender-1",
-    targetId: uploadId,
-    action: "module2.media.uploaded",
-    redactedMetadata: {
-      driveFileId: "private-dm-drive-file",
-      provider: "google_drive",
-      contentType: "image/jpeg",
-    },
-    createdAt: new Date("2026-10-20T09:00:00.000Z"),
-  };
   const directMessage = {
-    senderAccountId: "sender-1",
-    recipientAccountId: "recipient-1",
+    senderAccountId: senderId,
+    recipientAccountId: recipientId,
     requestStatus: "ACCEPTED",
   };
-  const prisma = {
-    auditEvent: { findFirst: vi.fn().mockResolvedValue(auditEvent) },
+  const tx = {
     mediaAsset: {
       findUnique: vi.fn().mockResolvedValue({
         id: uploadId,
-        ownerAccountId: "sender-1",
+        ownerAccountId: senderId,
         postId: null,
         purpose: "DIRECT_MESSAGE_IMAGE",
-        status: "UPLOADED",
+        status: "ATTACHED",
         visibility: "PRIVATE_SELF",
         deletedAt: null,
         driveFileId: "private-dm-drive-file",
@@ -351,6 +348,14 @@ it("restricts a direct-message attachment to its two participants and requires r
       }),
     },
     directMessage: { findFirst: vi.fn().mockResolvedValue(directMessage) },
+    communityPost: { findUnique: vi.fn().mockResolvedValue(null) },
+    communityDirectoryProfile: { findUnique: vi.fn().mockResolvedValue(null) },
+    memberFollow: { findUnique: vi.fn().mockResolvedValue(null) },
+  };
+  const prisma = {
+    withMemberIdentity: vi.fn(
+      async (_identity: unknown, work: (client: typeof tx) => Promise<unknown>) => work(tx),
+    ),
   };
   const drive = {
     downloadMemberMediaFile: vi.fn().mockResolvedValue({
@@ -367,14 +372,14 @@ it("restricts a direct-message attachment to its two participants and requires r
   const allowed = await service.resolveMediaObject("Bearer recipient-token", uploadId);
   expect(allowed.buffer).toEqual(Buffer.from([0xff, 0xd8, 0xff]));
 
-  viewerId = "stranger-1";
+  viewerId = strangerId;
   await expect(
     service.resolveMediaObject("Bearer stranger-token", uploadId),
-  ).rejects.toBeInstanceOf(ForbiddenException);
+  ).rejects.toBeInstanceOf(NotFoundException);
   expect(drive.downloadMemberMediaFile).toHaveBeenCalledOnce();
 
-  viewerId = "recipient-1";
-  (prisma.directMessage.findFirst as any).mockResolvedValueOnce({
+  viewerId = recipientId;
+  tx.directMessage.findFirst.mockResolvedValueOnce({
     ...directMessage,
     requestStatus: "PENDING_REQUEST",
   });
@@ -383,28 +388,42 @@ it("restricts a direct-message attachment to its two participants and requires r
   ).rejects.toBeInstanceOf(ForbiddenException);
 });
 
-
 it("stores direct-message uploads as private until attached to a conversation", async () => {
+  const senderId = "55555555-6666-4777-8888-999999999999";
+  const sessionId = "22222222-3333-4444-8555-666666666666";
+  const imageBytes = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
   const auth = {
     authenticateAuthorization: vi.fn().mockResolvedValue({
-      accountId: "sender-1",
+      id: sessionId,
+      accountId: senderId,
       account: { status: "ACTIVE", verificationStatus: "VERIFIED" },
     }),
   };
   const auditCreate = vi.fn().mockResolvedValue({ id: "audit-dm-upload" });
   const mediaAssetCreate = vi.fn().mockResolvedValue({ id: "dm-upload-1" });
+  const tx = {
+    auditEvent: { create: auditCreate },
+    mediaAsset: {
+      findUnique: vi.fn().mockResolvedValue(null),
+      create: mediaAssetCreate,
+    },
+  };
   const drive = {
     uploadImage: vi.fn().mockResolvedValue({
       driveFileId: "private-dm-file",
       driveFolderId: "dm-folder",
       driveFolderPath: "Sakhi Media/private/direct-message",
       storedName: "private-photo.jpg",
-      size: 4,
+      size: imageBytes.length,
+      sha256Checksum: createHash("sha256").update(imageBytes).digest("hex"),
+      reusedExisting: false,
     }),
+    deleteMemberMediaFile: vi.fn().mockResolvedValue(undefined),
   };
   const prisma = {
-    auditEvent: { create: auditCreate },
-    mediaAsset: { create: mediaAssetCreate },
+    withMemberIdentity: vi.fn(
+      async (_identity: unknown, work: (client: typeof tx) => Promise<unknown>) => work(tx),
+    ),
   };
   const service = new Module2Service(
     auth as unknown as AuthenticationService,
@@ -417,8 +436,8 @@ it("stores direct-message uploads as private until attached to a conversation", 
     {
       originalname: "private-photo.jpg",
       mimetype: "image/jpeg",
-      buffer: Buffer.from([0xff, 0xd8, 0xff, 0xd9]),
-      size: 4,
+      buffer: imageBytes,
+      size: imageBytes.length,
     },
     { purpose: "direct_message", categorySlug: "direct-message" },
   );
@@ -430,7 +449,7 @@ it("stores direct-message uploads as private until attached to a conversation", 
         status: "UPLOADED",
         visibility: "PRIVATE_SELF",
         categorySlug: null,
-        ownerAccountId: "sender-1",
+        ownerAccountId: senderId,
       }),
     }),
   );
@@ -438,7 +457,8 @@ it("stores direct-message uploads as private until attached to a conversation", 
     expect.objectContaining({
       purpose: "post",
       categorySlug: "direct-message",
-      accountId: "sender-1",
+      accountId: senderId,
     }),
   );
 });
+
