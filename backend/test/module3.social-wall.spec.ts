@@ -399,10 +399,10 @@ it("stores direct-message uploads as private until attached to a conversation", 
       account: { status: "ACTIVE", verificationStatus: "VERIFIED" },
     }),
   };
-  const auditCreate = vi.fn().mockResolvedValue({ id: "audit-dm-upload" });
+  const auditCreateMany = vi.fn().mockResolvedValue({ count: 1 });
   const mediaAssetCreate = vi.fn().mockResolvedValue({ id: "dm-upload-1" });
   const tx = {
-    auditEvent: { create: auditCreate },
+    auditEvent: { createMany: auditCreateMany },
     mediaAsset: {
       findUnique: vi.fn().mockResolvedValue(null),
       create: mediaAssetCreate,
