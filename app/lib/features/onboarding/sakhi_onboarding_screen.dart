@@ -288,7 +288,7 @@ class _SakhiOnboardingPage extends StatelessWidget {
                 Center(
                   child: SakhiBrandLogo(
                     width: shortScreen ? 126 : 142,
-                    height: shortScreen ? 103 : 116,
+                    height: shortScreen ? 91 : 116,
                   ),
                 ),
                 Spacer(flex: shortScreen ? 2 : 4),
