@@ -163,11 +163,56 @@ trap - EXIT
 # session_user=current_user=postgres and no superuser privilege, as in staging.
 psql "postgresql://supabase_admin:${SUPABASE_ADMIN_PASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v ON_ERROR_STOP=1 <<'SQL'
+ALTER TABLE public.member_accounts OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.auth_sessions OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.otp_challenges OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.account_deletion_requests OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.member_profiles OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.member_consents OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.member_communication_preferences OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.eligibility_submissions OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.community_posts OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.community_post_likes OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.community_post_saves OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.community_post_comments OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.community_groups OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.member_follows OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.member_privacy_preferences OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.member_notification_preferences OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.member_notifications OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.safety_emergency_contacts OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.safety_sos_events OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.safety_location_shares OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.member_moderation_blocks OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.member_user_reports OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.direct_messages OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.media_assets OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.community_post_reactions OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.business_directory_listings OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.business_enquiries OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.business_reports OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.menstrual_cycle_logs OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.menstrual_daily_logs OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.menstrual_tracker_preferences OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.community_directory_profiles OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.eligibility_consents OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.eligibility_support_requests OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.eligibility_verification_sessions OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.audit_events OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.moderation_decisions OWNER TO sakhi_staging_migrator;
 ALTER TABLE public.admin_staff_accounts OWNER TO sakhi_staging_migrator;
-ALTER TABLE public.admin_staff_sessions OWNER TO postgres;
-ALTER TABLE public.admin_staff_mfa OWNER TO postgres;
+ALTER TABLE public.discreet_complaints OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.eligibility_provider_callback_events OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.admin_auth_sessions OWNER TO postgres;
+ALTER TABLE public.admin_bootstrap_credentials OWNER TO postgres;
 ALTER TABLE public.admin_staff_backup_codes OWNER TO postgres;
+ALTER TABLE public.admin_staff_mfa OWNER TO postgres;
 ALTER TABLE public.admin_staff_recovery_requests OWNER TO postgres;
+ALTER TABLE public.admin_staff_sessions OWNER TO postgres;
+ALTER TABLE public.community_circle_memberships OWNER TO postgres;
+ALTER TABLE public.community_circle_posts OWNER TO postgres;
+ALTER TABLE public.member_push_tokens OWNER TO postgres;
+ALTER TABLE public.member_wellness_preferences OWNER TO postgres;
 SQL
 
 # The login role supabase_admin is the renamed cluster bootstrap superuser.
