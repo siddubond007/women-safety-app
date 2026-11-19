@@ -46,7 +46,7 @@ fi
 # Stage 4 requires the restricted postgres role for the bootstrap trigger and
 # owner-aware revocations. It must never run through generic Prisma migrate deploy.
 if [[ "${SAKHI_MIGRATION_TARGET}" == "$STAGE4_MIGRATIONS" ]]; then
-  ./scripts/staging-apply-stage4-reviewed.sh
+  bash ./scripts/staging-apply-stage4-reviewed.sh
   exit 0
 fi
 
