@@ -1743,8 +1743,8 @@ export class Module2Service {
           );
         }
       }
-      await tx.auditEvent.create({
-        data: {
+      await tx.auditEvent.createMany({
+        data: [{
           actorType: "MEMBER",
           actorId: session.accountId,
           action: "module2.community_post.created",
@@ -1758,7 +1758,7 @@ export class Module2Service {
             mediaCount: mediaUploadIds.length,
             hashtagsCount: hashtags.length,
           },
-        },
+        }],
       });
       return savedPost;
     });
@@ -4944,8 +4944,8 @@ export class Module2Service {
     const uploadedAt = new Date().toISOString();
     try {
       await this.prisma.withMemberIdentity(identity, async (tx) => {
-        await tx.auditEvent.create({
-          data: {
+        await tx.auditEvent.createMany({
+          data: [{
             actorType: "MEMBER", actorId: session.accountId, action: "module2.media.uploaded",
             targetType: "media_upload", targetId: uploadId, outcome: "stored", requestId: uploadId,
             redactedMetadata: {
@@ -4954,7 +4954,7 @@ export class Module2Service {
               objectKey: `google-drive/${stored.driveFileId}`, publicUrl,
               sizeBytes: stored.size, uploadedAt,
             },
-          },
+          }],
         });
         await tx.mediaAsset.create({
           data: {

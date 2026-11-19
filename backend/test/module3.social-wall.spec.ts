@@ -149,7 +149,7 @@ it("persists media-only posts and attaches the member-owned media ID with metada
       findUnique: vi.fn().mockResolvedValue(null),
       create: vi.fn().mockResolvedValue(savedPost),
     },
-    auditEvent: { create: vi.fn().mockResolvedValue({ id: "audit-1" }) },
+    auditEvent: { createMany: vi.fn().mockResolvedValue({ count: 1 }) },
   };
   const auth = {
     authenticateAuthorization: vi.fn().mockResolvedValue({
@@ -231,7 +231,7 @@ it("rejects an upload ID that is not an unattached media asset owned by the call
       updateMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
     communityPost: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn() },
-    auditEvent: { create: vi.fn() },
+    auditEvent: { createMany: vi.fn() },
   };
   const auth = {
     authenticateAuthorization: vi.fn().mockResolvedValue({

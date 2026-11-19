@@ -300,18 +300,27 @@ describe.skipIf(!enabled)("Stage 5 PostgreSQL member-data RLS contract", () => {
     await prisma.$connect();
     try {
       await expect(prisma.auditEvent.create({ data: eventData })).rejects.toThrow();
-      await prisma.withMemberIdentity(
-        createAuthenticatedMemberIdentity({ accountId: accountA, sessionId: sessionA }),
-        async (tx) => {
-          const identityContext = await tx.$queryRaw<
-            Array<{ role: string; account_id: string }>
-          >`SELECT current_user::text AS role,
-                   current_setting('app.account_id', true)::text AS account_id`;
-          expect(identityContext[0]?.role).toBe("sakhi_test_app");
-          expect(identityContext[0]?.account_id).toBe(accountA);
-          return tx.auditEvent.create({ data: eventData });
-        },
-      );
+      const identity = createAuthenticatedMemberIdentity({
+        accountId: accountA,
+        sessionId: sessionA,
+      });
+      // Prisma create() uses INSERT ... RETURNING. Because members cannot read
+      // audit rows, that response path is intentionally rejected by RLS.
+      await expect(
+        prisma.withMemberIdentity(identity, (tx) =>
+          tx.auditEvent.create({ data: eventData }),
+        ),
+      ).rejects.toThrow();
+      const inserted = await prisma.withMemberIdentity(identity, async (tx) => {
+        const identityContext = await tx.$queryRaw<
+          Array<{ role: string; account_id: string }>
+        >`SELECT current_user::text AS role,
+                 current_setting('app.account_id', true)::text AS account_id`;
+        expect(identityContext[0]?.role).toBe("sakhi_test_app");
+        expect(identityContext[0]?.account_id).toBe(accountA);
+        return tx.auditEvent.createMany({ data: [eventData] });
+      });
+      expect(inserted.count).toBe(1);
       const adminRead = await admin.query(
         "select id from public.audit_events where request_id=$1",
         [requestId],

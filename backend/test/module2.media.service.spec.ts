@@ -63,7 +63,7 @@ describe("Module 2 community media authorization and persistence", () => {
 
   beforeEach(() => {
     tx = {
-      auditEvent: { create: vi.fn().mockResolvedValue({}), findFirst: vi.fn() },
+      auditEvent: { createMany: vi.fn().mockResolvedValue({ count: 1 }), findFirst: vi.fn() },
       mediaAsset: {
         findUnique: vi.fn().mockResolvedValue(null),
         findMany: vi.fn().mockResolvedValue([]),
@@ -121,7 +121,7 @@ describe("Module 2 community media authorization and persistence", () => {
     );
     expect(result.uploadId).toBe(uploadId);
     expect(prisma.withMemberIdentity).toHaveBeenCalledTimes(2);
-    expect(tx.auditEvent.create).toHaveBeenCalledTimes(1);
+    expect(tx.auditEvent.createMany).toHaveBeenCalledTimes(1);
     expect(tx.mediaAsset.create).toHaveBeenCalledTimes(1);
     expect(drive.uploadImage).toHaveBeenCalledWith(expect.objectContaining({ uploadId, accountId }));
     expect(drive.deleteMemberMediaFile).not.toHaveBeenCalled();
@@ -138,7 +138,7 @@ describe("Module 2 community media authorization and persistence", () => {
     );
     expect(result.uploadId).toBe(uploadId);
     expect(drive.uploadImage).not.toHaveBeenCalled();
-    expect(tx.auditEvent.create).not.toHaveBeenCalled();
+    expect(tx.auditEvent.createMany).not.toHaveBeenCalled();
     expect(tx.mediaAsset.create).not.toHaveBeenCalled();
   });
 
@@ -190,7 +190,7 @@ describe("Module 2 community media authorization and persistence", () => {
 
     expect(result.id).toBe(postId);
     expect(tx.communityPost.create).not.toHaveBeenCalled();
-    expect(tx.auditEvent.create).not.toHaveBeenCalled();
+    expect(tx.auditEvent.createMany).not.toHaveBeenCalled();
   });
 
   it("resolves published media from media_assets without attempting an audit_events read", async () => {
