@@ -66,6 +66,12 @@ SELECT format(
   :'supabase_renamer_password'
 ) \gexec
 
+-- Reproduce Supabase Data API roles so the Stage 4B migration proves that
+-- even a BYPASSRLS service_role has no direct table/column privileges.
+CREATE ROLE anon NOLOGIN NOSUPERUSER NOBYPASSRLS;
+CREATE ROLE authenticated NOLOGIN NOSUPERUSER NOBYPASSRLS;
+CREATE ROLE service_role NOLOGIN NOSUPERUSER BYPASSRLS;
+
 GRANT CONNECT ON DATABASE sakhi_test TO sakhi_test_app, sakhi_test_migrator, sakhi_staging_migrator, sakhi_staging_fixture_cleanup, sakhi_test_supabase_postgres;
 GRANT CREATE ON DATABASE sakhi_test TO sakhi_test_migrator;
 GRANT USAGE ON SCHEMA public TO sakhi_test_app, sakhi_staging_fixture_cleanup;
@@ -386,7 +392,13 @@ export SAKHI_MANUAL_REVIEW_RETENTION_DESCRIPTION="TEST ONLY: integration fixture
 
 npm run test:db-admin-review
 
+# Exercise the already-applied Stage 3D/Stage 5 account-isolation policies and
+# forced-RLS table inventory against two separate non-production DB roles.
+export SAKHI_STAGE5_RLS_ADMIN_TEST_URL="postgresql://sakhi_test_migrator:${MIGRATOR_PASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}?schema=public"
+export SAKHI_STAGE5_RLS_APP_TEST_URL="postgresql://sakhi_test_app:${APP_PASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}?schema=public"
+NODE_ENV=test npx vitest run test/integration/stage5-member-rls.integration.spec.ts --reporter=verbose
+
 # Verify forced RLS metadata for staff-security tables against the same disposable PostgreSQL 17 database.
 NODE_ENV=test npx vitest run test/admin-mfa-role-boundary.database.integration.spec.ts --reporter=verbose
 
-unset SAKHI_APP_DATABASE_URL SAKHI_MIGRATOR_DATABASE_URL SAKHI_ADMIN_REVIEW_TOKEN
+unset SAKHI_APP_DATABASE_URL SAKHI_MIGRATOR_DATABASE_URL SAKHI_ADMIN_REVIEW_TOKEN SAKHI_STAGE5_RLS_ADMIN_TEST_URL SAKHI_STAGE5_RLS_APP_TEST_URL
