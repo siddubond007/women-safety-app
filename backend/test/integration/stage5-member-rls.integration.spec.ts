@@ -302,7 +302,15 @@ describe.skipIf(!enabled)("Stage 5 PostgreSQL member-data RLS contract", () => {
       await expect(prisma.auditEvent.create({ data: eventData })).rejects.toThrow();
       await prisma.withMemberIdentity(
         createAuthenticatedMemberIdentity({ accountId: accountA, sessionId: sessionA }),
-        (tx) => tx.auditEvent.create({ data: eventData }),
+        async (tx) => {
+          const identityContext = await tx.$queryRaw<
+            Array<{ role: string; account_id: string }>
+          >`SELECT current_user::text AS role,
+                   current_setting('app.account_id', true)::text AS account_id`;
+          expect(identityContext[0]?.role).toBe("sakhi_test_app");
+          expect(identityContext[0]?.account_id).toBe(accountA);
+          return tx.auditEvent.create({ data: eventData });
+        },
       );
       const adminRead = await admin.query(
         "select id from public.audit_events where request_id=$1",
