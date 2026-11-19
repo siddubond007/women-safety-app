@@ -38,14 +38,14 @@ const reviewedMigrationSets = [
 ];
 const reviewedMigrations = reviewedMigrationSets.flatMap((set) => set.migrations);
 
-describe("Stage 3B2 reviewed staging migration contract", () => {
+describe("Reviewed staging migration contract", () => {
   it("requires one exact ordered reviewed migration target and its matching approval phrase", () => {
     for (const migration of reviewedMigrations) {
       expect(preflight).toContain(`"${migration}"`);
       expect(runner).toContain(migration);
     }
     expect(preflight).toContain("const REVIEWED_MIGRATION_SETS = [");
-    expect(preflight).toContain("candidate.migrations.join(",") === process.env.SAKHI_MIGRATION_TARGET");
+    expect(preflight).toContain('candidate.migrations.join(",") === process.env.SAKHI_MIGRATION_TARGET');
     expect(preflight).toContain("selectedMigrationSet.approvalPhrase");
     expect(runner).toContain('STAGE3B2_APPROVAL="YES_APPLY_20261113_14_STAGE3B2"');
     expect(runner).toContain('STAGE4_APPROVAL="YES_APPLY_20261119_STAGE4_RBAC_RLS"');
