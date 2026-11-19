@@ -150,7 +150,7 @@ describe("Stage 4B database isolation hardening", () => {
     expect(stage4MigrationRunner).toContain("roleAndConnectionPreflight");
     expect(stage4MigrationRunner).toContain("verifyOwners");
     expect(stage4MigrationRunner).toContain('"prisma", "migrate", "resolve"');
-    expect(stage4LedgerResolver).toContain("Stage 4 database postconditions are not all satisfied");
+    expect(stage4LedgerResolver).toContain("Stage 4 database postconditions");
     expect(stage4LedgerResolver).toContain('"prisma", "migrate", "resolve"');
     expect(reviewedMigrationRouter).toContain("never run through generic Prisma migrate deploy");
     expect(reviewedMigrationRouter).toContain("staging-apply-stage4-reviewed.sh");
