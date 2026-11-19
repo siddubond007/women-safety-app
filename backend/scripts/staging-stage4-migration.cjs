@@ -129,6 +129,8 @@ function databaseUrl(raw, expectedUser, ca, requireSchema) {
     parsed.pathname !== "/postgres" ||
     decodeURIComponent(parsed.username) !== expectedUser ||
     decodeURIComponent(parsed.password).length < 32 ||
+    decodeURIComponent(parsed.password).includes("REPLACE_WITH") ||
+    decodeURIComponent(parsed.password).includes("[YOUR-PASSWORD]") ||
     (requireSchema && parsed.searchParams.get("schema") !== "public") ||
     parsed.searchParams.get("sslmode") !== "verify-full"
   ) {
@@ -210,11 +212,23 @@ async function roleAndConnectionPreflight(postgres, migrator) {
   ) {
     throw new Error("Dedicated staging migrator connection does not match the reviewed role boundary.");
   }
-  const serviceRole = await postgres.query(
-    "SELECT rolbypassrls FROM pg_roles WHERE rolname='service_role'",
+  const runtimeRoles = await postgres.query(
+    `SELECT rolname,rolsuper,rolbypassrls
+     FROM pg_roles
+     WHERE rolname = ANY(ARRAY['sakhi_staging_app','anon','authenticated','service_role']::name[])`,
   );
-  if (serviceRole.rows[0]?.rolbypassrls !== true) {
-    throw new Error("Supabase service_role no longer matches the expected BYPASSRLS threat model.");
+  const roleMap = new Map(runtimeRoles.rows.map((row) => [row.rolname, row]));
+  if (
+    roleMap.get("sakhi_staging_app")?.rolsuper !== false ||
+    roleMap.get("sakhi_staging_app")?.rolbypassrls !== false ||
+    roleMap.get("anon")?.rolsuper !== false ||
+    roleMap.get("anon")?.rolbypassrls !== false ||
+    roleMap.get("authenticated")?.rolsuper !== false ||
+    roleMap.get("authenticated")?.rolbypassrls !== false ||
+    roleMap.get("service_role")?.rolsuper !== false ||
+    roleMap.get("service_role")?.rolbypassrls !== true
+  ) {
+    throw new Error("Supabase Data API and Sakhi runtime role attributes differ from the reviewed RLS model.");
   }
   await verifyOwners(postgres);
 }
