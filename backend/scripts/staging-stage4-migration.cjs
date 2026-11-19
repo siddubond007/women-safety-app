@@ -397,6 +397,16 @@ async function main() {
     if (currentState.rolePartial) {
       throw new Error("Admin role constraints are partially applied; refusing automatic repair.");
     }
+    const ledgerPostconditionMismatch = [
+      [MIGRATIONS[0], currentState.roleApplied],
+      [MIGRATIONS[1], currentState.functionApplied],
+      [MIGRATIONS[2], currentState.dataApplied],
+    ].some(([migrationName, postconditionSatisfied]) =>
+      applied.has(migrationName) && !postconditionSatisfied,
+    );
+    if (ledgerPostconditionMismatch) {
+      throw new Error("Prisma migration history claims Stage 4 is applied but database postconditions disagree; refusing automatic repair.");
+    }
 
     if (
       !currentState.roleApplied ||
