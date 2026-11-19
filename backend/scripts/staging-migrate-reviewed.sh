@@ -43,6 +43,13 @@ if [[ -z "${SAKHI_MIGRATOR_DATABASE_URL:-}" ]]; then
   exit 1
 fi
 
+# Stage 4 requires the restricted postgres role for the bootstrap trigger and
+# owner-aware revocations. It must never run through generic Prisma migrate deploy.
+if [[ "${SAKHI_MIGRATION_TARGET}" == "$STAGE4_MIGRATIONS" ]]; then
+  ./scripts/staging-apply-stage4-reviewed.sh
+  exit 0
+fi
+
 # Read-only checks prove the exact staging project, migration role, full
 # Modules 1–7 predecessor chain, exact release tree, and permitted reviewed pending migration set.
 node scripts/staging-preflight.cjs migrations
