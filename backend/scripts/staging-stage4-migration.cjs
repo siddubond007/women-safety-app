@@ -355,9 +355,13 @@ async function main() {
   if (process.env.SAKHI_ENV !== "staging") throw new Error("SAKHI_ENV must be staging.");
   if (process.env.SAKHI_MIGRATION_TARGET !== MIGRATION_TARGET) throw new Error("Exact Stage 4 migration target is required.");
   if (process.env.SAKHI_ALLOW_STAGING_MIGRATIONS !== APPROVAL_PHRASE) throw new Error("Exact Stage 4 approval phrase is required.");
-  const ca = String(process.env.SAKHI_STAGING_SUPABASE_CA_CERT ?? "").replace(/\\n/g, "\n");
+  const caPath = path.join(__dirname, "..", "prod-ca-2021.crt");
+  if (!fs.existsSync(caPath)) {
+    throw new Error("The reviewed Supabase root CA file is missing from the backend release tree.");
+  }
+  const ca = fs.readFileSync(caPath, "utf8");
   if (!ca.includes("-----BEGIN CERTIFICATE-----") || !ca.includes("-----END CERTIFICATE-----")) {
-    throw new Error("Verified Supabase CA certificate is missing or invalid.");
+    throw new Error("Verified Supabase CA certificate is invalid.");
   }
 
   const postgres = await connect(
