@@ -9,6 +9,7 @@ import { AppModule } from "./app.module.js";
 import { createGlobalValidationPipe } from "./common/validation/create-validation-pipe.js";
 import { ApiExceptionFilter } from "./common/filters/api-exception.filter.js";
 import { AnonymousEvidenceUploadRateLimitMiddleware } from "./common/middleware/anonymous-evidence-upload-rate-limit.middleware.js";
+import { AdminAuthRateLimitMiddleware } from "./common/middleware/admin-auth-rate-limit.middleware.js";
 import { runWithDatabaseRequestIdentity } from "./database/database-request-identity.context.js";
 
 async function bootstrap(): Promise<void> {
@@ -22,9 +23,13 @@ async function bootstrap(): Promise<void> {
   // by that proxy for the narrowly scoped anonymous upload limiter.
   app.getHttpAdapter().getInstance().set("trust proxy", 1);
   app.use((request: Request, _response: Response, next: NextFunction) => {
-    const path = String(request.originalUrl ?? request.url ?? "").split("?")[0] ?? "";
-    const authLookup = request.method === "POST" && /\/auth\/otp\/(request|resend|verify)$/.test(path);
-    const usernameLookup = request.method === "GET" && /\/auth\/username-availability$/.test(path);
+    const path =
+      String(request.originalUrl ?? request.url ?? "").split("?")[0] ?? "";
+    const authLookup =
+      request.method === "POST" &&
+      /\/auth\/otp\/(request|resend|verify)$/.test(path);
+    const usernameLookup =
+      request.method === "GET" && /\/auth\/username-availability$/.test(path);
     runWithDatabaseRequestIdentity(next, { authLookup, usernameLookup });
   });
   // Swagger is enabled only for the local development/test foundation; production
@@ -74,12 +79,22 @@ async function bootstrap(): Promise<void> {
     credentials: true,
     maxAge: 600,
   });
-  const evidenceUploadLimiter = new AnonymousEvidenceUploadRateLimitMiddleware();
+  const adminAuthRateLimiter = new AdminAuthRateLimitMiddleware();
   app.use((request: Request, response: Response, next: NextFunction) => {
-    const path = request.path.endsWith("/") ? request.path.slice(0, -1) : request.path;
+    adminAuthRateLimiter.use(request, response, next);
+  });
+  const evidenceUploadLimiter =
+    new AnonymousEvidenceUploadRateLimitMiddleware();
+  app.use((request: Request, response: Response, next: NextFunction) => {
+    const path = request.path.endsWith("/")
+      ? request.path.slice(0, -1)
+      : request.path;
     if (
       request.method === "POST" &&
-      ["/api/v1/complaints/evidence-upload", "/api/v1/module2/complaints/evidence-upload"].includes(path)
+      [
+        "/api/v1/complaints/evidence-upload",
+        "/api/v1/module2/complaints/evidence-upload",
+      ].includes(path)
     ) {
       evidenceUploadLimiter.use(request, response, next);
       return;
