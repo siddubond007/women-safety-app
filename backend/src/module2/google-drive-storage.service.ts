@@ -265,7 +265,7 @@ export class GoogleDriveStorageService {
       throw new ConflictException("Multiple Google Drive objects use this upload ID. Manual reconciliation is required.");
     }
     if (existingFiles.length === 1) {
-      const existing = existingFiles[0];
+      const existing = existingFiles[0]!;
       const properties = existing.appProperties ?? {};
       const matches =
         Boolean(existing.id) &&

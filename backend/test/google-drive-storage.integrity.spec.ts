@@ -139,7 +139,7 @@ describe("Google Drive object integrity and ownership", () => {
       sakhiSha256: uploadSha,
       sakhiByteSize: String(bytes.length),
     };
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchMock = vi.fn(async (input: unknown) => {
       const url = String(input);
       if (url.includes("oauth2.googleapis.com/token")) {
         return new Response(JSON.stringify({ access_token: "synthetic-access-token", expires_in: 3600 }), { status: 200 });
@@ -176,7 +176,7 @@ describe("Google Drive object integrity and ownership", () => {
       sakhiUploadId: uploadId, sakhiPurpose: "post", sakhiAccountId: accountId,
       sakhiCategorySlug: "community", sakhiSha256: sha256, sakhiByteSize: String(bytes.length),
     };
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchMock = vi.fn(async (input: unknown) => {
       const url = String(input);
       if (url.includes("oauth2.googleapis.com/token")) {
         return new Response(JSON.stringify({ access_token: "synthetic-access-token", expires_in: 3600 }), { status: 200 });
