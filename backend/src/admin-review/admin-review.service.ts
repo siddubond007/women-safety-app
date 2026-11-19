@@ -3530,8 +3530,10 @@ export class AdminReviewService {
     // Normalize before authorization: the persistence helper also normalizes
     // role names, so permission checks must use the same canonical value.
     const normalizedRole = String(body.role ?? "").trim().toUpperCase();
-    if (normalizedRole === "SUPER_ADMIN" && !principal.permissions.approve) {
-      throw new ForbiddenException("The approve permission is required to create a Super Admin account.");
+    if (normalizedRole === "SUPER_ADMIN") {
+      throw new ForbiddenException(
+        "Creating an additional Super Admin is disabled until an independent two-person approval workflow is implemented. Create a least-privilege staff role instead.",
+      );
     }
     const username = String(body.username ?? "").trim().toLowerCase();
     const initialPassword = String(body.initialPassword ?? "");
@@ -3602,6 +3604,15 @@ export class AdminReviewService {
     );
     const isSelfTarget =
       staffId === principal.staffId || targetStaff?.id === principal.staffId;
+    if (
+      body.role !== undefined &&
+      String(body.role).trim().toUpperCase() === "SUPER_ADMIN" &&
+      targetStaff?.role !== "SUPER_ADMIN"
+    ) {
+      throw new ForbiddenException(
+        "Promoting staff to Super Admin is disabled until an independent two-person approval workflow is implemented.",
+      );
+    }
     if (
       isSelfTarget &&
       (body.role !== undefined ||
