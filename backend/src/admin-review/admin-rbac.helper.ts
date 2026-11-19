@@ -488,6 +488,15 @@ export class SakhiAdminRbacRegistry {
     if (!def) {
       throw new UnauthorizedException("The stored staff role is not recognized; access is denied.");
     }
+    if (
+      staff.isAuthorisedComplaintReviewer &&
+      staff.role !== "SUPER_ADMIN" &&
+      staff.role !== "COMPLAINT_REVIEWER"
+    ) {
+      throw new UnauthorizedException(
+        "Complaint-reviewer clearance conflicts with the staff role; access is denied.",
+      );
+    }
     return {
       staffId: staff.id,
       staffCode: staff.staffCode,
@@ -500,8 +509,7 @@ export class SakhiAdminRbacRegistry {
       clearanceLevel: staff.clearanceLevel || def.defaultClearanceLevel,
       isAuthorisedComplaintReviewer:
         staff.role === "SUPER_ADMIN" ||
-        staff.role === "COMPLAINT_REVIEWER" ||
-        staff.isAuthorisedComplaintReviewer,
+        staff.role === "COMPLAINT_REVIEWER",
       permissions: { ...def.defaultPermissions, ...staff.permissions },
       allowedRoutes:
         Array.isArray(staff.allowedRoutes) && staff.allowedRoutes.length > 0
