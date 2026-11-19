@@ -9,6 +9,14 @@ const runner = readFileSync(
   new URL("../scripts/staging-migrate-reviewed.sh", import.meta.url),
   "utf8",
 );
+const stage4Runner = readFileSync(
+  new URL("../scripts/staging-apply-stage4-reviewed.sh", import.meta.url),
+  "utf8",
+);
+const stage4Executor = readFileSync(
+  new URL("../scripts/staging-stage4-migration.cjs", import.meta.url),
+  "utf8",
+);
 const prismaConfig = readFileSync(
   new URL("../prisma.config.ts", import.meta.url),
   "utf8",
@@ -73,6 +81,26 @@ describe("Reviewed staging migration contract", () => {
     expect(preflight).toContain("if (failed.length > 0)");
     expect(runner).toContain("node scripts/staging-preflight.cjs migrations");
     expect(runner).toContain("npm run db:migrate:deploy");
+  });
+
+  it("routes Stage 4 through the owner-aware runner instead of generic Prisma migrate deploy", () => {
+    expect(stage4Runner).toContain('EXPECTED_TARGET="20261119140000_admin_staff_role_constraints,20261119150000_secure_admin_bootstrap_function_search_path,20261119160000_revoke_data_api_roles_from_member_data"');
+    expect(stage4Runner).toContain('APPROVAL_PHRASE="YES_APPLY_20261119_STAGE4_RBAC_RLS"');
+    expect(stage4Runner).toContain('SAKHI_STAGING_POSTGRES_DATABASE_URL');
+    expect(stage4Runner).toContain('SAKHI_STAGING_SUPABASE_CA_CERT');
+    expect(stage4Runner).toContain("node scripts/staging-preflight.cjs migrations");
+    expect(stage4Runner).toContain("node scripts/staging-stage4-migration.cjs");
+    expect(stage4Runner).not.toContain("npm run db:migrate:deploy");
+    expect(stage4Executor).toContain('const EXPECTED_HOST = "aws-0-ap-south-1.pooler.supabase.com"');
+    expect(stage4Executor).toContain('const PROJECT_REF = "wmlpokholjfadyohdlgo"');
+    expect(stage4Executor).toContain("MIGRATOR_OWNED_TABLES");
+    expect(stage4Executor).toContain("POSTGRES_OWNED_TABLES");
+    expect(stage4Executor).toContain("PROTECTED_TABLES");
+    expect(stage4Executor).toContain("SET LOCAL ROLE sakhi_staging_migrator");
+    expect(stage4Executor).toContain("has_any_column_privilege");
+    expect(stage4Executor).toContain("rejectUnauthorized: true");
+    expect(stage4Executor).toContain('"migrate", "resolve", "--applied", migration');
+    expect(stage4Executor).toContain("default_acl_hardened");
   });
 
   it("keeps the exact Supabase project, host, migrator identity and TLS checks", () => {
