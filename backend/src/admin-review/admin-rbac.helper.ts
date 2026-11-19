@@ -1172,15 +1172,16 @@ export class SakhiAdminRbacRegistry {
       if (!(nextRole in ADMIN_ROLE_DEFINITIONS)) {
         throw new BadRequestException(`Invalid admin role "${dto.role}".`);
       }
-      existing.role = nextRole;
-      const def = ADMIN_ROLE_DEFINITIONS[nextRole];
-      existing.allowedRoutes = [...def.allowedRoutes];
-      // Role changes must never inherit grants from the previous role.
-      // Explicit overrides below are applied only after validating their keys
-      // and boolean values.
-      existing.permissions = { ...def.defaultPermissions };
-      existing.isAuthorisedComplaintReviewer =
-        nextRole === "SUPER_ADMIN" || nextRole === "COMPLAINT_REVIEWER";
+      if (nextRole !== existing.role) {
+        existing.role = nextRole;
+        const def = ADMIN_ROLE_DEFINITIONS[nextRole];
+        existing.allowedRoutes = [...def.allowedRoutes];
+        // Actual role changes must never inherit grants from the previous role.
+        // Re-submitting the same role must preserve existing custom grants.
+        existing.permissions = { ...def.defaultPermissions };
+        existing.isAuthorisedComplaintReviewer =
+          nextRole === "SUPER_ADMIN" || nextRole === "COMPLAINT_REVIEWER";
+      }
     }
 
     if (dto.status !== undefined) {
