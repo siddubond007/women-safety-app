@@ -27,6 +27,7 @@ jobs:
       SAKHI_ENV: staging
       SAKHI_STAGING_MFA_DB_INTEGRATION: 'true'
       SAKHI_APP_DATABASE_URL: ${{ secrets.SAKHI_STAGING_APP_DATABASE_URL }}
+      SAKHI_MIGRATOR_DATABASE_URL: ${{ secrets.SAKHI_STAGING_MIGRATOR_DATABASE_URL }}
       SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL: ${{ secrets.SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL }}
       SAKHI_STAGING_SUPABASE_CA_CERT: ${{ secrets.SAKHI_STAGING_SUPABASE_CA_CERT }}
     steps:
@@ -45,11 +46,12 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${SAKHI_APP_DATABASE_URL}" || { echo "::error::Missing staging app database secret"; exit 1; }
+          test -n "${SAKHI_MIGRATOR_DATABASE_URL}" || { echo "::error::Missing staging migrator database secret"; exit 1; }
           test -n "${SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL}" || { echo "::error::Missing staging fixture-cleanup database secret"; exit 1; }
           test -n "${SAKHI_STAGING_SUPABASE_CA_CERT}" || { echo "::error::Missing Supabase CA certificate secret"; exit 1; }
           umask 077
           mkdir -p "$RUNNER_TEMP/sakhi-db-ca"
-          printf '%s\n' "$SAKHI_STAGING_SUPABASE_CA_CERT" > "$RUNNER_TEMP/sakhi-db-ca/prod-ca-2021.crt"
+          printf '%s\\n' "$SAKHI_STAGING_SUPABASE_CA_CERT" > "$RUNNER_TEMP/sakhi-db-ca/prod-ca-2021.crt"
           node --input-type=module <<'NODE'
           import { appendFileSync, readFileSync } from 'node:fs';
           const caPath = `${process.env.RUNNER_TEMP}/sakhi-db-ca/prod-ca-2021.crt`;
@@ -57,17 +59,26 @@ jobs:
           if (!ca.includes('-----BEGIN CERTIFICATE-----') || !ca.includes('-----END CERTIFICATE-----')) {
             throw new Error('Supabase CA certificate is not valid PEM text.');
           }
+          const keys = [
+            'SAKHI_APP_DATABASE_URL',
+            'SAKHI_MIGRATOR_DATABASE_URL',
+            'SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL',
+          ];
+          const urls = new Map();
           const envLines = [];
-          for (const key of ['SAKHI_APP_DATABASE_URL', 'SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL']) {
+          for (const key of keys) {
             const url = new URL(process.env[key]);
             url.searchParams.set('sslmode', 'verify-full');
             url.searchParams.set('sslrootcert', caPath);
+            urls.set(key, url);
             envLines.push(`${key}=${url.toString()}`);
           }
-          const app = new URL(envLines[0].slice(envLines[0].indexOf('=') + 1));
-          const cleanup = new URL(envLines[1].slice(envLines[1].indexOf('=') + 1));
-          if (app.hostname !== cleanup.hostname || app.pathname !== cleanup.pathname || app.port !== cleanup.port) {
-            throw new Error('App and cleanup URLs do not target the same database host, path and port.');
+          const app = urls.get('SAKHI_APP_DATABASE_URL');
+          for (const key of ['SAKHI_MIGRATOR_DATABASE_URL', 'SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL']) {
+            const candidate = urls.get(key);
+            if (app.hostname !== candidate.hostname || app.pathname !== candidate.pathname || app.port !== candidate.port) {
+              throw new Error('App, migrator and cleanup URLs must target the same database host, path and port.');
+            }
           }
           appendFileSync(process.env.GITHUB_ENV, envLines.join(String.fromCharCode(10)) + String.fromCharCode(10), { mode: 0o600 });
           console.log('Protected staging configuration shape and CA certificate validated; values withheld.');
