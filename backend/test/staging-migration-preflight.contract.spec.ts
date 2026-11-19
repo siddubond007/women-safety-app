@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const preflight = readFileSync(
@@ -101,6 +103,13 @@ describe("Reviewed staging migration contract", () => {
     expect(stage4Executor).toContain("rejectUnauthorized: true");
     expect(stage4Executor).toContain('"migrate", "resolve", "--applied", migration');
     expect(stage4Executor).toContain("default_acl_hardened");
+    expect(stage4Executor).toContain("ledgerPostconditionMismatch");
+    expect(stage4Executor).toContain("Prisma migration history claims Stage 4 is applied");
+    execFileSync(process.execPath, ["--check", fileURLToPath(new URL("../scripts/staging-stage4-migration.cjs", import.meta.url))]);
+    if (process.platform !== "win32") {
+      execFileSync("bash", ["-n", fileURLToPath(new URL("../scripts/staging-apply-stage4-reviewed.sh", import.meta.url))]);
+      execFileSync("bash", ["-n", fileURLToPath(new URL("../scripts/staging-migrate-reviewed.sh", import.meta.url))]);
+    }
   });
 
   it("keeps the exact Supabase project, host, migrator identity and TLS checks", () => {
