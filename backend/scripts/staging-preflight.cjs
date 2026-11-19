@@ -177,7 +177,7 @@ async function main() {
     }
 
     // Never let migrate deploy apply an arbitrary backlog. The only permitted
-    // pending migrations are the three explicitly reviewed Stage 3B2 IDs.
+    // pending migrations are the exact selected reviewed migration IDs.
     const migrationRoot = path.join(__dirname, "..", "prisma", "migrations");
     const localMigrations = fs
       .readdirSync(migrationRoot, { withFileTypes: true })
