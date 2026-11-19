@@ -353,6 +353,12 @@ SQL
 # Supabase staging. The Stage 4B migration must revoke these before CI passes.
 psql "postgresql://supabase_admin:${SUPABASE_ADMIN_PASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v ON_ERROR_STOP=1 <<'SQL'
+GRANT SELECT ON TABLE
+  public.member_accounts,
+  public.member_profiles,
+  public.admin_staff_accounts
+TO sakhi_staging_app;
+
 GRANT ALL PRIVILEGES ON TABLE
   public.member_accounts,
   public.auth_sessions,
