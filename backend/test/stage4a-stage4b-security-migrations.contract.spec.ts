@@ -127,6 +127,9 @@ describe("Stage 4B database isolation hardening", () => {
   });
 
   it("routes Stage 4 through the two-role owner-aware migration gate, not generic migrate deploy", () => {
+    expect(stage4Runner).toContain("20261118130000_remove_legacy_admin_mfa_flag");
+    expect(stage4MigrationRunner).toContain("20261118130000_remove_legacy_admin_mfa_flag");
+    expect(stage4LedgerResolver).toContain("20261118130000_remove_legacy_admin_mfa_flag");
     expect(stage4Runner).toContain("SAKHI_STAGING_POSTGRES_DATABASE_URL");
     expect(stage4Runner).toContain("SAKHI_MIGRATOR_DATABASE_URL");
     expect(stage4Runner).toContain("staging-stage4-migration.cjs");
