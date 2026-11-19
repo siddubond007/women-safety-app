@@ -448,9 +448,10 @@ async function main() {
       throw new Error("Admin role constraints are partially applied; refusing automatic repair.");
     }
     const ledgerPostconditionMismatch = [
-      [MIGRATIONS[0], currentState.roleApplied],
-      [MIGRATIONS[1], currentState.functionApplied],
-      [MIGRATIONS[2], currentState.dataApplied],
+      [MIGRATIONS[0], currentState.mfaCleanupApplied],
+      [MIGRATIONS[1], currentState.roleApplied],
+      [MIGRATIONS[2], currentState.functionApplied],
+      [MIGRATIONS[3], currentState.dataApplied],
     ].some(([migrationName, postconditionSatisfied]) =>
       applied.has(migrationName) && !postconditionSatisfied,
     );
