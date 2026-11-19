@@ -12,15 +12,30 @@ function getMigrationDatasourceUrl(): string {
 
   if (environment === "staging") {
     const [commandGroup, commandAction] = process.argv.slice(2);
-    const migrationApproved =
-      process.env.SAKHI_MIGRATION_TARGET ===
-        "20261113130000_allow_scoped_system_auth_audit,20261113140000_retention_deletion_runtime_grants,20261114110000_scope_retention_system_audit" &&
-      process.env.SAKHI_ALLOW_STAGING_MIGRATIONS ===
-        "YES_APPLY_20261113_14_STAGE3B2";
+    const commandArgs = process.argv.slice(2);
+    const stage3b2MigrationTarget =
+      "20261113130000_allow_scoped_system_auth_audit,20261113140000_retention_deletion_runtime_grants,20261114110000_scope_retention_system_audit";
+    const stage3b2MigrationApproved =
+      process.env.SAKHI_MIGRATION_TARGET === stage3b2MigrationTarget &&
+      process.env.SAKHI_ALLOW_STAGING_MIGRATIONS === "YES_APPLY_20261113_14_STAGE3B2";
+    const stage4MigrationTarget =
+      "20261118130000_remove_legacy_admin_mfa_flag,20261119140000_admin_staff_role_constraints,20261119150000_secure_admin_bootstrap_function_search_path,20261119160000_revoke_data_api_roles_from_member_data";
+    const stage4ResolveTargets = new Set([
+      "20261118130000_remove_legacy_admin_mfa_flag",
+      "20261119140000_admin_staff_role_constraints",
+      "20261119150000_secure_admin_bootstrap_function_search_path",
+      "20261119160000_revoke_data_api_roles_from_member_data",
+    ]);
+    const stage4MigrationResolveApproved =
+      commandGroup === "migrate" &&
+      commandAction === "resolve" &&
+      commandArgs[2] === "--applied" &&
+      stage4ResolveTargets.has(commandArgs[3] ?? "") &&
+      process.env.SAKHI_MIGRATION_TARGET === stage4MigrationTarget &&
+      process.env.SAKHI_ALLOW_STAGING_MIGRATIONS === "YES_APPLY_20261119_STAGE4_RBAC_RLS";
     const bootstrapApproved =
       process.env.SAKHI_ALLOW_STAGING_BOOTSTRAP ===
       "YES_BOOTSTRAP_SAKHI_STAGING_EMPTY_DATABASE";
-    const commandArgs = process.argv.slice(2);
     const reviewedMigrationResolveTargets = new Set([
       "20261117120000_staging_mfa_synthetic_fixture_cleanup",
       "20261117130000_staging_mfa_synthetic_fixture_select_visibility",
@@ -45,7 +60,7 @@ function getMigrationDatasourceUrl(): string {
       if (
         commandGroup === "migrate" &&
         commandAction === "deploy" &&
-        !migrationApproved
+        !stage3b2MigrationApproved
       ) {
         throw new Error(
           "Staging migrate deploy requires the exact reviewed migration target and explicit approval phrase.",
@@ -54,7 +69,7 @@ function getMigrationDatasourceUrl(): string {
       if (
         commandGroup === "migrate" &&
         commandAction === "deploy" &&
-        migrationApproved
+        stage3b2MigrationApproved
       ) {
         const preflight = spawnSync(
           process.execPath,
@@ -70,16 +85,16 @@ function getMigrationDatasourceUrl(): string {
       if (
         commandGroup === "migrate" &&
         commandAction === "resolve" &&
-        !(bootstrapApproved || adminMigrationResolveApproved)
+        !(bootstrapApproved || adminMigrationResolveApproved || stage4MigrationResolveApproved)
       ) {
         throw new Error(
-          "Staging migrate resolve is restricted to an explicitly approved fresh-schema bootstrap or one of the four reviewed 2026-11-17 staging admin/MFA migrations.",
+          "Staging migrate resolve is restricted to the reviewed bootstrap, 2026-11-17 admin/MFA, or exact Stage 4 migration targets with their approval phrases.",
         );
       }
       if (
         commandGroup === "db" &&
         commandAction === "execute" &&
-        !(migrationApproved || bootstrapApproved)
+        !(stage3b2MigrationApproved || bootstrapApproved)
       ) {
         throw new Error(
           "Staging SQL execution requires explicit migration or fresh-bootstrap approval.",

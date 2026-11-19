@@ -209,4 +209,85 @@ describe.skipIf(!enabled)("Stage 5 PostgreSQL member-data RLS contract", () => {
     expect(memberRead.rowCount).toBe(0);
     await app.query("rollback");
   });
+
+  it("revokes table and column grants from anon, authenticated and BYPASSRLS service_role", async () => {
+    const protectedTables = [
+      "member_accounts", "auth_sessions", "otp_challenges", "account_deletion_requests",
+      "member_profiles", "member_consents", "member_communication_preferences",
+      "eligibility_submissions", "community_posts", "community_post_likes",
+      "community_post_saves", "community_post_comments", "community_groups",
+      "community_circle_memberships", "community_circle_posts", "member_follows",
+      "member_privacy_preferences", "member_notification_preferences", "member_push_tokens",
+      "member_wellness_preferences", "member_notifications", "safety_emergency_contacts",
+      "safety_sos_events", "safety_location_shares", "member_moderation_blocks",
+      "member_user_reports", "direct_messages", "media_assets", "community_post_reactions",
+      "business_directory_listings", "business_enquiries", "business_reports",
+      "menstrual_cycle_logs", "menstrual_daily_logs", "menstrual_tracker_preferences",
+      "community_directory_profiles", "eligibility_consents", "eligibility_support_requests",
+      "eligibility_verification_sessions", "audit_events", "moderation_decisions",
+      "admin_staff_accounts", "admin_staff_sessions", "admin_staff_mfa",
+      "admin_staff_backup_codes", "admin_staff_recovery_requests", "admin_auth_sessions",
+      "discreet_complaints", "eligibility_provider_callback_events", "admin_bootstrap_credentials",
+    ];
+    const roles = ["anon", "authenticated", "service_role"] as const;
+    const bypass = await admin.query<{ rolbypassrls: boolean }>(
+      "select rolbypassrls from pg_roles where rolname='service_role'",
+    );
+    expect(bypass.rows[0]?.rolbypassrls).toBe(true);
+
+    const result = await admin.query<{
+      table_name: string;
+      role_name: string;
+      select_grant: boolean;
+      insert_grant: boolean;
+      update_grant: boolean;
+      delete_grant: boolean;
+      references_grant: boolean;
+      truncate_grant: boolean;
+      trigger_grant: boolean;
+    }>(
+      `select t.table_name, r.role_name,
+              has_table_privilege(r.role_name, format('public.%I',t.table_name), 'SELECT') as select_grant,
+              has_table_privilege(r.role_name, format('public.%I',t.table_name), 'INSERT') as insert_grant,
+              has_table_privilege(r.role_name, format('public.%I',t.table_name), 'UPDATE') as update_grant,
+              has_table_privilege(r.role_name, format('public.%I',t.table_name), 'DELETE') as delete_grant,
+              has_table_privilege(r.role_name, format('public.%I',t.table_name), 'REFERENCES') as references_grant,
+              has_table_privilege(r.role_name, format('public.%I',t.table_name), 'TRUNCATE') as truncate_grant,
+              has_table_privilege(r.role_name, format('public.%I',t.table_name), 'TRIGGER') as trigger_grant,
+              has_any_column_privilege(r.role_name, format('public.%I',t.table_name), 'SELECT') as column_select,
+              has_any_column_privilege(r.role_name, format('public.%I',t.table_name), 'INSERT') as column_insert,
+              has_any_column_privilege(r.role_name, format('public.%I',t.table_name), 'UPDATE') as column_update,
+              has_any_column_privilege(r.role_name, format('public.%I',t.table_name), 'REFERENCES') as column_references
+       from unnest($1::text[]) as t(table_name)
+       cross join unnest($2::text[]) as r(role_name)
+       order by t.table_name, r.role_name`,
+      [protectedTables, roles],
+    );
+    expect(result.rows).toHaveLength(protectedTables.length * roles.length);
+    for (const row of result.rows) {
+      expect(row.select_grant, `${row.role_name} SELECT on ${row.table_name}`).toBe(false);
+      expect(row.insert_grant, `${row.role_name} INSERT on ${row.table_name}`).toBe(false);
+      expect(row.update_grant, `${row.role_name} UPDATE on ${row.table_name}`).toBe(false);
+      expect(row.delete_grant, `${row.role_name} DELETE on ${row.table_name}`).toBe(false);
+      expect(row.references_grant, `${row.role_name} REFERENCES on ${row.table_name}`).toBe(false);
+      expect(row.truncate_grant, `${row.role_name} TRUNCATE on ${row.table_name}`).toBe(false);
+      expect(row.trigger_grant, `${row.role_name} TRIGGER on ${row.table_name}`).toBe(false);
+    }
+    const columnGrants = await admin.query<{
+      role_name: string;
+      table_name: string;
+      has_column_grant: boolean;
+    }>(
+      `select r.role_name,t.table_name,
+              has_any_column_privilege(r.role_name,format('public.%I',t.table_name),'SELECT')
+              OR has_any_column_privilege(r.role_name,format('public.%I',t.table_name),'INSERT')
+              OR has_any_column_privilege(r.role_name,format('public.%I',t.table_name),'UPDATE')
+              OR has_any_column_privilege(r.role_name,format('public.%I',t.table_name),'REFERENCES')
+                as has_column_grant
+       from unnest($1::text[]) as t(table_name)
+       cross join unnest($2::text[]) as r(role_name)`,
+      [protectedTables, roles],
+    );
+    expect(columnGrants.rows.filter((row) => row.has_column_grant)).toEqual([]);
+  });
 });

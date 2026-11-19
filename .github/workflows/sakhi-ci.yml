@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - ci/github-actions-pipeline-20261118
+      - security/stage4a-remediation-stage4b-rls-20261119
   pull_request:
     branches:
       - main

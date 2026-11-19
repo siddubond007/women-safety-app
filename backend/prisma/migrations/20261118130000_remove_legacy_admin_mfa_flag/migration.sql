@@ -13,18 +13,22 @@ BEGIN
     RAISE EXCEPTION 'admin_staff_mfa is missing; refusing legacy MFA flag cleanup.';
   END IF;
 
+  -- Inspect pg_catalog directly so the preflight can validate columns on the
+  -- postgres-owned MFA table without granting the migrator SELECT access.
   IF NOT EXISTS (
     SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'admin_staff_mfa'
-      AND column_name = 'enrollment_verified_at'
+    FROM pg_attribute
+    WHERE attrelid = 'public.admin_staff_mfa'::regclass
+      AND attname = 'enrollment_verified_at'
+      AND attnum > 0
+      AND NOT attisdropped
   ) OR NOT EXISTS (
     SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'admin_staff_mfa'
-      AND column_name = 'disabled_at'
+    FROM pg_attribute
+    WHERE attrelid = 'public.admin_staff_mfa'::regclass
+      AND attname = 'disabled_at'
+      AND attnum > 0
+      AND NOT attisdropped
   ) THEN
     RAISE EXCEPTION 'Authoritative MFA state columns are missing; refusing legacy flag cleanup.';
   END IF;

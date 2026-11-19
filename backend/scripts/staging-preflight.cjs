@@ -6,13 +6,27 @@ const SUPABASE_ROOT_CA = path.join(__dirname, "..", "prod-ca-2021.crt");
 
 const EXPECTED_HOST = "aws-0-ap-south-1.pooler.supabase.com";
 const PROJECT_REF = "wmlpokholjfadyohdlgo";
-const EXPECTED_MIGRATIONS = [
-  "20261113130000_allow_scoped_system_auth_audit",
-  "20261113140000_retention_deletion_runtime_grants",
-  "20261114110000_scope_retention_system_audit",
+const REVIEWED_MIGRATION_SETS = [
+  {
+    migrations: [
+      "20261113130000_allow_scoped_system_auth_audit",
+      "20261113140000_retention_deletion_runtime_grants",
+      "20261114110000_scope_retention_system_audit",
+    ],
+    approvalPhrase: "YES_APPLY_20261113_14_STAGE3B2",
+    label: "Stage 3B2",
+  },
+  {
+    migrations: [
+      "20261118130000_remove_legacy_admin_mfa_flag",
+      "20261119140000_admin_staff_role_constraints",
+      "20261119150000_secure_admin_bootstrap_function_search_path",
+      "20261119160000_revoke_data_api_roles_from_member_data",
+    ],
+    approvalPhrase: "YES_APPLY_20261119_STAGE4_RBAC_RLS",
+    label: "Stage 4 RBAC/RLS",
+  },
 ];
-const EXPECTED_MIGRATION_TARGET = EXPECTED_MIGRATIONS.join(",");
-const APPROVAL_PHRASE = "YES_APPLY_20261113_14_STAGE3B2";
 const EXPECTED_USER = `sakhi_staging_migrator.${PROJECT_REF}`;
 const BASELINE_MIGRATIONS = [
   "20261015163000_stage1_foundation",
@@ -44,13 +58,20 @@ async function main() {
     throw new Error("Unsupported staging preflight mode.");
   }
 
+  let expectedMigrations = [];
+  let selectedMigrationSet = null;
   if (mode === "migrations") {
-    if (process.env.SAKHI_MIGRATION_TARGET !== EXPECTED_MIGRATION_TARGET) {
-      throw new Error("The exact three-migration Stage 3B2 target was not selected.");
+    selectedMigrationSet = REVIEWED_MIGRATION_SETS.find(
+      (candidate) =>
+        candidate.migrations.join(",") === process.env.SAKHI_MIGRATION_TARGET,
+    );
+    if (!selectedMigrationSet) {
+      throw new Error("The exact reviewed staging migration target was not selected.");
     }
-    if (process.env.SAKHI_ALLOW_STAGING_MIGRATIONS !== APPROVAL_PHRASE) {
-      throw new Error("Explicit staging migration approval was not supplied.");
+    if (process.env.SAKHI_ALLOW_STAGING_MIGRATIONS !== selectedMigrationSet.approvalPhrase) {
+      throw new Error("The exact explicit staging migration approval phrase was not supplied.");
     }
+    expectedMigrations = selectedMigrationSet.migrations;
   }
 
   const rawUrl = process.env.SAKHI_MIGRATOR_DATABASE_URL;
@@ -157,7 +178,7 @@ async function main() {
     }
 
     // Never let migrate deploy apply an arbitrary backlog. The only permitted
-    // pending migrations are the three explicitly reviewed Stage 3B2 IDs.
+    // pending migrations are the exact selected reviewed migration IDs.
     const migrationRoot = path.join(__dirname, "..", "prisma", "migrations");
     const localMigrations = fs
       .readdirSync(migrationRoot, { withFileTypes: true })
@@ -166,24 +187,24 @@ async function main() {
       .sort();
     const pending = localMigrations.filter((name) => !applied.has(name));
     const unknownApplied = [...applied].filter((name) => !localMigrations.includes(name));
-    const missingTargets = EXPECTED_MIGRATIONS.filter((name) => !localMigrations.includes(name));
-    const unexpectedPending = pending.filter((name) => !EXPECTED_MIGRATIONS.includes(name));
+    const missingTargets = expectedMigrations.filter((name) => !localMigrations.includes(name));
+    const unexpectedPending = pending.filter((name) => !expectedMigrations.includes(name));
     if (missingTargets.length > 0) {
-      throw new Error("One or more reviewed Stage 3B2 migration directories are missing.");
+      throw new Error("One or more selected reviewed migration directories are missing.");
     }
     if (unknownApplied.length > 0) {
       throw new Error("The staging migration ledger contains migrations absent from this release tree.");
     }
     if (unexpectedPending.length > 0) {
       throw new Error(
-        "Unexpected pending migration set; only the three reviewed Stage 3B2 migrations are permitted.",
+        "Unexpected pending migration set; only the selected reviewed migration set is permitted.",
       );
     }
 
     process.stdout.write(
       pending.length > 0
-        ? `Staging migration preflight passed: exact Stage 3B2 target selected; ${pending.length} reviewed migration(s) remain pending and no other migration may run.\n`
-        : "Staging migration preflight passed: all three reviewed Stage 3B2 migrations are already applied; no schema migration is pending.\n",
+        ? `Staging migration preflight passed: exact ${selectedMigrationSet.label} target selected; ${pending.length} reviewed migration(s) remain pending and no other migration may run.\n`
+        : `Staging migration preflight passed: all ${selectedMigrationSet.migrations.length} ${selectedMigrationSet.label} migrations are already applied; no schema migration is pending.\n`,
     );
   } finally {
     await client.end().catch(() => undefined);

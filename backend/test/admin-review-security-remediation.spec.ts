@@ -36,7 +36,7 @@ afterEach(() => {
 
 describe("admin authentication security remediation", () => {
   it.each(["SUPER_ADMIN", "super_admin", " Super_Admin ", "super_admin  "])(
-    "requires approve permission for normalized role %s",
+    "blocks single-actor Super Admin creation for normalized role %s",
     async (role) => {
       vi.spyOn(SakhiAdminRbacRegistry, "ensureHydrated").mockResolvedValue(undefined);
       const createSpy = vi
@@ -54,7 +54,7 @@ describe("admin authentication security remediation", () => {
           },
           "staff-admin.test",
         ),
-      ).rejects.toThrow(/approve permission is required/i);
+      ).rejects.toThrow(/independent two-person approval workflow/i);
       expect(createSpy).not.toHaveBeenCalled();
     },
   );
