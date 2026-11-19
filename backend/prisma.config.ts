@@ -12,11 +12,19 @@ function getMigrationDatasourceUrl(): string {
 
   if (environment === "staging") {
     const [commandGroup, commandAction] = process.argv.slice(2);
+    const reviewedMigrationApprovals = new Map([
+      [
+        "20261113130000_allow_scoped_system_auth_audit,20261113140000_retention_deletion_runtime_grants,20261114110000_scope_retention_system_audit",
+        "YES_APPLY_20261113_14_STAGE3B2",
+      ],
+      [
+        "20261119140000_admin_staff_role_constraints,20261119150000_secure_admin_bootstrap_function_search_path,20261119160000_revoke_data_api_roles_from_member_data",
+        "YES_APPLY_20261119_STAGE4_RBAC_RLS",
+      ],
+    ]);
     const migrationApproved =
-      process.env.SAKHI_MIGRATION_TARGET ===
-        "20261113130000_allow_scoped_system_auth_audit,20261113140000_retention_deletion_runtime_grants,20261114110000_scope_retention_system_audit" &&
-      process.env.SAKHI_ALLOW_STAGING_MIGRATIONS ===
-        "YES_APPLY_20261113_14_STAGE3B2";
+      reviewedMigrationApprovals.get(process.env.SAKHI_MIGRATION_TARGET ?? "") ===
+      process.env.SAKHI_ALLOW_STAGING_MIGRATIONS;
     const bootstrapApproved =
       process.env.SAKHI_ALLOW_STAGING_BOOTSTRAP ===
       "YES_BOOTSTRAP_SAKHI_STAGING_EMPTY_DATABASE";
