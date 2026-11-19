@@ -73,6 +73,44 @@ describe("Stage 4A RBAC remediation", () => {
     );
   });
 
+  it("preserves custom permissions when the same role is resubmitted", async () => {
+    vi.spyOn(SakhiAdminRbacRegistry, "ensureHydrated").mockResolvedValue(undefined);
+    vi.spyOn(SakhiAdminRbacRegistry as any, "persistStaffRecord").mockResolvedValue(undefined);
+    const customPermissions = {
+      view: true,
+      create: false,
+      edit: false,
+      approve: true,
+      suspend: false,
+      export: false,
+      delete: true,
+    };
+    const prisma = {
+      adminStaffAccount: {
+        findUnique: vi.fn().mockResolvedValue(
+          persistedRow({
+            role: "SOS_SAFETY_ADMIN",
+            isAuthorisedComplaintReviewer: false,
+            permissions: customPermissions,
+          }),
+        ),
+      },
+    };
+
+    const result = await SakhiAdminRbacRegistry.updateStaffAccount(
+      prisma as never,
+      STAFF_ID,
+      { role: "SOS_SAFETY_ADMIN", permissions: { view: false } },
+      "Independent Super Admin",
+      "00000000-0000-4000-8000-000000000002",
+    );
+
+    expect(result.staff.permissions).toEqual({
+      ...customPermissions,
+      view: false,
+    });
+  });
+
   it("rejects persisted complaint-reviewer clearance on a non-reviewer role", () => {
     expect(() =>
       SakhiAdminRbacRegistry.refreshStaffRecordFromDatabase(
