@@ -83,7 +83,23 @@ BEGIN
 END
 $stage4_owner_preflight$;
 
+-- Supabase's managed service_role bypasses RLS. Remove default grants from
+-- both application table-owner principals so future public-schema objects
+-- created by these roles do not silently reopen Data API access.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  REVOKE ALL ON TABLES FROM anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  REVOKE ALL ON SEQUENCES FROM anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated, service_role;
+
 SET LOCAL ROLE sakhi_staging_migrator;
+ALTER DEFAULT PRIVILEGES FOR ROLE sakhi_staging_migrator IN SCHEMA public
+  REVOKE ALL ON TABLES FROM PUBLIC, anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE sakhi_staging_migrator IN SCHEMA public
+  REVOKE ALL ON SEQUENCES FROM PUBLIC, anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE sakhi_staging_migrator IN SCHEMA public
+  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated, service_role;
 DO $revoke_migrator_owned_data_api_roles$
 DECLARE table_name text; role_name text; column_name text;
 BEGIN
@@ -268,6 +284,26 @@ BEGIN
       END IF;
     END LOOP;
   END LOOP;
+  IF EXISTS (
+    SELECT 1
+    FROM pg_default_acl d
+    JOIN pg_namespace n ON n.oid=d.defaclnamespace
+    CROSS JOIN LATERAL aclexplode(d.defaclacl) x
+    WHERE n.nspname='public'
+      AND d.defaclrole IN (
+        (SELECT oid FROM pg_roles WHERE rolname='postgres'),
+        (SELECT oid FROM pg_roles WHERE rolname='sakhi_staging_migrator')
+      )
+      AND x.grantee IN (
+        0,
+        (SELECT oid FROM pg_roles WHERE rolname='anon'),
+        (SELECT oid FROM pg_roles WHERE rolname='authenticated'),
+        (SELECT oid FROM pg_roles WHERE rolname='service_role')
+      )
+  ) THEN
+    RAISE EXCEPTION 'Application table-owner default privileges still expose public objects to Data API roles or PUBLIC';
+  END IF;
+
   IF NOT has_table_privilege('sakhi_staging_app', 'public.member_accounts', 'SELECT')
      OR NOT has_table_privilege('sakhi_staging_app', 'public.member_profiles', 'SELECT')
      OR NOT has_table_privilege('sakhi_staging_app', 'public.admin_staff_accounts', 'SELECT') THEN
