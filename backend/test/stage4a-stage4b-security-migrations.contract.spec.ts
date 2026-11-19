@@ -53,6 +53,24 @@ describe("Stage 4B database isolation hardening", () => {
     expect(searchPathMigration).toContain("search_path=pg_catalog");
   });
 
+  it("removes Data API default grants for future objects created by Sakhi table owners", () => {
+    for (const owner of ["postgres", "sakhi_staging_migrator"]) {
+      expect(apiRoleRevocationMigration).toContain(
+        `ALTER DEFAULT PRIVILEGES FOR ROLE ${owner} IN SCHEMA public`,
+      );
+    }
+    expect(apiRoleRevocationMigration).toContain(
+      "REVOKE ALL ON TABLES FROM anon, authenticated, service_role",
+    );
+    expect(apiRoleRevocationMigration).toContain(
+      "REVOKE ALL ON SEQUENCES FROM anon, authenticated, service_role",
+    );
+    expect(apiRoleRevocationMigration).toContain(
+      "REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated, service_role",
+    );
+    expect(apiRoleRevocationMigration).toContain("Application table-owner default privileges still expose public objects");
+  });
+
   it("revokes all Data API role privileges from every protected member and admin table", () => {
     for (const table of [
       "member_accounts",
