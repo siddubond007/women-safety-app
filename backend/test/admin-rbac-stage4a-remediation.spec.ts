@@ -94,6 +94,18 @@ describe("Stage 4A RBAC remediation", () => {
     expect(reviewer.isAuthorisedComplaintReviewer).toBe(true);
   });
 
+  it("rejects inconsistent reviewer clearance when constructing an authorization principal", () => {
+    const inconsistent = {
+      ...persistedRow({
+        role: "SOS_SAFETY_ADMIN",
+        isAuthorisedComplaintReviewer: true,
+      }),
+    } as any;
+    expect(() =>
+      SakhiAdminRbacRegistry.principalFromStaff(inconsistent),
+    ).toThrow(/clearance conflicts with the staff role/i);
+  });
+
   it("rejects malformed explicit permission overrides before persistence", async () => {
     vi.spyOn(SakhiAdminRbacRegistry, "ensureHydrated").mockResolvedValue(undefined);
     const persist = vi
