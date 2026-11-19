@@ -60,9 +60,9 @@ jobs:
           test -n "${SAKHI_STAGING_POSTGRES_DATABASE_URL}" || { echo "::error::Missing SAKHI_STAGING_POSTGRES_DATABASE_URL secret. Stage 4 requires the restricted postgres role."; exit 1; }
           test -n "${SAKHI_STAGING_SUPABASE_CA_CERT}" || { echo "::error::Missing Supabase CA certificate secret."; exit 1; }
           umask 077
-          printf '%s\\n' "${SAKHI_STAGING_SUPABASE_CA_CERT}" > prod-ca-2021.crt
-          grep -q "-----BEGIN CERTIFICATE-----" prod-ca-2021.crt
-          grep -q "-----END CERTIFICATE-----" prod-ca-2021.crt
+          printf '%s\n' "${SAKHI_STAGING_SUPABASE_CA_CERT}" > prod-ca-2021.crt
+          grep -q -- "-----BEGIN CERTIFICATE-----" prod-ca-2021.crt
+          grep -q -- "-----END CERTIFICATE-----" prod-ca-2021.crt
 
       - name: Apply Stage 4 migrations with owner-aware preflight and postflight
         run: ./scripts/staging-apply-stage4-reviewed.sh
