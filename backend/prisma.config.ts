@@ -19,8 +19,9 @@ function getMigrationDatasourceUrl(): string {
       process.env.SAKHI_MIGRATION_TARGET === stage3b2MigrationTarget &&
       process.env.SAKHI_ALLOW_STAGING_MIGRATIONS === "YES_APPLY_20261113_14_STAGE3B2";
     const stage4MigrationTarget =
-      "20261119140000_admin_staff_role_constraints,20261119150000_secure_admin_bootstrap_function_search_path,20261119160000_revoke_data_api_roles_from_member_data";
+      "20261118130000_remove_legacy_admin_mfa_flag,20261119140000_admin_staff_role_constraints,20261119150000_secure_admin_bootstrap_function_search_path,20261119160000_revoke_data_api_roles_from_member_data";
     const stage4ResolveTargets = new Set([
+      "20261118130000_remove_legacy_admin_mfa_flag",
       "20261119140000_admin_staff_role_constraints",
       "20261119150000_secure_admin_bootstrap_function_search_path",
       "20261119160000_revoke_data_api_roles_from_member_data",
