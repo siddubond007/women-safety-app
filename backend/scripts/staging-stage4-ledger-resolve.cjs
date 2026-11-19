@@ -121,6 +121,32 @@ async function inspectDatabase(client) {
     throw new Error("Supabase Data API and Sakhi runtime role attributes differ from the reviewed RLS model.");
   }
 
+  const legacyMfa = await client.query(
+    `SELECT
+       NOT EXISTS (
+         SELECT 1 FROM information_schema.columns
+         WHERE table_schema='public'
+           AND table_name='admin_staff_accounts'
+           AND column_name='mfa_enabled'
+       ) AS legacy_flag_removed,
+       EXISTS (
+         SELECT 1 FROM information_schema.columns
+         WHERE table_schema='public'
+           AND table_name='admin_staff_mfa'
+           AND column_name='enrollment_verified_at'
+       ) AS verified_enrollment_present,
+       EXISTS (
+         SELECT 1 FROM information_schema.columns
+         WHERE table_schema='public'
+           AND table_name='admin_staff_mfa'
+           AND column_name='disabled_at'
+       ) AS disabled_state_present`,
+  );
+  const legacyMfaFlagRemoved =
+    legacyMfa.rows[0]?.legacy_flag_removed === true &&
+    legacyMfa.rows[0]?.verified_enrollment_present === true &&
+    legacyMfa.rows[0]?.disabled_state_present === true;
+
   const roleResult = await client.query(
     `SELECT c.conname,c.convalidated,col.column_default
      FROM (VALUES
