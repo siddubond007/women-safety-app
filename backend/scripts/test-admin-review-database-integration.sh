@@ -304,6 +304,64 @@ SET ROLE sakhi_staging_migrator;
 RESET ROLE;
 SQL
 
+# Seed the disposable database with the risky Data API grants observed in
+# Supabase staging. The Stage 4B migration must revoke these before CI passes.
+psql "postgresql://supabase_admin:${SUPABASE_ADMIN_PASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
+  -v ON_ERROR_STOP=1 <<'SQL'
+GRANT ALL PRIVILEGES ON TABLE
+  public.member_accounts,
+  public.auth_sessions,
+  public.otp_challenges,
+  public.account_deletion_requests,
+  public.member_profiles,
+  public.member_consents,
+  public.member_communication_preferences,
+  public.eligibility_submissions,
+  public.community_posts,
+  public.community_post_likes,
+  public.community_post_saves,
+  public.community_post_comments,
+  public.community_groups,
+  public.community_circle_memberships,
+  public.community_circle_posts,
+  public.member_follows,
+  public.member_privacy_preferences,
+  public.member_notification_preferences,
+  public.member_push_tokens,
+  public.member_wellness_preferences,
+  public.member_notifications,
+  public.safety_emergency_contacts,
+  public.safety_sos_events,
+  public.safety_location_shares,
+  public.member_moderation_blocks,
+  public.member_user_reports,
+  public.direct_messages,
+  public.media_assets,
+  public.community_post_reactions,
+  public.business_directory_listings,
+  public.business_enquiries,
+  public.business_reports,
+  public.menstrual_cycle_logs,
+  public.menstrual_daily_logs,
+  public.menstrual_tracker_preferences,
+  public.community_directory_profiles,
+  public.eligibility_consents,
+  public.eligibility_support_requests,
+  public.eligibility_verification_sessions,
+  public.audit_events,
+  public.moderation_decisions,
+  public.admin_staff_accounts,
+  public.admin_staff_sessions,
+  public.admin_staff_mfa,
+  public.admin_staff_backup_codes,
+  public.admin_staff_recovery_requests,
+  public.admin_auth_sessions,
+  public.discreet_complaints,
+  public.eligibility_provider_callback_events,
+  public.admin_bootstrap_credentials
+TO anon, authenticated, service_role;
+SQL
+
 psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v ON_ERROR_STOP=1 <<SQL
 SET ROLE postgres;
