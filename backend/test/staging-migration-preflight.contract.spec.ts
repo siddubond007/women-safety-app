@@ -39,6 +39,7 @@ const reviewedMigrationSets = [
   },
   {
     migrations: [
+      "20261118130000_remove_legacy_admin_mfa_flag",
       "20261119140000_admin_staff_role_constraints",
       "20261119150000_secure_admin_bootstrap_function_search_path",
       "20261119160000_revoke_data_api_roles_from_member_data",
@@ -64,7 +65,7 @@ describe("Reviewed staging migration contract", () => {
       '"20261113130000_allow_scoped_system_auth_audit,20261113140000_retention_deletion_runtime_grants,20261114110000_scope_retention_system_audit"',
     );
     expect(prismaConfig).toContain(
-      '"20261119140000_admin_staff_role_constraints,20261119150000_secure_admin_bootstrap_function_search_path,20261119160000_revoke_data_api_roles_from_member_data"',
+      '"20261118130000_remove_legacy_admin_mfa_flag,20261119140000_admin_staff_role_constraints,20261119150000_secure_admin_bootstrap_function_search_path,20261119160000_revoke_data_api_roles_from_member_data"',
     );
     expect(prismaConfig).toContain('"YES_APPLY_20261113_14_STAGE3B2"');
     expect(prismaConfig).toContain('"YES_APPLY_20261119_STAGE4_RBAC_RLS"');
@@ -86,7 +87,7 @@ describe("Reviewed staging migration contract", () => {
   });
 
   it("routes Stage 4 through the owner-aware runner instead of generic Prisma migrate deploy", () => {
-    expect(stage4Runner).toContain('EXPECTED_TARGET="20261119140000_admin_staff_role_constraints,20261119150000_secure_admin_bootstrap_function_search_path,20261119160000_revoke_data_api_roles_from_member_data"');
+    expect(stage4Runner).toContain('EXPECTED_TARGET="20261118130000_remove_legacy_admin_mfa_flag,20261119140000_admin_staff_role_constraints,20261119150000_secure_admin_bootstrap_function_search_path,20261119160000_revoke_data_api_roles_from_member_data"');
     expect(stage4Runner).toContain('APPROVAL_PHRASE="YES_APPLY_20261119_STAGE4_RBAC_RLS"');
     expect(stage4Runner).toContain('SAKHI_STAGING_POSTGRES_DATABASE_URL');
     expect(stage4Executor).toContain('prod-ca-2021.crt');
