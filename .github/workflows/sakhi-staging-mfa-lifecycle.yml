@@ -5,6 +5,12 @@ on:
     branches:
       - test/staging-admin-mfa-lifecycle-20261119
   workflow_dispatch:
+    inputs:
+      run_mfa_integration:
+        description: 'Explicitly opt in to the synthetic-account MFA lifecycle integration test'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -146,5 +152,5 @@ jobs:
         run: npm run prisma:generate
 
       - name: Run staging MFA lifecycle integration
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && inputs.run_mfa_integration == true
         run: npx vitest run test/admin-mfa.database.integration.spec.ts --reporter=verbose
