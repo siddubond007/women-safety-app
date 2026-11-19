@@ -5,9 +5,10 @@ const { Client } = require("pg");
 
 const PROJECT_REF = "wmlpokholjfadyohdlgo";
 const EXPECTED_HOST = "aws-0-ap-south-1.pooler.supabase.com";
-const MIGRATION_TARGET = "20261119140000_admin_staff_role_constraints,20261119150000_secure_admin_bootstrap_function_search_path,20261119160000_revoke_data_api_roles_from_member_data";
+const MIGRATION_TARGET = "20261118130000_remove_legacy_admin_mfa_flag,20261119140000_admin_staff_role_constraints,20261119150000_secure_admin_bootstrap_function_search_path,20261119160000_revoke_data_api_roles_from_member_data";
 const APPROVAL_PHRASE = "YES_APPLY_20261119_STAGE4_RBAC_RLS";
 const MIGRATIONS = [
+  "20261118130000_remove_legacy_admin_mfa_flag",
   "20261119140000_admin_staff_role_constraints",
   "20261119150000_secure_admin_bootstrap_function_search_path",
   "20261119160000_revoke_data_api_roles_from_member_data",
@@ -60,6 +61,32 @@ function getClientConfig(raw, ca) {
 }
 
 async function inspectDatabase(client) {
+  const legacyMfaResult = await client.query(
+    `SELECT
+       to_regclass('public.admin_staff_mfa') IS NOT NULL AS mfa_table_exists,
+       EXISTS (
+         SELECT 1 FROM information_schema.columns
+         WHERE table_schema='public' AND table_name='admin_staff_mfa'
+           AND column_name='enrollment_verified_at'
+       ) AS has_enrollment_verified_at,
+       EXISTS (
+         SELECT 1 FROM information_schema.columns
+         WHERE table_schema='public' AND table_name='admin_staff_mfa'
+           AND column_name='disabled_at'
+       ) AS has_disabled_at,
+       EXISTS (
+         SELECT 1 FROM information_schema.columns
+         WHERE table_schema='public' AND table_name='admin_staff_accounts'
+           AND column_name='mfa_enabled'
+       ) AS legacy_flag_present`,
+  );
+  const legacyMfa = legacyMfaResult.rows[0];
+  const legacyMfaFlagRemoved =
+    legacyMfa?.mfa_table_exists === true &&
+    legacyMfa?.has_enrollment_verified_at === true &&
+    legacyMfa?.has_disabled_at === true &&
+    legacyMfa?.legacy_flag_present === false;
+
   const identity = await client.query(
     `SELECT current_database() AS database_name,current_user AS role_name,
             r.rolsuper,r.rolbypassrls
@@ -166,6 +193,7 @@ async function inspectDatabase(client) {
   );
   const grants = grantResult.rows[0];
   return {
+    legacyMfaFlagRemoved,
     roleConstraints: constraintsValid && defaultsAbsent,
     functionSearchPath: functionPinned,
     dataApiGrants: grants?.no_data_api_grants === true,
