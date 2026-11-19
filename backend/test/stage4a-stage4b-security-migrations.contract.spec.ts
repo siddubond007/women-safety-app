@@ -82,6 +82,8 @@ describe("Stage 4B database isolation hardening", () => {
       expect(apiRoleRevocationMigration).toContain(`'${role}'`);
     }
     expect(apiRoleRevocationMigration).toContain("has_table_privilege");
+    expect(apiRoleRevocationMigration).toContain("has_any_column_privilege");
+    expect(apiRoleRevocationMigration).toContain("REVOKE ALL PRIVILEGES (%I) ON TABLE public.%I FROM %I");
     expect(apiRoleRevocationMigration).toContain("Dedicated Sakhi backend role lost required protected-table access");
   });
 });
