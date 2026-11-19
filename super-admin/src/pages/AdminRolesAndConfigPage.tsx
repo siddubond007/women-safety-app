@@ -137,10 +137,6 @@ const ROLE_OPTIONS: Array<{ value: SakhiAdminRole; label: string }> = [
     value: "READ_ONLY_AUDITOR",
     label: "Role 6 — Read-only Security Auditor",
   },
-  {
-    value: "SUPER_ADMIN",
-    label: "Super Admin — Master Governance",
-  },
 ];
 
 function formatClearance(raw: string): string {
@@ -292,9 +288,7 @@ export function AdminRolesAndConfigPage() {
           role: selectedRole,
           customAccessToken: customToken.trim() || undefined,
           isAuthorisedComplaintReviewer:
-            selectedRole === "COMPLAINT_REVIEWER" ||
-            selectedRole === "SUPER_ADMIN" ||
-            isComplaintReviewer,
+            selectedRole === "COMPLAINT_REVIEWER" || isComplaintReviewer,
         },
       });
       setNewlyIssuedToken({
@@ -1045,10 +1039,7 @@ export function AdminRolesAndConfigPage() {
                   onChange={(e) => {
                     const next = e.target.value as SakhiAdminRole;
                     setSelectedRole(next);
-                    if (
-                      next === "COMPLAINT_REVIEWER" ||
-                      next === "SUPER_ADMIN"
-                    ) {
+                    if (next === "COMPLAINT_REVIEWER") {
                       setIsComplaintReviewer(true);
                     } else {
                       setIsComplaintReviewer(false);
@@ -1070,6 +1061,12 @@ export function AdminRolesAndConfigPage() {
                   ))}
                 </select>
               </label>
+
+              <p style={{ fontSize: "12px", lineHeight: 1.5, color: "#79546f", margin: "-6px 0 12px" }}>
+                Super Admin creation and promotion are disabled here until an
+                independent two-person approval workflow is available. Existing
+                Super Admin access is not affected.
+              </p>
 
               <label style={{ fontSize: "12.5px", fontWeight: 700 }}>
                 Custom Access Token / Passcode (Optional — leave blank to
@@ -1105,12 +1102,10 @@ export function AdminRolesAndConfigPage() {
                   type="checkbox"
                   checked={
                     selectedRole === "COMPLAINT_REVIEWER" ||
-                    selectedRole === "SUPER_ADMIN" ||
                     isComplaintReviewer
                   }
                   disabled={
-                    selectedRole === "COMPLAINT_REVIEWER" ||
-                    selectedRole === "SUPER_ADMIN"
+                    selectedRole === "COMPLAINT_REVIEWER"
                   }
                   onChange={(e) => setIsComplaintReviewer(e.target.checked)}
                 />
