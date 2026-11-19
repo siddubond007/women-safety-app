@@ -291,18 +291,18 @@ SQL
 # Apply the bootstrap function hardening and Stage 4B Data API revocations as
 # restricted postgres; the Stage 4B migration temporarily SET ROLEs to the
 # staging migrator for the member tables owned by that principal.
-psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \\
+psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v ON_ERROR_STOP=1 <<SQL
 SET ROLE sakhi_staging_migrator;
-\\\\i ${MIGRATION_ROOT}/20261119140000_admin_staff_role_constraints/migration.sql
+\i ${MIGRATION_ROOT}/20261119140000_admin_staff_role_constraints/migration.sql
 RESET ROLE;
 SQL
 
-psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \\
+psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v ON_ERROR_STOP=1 <<SQL
 SET ROLE postgres;
-\\\\i ${MIGRATION_ROOT}/20261119150000_secure_admin_bootstrap_function_search_path/migration.sql
-\\\\i ${MIGRATION_ROOT}/20261119160000_revoke_data_api_roles_from_member_data/migration.sql
+\i ${MIGRATION_ROOT}/20261119150000_secure_admin_bootstrap_function_search_path/migration.sql
+\i ${MIGRATION_ROOT}/20261119160000_revoke_data_api_roles_from_member_data/migration.sql
 RESET ROLE;
 SQL
 
