@@ -122,24 +122,22 @@ async function inspectDatabase(client) {
   }
 
   const roleResult = await client.query(
-    `SELECT c.conname,c.convalidated,col.column_default
+    `SELECT c.conname,c.convalidated,
+            pg_get_expr(ad.adbin,ad.adrelid) AS column_default
      FROM (VALUES
-       ('admin_staff_accounts_role_allowed_check'),
-       ('admin_staff_accounts_status_allowed_check'),
-       ('admin_staff_accounts_reviewer_role_check')
-     ) expected(name)
+       ('admin_staff_accounts_role_allowed_check','role'),
+       ('admin_staff_accounts_status_allowed_check','status'),
+       ('admin_staff_accounts_reviewer_role_check','status')
+     ) expected(name,column_name)
      LEFT JOIN pg_constraint c
        ON c.conrelid='public.admin_staff_accounts'::regclass
       AND c.conname=expected.name
-     CROSS JOIN LATERAL (
-       SELECT column_default
-       FROM information_schema.columns
-       WHERE table_schema='public' AND table_name='admin_staff_accounts'
-         AND column_name=CASE
-           WHEN expected.name='admin_staff_accounts_role_allowed_check' THEN 'role'
-           ELSE 'status'
-         END
-     ) col`,
+     LEFT JOIN pg_attribute a
+       ON a.attrelid='public.admin_staff_accounts'::regclass
+      AND a.attname=expected.column_name
+      AND a.attnum > 0 AND NOT a.attisdropped
+     LEFT JOIN pg_attrdef ad
+       ON ad.adrelid=a.attrelid AND ad.adnum=a.attnum`,
   );
   const constraintsValid = roleResult.rows.filter((row) => row.conname && row.convalidated).length === 3;
   const defaultsAbsent = roleResult.rows.length === 3 && roleResult.rows.every((row) => row.column_default === null);
