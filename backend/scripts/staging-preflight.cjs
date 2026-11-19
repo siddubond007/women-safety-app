@@ -189,14 +189,14 @@ async function main() {
     const missingTargets = expectedMigrations.filter((name) => !localMigrations.includes(name));
     const unexpectedPending = pending.filter((name) => !expectedMigrations.includes(name));
     if (missingTargets.length > 0) {
-      throw new Error("One or more reviewed reviewed staging migration directories are missing.");
+      throw new Error("One or more selected reviewed migration directories are missing.");
     }
     if (unknownApplied.length > 0) {
       throw new Error("The staging migration ledger contains migrations absent from this release tree.");
     }
     if (unexpectedPending.length > 0) {
       throw new Error(
-        "Unexpected pending migration set; only the three reviewed reviewed staging migrations are permitted.",
+        "Unexpected pending migration set; only the selected reviewed migration set is permitted.",
       );
     }
 
