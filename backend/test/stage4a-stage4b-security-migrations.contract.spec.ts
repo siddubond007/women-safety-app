@@ -98,7 +98,7 @@ describe("Stage 4B database isolation hardening", () => {
     expect(stage4MigrationRunner).toContain("SET LOCAL ROLE sakhi_staging_migrator");
     expect(stage4MigrationRunner).toContain("roleAndConnectionPreflight");
     expect(stage4MigrationRunner).toContain("verifyOwners");
-    expect(stage4MigrationRunner).toContain("prisma migrate resolve");
+    expect(stage4MigrationRunner).toContain('"prisma", "migrate", "resolve"');
     expect(reviewedMigrationRouter).toContain("never run through generic Prisma migrate deploy");
     expect(reviewedMigrationRouter).toContain("staging-apply-stage4-reviewed.sh");
     expect(prismaConfig).toContain("stage4MigrationResolveApproved");
