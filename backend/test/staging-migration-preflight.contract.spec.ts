@@ -115,6 +115,7 @@ describe("Reviewed staging migration contract", () => {
     expect(stage4LedgerResolver).toContain("legacyMfaFlagRemoved");
     expect(stage4Executor).toContain("Prisma migration history claims Stage 4 is applied");
     execFileSync(process.execPath, ["--check", fileURLToPath(new URL("../scripts/staging-stage4-migration.cjs", import.meta.url))]);
+    execFileSync(process.execPath, ["--check", fileURLToPath(new URL("../scripts/staging-stage4-ledger-resolve.cjs", import.meta.url))]);
     if (process.platform !== "win32") {
       execFileSync("bash", ["-n", fileURLToPath(new URL("../scripts/staging-apply-stage4-reviewed.sh", import.meta.url))]);
       execFileSync("bash", ["-n", fileURLToPath(new URL("../scripts/staging-migrate-reviewed.sh", import.meta.url))]);
