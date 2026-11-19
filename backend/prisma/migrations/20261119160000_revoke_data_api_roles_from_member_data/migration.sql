@@ -86,6 +86,10 @@ $stage4_owner_preflight$;
 -- Supabase's managed service_role bypasses RLS. Remove default grants from
 -- both application table-owner principals so future public-schema objects
 -- created by these roles do not silently reopen Data API access.
+-- The platform-owned supabase_admin role has separate defaults that this
+-- restricted postgres principal cannot alter (it cannot SET ROLE to that
+-- superuser). Sakhi application objects must therefore be created by
+-- sakhi_staging_migrator or postgres, never by supabase_admin.
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   REVOKE ALL ON TABLES FROM anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
