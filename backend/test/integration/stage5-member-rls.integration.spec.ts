@@ -243,6 +243,8 @@ describe.skipIf(!enabled)("Stage 5 PostgreSQL member-data RLS contract", () => {
       update_grant: boolean;
       delete_grant: boolean;
       references_grant: boolean;
+      truncate_grant: boolean;
+      trigger_grant: boolean;
     }>(
       `select t.table_name, r.role_name,
               has_table_privilege(r.role_name, format('public.%I',t.table_name), 'SELECT') as select_grant,
@@ -250,6 +252,8 @@ describe.skipIf(!enabled)("Stage 5 PostgreSQL member-data RLS contract", () => {
               has_table_privilege(r.role_name, format('public.%I',t.table_name), 'UPDATE') as update_grant,
               has_table_privilege(r.role_name, format('public.%I',t.table_name), 'DELETE') as delete_grant,
               has_table_privilege(r.role_name, format('public.%I',t.table_name), 'REFERENCES') as references_grant,
+              has_table_privilege(r.role_name, format('public.%I',t.table_name), 'TRUNCATE') as truncate_grant,
+              has_table_privilege(r.role_name, format('public.%I',t.table_name), 'TRIGGER') as trigger_grant,
               has_any_column_privilege(r.role_name, format('public.%I',t.table_name), 'SELECT') as column_select,
               has_any_column_privilege(r.role_name, format('public.%I',t.table_name), 'INSERT') as column_insert,
               has_any_column_privilege(r.role_name, format('public.%I',t.table_name), 'UPDATE') as column_update,
@@ -266,6 +270,8 @@ describe.skipIf(!enabled)("Stage 5 PostgreSQL member-data RLS contract", () => {
       expect(row.update_grant, `${row.role_name} UPDATE on ${row.table_name}`).toBe(false);
       expect(row.delete_grant, `${row.role_name} DELETE on ${row.table_name}`).toBe(false);
       expect(row.references_grant, `${row.role_name} REFERENCES on ${row.table_name}`).toBe(false);
+      expect(row.truncate_grant, `${row.role_name} TRUNCATE on ${row.table_name}`).toBe(false);
+      expect(row.trigger_grant, `${row.role_name} TRIGGER on ${row.table_name}`).toBe(false);
     }
     const columnGrants = await admin.query<{
       role_name: string;
@@ -282,6 +288,6 @@ describe.skipIf(!enabled)("Stage 5 PostgreSQL member-data RLS contract", () => {
        cross join unnest($2::text[]) as r(role_name)`,
       [protectedTables, roles],
     );
-    expect(columnGrants.filter((row) => row.has_column_grant)).toEqual([]);
+    expect(columnGrants.rows.filter((row) => row.has_column_grant)).toEqual([]);
   });
 });
