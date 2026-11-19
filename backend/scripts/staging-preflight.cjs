@@ -202,8 +202,8 @@ async function main() {
 
     process.stdout.write(
       pending.length > 0
-        ? `Staging migration preflight passed: exact Stage 3B2 target selected; ${pending.length} reviewed migration(s) remain pending and no other migration may run.\n`
-        : "Staging migration preflight passed: all three reviewed reviewed staging migrations are already applied; no schema migration is pending.\n",
+        ? `Staging migration preflight passed: exact ${selectedMigrationSet.label} target selected; ${pending.length} reviewed migration(s) remain pending and no other migration may run.\n`
+        : "Staging migration preflight passed: all ${selectedMigrationSet.migrations.length} ${selectedMigrationSet.label} migrations are already applied; no schema migration is pending.\n",
     );
   } finally {
     await client.end().catch(() => undefined);
