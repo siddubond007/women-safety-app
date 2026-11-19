@@ -18,40 +18,55 @@ const runtimeGrants = readFileSync(
   "utf8",
 );
 
-const reviewedMigrations = [
-  "20261113130000_allow_scoped_system_auth_audit",
-  "20261113140000_retention_deletion_runtime_grants",
-  "20261114110000_scope_retention_system_audit",
+const reviewedMigrationSets = [
+  {
+    migrations: [
+      "20261113130000_allow_scoped_system_auth_audit",
+      "20261113140000_retention_deletion_runtime_grants",
+      "20261114110000_scope_retention_system_audit",
+    ],
+    approval: "YES_APPLY_20261113_14_STAGE3B2",
+  },
+  {
+    migrations: [
+      "20261119140000_admin_staff_role_constraints",
+      "20261119150000_secure_admin_bootstrap_function_search_path",
+      "20261119160000_revoke_data_api_roles_from_member_data",
+    ],
+    approval: "YES_APPLY_20261119_STAGE4_RBAC_RLS",
+  },
 ];
+const reviewedMigrations = reviewedMigrationSets.flatMap((set) => set.migrations);
 
 describe("Stage 3B2 reviewed staging migration contract", () => {
-  it("requires the exact ordered three-migration target and explicit approval", () => {
+  it("requires one exact ordered reviewed migration target and its matching approval phrase", () => {
     for (const migration of reviewedMigrations) {
       expect(preflight).toContain(`"${migration}"`);
       expect(runner).toContain(migration);
     }
-    expect(preflight).toContain(
-      'const EXPECTED_MIGRATION_TARGET = EXPECTED_MIGRATIONS.join(",")',
-    );
-    expect(preflight).toContain(
-      'const APPROVAL_PHRASE = "YES_APPLY_20261113_14_STAGE3B2"',
-    );
-    expect(runner).toContain(
-      'APPROVAL_PHRASE="YES_APPLY_20261113_14_STAGE3B2"',
-    );
+    expect(preflight).toContain("const REVIEWED_MIGRATION_SETS = [");
+    expect(preflight).toContain("candidate.migrations.join(",") === process.env.SAKHI_MIGRATION_TARGET");
+    expect(preflight).toContain("selectedMigrationSet.approvalPhrase");
+    expect(runner).toContain('STAGE3B2_APPROVAL="YES_APPLY_20261113_14_STAGE3B2"');
+    expect(runner).toContain('STAGE4_APPROVAL="YES_APPLY_20261119_STAGE4_RBAC_RLS"');
+    expect(runner).toContain("case \"${SAKHI_MIGRATION_TARGET:-}\" in");
     expect(prismaConfig).toContain(
       '"20261113130000_allow_scoped_system_auth_audit,20261113140000_retention_deletion_runtime_grants,20261114110000_scope_retention_system_audit"',
     );
+    expect(prismaConfig).toContain(
+      '"20261119140000_admin_staff_role_constraints,20261119150000_secure_admin_bootstrap_function_search_path,20261119160000_revoke_data_api_roles_from_member_data"',
+    );
     expect(prismaConfig).toContain('"YES_APPLY_20261113_14_STAGE3B2"');
+    expect(prismaConfig).toContain('"YES_APPLY_20261119_STAGE4_RBAC_RLS"');
     expect(prismaConfig).not.toContain("YES_APPLY_20261106010000_MODULES8_12");
     expect(prismaConfig).not.toContain("20261106010000_modules8_9_10_11_12_complete");
     expect(preflight).not.toContain("YES_APPLY_20261106010000_MODULES8_12");
     expect(runner).not.toContain("20261106010000_modules8_9_10_11_12_complete");
   });
 
-  it("rejects every pending migration outside the reviewed Stage 3B2 set", () => {
+  it("rejects every pending migration outside the exact selected reviewed set", () => {
     expect(preflight).toContain(
-      "const unexpectedPending = pending.filter((name) => !EXPECTED_MIGRATIONS.includes(name))",
+      "const unexpectedPending = pending.filter((name) => !expectedMigrations.includes(name))",
     );
     expect(preflight).toContain("if (unknownApplied.length > 0)");
     expect(preflight).toContain("if (unexpectedPending.length > 0)");
