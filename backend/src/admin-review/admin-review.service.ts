@@ -3597,6 +3597,23 @@ export class AdminReviewService {
       ["SUPER_ADMIN"],
       "Updating Admin Staff Accounts",
     );
+    const targetStaff = SakhiAdminRbacRegistry.listStaff().find(
+      (staff) => staff.id === staffId || staff.staffCode === staffId,
+    );
+    const isSelfTarget =
+      staffId === principal.staffId || targetStaff?.id === principal.staffId;
+    if (
+      isSelfTarget &&
+      (body.role !== undefined ||
+        body.status !== undefined ||
+        body.permissions !== undefined ||
+        body.isAuthorisedComplaintReviewer !== undefined ||
+        body.clearanceLevel !== undefined)
+    ) {
+      throw new ForbiddenException(
+        "Staff cannot change their own role, status, permissions, or security clearance. Another Super Admin must perform this action.",
+      );
+    }
     if (!principal.permissions.edit) throw new ForbiddenException("The edit permission is required for Updating Admin Staff Accounts.");
     if (typeof body.status === "string") {
       const statusPermission = body.status.trim().toUpperCase() === "ACTIVE" ? "approve" : "suspend";
