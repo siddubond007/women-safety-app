@@ -460,6 +460,7 @@ async function main() {
     }
 
     if (
+      !currentState.mfaCleanupApplied ||
       !currentState.roleApplied ||
       !currentState.functionApplied ||
       !currentState.dataApplied
