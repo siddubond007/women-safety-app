@@ -5,9 +5,10 @@ const { Client } = require("pg");
 
 const PROJECT_REF = "wmlpokholjfadyohdlgo";
 const EXPECTED_HOST = "aws-0-ap-south-1.pooler.supabase.com";
-const MIGRATION_TARGET = "20261119140000_admin_staff_role_constraints,20261119150000_secure_admin_bootstrap_function_search_path,20261119160000_revoke_data_api_roles_from_member_data";
+const MIGRATION_TARGET = "20261118130000_remove_legacy_admin_mfa_flag,20261119140000_admin_staff_role_constraints,20261119150000_secure_admin_bootstrap_function_search_path,20261119160000_revoke_data_api_roles_from_member_data";
 const APPROVAL_PHRASE = "YES_APPLY_20261119_STAGE4_RBAC_RLS";
 const MIGRATIONS = [
+  "20261118130000_remove_legacy_admin_mfa_flag",
   "20261119140000_admin_staff_role_constraints",
   "20261119150000_secure_admin_bootstrap_function_search_path",
   "20261119160000_revoke_data_api_roles_from_member_data",
@@ -250,6 +251,35 @@ async function migrationLedger(migrator) {
 }
 
 async function state(postgres) {
+  const legacyMfaResult = await postgres.query(
+    `SELECT
+       to_regclass('public.admin_staff_mfa') IS NOT NULL AS mfa_table_exists,
+       EXISTS (
+         SELECT 1 FROM information_schema.columns
+         WHERE table_schema='public' AND table_name='admin_staff_mfa'
+           AND column_name='enrollment_verified_at'
+       ) AS has_enrollment_verified_at,
+       EXISTS (
+         SELECT 1 FROM information_schema.columns
+         WHERE table_schema='public' AND table_name='admin_staff_mfa'
+           AND column_name='disabled_at'
+       ) AS has_disabled_at,
+       EXISTS (
+         SELECT 1 FROM information_schema.columns
+         WHERE table_schema='public' AND table_name='admin_staff_accounts'
+           AND column_name='mfa_enabled'
+       ) AS legacy_flag_present`,
+  );
+  const legacyMfa = legacyMfaResult.rows[0];
+  if (
+    legacyMfa?.mfa_table_exists !== true ||
+    legacyMfa?.has_enrollment_verified_at !== true ||
+    legacyMfa?.has_disabled_at !== true
+  ) {
+    throw new Error("Per-staff MFA lifecycle columns are missing; refusing legacy flag cleanup.");
+  }
+  const mfaCleanupApplied = legacyMfa.legacy_flag_present === false;
+
   const roleResult = await postgres.query(
     `SELECT c.conname,c.convalidated,
             col.column_default
@@ -329,6 +359,7 @@ async function state(postgres) {
     data?.app_grants_preserved === true &&
     data?.default_acl_hardened === true;
   return {
+    mfaCleanupApplied,
     roleApplied,
     rolePartial,
     functionApplied,
@@ -347,16 +378,21 @@ async function applyMissingMigrations(postgres, currentState) {
   );
   await postgres.query("BEGIN");
   try {
-    if (!currentState.roleApplied) {
+    if (!currentState.mfaCleanupApplied || !currentState.roleApplied) {
       await postgres.query("SET LOCAL ROLE sakhi_staging_migrator");
-      await postgres.query(stripTransaction(files[0]));
+      if (!currentState.mfaCleanupApplied) {
+        await postgres.query(stripTransaction(files[0]));
+      }
+      if (!currentState.roleApplied) {
+        await postgres.query(stripTransaction(files[1]));
+      }
       await postgres.query("RESET ROLE");
     }
     if (!currentState.functionApplied) {
-      await postgres.query(stripTransaction(files[1]));
+      await postgres.query(stripTransaction(files[2]));
     }
     if (!currentState.dataApplied) {
-      await postgres.query(stripTransaction(files[2]));
+      await postgres.query(stripTransaction(files[3]));
     }
     await postgres.query("COMMIT");
   } catch (error) {
@@ -431,7 +467,7 @@ async function main() {
     }
 
     const finalState = await state(postgres);
-    if (!finalState.roleApplied || !finalState.functionApplied || !finalState.dataApplied) {
+    if (!finalState.mfaCleanupApplied || !finalState.roleApplied || !finalState.functionApplied || !finalState.dataApplied) {
       throw new Error("Stage 4 database postflight failed; Prisma migration ledger was not changed.");
     }
 
