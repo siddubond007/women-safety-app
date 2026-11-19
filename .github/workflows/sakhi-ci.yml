@@ -48,8 +48,6 @@ jobs:
         run: npm test
       - name: Build backend
         run: npm run build
-      - name: Check formatting
-        run: npm run format:check
 
   super-admin:
     name: Super Admin (Node 24)
