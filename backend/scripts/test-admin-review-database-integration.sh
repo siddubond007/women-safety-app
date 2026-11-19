@@ -204,7 +204,6 @@ ALTER TABLE public.admin_staff_accounts OWNER TO sakhi_staging_migrator;
 ALTER TABLE public.discreet_complaints OWNER TO sakhi_staging_migrator;
 ALTER TABLE public.eligibility_provider_callback_events OWNER TO sakhi_staging_migrator;
 ALTER TABLE public.admin_auth_sessions OWNER TO postgres;
-ALTER TABLE public.admin_bootstrap_credentials OWNER TO postgres;
 ALTER TABLE public.admin_staff_backup_codes OWNER TO postgres;
 ALTER TABLE public.admin_staff_mfa OWNER TO postgres;
 ALTER TABLE public.admin_staff_recovery_requests OWNER TO postgres;
@@ -213,6 +212,9 @@ ALTER TABLE public.community_circle_memberships OWNER TO postgres;
 ALTER TABLE public.community_circle_posts OWNER TO postgres;
 ALTER TABLE public.member_push_tokens OWNER TO postgres;
 ALTER TABLE public.member_wellness_preferences OWNER TO postgres;
+-- Keep the isolated integration fixture role capable of seeding and cleaning
+-- data after ownership is transferred to the staging-equivalent principals.
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO sakhi_test_migrator;
 SQL
 
 # The login role supabase_admin is the renamed cluster bootstrap superuser.
