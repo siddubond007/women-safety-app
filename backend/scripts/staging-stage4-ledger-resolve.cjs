@@ -217,8 +217,14 @@ async function main() {
   await client.connect();
   try {
     const state = await inspectDatabase(client);
-    if (Object.values(state).some((value) => value !== true)) {
-      throw new Error("Stage 4 database postconditions are not all satisfied; ledger reconciliation is blocked.");
+    const failedPostconditions = Object.entries(state)
+      .filter(([, value]) => value !== true)
+      .map(([name]) => name);
+    if (failedPostconditions.length) {
+      process.stderr.write(`Stage 4 postcondition state: ${JSON.stringify(state)}\\n`);
+      throw new Error(
+        `Stage 4 database postconditions failed (${failedPostconditions.join(",")}); ledger reconciliation is blocked.`,
+      );
     }
 
     const ledger = await client.query(
