@@ -181,6 +181,9 @@ export class UpdateProfileDto {
 
 export class CreateCommunityPostDto {
   @IsOptional()
+  @IsUUID("4")
+  clientPostId?: string;
+  @IsOptional()
   @IsString()
   @MaxLength(2000)
   content?: string;
@@ -843,6 +846,9 @@ export class UploadMediaObjectDto {
 }
 
 export class UploadBinaryMediaDto {
+  @IsOptional()
+  @IsUUID("4")
+  uploadId?: string;
   @IsOptional()
   @IsString()
   @IsIn([

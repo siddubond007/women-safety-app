@@ -1,4 +1,4 @@
-import { Injectable, ServiceUnavailableException } from "@nestjs/common";
+import { Injectable, ServiceUnavailableException , ConflictException} from "@nestjs/common";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
@@ -24,6 +24,7 @@ type GoogleDriveFile = {
   mimeType?: string;
   size?: string;
   parents?: string[];
+  appProperties?: Record<string, string>;
 };
 
 export type GoogleDriveAuthorizationCompletion =
@@ -226,6 +227,7 @@ export class GoogleDriveStorageService {
     storedName: string;
     size: number;
     sha256Checksum: string;
+    reusedExisting?: boolean;
   }> {
     if (input.buffer.length === 0) {
       throw new ServiceUnavailableException(
@@ -243,8 +245,53 @@ export class GoogleDriveStorageService {
       accessToken,
       hierarchy.segments,
     );
+    if (!/^[0-9a-f-]{36}$/i.test(input.uploadId)) {
+      throw new ServiceUnavailableException("The media upload identifier is invalid.");
+    }
     const safeFileName = this.safeFileName(input.fileName);
     const storedName = `${input.purpose}_${input.accountId.slice(0, 8)}_${input.uploadId}_${safeFileName}`;
+    const sha256Checksum = createHash("sha256").update(input.buffer).digest("hex");
+    const existingQuery = `appProperties has { key='sakhiUploadId' and value='${input.uploadId}' } and trashed = false`;
+    const existingResponse = await fetch(
+      `${DRIVE_API}/files?q=${encodeURIComponent(existingQuery)}&fields=files(id,name,mimeType,size,appProperties,parents)&pageSize=10`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    const existingPayload = (await existingResponse.json().catch(() => ({}))) as { files?: GoogleDriveFile[] };
+    if (!existingResponse.ok) {
+      throw new ServiceUnavailableException("Google Drive could not verify whether this upload already exists.");
+    }
+    const existingFiles = Array.isArray(existingPayload.files) ? existingPayload.files : [];
+    if (existingFiles.length > 1) {
+      throw new ConflictException("Multiple Google Drive objects use this upload ID. Manual reconciliation is required.");
+    }
+    if (existingFiles.length === 1) {
+      const existing = existingFiles[0];
+      const properties = existing.appProperties ?? {};
+      const matches =
+        Boolean(existing.id) &&
+        properties.sakhiUploadId === input.uploadId &&
+        properties.sakhiPurpose === input.purpose &&
+        properties.sakhiAccountId === input.accountId &&
+        properties.sakhiCategorySlug === (input.categorySlug || "community") &&
+        properties.sakhiSha256 === sha256Checksum &&
+        properties.sakhiByteSize === String(input.buffer.length) &&
+        existing.mimeType === input.contentType &&
+        Number(existing.size ?? 0) === input.buffer.length &&
+        existing.parents?.includes(parentId) === true;
+      if (!matches) {
+        throw new ConflictException("An existing Google Drive object uses this upload ID with different media metadata.");
+      }
+      return {
+        driveFileId: existing.id!,
+        driveFolderId: parentId,
+        driveFolderPath: hierarchy.displayPath,
+        storedName: existing.name ?? storedName,
+        size: Number(existing.size ?? input.buffer.length),
+        sha256Checksum,
+        reusedExisting: true,
+      };
+    }
+
     const metadata = {
       name: storedName,
       mimeType: input.contentType,
@@ -254,7 +301,7 @@ export class GoogleDriveStorageService {
         sakhiPurpose: input.purpose,
         sakhiAccountId: input.accountId,
         sakhiCategorySlug: input.categorySlug || "community",
-        sakhiSha256: createHash("sha256").update(input.buffer).digest("hex"),
+        sakhiSha256: sha256Checksum,
         sakhiByteSize: String(input.buffer.length),
       },
     };
@@ -290,7 +337,8 @@ export class GoogleDriveStorageService {
       driveFolderPath: hierarchy.displayPath,
       storedName: file.name ?? storedName,
       size: Number(file.size ?? input.buffer.length),
-      sha256Checksum: createHash("sha256").update(input.buffer).digest("hex"),
+      sha256Checksum,
+      reusedExisting: false,
     };
   }
 
