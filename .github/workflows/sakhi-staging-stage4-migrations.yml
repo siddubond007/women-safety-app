@@ -65,7 +65,7 @@ jobs:
           grep -q -- "-----END CERTIFICATE-----" prod-ca-2021.crt
 
       - name: Apply Stage 4 migrations with owner-aware preflight and postflight
-        run: ./scripts/staging-apply-stage4-reviewed.sh
+        run: bash ./scripts/staging-apply-stage4-reviewed.sh
 
       - name: Remove temporary CA file
         if: always()
