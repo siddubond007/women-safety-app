@@ -18,6 +18,7 @@ const REVIEWED_MIGRATION_SETS = [
   },
   {
     migrations: [
+      "20261118130000_remove_legacy_admin_mfa_flag",
       "20261119140000_admin_staff_role_constraints",
       "20261119150000_secure_admin_bootstrap_function_search_path",
       "20261119160000_revoke_data_api_roles_from_member_data",
