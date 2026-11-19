@@ -29,12 +29,12 @@ if [[ "${SAKHI_ENV:-}" != "staging" ]]; then
 fi
 
 if [[ "${SAKHI_ALLOW_STAGING_MIGRATIONS:-}" != "$APPROVAL_PHRASE" ]]; then
-  echo "Refusing migration: set SAKHI_ALLOW_STAGING_MIGRATIONS to the exact reviewed approval phrase for a deliberate manual run." >&2
+  echo "Refusing migration: set SAKHI_ALLOW_STAGING_MIGRATIONS to the exact approval phrase for the selected reviewed migration set." >&2
   exit 1
 fi
 
 if [[ "${SAKHI_MIGRATION_TARGET:-}" != "$EXPECTED_MIGRATIONS" ]]; then
-  echo "Refusing migration: SAKHI_MIGRATION_TARGET must list the exact three reviewed Stage 3B2 migrations in order." >&2
+  echo "Refusing migration: SAKHI_MIGRATION_TARGET must list one exact reviewed migration set in order." >&2
   exit 1
 fi
 
@@ -44,7 +44,7 @@ if [[ -z "${SAKHI_MIGRATOR_DATABASE_URL:-}" ]]; then
 fi
 
 # Read-only checks prove the exact staging project, migration role, full
-# Modules 1–7 predecessor chain, exact release tree, and permitted Stage 3B2 pending set.
+# Modules 1–7 predecessor chain, exact release tree, and permitted reviewed pending migration set.
 node scripts/staging-preflight.cjs migrations
 
 # Prisma migrate deploy is safe here only because preflight rejects every
@@ -55,4 +55,4 @@ npm run db:migrate:deploy
 ./node_modules/.bin/prisma db execute --file ./prisma/staging/runtime-grants.sql
 
 npm run db:migrate:status
-echo "Reviewed Stage 3B2 migration command completed."
+echo "Reviewed staging migration command completed."
