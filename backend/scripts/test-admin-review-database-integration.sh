@@ -131,6 +131,9 @@ MIGRATION_HOLD_DIR="$(mktemp -d)"
 MANUAL_ADMIN_MIGRATIONS=(
   "20261117140000_single_use_admin_bootstrap_credential"
   "20261117150000_staging_mfa_fixture_cleanup_role"
+  "20261119140000_admin_staff_role_constraints"
+  "20261119150000_secure_admin_bootstrap_function_search_path"
+  "20261119160000_revoke_data_api_roles_from_member_data"
 )
 restore_admin_migrations() {
   for migration in "${MANUAL_ADMIN_MIGRATIONS[@]}"; do
@@ -284,10 +287,30 @@ SET ROLE postgres;
 \\i ${MIGRATION_ROOT}/20261117150000_staging_mfa_fixture_cleanup_role/migration.sql
 SQL
 
-# The test migrator owns _prisma_migrations and can safely record only the
-# exact migrations already applied above by the table owner.
-npx prisma migrate resolve --applied 20261117140000_single_use_admin_bootstrap_credential
-npx prisma migrate resolve --applied 20261117150000_staging_mfa_fixture_cleanup_role
+# Apply the Stage 4A role constraints as the owning staging migrator.
+# Apply the bootstrap function hardening and Stage 4B Data API revocations as
+# restricted postgres; the Stage 4B migration temporarily SET ROLEs to the
+# staging migrator for the member tables owned by that principal.
+psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \\
+  -v ON_ERROR_STOP=1 <<SQL
+SET ROLE sakhi_staging_migrator;
+\\\\i ${MIGRATION_ROOT}/20261119140000_admin_staff_role_constraints/migration.sql
+RESET ROLE;
+SQL
+
+psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \\
+  -v ON_ERROR_STOP=1 <<SQL
+SET ROLE postgres;
+\\\\i ${MIGRATION_ROOT}/20261119150000_secure_admin_bootstrap_function_search_path/migration.sql
+\\\\i ${MIGRATION_ROOT}/20261119160000_revoke_data_api_roles_from_member_data/migration.sql
+RESET ROLE;
+SQL
+
+# The test migrator owns _prisma_migrations and records the exact migrations
+# already applied above under their reviewed table-owner identities.
+for migration in "${MANUAL_ADMIN_MIGRATIONS[@]}"; do
+  npx prisma migrate resolve --applied "${migration}"
+done
 
 npm run prisma:generate
 npm run db:seed
