@@ -19,6 +19,10 @@ const stage4Executor = readFileSync(
   new URL("../scripts/staging-stage4-migration.cjs", import.meta.url),
   "utf8",
 );
+const stage4LedgerResolver = readFileSync(
+  new URL("../scripts/staging-stage4-ledger-resolve.cjs", import.meta.url),
+  "utf8",
+);
 const prismaConfig = readFileSync(
   new URL("../prisma.config.ts", import.meta.url),
   "utf8",
@@ -104,7 +108,11 @@ describe("Reviewed staging migration contract", () => {
     expect(stage4Executor).toContain("rejectUnauthorized: true");
     expect(stage4Executor).toContain('"migrate", "resolve", "--applied", migration');
     expect(stage4Executor).toContain("default_acl_hardened");
+    expect(stage4Executor).toContain("20261118130000_remove_legacy_admin_mfa_flag");
+    expect(stage4Executor).toContain("currentState.mfaCleanupApplied");
     expect(stage4Executor).toContain("ledgerPostconditionMismatch");
+    expect(stage4LedgerResolver).toContain("20261118130000_remove_legacy_admin_mfa_flag");
+    expect(stage4LedgerResolver).toContain("legacyMfaFlagRemoved");
     expect(stage4Executor).toContain("Prisma migration history claims Stage 4 is applied");
     execFileSync(process.execPath, ["--check", fileURLToPath(new URL("../scripts/staging-stage4-migration.cjs", import.meta.url))]);
     if (process.platform !== "win32") {
