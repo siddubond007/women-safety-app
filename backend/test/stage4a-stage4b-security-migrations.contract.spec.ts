@@ -17,6 +17,26 @@ const schema = readFileSync(
   new URL("../prisma/schema.prisma", import.meta.url),
   "utf8",
 );
+const stage4Runner = readFileSync(
+  new URL("../scripts/staging-apply-stage4-reviewed.sh", import.meta.url),
+  "utf8",
+);
+const stage4MigrationRunner = readFileSync(
+  new URL("../scripts/staging-stage4-migration.cjs", import.meta.url),
+  "utf8",
+);
+const reviewedMigrationRouter = readFileSync(
+  new URL("../scripts/staging-migrate-reviewed.sh", import.meta.url),
+  "utf8",
+);
+const prismaConfig = readFileSync(
+  new URL("../prisma.config.ts", import.meta.url),
+  "utf8",
+);
+const stage4Workflow = readFileSync(
+  new URL("../../.github/workflows/sakhi-staging-stage4-migrations.yml", import.meta.url),
+  "utf8",
+);
 
 describe("Stage 4A admin-role database constraints", () => {
   it("requires explicit staff role and status rather than privilege-bearing defaults", () => {
@@ -69,6 +89,24 @@ describe("Stage 4B database isolation hardening", () => {
       "REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated, service_role",
     );
     expect(apiRoleRevocationMigration).toContain("Application table-owner default privileges still expose public objects");
+  });
+
+  it("routes Stage 4 through the two-role owner-aware migration gate, not generic migrate deploy", () => {
+    expect(stage4Runner).toContain("SAKHI_STAGING_POSTGRES_DATABASE_URL");
+    expect(stage4Runner).toContain("SAKHI_MIGRATOR_DATABASE_URL");
+    expect(stage4Runner).toContain("staging-stage4-migration.cjs");
+    expect(stage4MigrationRunner).toContain("SET LOCAL ROLE sakhi_staging_migrator");
+    expect(stage4MigrationRunner).toContain("roleAndConnectionPreflight");
+    expect(stage4MigrationRunner).toContain("verifyOwners");
+    expect(stage4MigrationRunner).toContain("prisma migrate resolve");
+    expect(reviewedMigrationRouter).toContain("never run through generic Prisma migrate deploy");
+    expect(reviewedMigrationRouter).toContain("staging-apply-stage4-reviewed.sh");
+    expect(prismaConfig).toContain("stage4MigrationResolveApproved");
+    expect(prismaConfig).toContain("!stage3b2MigrationApproved");
+    expect(stage4Workflow).toContain("workflow_dispatch");
+    expect(stage4Workflow).toContain("environment: staging");
+    expect(stage4Workflow).toContain("SAKHI_STAGING_POSTGRES_DATABASE_URL");
+    expect(stage4Workflow).toContain("YES_APPLY_20261119_STAGE4_RBAC_RLS");
   });
 
   it("revokes all Data API role privileges from every protected member and admin table", () => {
