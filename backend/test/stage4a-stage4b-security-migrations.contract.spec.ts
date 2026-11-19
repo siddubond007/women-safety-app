@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const roleMigration = readFileSync(
@@ -89,6 +91,29 @@ describe("Stage 4B database isolation hardening", () => {
       "REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated, service_role",
     );
     expect(apiRoleRevocationMigration).toContain("Application table-owner default privileges still expose public objects");
+  });
+
+  it("syntax-checks the Stage 4 migration runner and reviewed shell entry points", () => {
+    const nodeCheck = spawnSync(
+      process.execPath,
+      ["--check", fileURLToPath(new URL("../scripts/staging-stage4-migration.cjs", import.meta.url))],
+      { encoding: "utf8" },
+    );
+    expect(nodeCheck.status, nodeCheck.stderr).toBe(0);
+
+    if (process.platform !== "win32") {
+      for (const script of [
+        "../scripts/staging-apply-stage4-reviewed.sh",
+        "../scripts/staging-migrate-reviewed.sh",
+      ]) {
+        const shellCheck = spawnSync(
+          "bash",
+          ["-n", fileURLToPath(new URL(script, import.meta.url))],
+          { encoding: "utf8" },
+        );
+        expect(shellCheck.status, shellCheck.stderr).toBe(0);
+      }
+    }
   });
 
   it("routes Stage 4 through the two-role owner-aware migration gate, not generic migrate deploy", () => {
