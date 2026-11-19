@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { BadRequestException, ForbiddenException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import { AuthenticationService } from "../src/auth/auth.service.js";
 import { PrismaService } from "../src/database/prisma.service.js";
