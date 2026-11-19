@@ -69,7 +69,7 @@ jobs:
           if (app.hostname !== cleanup.hostname || app.pathname !== cleanup.pathname || app.port !== cleanup.port) {
             throw new Error('App and cleanup URLs do not target the same database host, path and port.');
           }
-          appendFileSync(process.env.GITHUB_ENV, envLines.join('\\n') + '\\n', { mode: 0o600 });
+          appendFileSync(process.env.GITHUB_ENV, envLines.join(String.fromCharCode(10)) + String.fromCharCode(10), { mode: 0o600 });
           console.log('Protected staging configuration shape and CA certificate validated; values withheld.');
           NODE
 
