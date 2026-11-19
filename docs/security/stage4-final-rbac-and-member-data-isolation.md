@@ -56,21 +56,50 @@ Post-application checks confirmed:
 
 The migration SQL was first dry-run in one transaction and rolled back; the committed run then passed the same postflight. No application data was modified.
 
-### Prisma migration history reconciliation
+### Prisma migration history reconciliation — complete
 
-The DDL is committed in staging. At the time of this update, the Prisma `_prisma_migrations` table still has 38 previously applied migrations and does not yet record the four-migration Stage 4 target. The first reconciliation preflight correctly stopped because `20261118130000_remove_legacy_admin_mfa_flag` was an additional pending predecessor. The exact reviewed target, Prisma gate, migration runners, workflow environment and tests were expanded to include it. One workflow attempt still carried the old three-migration environment value and was rejected by preflight without changing the ledger. After correcting the target, the next run reached postflight but the restricted migrator could not see columns on the postgres-owned `admin_staff_mfa` table through `information_schema`. The migration and both runners now inspect those columns through `pg_catalog.pg_attribute`, without broadening grants. A read-only postcondition query executed as `sakhi_staging_migrator` now confirms all Stage 4 checks are true. A new marker push will rerun ledger reconciliation. It does not execute DDL; it first verifies the live database postconditions, then runs `prisma migrate resolve --applied` with the dedicated migrator connection. It triggers only on a commit whose message contains `[STAGE4_LEDGER_RESOLVE]`.
+The four reviewed migrations are recorded in live staging. The DDL postconditions were already present before the successful ledger-recovery run; the recovery workflow verified them and reconciled Prisma history rather than reapplying DDL.
 
-## CI and release status
+- Recovery run [44501359948](https://github.com/siddubond007/women-safety-app/actions/runs/44501359948) succeeded and reported **42 migrations found; database schema is up to date**.
+- The latest catalog-based verifier [44501563438](https://github.com/siddubond007/women-safety-app/actions/runs/44501563438) also succeeded.
+- The first recovery attempt failed closed before changing the ledger. The resolver was corrected to inspect metadata through `pg_catalog`; the later run completed successfully.
+- All four migration rows have `finished_at` set and no rollback marker:
+  1. `20261118130000_remove_legacy_admin_mfa_flag`
+  2. `20261119140000_admin_staff_role_constraints`
+  3. `20261119150000_secure_admin_bootstrap_function_search_path`
+  4. `20261119160000_revoke_data_api_roles_from_member_data`
 
-- The isolated PostgreSQL 17 integration script now models the real owner split, creates a `service_role BYPASSRLS` principal, applies the Stage 4 migrations, and runs the Stage 5 member-isolation integration suite.
-- Stage 4 migration and workflow contract tests include syntax checks for the Node and shell runners.
-- GitHub Actions validation for the current branch was still running at the time of this update; final pass/fail evidence must be read from the latest commit's checks.
-- PR #55 remains a draft against `release/staging-apk-hosted-20261112`; it includes the Stage 3C dependency and Stage 4 work. It has not been merged.
-- No application deployment was triggered. Render's staging API service remains on its existing release-branch deployment; this work changed staging database security only.
+### Live staging postflight — passed
 
-## Remaining Stage 4 closure items
+Read-only checks against the active staging project confirmed:
 
-1. Confirm the current branch's backend, Super Admin, Flutter and isolated PostgreSQL 17 checks are green.
-2. Confirm the Stage 4 Prisma ledger reconciliation workflow completes and all three migration rows are recorded.
-3. Keep the `supabase_admin` default ACL limitation visible as a platform-owner follow-up; do not create Sakhi application tables under that role.
-4. Re-review PR #55 after CI evidence is complete. Do not merge or deploy as part of this migration task.
+- All 50 protected tables have RLS enabled, FORCE RLS enabled and at least one policy.
+- No table- or column-level Data API privileges remain for `PUBLIC`, `anon`, `authenticated` or `service_role` across the 50 protected tables.
+- The 10 public-schema non-RLS configuration/reference/metadata tables also have no Data API table- or column-level grants.
+- Protected-table ownership is split as reviewed: 40 tables owned by `sakhi_staging_migrator`, 10 by `postgres`.
+- Default ACLs for `postgres` and `sakhi_staging_migrator` have no matching Data API grants.
+- `sakhi_staging_app` is non-superuser and NOBYPASSRLS, retains required access, and is not a member of the migrator or PostgreSQL roles.
+- The legacy `mfa_enabled` column is absent; role/status defaults are removed; all three role/reviewer constraints are validated; the bootstrap trigger function has `search_path=pg_catalog`.
+- One active Super Admin remains; there are no invalid role/status/reviewer-clearance rows; the existing MFA record and ten recovery-code records remain.
+
+Supabase Security Advisor and Health Advisor report no lints. Performance Advisor still reports 8 unindexed foreign keys, 59 RLS init-plan findings and 112 multiple-permissive-policy findings across 11 tables. The reviewed policies are scoped to ownership, visibility, verified membership, admin identity, or transaction-local username/notification contexts; no blanket `USING (true)` policy was found. These are recorded as performance/policy-maintenance follow-ups, not as proof of an authorization bypass.
+
+The Supabase-managed `supabase_admin` role still has platform default ACL entries for future public-schema objects. Existing application tables are verified safe. New Sakhi application objects must be created by `sakhi_staging_migrator` or `postgres`, never `supabase_admin`; removing the platform role's defaults requires an owner-level Supabase path unavailable to the restricted connection.
+
+### CI and release status
+
+- PR #54, the Stage 3C workflow parent, is merged.
+- PR #55, Stage 4A/4B, is squash-merged into `release/staging-apk-hosted-20261112` at `6d773e3eeb0b5d7a190584e8c4b2dfa6ebb38f24`.
+- Checkpoint branch `checkpoint/stage4-final-20261119` has the same Git tree as the merged release commit.
+- Full validation [44502098730](https://github.com/siddubond007/women-safety-app/actions/runs/44502098730) completed successfully: backend 344 passed / 19 skipped; isolated PostgreSQL 17 Stage 5 RLS tests 5/5; MFA role-boundary test 1/1; Super Admin type-check/lint/build; Flutter analysis/tests and staging-connected debug APK build all passed.
+- The Stage 3C live staging MFA lifecycle run [44485650279](https://github.com/siddubond007/women-safety-app/actions/runs/44485650279) passed.
+- Release-branch validation [44502823639](https://github.com/siddubond007/women-safety-app/actions/runs/44502823639) and the Modules 8–9 staging APK workflow [44502823569](https://github.com/siddubond007/women-safety-app/actions/runs/44502823569) were still running at the time of this update.
+
+### Remaining release gates
+
+1. Confirm the two post-merge release workflows finish successfully.
+2. Verify the Render staging API/admin deployment and run authenticated smoke tests against the merged release. This is separate from the completed database security work.
+3. Keep the `supabase_admin` default-ACL limitation and Performance Advisor findings visible as follow-ups.
+4. Super Admin creation/promotion remains intentionally blocked until a true independent two-person approval workflow is implemented.
+
+No production database or production deployment was changed.
