@@ -12,6 +12,7 @@ function getMigrationDatasourceUrl(): string {
 
   if (environment === "staging") {
     const [commandGroup, commandAction] = process.argv.slice(2);
+    const commandArgs = process.argv.slice(2);
     const stage3b2MigrationTarget =
       "20261113130000_allow_scoped_system_auth_audit,20261113140000_retention_deletion_runtime_grants,20261114110000_scope_retention_system_audit";
     const stage3b2MigrationApproved =
@@ -34,7 +35,6 @@ function getMigrationDatasourceUrl(): string {
     const bootstrapApproved =
       process.env.SAKHI_ALLOW_STAGING_BOOTSTRAP ===
       "YES_BOOTSTRAP_SAKHI_STAGING_EMPTY_DATABASE";
-    const commandArgs = process.argv.slice(2);
     const reviewedMigrationResolveTargets = new Set([
       "20261117120000_staging_mfa_synthetic_fixture_cleanup",
       "20261117130000_staging_mfa_synthetic_fixture_select_visibility",
@@ -87,7 +87,7 @@ function getMigrationDatasourceUrl(): string {
         !(bootstrapApproved || adminMigrationResolveApproved || stage4MigrationResolveApproved)
       ) {
         throw new Error(
-          "Staging migrate resolve is restricted to an explicitly approved fresh-schema bootstrap or one of the four reviewed 2026-11-17 staging admin/MFA migrations.",
+          "Staging migrate resolve is restricted to the reviewed bootstrap, 2026-11-17 admin/MFA, or exact Stage 4 migration targets with their approval phrases.",
         );
       }
       if (
