@@ -119,7 +119,7 @@ const PROTECTED_TABLES = [
   "admin_bootstrap_credentials"
 ];
 
-function databaseUrl(raw, expectedUser, ca) {
+function databaseUrl(raw, expectedUser, ca, requireSchema) {
   if (!raw) throw new Error("Required staging database URL is missing.");
   const parsed = new URL(raw);
   if (
@@ -129,7 +129,7 @@ function databaseUrl(raw, expectedUser, ca) {
     parsed.pathname !== "/postgres" ||
     decodeURIComponent(parsed.username) !== expectedUser ||
     decodeURIComponent(parsed.password).length < 32 ||
-    parsed.searchParams.get("schema") !== "public" ||
+    (requireSchema && parsed.searchParams.get("schema") !== "public") ||
     parsed.searchParams.get("sslmode") !== "verify-full"
   ) {
     throw new Error("Staging database URL failed the exact project, role, port, schema or TLS checks.");
@@ -137,6 +137,7 @@ function databaseUrl(raw, expectedUser, ca) {
   parsed.searchParams.delete("sslmode");
   parsed.searchParams.delete("sslrootcert");
   parsed.searchParams.delete("sslcert");
+  parsed.searchParams.delete("schema");
   return {
     connectionString: parsed.toString(),
     ssl: { ca, rejectUnauthorized: true },
@@ -148,7 +149,7 @@ function databaseUrl(raw, expectedUser, ca) {
 
 async function connect(raw, role, ca) {
   const client = new Client(
-    databaseUrl(raw, `${role}.${PROJECT_REF}`, ca),
+    databaseUrl(raw, `${role}.${PROJECT_REF}`, ca, role === "sakhi_staging_migrator"),
   );
   await client.connect();
   return client;
@@ -208,6 +209,12 @@ async function roleAndConnectionPreflight(postgres, migrator) {
     m?.rolbypassrls !== false
   ) {
     throw new Error("Dedicated staging migrator connection does not match the reviewed role boundary.");
+  }
+  const serviceRole = await postgres.query(
+    "SELECT rolbypassrls FROM pg_roles WHERE rolname='service_role'",
+  );
+  if (serviceRole.rows[0]?.rolbypassrls !== true) {
+    throw new Error("Supabase service_role no longer matches the expected BYPASSRLS threat model.");
   }
   await verifyOwners(postgres);
 }
@@ -358,15 +365,30 @@ async function main() {
     "postgres",
     ca,
   );
-  const migrator = await connect(
-    process.env.SAKHI_MIGRATOR_DATABASE_URL,
-    "sakhi_staging_migrator",
-    ca,
-  );
+  let migrator;
   try {
+    migrator = await connect(
+      process.env.SAKHI_MIGRATOR_DATABASE_URL,
+      "sakhi_staging_migrator",
+      ca,
+    );
     await roleAndConnectionPreflight(postgres, migrator);
     const applied = await migrationLedger(migrator);
-    const unexpectedPending = MIGRATIONS.filter((name) => applied.has(name) === false);
+    const migrationRoot = path.join(__dirname, "..", "prisma", "migrations");
+    const localMigrations = fs
+      .readdirSync(migrationRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+    const unexpectedPending = localMigrations.filter(
+      (name) => !applied.has(name) && !MIGRATIONS.includes(name),
+    );
+    const missingReviewed = MIGRATIONS.filter(
+      (name) => !localMigrations.includes(name),
+    );
+    if (unexpectedPending.length || missingReviewed.length) {
+      throw new Error("Prisma pending migration inventory differs from the exact reviewed Stage 4 target.");
+    }
+    const pendingStage4 = MIGRATIONS.filter((name) => !applied.has(name));
     const currentState = await state(postgres);
     if (currentState.rolePartial) {
       throw new Error("Admin role constraints are partially applied; refusing automatic repair.");
@@ -386,7 +408,7 @@ async function main() {
     }
 
     // Record only the exact migrations whose DDL has passed all postflight checks.
-    for (const migration of unexpectedPending) {
+    for (const migration of pendingStage4) {
       const executable = process.platform === "win32" ? "npx.cmd" : "npx";
       const resolved = spawnSync(
         executable,
@@ -413,7 +435,7 @@ async function main() {
   } finally {
     await Promise.all([
       postgres.end().catch(() => undefined),
-      migrator.end().catch(() => undefined),
+      migrator?.end().catch(() => undefined),
     ]);
   }
 }
