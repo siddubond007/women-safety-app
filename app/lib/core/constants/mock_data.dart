@@ -2146,10 +2146,21 @@ class SakhiPrototypeState extends ChangeNotifier {
     required String contentType,
     String categorySlug = 'community',
     String cropAspectRatio = '4:5',
+    String? uploadId,
+    bool throwOnError = false,
   }) async {
     try {
       final token = await _client.readAccessToken();
-      if (token == null || token.isEmpty) return null;
+      if (token == null || token.isEmpty) {
+        if (throwOnError) {
+          throw const BackendApiException(
+            statusCode: 401,
+            code: 'session_missing',
+            message: 'Sign in again to upload this media.',
+          );
+        }
+        return null;
+      }
       final normalizedPurpose =
           (purpose == 'avatar' || purpose == 'profile_photo')
           ? 'profile_photo'
@@ -2163,6 +2174,8 @@ class SakhiPrototypeState extends ChangeNotifier {
           'purpose': normalizedPurpose,
           'categorySlug': categorySlug,
           'cropAspectRatio': cropAspectRatio,
+          if (uploadId != null && uploadId.trim().isNotEmpty)
+            'uploadId': uploadId.trim(),
         },
         fileBytes: fileBytes,
         fileName: fileName,
@@ -2174,16 +2187,39 @@ class SakhiPrototypeState extends ChangeNotifier {
                   response['publicUrl'] ??
                   '')
               .toString();
-      final uploadId = (response['uploadId'] ?? response['mediaId'] ?? '')
-          .toString();
-      if (mediaUrl.isNotEmpty && uploadId.isNotEmpty) {
+      final resolvedUploadId =
+          (response['uploadId'] ?? response['mediaId'] ?? '').toString();
+      final requestId = response['requestId']?.toString();
+      if (mediaUrl.isNotEmpty && resolvedUploadId.isNotEmpty) {
         if (normalizedPurpose == 'profile_photo') {
           currentUser.avatarAsset = mediaUrl;
           notifyListeners();
         }
-        return {'uploadId': uploadId, 'mediaUrl': mediaUrl};
+        return {
+          'uploadId': resolvedUploadId,
+          'mediaUrl': mediaUrl,
+          if (requestId != null && requestId.isNotEmpty) 'requestId': requestId,
+        };
       }
-    } catch (_) {}
+      if (throwOnError) {
+        throw BackendApiException(
+          statusCode: 502,
+          code: 'invalid_media_response',
+          message: 'Sakhi did not confirm that the media upload was stored.',
+          requestId: requestId,
+        );
+      }
+    } on BackendApiException {
+      if (throwOnError) rethrow;
+    } catch (_) {
+      if (throwOnError) {
+        throw const BackendApiException(
+          statusCode: 0,
+          code: 'media_upload_failed',
+          message: 'The media upload could not be completed. Your draft is preserved.',
+        );
+      }
+    }
     return null;
   }
 
@@ -2271,21 +2307,41 @@ class SakhiPrototypeState extends ChangeNotifier {
     bool shareToBusinessProfile = false,
     String? imageAsset,
     List<String> mediaUploadIds = const [],
+    String? clientPostId,
+    bool throwOnError = false,
   }) async {
     final trimmed = content.trim();
     final hasLocalAsset =
         imageAsset != null && imageAsset.trim().startsWith('assets/');
     if (trimmed.isEmpty && !hasLocalAsset && mediaUploadIds.isEmpty) {
+      if (throwOnError) {
+        throw const BackendApiException(
+          statusCode: 400,
+          code: 'post_content_missing',
+          message: 'Add a caption or media before publishing.',
+        );
+      }
       return false;
     }
 
     try {
       final token = await _client.readAccessToken();
-      if (token == null || token.isEmpty) return false;
+      if (token == null || token.isEmpty) {
+        if (throwOnError) {
+          throw const BackendApiException(
+            statusCode: 401,
+            code: 'session_missing',
+            message: 'Sign in again to publish this post.',
+          );
+        }
+        return false;
+      }
       final created = await _client.post(
         'module2/posts',
         authenticated: true,
         body: {
+          if (clientPostId != null && clientPostId.trim().isNotEmpty)
+            'clientPostId': clientPostId.trim(),
           'content': trimmed,
           'categoryBadge': categoryBadge ?? categorySlug,
           'categorySlug': categorySlug,
@@ -2304,7 +2360,17 @@ class SakhiPrototypeState extends ChangeNotifier {
           ? created['post'] as Map<String, dynamic>
           : created;
       final serverId = postMap['id']?.toString() ?? '';
-      if (serverId.isEmpty || serverId.startsWith('custom_')) return false;
+      if (serverId.isEmpty || serverId.startsWith('custom_')) {
+        if (throwOnError) {
+          throw BackendApiException(
+            statusCode: 502,
+            code: 'invalid_post_response',
+            message: 'Sakhi did not confirm that the post was published.',
+            requestId: created['requestId']?.toString(),
+          );
+        }
+        return false;
+      }
 
       final parsed = FeedPostModel.fromJson(postMap);
       communityPosts.removeWhere((post) => post.id == parsed.id);
@@ -2326,8 +2392,17 @@ class SakhiPrototypeState extends ChangeNotifier {
       lastSyncError = null;
       notifyListeners();
       return true;
+    } on BackendApiException {
+      if (throwOnError) rethrow;
+      return false;
     } catch (_) {
-      // A failed API call never leaves a fake locally published post behind.
+      if (throwOnError) {
+        throw const BackendApiException(
+          statusCode: 0,
+          code: 'post_publish_failed',
+          message: 'The post could not be published. Your draft is preserved.',
+        );
+      }
       return false;
     }
   }

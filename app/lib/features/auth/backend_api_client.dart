@@ -10,11 +10,13 @@ class BackendApiException implements Exception {
     required this.statusCode,
     required this.code,
     required this.message,
+    this.requestId,
   });
 
   final int statusCode;
   final String code;
   final String message;
+  final String? requestId;
 
   @override
   String toString() => 'BackendApiException($statusCode, $code)';
@@ -307,6 +309,11 @@ class BackendApiClient {
       final payload = decoded is Map<String, dynamic>
           ? decoded
           : <String, dynamic>{};
+      final requestId =
+          response.headers.value('x-request-id') ??
+          response.headers.value('x-correlation-id') ??
+          (payload['requestId'] is String ? payload['requestId'] as String : null);
+      if (requestId != null) payload['requestId'] ??= requestId;
       if (response.statusCode < 200 || response.statusCode >= 300) {
         final rawMessage = payload['message'];
         final message = rawMessage is List
@@ -320,6 +327,7 @@ class BackendApiClient {
               ? payload['code'] as String
               : 'http_${response.statusCode}',
           message: message,
+          requestId: requestId,
         );
       }
       return payload;
@@ -427,6 +435,11 @@ class BackendApiClient {
       final payload = decoded is Map<String, dynamic>
           ? decoded
           : <String, dynamic>{};
+      final requestId =
+          response.headers.value('x-request-id') ??
+          response.headers.value('x-correlation-id') ??
+          (payload['requestId'] is String ? payload['requestId'] as String : null);
+      if (requestId != null) payload['requestId'] ??= requestId;
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
         final rawMessage = payload['message'];
@@ -441,6 +454,7 @@ class BackendApiClient {
               ? payload['code'] as String
               : 'http_${response.statusCode}',
           message: message,
+          requestId: requestId,
         );
       }
       return payload;
