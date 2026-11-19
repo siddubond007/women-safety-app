@@ -16,7 +16,7 @@ Live read-only inspection on 2026-11-19 found:
 - 50 tables have RLS enabled and forced.
 - 10 remaining RLS-disabled tables are global configuration/reference tables or `_prisma_migrations`; the inspected tables had no SELECT grant for `anon`, `authenticated`, or `service_role`.
 - The dedicated `sakhi_staging_app` role is not SUPERUSER and does not have BYPASSRLS.
-- The built-in Supabase `service_role` does have BYPASSRLS. It still had SELECT grants on nine protected tables, including account-deletion requests, admin auth sessions, community-circle records, push tokens, wellness preferences and menstrual-tracker data. This is a real least-privilege gap: RLS cannot constrain a role that bypasses RLS.
+- The built-in Supabase `service_role` does have BYPASSRLS. It still had SELECT grants on nine protected tables: `account_deletion_requests`, `admin_auth_sessions`, `community_circle_memberships`, `community_circle_posts`, `member_push_tokens`, `member_wellness_preferences`, `menstrual_cycle_logs`, `menstrual_daily_logs`, and `menstrual_tracker_preferences`. This is a real least-privilege gap: RLS cannot constrain a role that bypasses RLS.
 - A new migration revokes all table privileges from `PUBLIC`, `anon`, `authenticated`, and `service_role` on all 50 protected member/admin tables, while retaining the dedicated backend role's required access. Its postflight fails if any prohibited grant remains.
 - The security advisor also reported one mutable-search-path warning for the bootstrap credential trigger function. A new migration pins that function to `search_path = pg_catalog`.
 
