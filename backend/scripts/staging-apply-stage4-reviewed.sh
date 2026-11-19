@@ -3,7 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-EXPECTED_TARGET="20261119140000_admin_staff_role_constraints,20261119150000_secure_admin_bootstrap_function_search_path,20261119160000_revoke_data_api_roles_from_member_data"
+EXPECTED_TARGET="20261118130000_remove_legacy_admin_mfa_flag,20261119140000_admin_staff_role_constraints,20261119150000_secure_admin_bootstrap_function_search_path,20261119160000_revoke_data_api_roles_from_member_data"
 APPROVAL_PHRASE="YES_APPLY_20261119_STAGE4_RBAC_RLS"
 
 if [[ "${SAKHI_ENV:-}" != "staging" ]]; then
@@ -28,12 +28,12 @@ if [[ -z "${SAKHI_MIGRATOR_DATABASE_URL:-}" ]]; then
 fi
 
 # The migrator preflight verifies the exact Supabase project, TLS target,
-# predecessor chain and that only the three reviewed Stage 4 migrations remain pending.
+# predecessor chain and that only the four reviewed Stage 4 migrations remain pending.
 node scripts/staging-preflight.cjs migrations
 
 # This owner-aware runner applies the DDL atomically as restricted postgres,
 # SET ROLEs to the migrator only for migrator-owned objects, then records the
-# exact three migrations through Prisma using the dedicated migrator URL.
+# exact four migrations through Prisma using the dedicated migrator URL.
 node scripts/staging-stage4-migration.cjs
 
 npm run db:migrate:status
