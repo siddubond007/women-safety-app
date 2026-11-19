@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - test/staging-admin-mfa-lifecycle-20261119
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -59,36 +60,91 @@ jobs:
           if (!ca.includes('-----BEGIN CERTIFICATE-----') || !ca.includes('-----END CERTIFICATE-----')) {
             throw new Error('Supabase CA certificate is not valid PEM text.');
           }
-          const keys = [
-            'SAKHI_APP_DATABASE_URL',
-            'SAKHI_MIGRATOR_DATABASE_URL',
-            'SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL',
+          const definitions = [
+            ['SAKHI_APP_DATABASE_URL', 'SAKHI_STAGING_APP_DATABASE_URL', 'sakhi_staging_app'],
+            ['SAKHI_MIGRATOR_DATABASE_URL', 'SAKHI_STAGING_MIGRATOR_DATABASE_URL', 'sakhi_staging_migrator'],
+            ['SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL', 'SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL', 'sakhi_staging_fixture_cleanup'],
           ];
           const urls = new Map();
           const envLines = [];
-          for (const key of keys) {
+          for (const [key, , role] of definitions) {
             const url = new URL(process.env[key]);
+            if (url.protocol !== 'postgres:' && url.protocol !== 'postgresql:') throw new Error(`${role}: unsupported database URL protocol.`);
+            if (url.hostname !== 'aws-0-ap-south-1.pooler.supabase.com' || url.port !== '5432' || url.pathname !== '/postgres') {
+              throw new Error(`${role}: URL must target the approved Supabase session pooler and postgres database.`);
+            }
+            const expectedUsername = `${role}.wmlpokholjfadyohdlgo`;
+            if (decodeURIComponent(url.username) !== expectedUsername) {
+              throw new Error(`${role}: username does not match the dedicated staging role.`);
+            }
+            if (decodeURIComponent(url.password).length < 32) throw new Error(`${role}: password is missing or too short.`);
+            url.searchParams.set('schema', 'public');
             url.searchParams.set('sslmode', 'verify-full');
             url.searchParams.set('sslrootcert', caPath);
             urls.set(key, url);
             envLines.push(`${key}=${url.toString()}`);
           }
           const app = urls.get('SAKHI_APP_DATABASE_URL');
-          for (const key of ['SAKHI_MIGRATOR_DATABASE_URL', 'SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL']) {
+          for (const [key] of definitions.slice(1)) {
             const candidate = urls.get(key);
             if (app.hostname !== candidate.hostname || app.pathname !== candidate.pathname || app.port !== candidate.port) {
-              throw new Error('App, migrator and cleanup URLs must target the same database host, path and port.');
+              throw new Error('All staging role URLs must target the same database host, path and port.');
             }
           }
           appendFileSync(process.env.GITHUB_ENV, envLines.join(String.fromCharCode(10)) + String.fromCharCode(10), { mode: 0o600 });
-          console.log('Protected staging configuration shape and CA certificate validated; values withheld.');
+          console.log('Staging URL structure, dedicated role names, public schema and CA certificate validated; credentials withheld.');
           NODE
 
       - name: Install backend dependencies
         run: npm ci --include=dev
 
+      - name: Verify staging role credentials (read-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import pg from 'pg';
+          const { Client } = pg;
+          const caPath = `${process.env.RUNNER_TEMP}/sakhi-db-ca/prod-ca-2021.crt`;
+          const ca = readFileSync(caPath, 'utf8');
+          const checks = [
+            ['SAKHI_APP_DATABASE_URL', 'sakhi_staging_app'],
+            ['SAKHI_MIGRATOR_DATABASE_URL', 'sakhi_staging_migrator'],
+            ['SAKHI_STAGING_FIXTURE_CLEANUP_DATABASE_URL', 'sakhi_staging_fixture_cleanup'],
+          ];
+          for (const [key, expectedRole] of checks) {
+            const url = new URL(process.env[key]);
+            url.searchParams.delete('sslmode');
+            url.searchParams.delete('sslrootcert');
+            const client = new Client({
+              connectionString: url.toString(),
+              ssl: { ca, rejectUnauthorized: true },
+              connectionTimeoutMillis: 10000,
+              statement_timeout: 10000,
+            });
+            try {
+              await client.connect();
+              const result = await client.query('SELECT current_database() AS database_name, current_user AS role_name, current_schema() AS schema_name');
+              const row = result.rows[0];
+              if (row?.database_name !== 'postgres' || row?.role_name !== expectedRole || row?.schema_name !== 'public') {
+                throw new Error('Connected identity did not match the expected database, role and schema.');
+              }
+              console.log(`PASS: ${expectedRole} authenticated over verified TLS; database=postgres; schema=public.`);
+            } catch (error) {
+              const code = typeof error?.code === 'string' ? error.code : 'IDENTITY_CHECK_FAILED';
+              console.error(`FAIL: ${expectedRole} connection check failed (${code}). Credentials and connection strings withheld.`);
+              process.exitCode = 1;
+              break;
+            } finally {
+              await client.end().catch(() => undefined);
+            }
+          }
+          NODE
+
       - name: Generate Prisma client
         run: npm run prisma:generate
 
       - name: Run staging MFA lifecycle integration
+        if: github.event_name == 'workflow_dispatch'
         run: npx vitest run test/admin-mfa.database.integration.spec.ts --reporter=verbose
