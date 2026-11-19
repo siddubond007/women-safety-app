@@ -26,10 +26,6 @@ if [[ -z "${SAKHI_MIGRATOR_DATABASE_URL:-}" ]]; then
   echo "Refusing Stage 4 migration: SAKHI_MIGRATOR_DATABASE_URL is not configured." >&2
   exit 1
 fi
-if [[ -z "${SAKHI_STAGING_SUPABASE_CA_CERT:-}" ]]; then
-  echo "Refusing Stage 4 migration: verified Supabase CA certificate is not configured." >&2
-  exit 1
-fi
 
 # The migrator preflight verifies the exact Supabase project, TLS target,
 # predecessor chain and that only the three reviewed Stage 4 migrations remain pending.
