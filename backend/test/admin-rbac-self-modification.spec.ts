@@ -93,7 +93,7 @@ describe("Super Admin self-modification boundary", () => {
       accessTokenDigest: "b".repeat(64),
       accessTokenPreview: "REDACTED",
       isAuthorisedComplaintReviewer: false,
-      clearanceLevel: null,
+      clearanceLevel: "LEVEL_2_ELIGIBILITY_SUPPORT",
       permissions: {
         ...ADMIN_ROLE_DEFINITIONS.VERIFICATION_ADMIN.defaultPermissions,
       },
