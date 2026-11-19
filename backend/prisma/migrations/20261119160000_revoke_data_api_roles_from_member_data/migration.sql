@@ -8,6 +8,7 @@ DO $revoke_member_data_api_roles$
 DECLARE
   table_name text;
   role_name text;
+  column_name text;
 BEGIN
   FOREACH table_name IN ARRAY ARRAY[
     'member_accounts',
@@ -67,6 +68,22 @@ BEGIN
 
     EXECUTE format('REVOKE ALL PRIVILEGES ON TABLE public.%I FROM PUBLIC', table_name);
 
+    -- Table-level REVOKE does not remove column-level grants. Remove those
+    -- explicitly as well so no stale Data API column ACL survives.
+    FOR column_name IN
+      SELECT a.attname
+      FROM pg_attribute a
+      WHERE a.attrelid = format('public.%I', table_name)::regclass
+        AND a.attnum > 0
+        AND NOT a.attisdropped
+    LOOP
+      EXECUTE format(
+        'REVOKE ALL PRIVILEGES (%I) ON TABLE public.%I FROM PUBLIC',
+        column_name,
+        table_name
+      );
+    END LOOP;
+
     FOREACH role_name IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
       IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
         EXECUTE format(
@@ -74,6 +91,20 @@ BEGIN
           table_name,
           role_name
         );
+        FOR column_name IN
+          SELECT a.attname
+          FROM pg_attribute a
+          WHERE a.attrelid = format('public.%I', table_name)::regclass
+            AND a.attnum > 0
+            AND NOT a.attisdropped
+        LOOP
+          EXECUTE format(
+            'REVOKE ALL PRIVILEGES (%I) ON TABLE public.%I FROM %I',
+            column_name,
+            table_name,
+            role_name
+          );
+        END LOOP;
       END IF;
     END LOOP;
   END LOOP;
@@ -145,6 +176,10 @@ BEGIN
         FOREACH privilege_name IN ARRAY ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'] LOOP
           IF has_table_privilege(role_name, format('public.%I', table_name), privilege_name) THEN
             RAISE EXCEPTION 'Role % retains % privilege on protected table public.%', role_name, privilege_name, table_name;
+          END IF;
+          IF privilege_name IN ('SELECT', 'INSERT', 'UPDATE', 'REFERENCES')
+             AND has_any_column_privilege(role_name, format('public.%I', table_name), privilege_name) THEN
+            RAISE EXCEPTION 'Role % retains column-level % privilege on protected table public.%', role_name, privilege_name, table_name;
           END IF;
         END LOOP;
       END IF;
