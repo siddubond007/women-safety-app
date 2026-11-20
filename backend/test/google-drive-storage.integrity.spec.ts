@@ -35,6 +35,79 @@ describe("Google Drive object integrity and ownership", () => {
     delete process.env.SAKHI_GOOGLE_DRIVE_REFRESH_TOKEN;
   });
 
+  it("verifies legacy member media from its owner-bound Drive SHA-256 receipt when the DB checksum is null", async () => {
+    const appProperties = {
+      sakhiAccountId: accountId,
+      sakhiPurpose: "post",
+      sakhiSha256: sha256,
+      sakhiByteSize: String(bytes.length),
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        access_token: "synthetic-access-token", expires_in: 3600,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: driveFileId, trashed: false, size: String(bytes.length), appProperties,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(bytes, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const service = new GoogleDriveStorageService();
+
+    await expect(
+      service.verifyMemberMediaFile(driveFileId, accountId, null, bytes.length),
+    ).resolves.toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects legacy member media when Drive metadata has no trusted Sakhi SHA-256 receipt", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        access_token: "synthetic-access-token", expires_in: 3600,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: driveFileId,
+        trashed: false,
+        size: String(bytes.length),
+        appProperties: {
+          sakhiAccountId: accountId,
+          sakhiPurpose: "post",
+          sakhiByteSize: String(bytes.length),
+        },
+      }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const service = new GoogleDriveStorageService();
+
+    await expect(
+      service.verifyMemberMediaFile(driveFileId, accountId, null, bytes.length),
+    ).resolves.toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects legacy member media when downloaded bytes differ from the Drive SHA-256 receipt", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        access_token: "synthetic-access-token", expires_in: 3600,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: driveFileId,
+        trashed: false,
+        size: String(bytes.length),
+        appProperties: {
+          sakhiAccountId: accountId,
+          sakhiPurpose: "post",
+          sakhiSha256: sha256,
+          sakhiByteSize: String(bytes.length),
+        },
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(Buffer.from("tampered legacy bytes"), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const service = new GoogleDriveStorageService();
+
+    await expect(
+      service.verifyMemberMediaFile(driveFileId, accountId, null, bytes.length),
+    ).resolves.toBe(false);
+  });
+
   it("retrieves and hashes complaint evidence bytes, not just Drive metadata", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(mockTokenAndMetadata({
