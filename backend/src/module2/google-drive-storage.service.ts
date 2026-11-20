@@ -574,64 +574,85 @@ export class GoogleDriveStorageService {
     }
   }
 
-  async verifyMemberMediaFile(
-    driveFileId: string,
-    ownerAccountId: string,
-    expectedSha256: string | null,
-    expectedByteSize: number,
-  ): Promise<boolean> {
+  private async readVerifiedMemberMediaFile(input: {
+    driveFileId: string;
+    ownerAccountId: string;
+    expectedSha256: string | null;
+    expectedByteSize: number;
+  }): Promise<{ buffer: Buffer; contentType: string } | null> {
     if (
-      !/^[A-Za-z0-9_-]{10,200}$/.test(driveFileId) ||
-      !/^[0-9a-f-]{36}$/i.test(ownerAccountId) ||
-      (expectedSha256 !== null && !/^[a-f0-9]{64}$/i.test(expectedSha256)) ||
-      !Number.isSafeInteger(expectedByteSize) || expectedByteSize <= 0
-    ) return false;
+      !/^[A-Za-z0-9_-]{10,200}$/.test(input.driveFileId) ||
+      !/^[0-9a-f-]{36}$/i.test(input.ownerAccountId) ||
+      (input.expectedSha256 !== null && !/^[a-f0-9]{64}$/i.test(input.expectedSha256)) ||
+      !Number.isSafeInteger(input.expectedByteSize) || input.expectedByteSize <= 0
+    ) return null;
 
     const accessToken = await this.getAccessToken();
     const metadataResponse = await fetch(
-      `${DRIVE_API}/files/${encodeURIComponent(driveFileId)}?fields=id,trashed,size,appProperties`,
+      `${DRIVE_API}/files/${encodeURIComponent(input.driveFileId)}?fields=id,trashed,size,appProperties`,
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
-    if (!metadataResponse.ok) return false;
+    if (!metadataResponse.ok) return null;
     const file = (await metadataResponse.json()) as {
       id?: string; trashed?: boolean; size?: string; appProperties?: Record<string, string>;
     };
     const driveSha256 = file.appProperties?.sakhiSha256;
     if (
-      file.id !== driveFileId || file.trashed === true ||
-      file.appProperties?.sakhiAccountId !== ownerAccountId ||
+      file.id !== input.driveFileId || file.trashed === true ||
+      file.appProperties?.sakhiAccountId !== input.ownerAccountId ||
       !["avatar", "post"].includes(file.appProperties?.sakhiPurpose ?? "") ||
       !/^[a-f0-9]{64}$/i.test(driveSha256 ?? "") ||
-      (expectedSha256 !== null && driveSha256?.toLowerCase() !== expectedSha256.toLowerCase()) ||
-      Number(file.appProperties?.sakhiByteSize) !== expectedByteSize ||
-      Number(file.size) !== expectedByteSize
-    ) return false;
+      (input.expectedSha256 !== null && driveSha256?.toLowerCase() !== input.expectedSha256.toLowerCase()) ||
+      Number(file.appProperties?.sakhiByteSize) !== input.expectedByteSize ||
+      Number(file.size) !== input.expectedByteSize
+    ) return null;
 
     const contentResponse = await fetch(
-      `${DRIVE_API}/files/${encodeURIComponent(driveFileId)}?alt=media`,
+      `${DRIVE_API}/files/${encodeURIComponent(input.driveFileId)}?alt=media`,
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
-    if (!contentResponse.ok) return false;
+    if (!contentResponse.ok) return null;
     const content = Buffer.from(await contentResponse.arrayBuffer());
     const actual = createHash("sha256").update(content).digest();
     // Older Sakhi media rows predate the database checksum column being
     // populated. Their upload-time digest remains in the owner-bound Drive
     // appProperties. Accept that receipt only after checking the owner,
     // purpose, metadata byte size, downloaded byte size and actual digest.
-    const trustedSha256 = expectedSha256 ?? driveSha256!;
+    const trustedSha256 = input.expectedSha256 ?? driveSha256!;
     const expected = Buffer.from(trustedSha256, "hex");
-    return content.length === expectedByteSize &&
-      actual.length === expected.length &&
-      timingSafeEqual(actual, expected);
+    if (
+      content.length !== input.expectedByteSize ||
+      actual.length !== expected.length ||
+      !timingSafeEqual(actual, expected)
+    ) return null;
+
+    return {
+      buffer: content,
+      contentType: contentResponse.headers.get("content-type")?.split(";")[0] ?? "application/octet-stream",
+    };
+  }
+
+  async verifyMemberMediaFile(
+    driveFileId: string,
+    ownerAccountId: string,
+    expectedSha256: string | null,
+    expectedByteSize: number,
+  ): Promise<boolean> {
+    return (await this.readVerifiedMemberMediaFile({
+      driveFileId, ownerAccountId, expectedSha256, expectedByteSize,
+    })) !== null;
   }
 
   async downloadMemberMediaFile(input: {
     driveFileId: string; ownerAccountId: string; expectedSha256: string | null; expectedByteSize: number;
   }): Promise<{ buffer: Buffer; contentType: string }> {
-    if (!(await this.verifyMemberMediaFile(input.driveFileId, input.ownerAccountId, input.expectedSha256, input.expectedByteSize))) {
+    // Return the exact byte buffer that was hashed. Do not verify one download
+    // and then issue a second download whose bytes could differ (TOCTOU).
+    const verified = await this.readVerifiedMemberMediaFile(input);
+    if (!verified) {
       throw new ServiceUnavailableException("The Google Drive media object failed owner, size or SHA-256 verification.");
     }
-    return this.downloadFile(input.driveFileId);
+    return verified;
   }
 
   async deleteMemberMediaFile(driveFileId: string, ownerAccountId: string): Promise<void> {
