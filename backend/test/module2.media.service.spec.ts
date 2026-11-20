@@ -210,6 +210,22 @@ describe("Module 2 community media authorization and persistence", () => {
     );
   });
 
+  it("resolves legacy published media when the database checksum is null and delegates Drive receipt verification", async () => {
+    tx.mediaAsset.findUnique.mockResolvedValue(communityAsset({ sha256Checksum: null }));
+    tx.communityPost.findUnique.mockResolvedValue(publishedPost());
+
+    const result = await service.resolveMediaObject("Bearer synthetic-token", uploadId);
+
+    expect(result.buffer).toEqual(imageBytes);
+    expect(drive.downloadMemberMediaFile).toHaveBeenCalledWith({
+      driveFileId: "drive-file-1",
+      ownerAccountId,
+      expectedSha256: null,
+      expectedByteSize: imageBytes.length,
+    });
+    expect(tx.auditEvent.findFirst).not.toHaveBeenCalled();
+  });
+
   it("does not expose an unattached community draft to another member", async () => {
     tx.mediaAsset.findUnique.mockResolvedValue(communityAsset({
       postId: null, status: "UPLOADED", visibility: "VERIFIED_MEMBERS",
