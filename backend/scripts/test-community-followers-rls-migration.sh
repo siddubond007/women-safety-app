@@ -14,19 +14,7 @@ fi
 
 TEST_DB="sakhi_community_rls_migration_test"
 MIGRATION="prisma/migrations/20261120130000_community_followers_rls_performance/migration.sql"
-HIDDEN_ROLES=false
-restore_roles() {
-  if [[ "$HIDDEN_ROLES" == true ]]; then
-    psql "postgresql://$PGUSER:$PGPASSWORD@$PGHOST:$PGPORT/$PGDATABASE" -v ON_ERROR_STOP=1 <<'SQL'
-ALTER ROLE sakhi_ci_hidden_dev_app RENAME TO sakhi_dev_app;
-ALTER ROLE sakhi_ci_hidden_test_app RENAME TO sakhi_test_app;
-ALTER ROLE sakhi_ci_hidden_staging_app RENAME TO sakhi_staging_app;
-SQL
-    HIDDEN_ROLES=false
-  fi
-}
 cleanup() {
-  restore_roles || true
   dropdb --if-exists --force --host="$PGHOST" --port="$PGPORT" --username="$PGUSER" "$TEST_DB" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -50,49 +38,42 @@ CREATE TABLE public.member_follows (
 CREATE TABLE public.member_moderation_blocks (id uuid PRIMARY KEY, account_id uuid, blocked_account_id uuid);
 SQL
 
-# Role names are cluster-wide. Rename the three allowlisted non-superuser
-# roles temporarily, preserving their OIDs/grants, to exercise fail-closed
-# behavior. Restore them before any subsequent test step.
-psql "postgresql://$PGUSER:$PGPASSWORD@$PGHOST:$PGPORT/$PGDATABASE" -v ON_ERROR_STOP=1 <<'SQL'
-ALTER ROLE sakhi_dev_app RENAME TO sakhi_ci_hidden_dev_app;
-ALTER ROLE sakhi_test_app RENAME TO sakhi_ci_hidden_test_app;
-ALTER ROLE sakhi_staging_app RENAME TO sakhi_ci_hidden_staging_app;
-SQL
-HIDDEN_ROLES=true
-
-if psql "$DB_URL" -v ON_ERROR_STOP=1 -f "$MIGRATION" > /tmp/sakhi-community-rls-no-role.log 2>&1; then
-  echo "Expected migration to fail when no approved Sakhi app role exists." >&2
-  exit 1
-fi
-grep -q "no approved Sakhi application role exists" /tmp/sakhi-community-rls-no-role.log || {
-  cat /tmp/sakhi-community-rls-no-role.log >&2
-  echo "Migration failed for an unexpected reason in the no-role test." >&2
-  exit 1
-}
-restore_roles
-
-# Execute the unmodified migration with all three approved runtime roles
-# present, then verify exact policy targets and the index in PostgreSQL.
+# Runtime roles are cluster-wide, so this test deliberately does not rename,
+# drop, or otherwise mutate them. The migration must discover the approved
+# roles present in this isolated CI cluster and target exactly those roles.
 psql "$DB_URL" -v ON_ERROR_STOP=1 -f "$MIGRATION"
+
 psql "$DB_URL" -v ON_ERROR_STOP=1 <<'SQL'
 DO $assertions$
 DECLARE
   policy_roles name[];
+  expected_roles name[];
 BEGIN
+  SELECT array_agg(role_name::name ORDER BY role_name)
+    INTO expected_roles
+  FROM (VALUES ('sakhi_dev_app'), ('sakhi_staging_app'), ('sakhi_test_app')) AS approved(role_name)
+  WHERE EXISTS (
+    SELECT 1 FROM pg_catalog.pg_roles r WHERE r.rolname = approved.role_name
+  );
+
+  IF expected_roles IS NULL OR cardinality(expected_roles) = 0 THEN
+    RAISE EXCEPTION 'CI fixture did not create any approved Sakhi application roles';
+  END IF;
+
   SELECT roles INTO policy_roles
   FROM pg_catalog.pg_policies
   WHERE schemaname='public' AND tablename='community_posts'
     AND policyname='community_posts_followers_read';
-  IF policy_roles IS DISTINCT FROM ARRAY['sakhi_dev_app','sakhi_staging_app','sakhi_test_app']::name[] THEN
-    RAISE EXCEPTION 'Unexpected community_posts policy roles: %', policy_roles;
+  IF policy_roles IS DISTINCT FROM expected_roles THEN
+    RAISE EXCEPTION 'Unexpected community_posts policy roles: %, expected %', policy_roles, expected_roles;
   END IF;
 
   SELECT roles INTO policy_roles
   FROM pg_catalog.pg_policies
   WHERE schemaname='public' AND tablename='media_assets'
     AND policyname='media_assets_followers_read';
-  IF policy_roles IS DISTINCT FROM ARRAY['sakhi_dev_app','sakhi_staging_app','sakhi_test_app']::name[] THEN
-    RAISE EXCEPTION 'Unexpected media_assets policy roles: %', policy_roles;
+  IF policy_roles IS DISTINCT FROM expected_roles THEN
+    RAISE EXCEPTION 'Unexpected media_assets policy roles: %, expected %', policy_roles, expected_roles;
   END IF;
 
   IF NOT EXISTS (
