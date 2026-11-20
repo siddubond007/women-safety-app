@@ -519,3 +519,7 @@ NODE_ENV=test npx vitest run test/integration/stage5-member-rls.integration.spec
 NODE_ENV=test npx vitest run test/admin-mfa-role-boundary.database.integration.spec.ts --reporter=verbose
 
 unset SAKHI_APP_DATABASE_URL SAKHI_MIGRATOR_DATABASE_URL SAKHI_ADMIN_REVIEW_TOKEN SAKHI_STAGE5_RLS_ADMIN_TEST_URL SAKHI_STAGE5_RLS_APP_TEST_URL
+
+# Execute the exact community follower RLS performance migration in a fresh
+# disposable PostgreSQL database, including its no-approved-role fail-closed path.
+bash scripts/test-community-followers-rls-migration.sh
