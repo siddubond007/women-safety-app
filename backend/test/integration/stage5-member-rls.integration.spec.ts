@@ -264,6 +264,27 @@ describe.skipIf(!enabled)("Stage 5 PostgreSQL member-data RLS contract", () => {
       expect(byName.get(table)?.relrowsecurity, `${table} RLS enabled`).toBe(true);
       expect(byName.get(table)?.relforcerowsecurity, `${table} RLS forced`).toBe(true);
     }
+
+    const followerPolicies = await admin.query<{ tablename: string; roles: string[] }>(
+      `select tablename, roles::text[] as roles
+       from pg_policies
+       where schemaname='public'
+         and policyname in ('community_posts_followers_read','media_assets_followers_read')
+       order by tablename`,
+    );
+    expect(followerPolicies.rows).toEqual([
+      { tablename: "community_posts", roles: ["sakhi_dev_app", "sakhi_test_app", "sakhi_staging_app"] },
+      { tablename: "media_assets", roles: ["sakhi_dev_app", "sakhi_test_app", "sakhi_staging_app"] },
+    ]);
+
+    const followIndex = await admin.query<{ indexdef: string }>(
+      `select indexdef from pg_indexes
+       where schemaname='public'
+         and tablename='member_follows'
+         and indexname='member_follows_directory_profile_id_idx'`,
+    );
+    expect(followIndex.rows).toHaveLength(1);
+    expect(followIndex.rows[0]?.indexdef).toContain("(directory_profile_id)");
   });
 
   it("allows member audit insertion but does not expose audit rows to member reads", async () => {
