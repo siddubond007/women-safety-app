@@ -59,6 +59,33 @@ describe("Google Drive object integrity and ownership", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it("returns the same downloaded bytes that passed legacy checksum verification", async () => {
+    const appProperties = {
+      sakhiAccountId: accountId,
+      sakhiPurpose: "post",
+      sakhiSha256: sha256,
+      sakhiByteSize: String(bytes.length),
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        access_token: "synthetic-access-token", expires_in: 3600,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: driveFileId, trashed: false, size: String(bytes.length), appProperties,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(bytes, {
+        status: 200, headers: { "content-type": "image/jpeg" },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const service = new GoogleDriveStorageService();
+
+    await expect(service.downloadMemberMediaFile({
+      driveFileId, ownerAccountId: accountId, expectedSha256: null,
+      expectedByteSize: bytes.length,
+    })).resolves.toEqual({ buffer: bytes, contentType: "image/jpeg" });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("rejects legacy member media when Drive metadata has no trusted Sakhi SHA-256 receipt", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
