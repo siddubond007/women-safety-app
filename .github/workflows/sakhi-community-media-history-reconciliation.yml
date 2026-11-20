@@ -1,0 +1,84 @@
+name: Sakhi community-media Prisma history reconciliation
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_reconcile:
+        description: "Run the exact, non-DDL Prisma history reconciliation against staging"
+        required: true
+        type: boolean
+        default: false
+      approval_phrase:
+        description: "Enter YES_RECONCILE_20261120_COMMUNITY_MEDIA exactly"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sakhi-staging-community-media-history-reconciliation
+  cancel-in-progress: false
+
+jobs:
+  reconcile-community-media-history:
+    name: Reconcile the already-applied community-media migration history
+    if: inputs.confirm_reconcile == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: staging
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      SAKHI_ENV: staging
+      SAKHI_MIGRATION_TARGET: 20261119190000_community_followers_media_visibility
+      SAKHI_ALLOW_STAGING_MIGRATIONS: ${{ inputs.approval_phrase }}
+      SAKHI_MIGRATOR_DATABASE_URL: ${{ secrets.SAKHI_STAGING_MIGRATOR_DATABASE_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.22.0
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install locked backend dependencies
+        run: npm ci --include=dev
+
+      - name: Prepare and verify pinned Supabase Root 2021 CA
+        run: bash ./scripts/prepare-staging-db-ca.sh
+
+      - name: Validate approval and dedicated staging migrator target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${SAKHI_ALLOW_STAGING_MIGRATIONS}" = "YES_RECONCILE_20261120_COMMUNITY_MEDIA" || { echo "::error::Exact community-media reconciliation approval phrase was not supplied."; exit 1; }
+          test -n "${SAKHI_MIGRATOR_DATABASE_URL}" || { echo "::error::Missing SAKHI_STAGING_MIGRATOR_DATABASE_URL environment secret."; exit 1; }
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+          import { createHash } from "node:crypto";
+          const certPath = process.env.SAKHI_DB_CA_FILE;
+          if (!certPath || !certPath.endsWith("/prod-ca-2021.crt")) {
+            throw new Error("Pinned Supabase CA file path was not exported.");
+          }
+          const cert = readFileSync(certPath);
+          if (cert.length === 0) throw new Error("Pinned Supabase CA file is empty.");
+          console.log("Dedicated migrator secret is present; secret value was not printed.");
+          console.log("Pinned Supabase Root 2021 CA file is available.");
+          NODE
+          cp "${SAKHI_DB_CA_FILE}" prod-ca-2021.crt
+          test -s prod-ca-2021.crt
+
+      - name: Reconcile only the pre-applied community-media migration in Prisma history
+        run: npx prisma migrate resolve --applied 20261119190000_community_followers_media_visibility
+
+      - name: Report migration status without applying pending migrations
+        run: npx prisma migrate status
+
+      - name: Remove temporary CA file
+        if: always()
+        run: rm -f prod-ca-2021.crt
