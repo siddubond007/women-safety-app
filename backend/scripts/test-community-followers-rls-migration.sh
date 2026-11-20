@@ -19,8 +19,11 @@ TEST_DB="sakhi_community_rls_migration_test"
 MIGRATION="prisma/migrations/20261120130000_community_followers_rls_performance/migration.sql"
 cleanup() {
   dropdb --if-exists --force --host="$PGHOST" --port="$PGPORT" --username="$PGUSER" "$TEST_DB" >/dev/null 2>&1 || true
-  psql "postgresql://$PGUSER:$PGPASSWORD@$PGHOST:$PGPORT/$PGDATABASE" -v ON_ERROR_STOP=1 \
-    -c "DROP ROLE IF EXISTS sakhi_community_rls_migration_test_role" >/dev/null 2>&1 || true
+  psql "postgresql://$PGUSER:$PGPASSWORD@$PGHOST:$PGPORT/$PGDATABASE" -v ON_ERROR_STOP=1 <<'SQL' >/dev/null 2>&1 || true
+ALTER ROLE sakhi_ci_hidden_dev_app RENAME TO sakhi_dev_app;
+ALTER ROLE sakhi_ci_hidden_test_app RENAME TO sakhi_test_app;
+ALTER ROLE sakhi_ci_hidden_staging_app RENAME TO sakhi_staging_app;
+SQL
 }
 trap cleanup EXIT
 
@@ -63,9 +66,35 @@ CREATE TABLE public.member_moderation_blocks (
 );
 SQL
 
-# No allowlisted Sakhi runtime role exists yet. The exact migration must fail
-# closed with its explicit exception instead of creating broad policies.
+# Temporarily rename the three approved roles cluster-wide inside this
+# disposable CI PostgreSQL instance. Existing grants/policy dependencies keep
+# their role OIDs and are restored to their original names immediately after
+# the expected fail-closed assertion.
+psql "postgresql://$PGUSER:$PGPASSWORD@$PGHOST:$PGPORT/$PGDATABASE" -v ON_ERROR_STOP=1 <<'SQL'
+ALTER ROLE sakhi_dev_app RENAME TO sakhi_ci_hidden_dev_app;
+ALTER ROLE sakhi_test_app RENAME TO sakhi_ci_hidden_test_app;
+ALTER ROLE sakhi_staging_app RENAME TO sakhi_ci_hidden_staging_app;
+SQL
+
 if psql "$DB_URL" -v ON_ERROR_STOP=1 -f "$MIGRATION" > /tmp/sakhi-community-rls-no-role.log 2>&1; then
+  echo "Expected the migration to fail when no approved Sakhi app role exists." >&2
+  cat /tmp/sakhi-community-rls-no-role.log >&2
+  exit 1
+fi
+if ! grep -q "no approved Sakhi application role exists" /tmp/sakhi-community-rls-no-role.log; then
+  echo "Migration failed for an unexpected reason in the no-role test." >&2
+  cat /tmp/sakhi-community-rls-no-role.log >&2
+  exit 1
+fi
+
+psql "postgresql://$PGUSER:$PGPASSWORD@$PGHOST:$PGPORT/$PGDATABASE" -v ON_ERROR_STOP=1 <<'SQL'
+ALTER ROLE sakhi_ci_hidden_dev_app RENAME TO sakhi_dev_app;
+ALTER ROLE sakhi_ci_hidden_test_app RENAME TO sakhi_test_app;
+ALTER ROLE sakhi_ci_hidden_staging_app RENAME TO sakhi_staging_app;
+SQL
+
+# The exact migration must now succeed using the restored sakhi_test_app role.
+psql "$DB_URL" -v ON_ERROR_STOP=1 -f "$MIGRATION" > /tmp/sakhi-community-rls-no-role.log 2>&1; then
   echo "Expected the migration to fail when no approved Sakhi app role exists." >&2
   cat /tmp/sakhi-community-rls-no-role.log >&2
   exit 1
@@ -95,7 +124,7 @@ BEGIN
   WHERE schemaname = 'public'
     AND tablename = 'community_posts'
     AND policyname = 'community_posts_followers_read';
-  IF policy_roles IS DISTINCT FROM ARRAY['sakhi_community_rls_migration_test_role']::name[] THEN
+  IF policy_roles IS DISTINCT FROM ARRAY['sakhi_dev_app', 'sakhi_staging_app', 'sakhi_test_app']::name[] THEN
     RAISE EXCEPTION 'community_posts policy has unexpected role targets: %', policy_roles;
   END IF;
 
@@ -104,7 +133,7 @@ BEGIN
   WHERE schemaname = 'public'
     AND tablename = 'media_assets'
     AND policyname = 'media_assets_followers_read';
-  IF policy_roles IS DISTINCT FROM ARRAY['sakhi_community_rls_migration_test_role']::name[] THEN
+  IF policy_roles IS DISTINCT FROM ARRAY['sakhi_dev_app', 'sakhi_staging_app', 'sakhi_test_app']::name[] THEN
     RAISE EXCEPTION 'media_assets policy has unexpected role targets: %', policy_roles;
   END IF;
 
