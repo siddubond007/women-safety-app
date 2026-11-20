@@ -60,7 +60,6 @@ jobs:
           test -n "${SAKHI_MIGRATOR_DATABASE_URL}" || { echo "::error::Missing SAKHI_STAGING_MIGRATOR_DATABASE_URL environment secret."; exit 1; }
           node --input-type=module <<'NODE'
           import { readFileSync } from "node:fs";
-          import { createHash } from "node:crypto";
           const certPath = process.env.SAKHI_DB_CA_FILE;
           if (!certPath || !certPath.endsWith("/prod-ca-2021.crt")) {
             throw new Error("Pinned Supabase CA file path was not exported.");
@@ -75,9 +74,6 @@ jobs:
 
       - name: Reconcile only the pre-applied community-media migration in Prisma history
         run: npx prisma migrate resolve --applied 20261119190000_community_followers_media_visibility
-
-      - name: Report migration status without applying pending migrations
-        run: npx prisma migrate status
 
       - name: Remove temporary CA file
         if: always()
