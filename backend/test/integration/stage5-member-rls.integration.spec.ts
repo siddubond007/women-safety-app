@@ -272,9 +272,22 @@ describe.skipIf(!enabled)("Stage 5 PostgreSQL member-data RLS contract", () => {
          and policyname in ('community_posts_followers_read','media_assets_followers_read')
        order by tablename`,
     );
-    expect(followerPolicies.rows).toEqual([
-      { tablename: "community_posts", roles: ["sakhi_dev_app", "sakhi_test_app", "sakhi_staging_app"] },
-      { tablename: "media_assets", roles: ["sakhi_dev_app", "sakhi_test_app", "sakhi_staging_app"] },
+    // PostgreSQL does not guarantee the order of role names in the
+    // pg_policies.roles array. Normalize only that unordered dimension,
+    // while retaining the exact policy count, table ordering, and role set.
+    const normalizedFollowerPolicies = followerPolicies.rows.map((policy) => ({
+      ...policy,
+      roles: [...policy.roles].sort(),
+    }));
+    expect(normalizedFollowerPolicies).toEqual([
+      {
+        tablename: "community_posts",
+        roles: ["sakhi_dev_app", "sakhi_staging_app", "sakhi_test_app"],
+      },
+      {
+        tablename: "media_assets",
+        roles: ["sakhi_dev_app", "sakhi_staging_app", "sakhi_test_app"],
+      },
     ]);
 
     const followIndex = await admin.query<{ indexdef: string }>(
