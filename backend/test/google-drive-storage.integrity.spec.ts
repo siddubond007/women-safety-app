@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { ConflictException } from "@nestjs/common";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GoogleDriveStorageService } from "../src/module2/google-drive-storage.service.js";
 
@@ -32,6 +33,106 @@ describe("Google Drive object integrity and ownership", () => {
     delete process.env.SAKHI_GOOGLE_DRIVE_CLIENT_ID;
     delete process.env.SAKHI_GOOGLE_DRIVE_CLIENT_SECRET;
     delete process.env.SAKHI_GOOGLE_DRIVE_REFRESH_TOKEN;
+  });
+
+  it("verifies legacy member media from its owner-bound Drive SHA-256 receipt when the DB checksum is null", async () => {
+    const appProperties = {
+      sakhiAccountId: accountId,
+      sakhiPurpose: "post",
+      sakhiSha256: sha256,
+      sakhiByteSize: String(bytes.length),
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        access_token: "synthetic-access-token", expires_in: 3600,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: driveFileId, trashed: false, size: String(bytes.length), appProperties,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(bytes, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const service = new GoogleDriveStorageService();
+
+    await expect(
+      service.verifyMemberMediaFile(driveFileId, accountId, null, bytes.length),
+    ).resolves.toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("returns the same downloaded bytes that passed legacy checksum verification", async () => {
+    const appProperties = {
+      sakhiAccountId: accountId,
+      sakhiPurpose: "post",
+      sakhiSha256: sha256,
+      sakhiByteSize: String(bytes.length),
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        access_token: "synthetic-access-token", expires_in: 3600,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: driveFileId, trashed: false, size: String(bytes.length), appProperties,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(bytes, {
+        status: 200, headers: { "content-type": "image/jpeg" },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const service = new GoogleDriveStorageService();
+
+    await expect(service.downloadMemberMediaFile({
+      driveFileId, ownerAccountId: accountId, expectedSha256: null,
+      expectedByteSize: bytes.length,
+    })).resolves.toEqual({ buffer: bytes, contentType: "image/jpeg" });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects legacy member media when Drive metadata has no trusted Sakhi SHA-256 receipt", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        access_token: "synthetic-access-token", expires_in: 3600,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: driveFileId,
+        trashed: false,
+        size: String(bytes.length),
+        appProperties: {
+          sakhiAccountId: accountId,
+          sakhiPurpose: "post",
+          sakhiByteSize: String(bytes.length),
+        },
+      }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const service = new GoogleDriveStorageService();
+
+    await expect(
+      service.verifyMemberMediaFile(driveFileId, accountId, null, bytes.length),
+    ).resolves.toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects legacy member media when downloaded bytes differ from the Drive SHA-256 receipt", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        access_token: "synthetic-access-token", expires_in: 3600,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: driveFileId,
+        trashed: false,
+        size: String(bytes.length),
+        appProperties: {
+          sakhiAccountId: accountId,
+          sakhiPurpose: "post",
+          sakhiSha256: sha256,
+          sakhiByteSize: String(bytes.length),
+        },
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(Buffer.from("tampered legacy bytes"), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const service = new GoogleDriveStorageService();
+
+    await expect(
+      service.verifyMemberMediaFile(driveFileId, accountId, null, bytes.length),
+    ).resolves.toBe(false);
   });
 
   it("retrieves and hashes complaint evidence bytes, not just Drive metadata", async () => {
@@ -124,6 +225,81 @@ describe("Google Drive object integrity and ownership", () => {
     await expect(service.deleteComplaintEvidence(driveFileId, evidenceId, sha256, bytes.length)).resolves.toBeUndefined();
     expect(fetchMock).toHaveBeenCalledTimes(14);
     expect(fetchMock.mock.calls[13]?.[1]).toMatchObject({ method: "DELETE" });
+  });
+
+  it("reuses an existing Drive object for the same upload ID instead of creating a duplicate", async () => {
+    const uploadId = "99999999-9999-4999-8999-999999999999";
+    const folderId = "synthetic-media-folder";
+    const uploadSha = createHash("sha256").update(bytes).digest("hex");
+    const appProperties = {
+      sakhiUploadId: uploadId,
+      sakhiPurpose: "post",
+      sakhiAccountId: accountId,
+      sakhiCategorySlug: "community",
+      sakhiSha256: uploadSha,
+      sakhiByteSize: String(bytes.length),
+    };
+    const fetchMock = vi.fn(async (input: unknown) => {
+      const url = String(input);
+      if (url.includes("oauth2.googleapis.com/token")) {
+        return new Response(JSON.stringify({ access_token: "synthetic-access-token", expires_in: 3600 }), { status: 200 });
+      }
+      if (url.includes("appProperties")) {
+        return new Response(JSON.stringify({
+          files: [{
+            id: driveFileId, name: "existing-sakhi-upload.jpg", mimeType: "image/jpeg",
+            size: String(bytes.length), appProperties, parents: [folderId],
+          }],
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({
+        files: [{ id: folderId, name: "synthetic-folder", mimeType: "application/vnd.google-apps.folder" }],
+      }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const service = new GoogleDriveStorageService();
+    const uploaded = await service.uploadImage({
+      uploadId, accountId, purpose: "post", categorySlug: "community",
+      fileName: "test.jpg", contentType: "image/jpeg", buffer: bytes,
+    });
+    expect(uploaded).toMatchObject({
+      driveFileId, driveFolderId: folderId, size: bytes.length,
+      sha256Checksum: uploadSha, reusedExisting: true,
+    });
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("upload/drive/v3/files"))).toBe(false);
+  });
+
+  it("rejects reuse when the same upload ID is presented with different bytes", async () => {
+    const uploadId = "99999999-9999-4999-8999-999999999999";
+    const folderId = "synthetic-media-folder";
+    const appProperties = {
+      sakhiUploadId: uploadId, sakhiPurpose: "post", sakhiAccountId: accountId,
+      sakhiCategorySlug: "community", sakhiSha256: sha256, sakhiByteSize: String(bytes.length),
+    };
+    const fetchMock = vi.fn(async (input: unknown) => {
+      const url = String(input);
+      if (url.includes("oauth2.googleapis.com/token")) {
+        return new Response(JSON.stringify({ access_token: "synthetic-access-token", expires_in: 3600 }), { status: 200 });
+      }
+      if (url.includes("appProperties")) {
+        return new Response(JSON.stringify({
+          files: [{
+            id: driveFileId, name: "existing-sakhi-upload.jpg", mimeType: "image/jpeg",
+            size: String(bytes.length), appProperties, parents: [folderId],
+          }],
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({
+        files: [{ id: folderId, name: "synthetic-folder", mimeType: "application/vnd.google-apps.folder" }],
+      }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const service = new GoogleDriveStorageService();
+    await expect(service.uploadImage({
+      uploadId, accountId, purpose: "post", categorySlug: "community",
+      fileName: "different.jpg", contentType: "image/jpeg",
+      buffer: Buffer.from("different bytes"),
+    })).rejects.toBeInstanceOf(ConflictException);
   });
 
   it("requires owner metadata before deleting a member media object", async () => {

@@ -33,6 +33,20 @@ function getMigrationDatasourceUrl(): string {
       stage4ResolveTargets.has(commandArgs[3] ?? "") &&
       process.env.SAKHI_MIGRATION_TARGET === stage4MigrationTarget &&
       process.env.SAKHI_ALLOW_STAGING_MIGRATIONS === "YES_APPLY_20261119_STAGE4_RBAC_RLS";
+    // The community-media RLS migration was already applied through the
+    // approved Supabase migration operation. Permit only an exact Prisma
+    // history reconciliation; this does not execute the migration SQL.
+    const communityMediaMigration =
+      "20261119190000_community_followers_media_visibility";
+    const communityMediaMigrationResolveApproved =
+      commandGroup === "migrate" &&
+      commandAction === "resolve" &&
+      commandArgs[2] === "--applied" &&
+      commandArgs[3] === communityMediaMigration &&
+      process.env.SAKHI_MIGRATION_TARGET === communityMediaMigration &&
+      process.env.SAKHI_ALLOW_STAGING_MIGRATIONS ===
+        "YES_RECONCILE_20261120_COMMUNITY_MEDIA";
+
     const bootstrapApproved =
       process.env.SAKHI_ALLOW_STAGING_BOOTSTRAP ===
       "YES_BOOTSTRAP_SAKHI_STAGING_EMPTY_DATABASE";
@@ -85,10 +99,10 @@ function getMigrationDatasourceUrl(): string {
       if (
         commandGroup === "migrate" &&
         commandAction === "resolve" &&
-        !(bootstrapApproved || adminMigrationResolveApproved || stage4MigrationResolveApproved)
+        !(bootstrapApproved || adminMigrationResolveApproved || stage4MigrationResolveApproved || communityMediaMigrationResolveApproved)
       ) {
         throw new Error(
-          "Staging migrate resolve is restricted to the reviewed bootstrap, 2026-11-17 admin/MFA, or exact Stage 4 migration targets with their approval phrases.",
+          "Staging migrate resolve is restricted to the reviewed bootstrap, 2026-11-17 admin/MFA, exact Stage 4 targets, or the exact pre-applied community-media migration history reconciliation with its approval phrase.",
         );
       }
       if (

@@ -18,6 +18,7 @@ export NODE_ENV=development
 export HOST=127.0.0.1
 
 APP_PASSWORD="$(openssl rand -hex 32)"
+DEV_ROLE_PASSWORD="$(openssl rand -hex 32)"
 MIGRATOR_PASSWORD="$(openssl rand -hex 32)"
 STAGING_ROLE_PASSWORD="$(openssl rand -hex 32)"
 STAGING_MIGRATOR_PASSWORD="$(openssl rand -hex 32)"
@@ -30,6 +31,7 @@ SUPABASE_RENAMER_PASSWORD="$(openssl rand -hex 32)"
 psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v ON_ERROR_STOP=1 \
   -v app_password="$APP_PASSWORD" \
+  -v dev_role_password="$DEV_ROLE_PASSWORD" \
   -v migrator_password="$MIGRATOR_PASSWORD" \
   -v staging_role_password="$STAGING_ROLE_PASSWORD" \
   -v staging_migrator_password="$STAGING_MIGRATOR_PASSWORD" \
@@ -39,6 +41,10 @@ psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
 SELECT format(
   'CREATE ROLE sakhi_test_app LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS',
   :'app_password'
+) \gexec
+SELECT format(
+  'CREATE ROLE sakhi_dev_app LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS',
+  :'dev_role_password'
 ) \gexec
 SELECT format(
   'CREATE ROLE sakhi_test_migrator LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION BYPASSRLS',
@@ -72,7 +78,7 @@ CREATE ROLE anon NOLOGIN NOSUPERUSER NOBYPASSRLS;
 CREATE ROLE authenticated NOLOGIN NOSUPERUSER NOBYPASSRLS;
 CREATE ROLE service_role NOLOGIN NOSUPERUSER BYPASSRLS;
 
-GRANT CONNECT ON DATABASE sakhi_test TO sakhi_test_app, sakhi_test_migrator, sakhi_staging_migrator, sakhi_staging_fixture_cleanup, sakhi_test_supabase_postgres;
+GRANT CONNECT ON DATABASE sakhi_test TO sakhi_test_app, sakhi_dev_app, sakhi_test_migrator, sakhi_staging_migrator, sakhi_staging_fixture_cleanup, sakhi_test_supabase_postgres;
 GRANT CREATE ON DATABASE sakhi_test TO sakhi_test_migrator;
 GRANT USAGE ON SCHEMA public TO sakhi_test_app, sakhi_staging_fixture_cleanup;
 GRANT USAGE, CREATE ON SCHEMA public TO sakhi_test_migrator, sakhi_staging_migrator, sakhi_test_supabase_postgres;
@@ -513,3 +519,7 @@ NODE_ENV=test npx vitest run test/integration/stage5-member-rls.integration.spec
 NODE_ENV=test npx vitest run test/admin-mfa-role-boundary.database.integration.spec.ts --reporter=verbose
 
 unset SAKHI_APP_DATABASE_URL SAKHI_MIGRATOR_DATABASE_URL SAKHI_ADMIN_REVIEW_TOKEN SAKHI_STAGE5_RLS_ADMIN_TEST_URL SAKHI_STAGE5_RLS_APP_TEST_URL
+
+# Execute the exact community follower RLS performance migration in a fresh
+# disposable PostgreSQL database, including its no-approved-role fail-closed path.
+bash scripts/test-community-followers-rls-migration.sh

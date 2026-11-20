@@ -1,3 +1,14 @@
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  NotFoundException,
+  Optional,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import { SakhiAdminRbacRegistry } from "../admin-review/admin-rbac.helper.js";
 import {
   SAKHI_42_WELLNESS_TRACKS,
@@ -5,19 +16,10 @@ import {
   synthesizeDeterministicLoopableWav,
   type SakhiWellnessAudioTrackMetadata,
 } from "./wellness-audio-catalog.helper.js";
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  InternalServerErrorException,
-  NotFoundException,
-  Optional,
-  ServiceUnavailableException,
-} from "@nestjs/common";
 import { createHash, randomUUID } from "node:crypto";
 import { Prisma } from "../generated/prisma/client.js";
 import { AuthenticationService } from "../auth/auth.service.js";
+import { createAuthenticatedMemberIdentity } from "../auth/member-identity.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { GoogleDriveStorageService } from "./google-drive-storage.service.js";
 import type {
@@ -117,6 +119,7 @@ export const SEEDED_COMMUNITY_MEMBERS: Array<{
 
 @Injectable()
 export class Module2Service {
+  private readonly logger = new Logger(Module2Service.name);
   private static readonly commentLikesMap = new Map<string, Set<string>>();
   private static readonly postPollMetaMap = new Map<string, { question: string; options: string[]; votes: Record<string, number> }>();
   private static readonly postExtraMediaMap = new Map<string, string[]>();
@@ -1619,9 +1622,10 @@ export class Module2Service {
     dto: CreateCommunityPostDto,
   ) {
     const session = await this.auth.authenticateAuthorization(authorization);
-    const profile = await this.prisma.memberProfile.findUnique({
-      where: { accountId: session.accountId },
-    });
+    const identity = createAuthenticatedMemberIdentity({ accountId: session.accountId, sessionId: session.id });
+    const profile = await this.prisma.withMemberIdentity(identity, (tx) =>
+      tx.memberProfile.findUnique({ where: { accountId: session.accountId } }),
+    );
     const authorName = profile?.displayName ?? "Sakhi Member";
     const authorUsername = this.deriveUsername(authorName, profile?.username);
     const authorAvatar = this.resolveMemberAvatar(
@@ -1664,7 +1668,19 @@ export class Module2Service {
         "Uploaded photos must be referenced by their returned media ID. Please upload the photo again.",
       );
     }
-    const post = await this.prisma.$transaction(async (tx) => {
+    const post = await this.prisma.withMemberIdentity(identity, async (tx) => {
+      if (dto.clientPostId) {
+        const existingPost = await tx.communityPost.findUnique({ where: { id: dto.clientPostId } });
+        if (existingPost) {
+          if (existingPost.authorAccountId !== session.accountId) {
+            throw new ConflictException("This post request ID is already associated with another account.");
+          }
+          if (existingPost.deletedAt || ["REMOVED", "MODERATED", "DELETED"].includes(existingPost.status)) {
+            throw new ConflictException("This post request ID belongs to a post that is no longer publishable.");
+          }
+          return existingPost;
+        }
+      }
       if (mediaUploadIds.length > 0) {
         const ownedUploads = await tx.mediaAsset.findMany({
           where: {
@@ -1685,6 +1701,7 @@ export class Module2Service {
       }
       const savedPost = await tx.communityPost.create({
         data: {
+          id: dto.clientPostId ?? randomUUID(),
           authorAccountId: session.accountId,
           authorName,
           authorUsername,
@@ -1726,8 +1743,8 @@ export class Module2Service {
           );
         }
       }
-      await tx.auditEvent.create({
-        data: {
+      await tx.auditEvent.createMany({
+        data: [{
           actorType: "MEMBER",
           actorId: session.accountId,
           action: "module2.community_post.created",
@@ -1741,27 +1758,19 @@ export class Module2Service {
             mediaCount: mediaUploadIds.length,
             hashtagsCount: hashtags.length,
           },
-        },
+        }],
       });
       return savedPost;
     });
 
-    const mediaAssetDelegate = (
-      this.prisma as unknown as {
-        mediaAsset?: {
-          findUnique?: (
-            args: unknown,
-          ) => Promise<{ contentType: string } | null>;
-        };
-      }
-    ).mediaAsset;
     const firstAttachedMedia =
-      mediaUploadIds.length > 0 &&
-      typeof mediaAssetDelegate?.findUnique === "function"
-        ? await mediaAssetDelegate.findUnique({
-            where: { id: mediaUploadIds[0] },
-            select: { contentType: true },
-          })
+      mediaUploadIds.length > 0
+        ? await this.prisma.withMemberIdentity(identity, (tx) =>
+            tx.mediaAsset.findUnique({
+              where: { id: mediaUploadIds[0] },
+              select: { contentType: true },
+            }),
+          )
         : null;
 
     const allMediaUrls =
@@ -4817,215 +4826,186 @@ export class Module2Service {
 
   async uploadMediaFile(
     authorization: string | undefined,
-    file: {
-      originalname: string;
-      mimetype: string;
-      buffer: Buffer;
-      size: number;
-    },
+    file: { originalname: string; mimetype: string; buffer: Buffer; size: number },
     dto: UploadBinaryMediaDto,
   ) {
     const session = await this.auth.authenticateAuthorization(authorization);
+    const identity = createAuthenticatedMemberIdentity({ accountId: session.accountId, sessionId: session.id });
     if (!Buffer.isBuffer(file.buffer) || file.buffer.length === 0) {
       throw new BadRequestException("The selected media file is empty.");
     }
-
-    const allowedTypes = [
-      "image/jpeg",
-      "image/png",
-      "image/webp",
-      "video/mp4",
-    ] as const;
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp", "video/mp4"] as const;
     const detectedMime = this.detectBinaryMimeType(file.buffer);
-    if (detectedMime) {
-      file.mimetype = detectedMime;
-    }
+    if (detectedMime) file.mimetype = detectedMime;
     const isVideo = file.mimetype === "video/mp4";
-    const isDirectMessage = ["direct_message", "DIRECT_MESSAGE_IMAGE"].includes(
-      dto.purpose ?? "",
-    );
+    const isDirectMessage = ["direct_message", "DIRECT_MESSAGE_IMAGE"].includes(dto.purpose ?? "");
     if (isDirectMessage && isVideo) {
-      throw new BadRequestException(
-        "Direct-message attachments currently support JPG, PNG, and WebP images only.",
-      );
+      throw new BadRequestException("Direct-message attachments currently support JPG, PNG, and WebP images only.");
     }
-    const maxBytes = isVideo
-      ? 50 * 1024 * 1024
-      : isDirectMessage
-        ? 15 * 1024 * 1024
-        : 10 * 1024 * 1024;
+    const maxBytes = isVideo ? 50 * 1024 * 1024 : isDirectMessage ? 15 * 1024 * 1024 : 10 * 1024 * 1024;
     if (file.size > maxBytes || file.buffer.length > maxBytes) {
       throw new BadRequestException(
-        isVideo
-          ? "Video must be 60 seconds or shorter and 50 MB or smaller."
-          : isDirectMessage
-            ? "Direct-message images must be 15 MB or smaller."
-            : "Images must be 10 MB or smaller.",
+        isVideo ? "Video must be 60 seconds or shorter and 50 MB or smaller." :
+        isDirectMessage ? "Direct-message images must be 15 MB or smaller." :
+        "Images must be 10 MB or smaller.",
       );
     }
-    if (
-      !allowedTypes.includes(file.mimetype as (typeof allowedTypes)[number])
-    ) {
-      throw new BadRequestException(
-        "Use a JPG, PNG, WebP image, or MP4 video.",
-      );
+    if (!allowedTypes.includes(file.mimetype as (typeof allowedTypes)[number])) {
+      throw new BadRequestException("Use a JPG, PNG, WebP image, or MP4 video.");
     }
     if (!this.hasExpectedImageSignature(file.mimetype, file.buffer)) {
-      throw new BadRequestException(
-        "The selected file content does not match its declared media type.",
-      );
+      throw new BadRequestException("The selected file content does not match its declared media type.");
     }
     if (isVideo) {
       const duration = this.readMp4DurationSeconds(file.buffer);
       if (duration !== null && duration > 60) {
-        throw new BadRequestException(
-          "Video must be 60 seconds or shorter and 50 MB or smaller.",
-        );
+        throw new BadRequestException("Video must be 60 seconds or shorter and 50 MB or smaller.");
       }
     }
 
     const normalizedPurpose: "avatar" | "post" =
-      dto.purpose === "avatar" ||
-      dto.purpose === "profile_photo" ||
-      dto.purpose === "PROFILE_PHOTO"
-        ? "avatar"
-        : "post";
+      dto.purpose === "avatar" || dto.purpose === "profile_photo" || dto.purpose === "PROFILE_PHOTO"
+        ? "avatar" : "post";
     if (normalizedPurpose === "avatar" && isVideo) {
-      throw new BadRequestException(
-        "Profile photos must be JPG, PNG, or WebP images.",
-      );
+      throw new BadRequestException("Profile photos must be JPG, PNG, or WebP images.");
     }
-    const uploadId = randomUUID();
+    const uploadId = dto.uploadId ?? randomUUID();
     const categorySlug = (dto.categorySlug || "community").trim().toLowerCase();
-    const cropAspectRatio =
-      dto.cropAspectRatio || (normalizedPurpose === "avatar" ? "1:1" : "4:5");
-    const isBusinessMedia =
-      !isDirectMessage &&
-      (dto.purpose === "business_media" ||
-        dto.purpose === "BUSINESS_MEDIA" ||
-        categorySlug === "business");
+    const cropAspectRatio = dto.cropAspectRatio || (normalizedPurpose === "avatar" ? "1:1" : "4:5");
+    const isBusinessMedia = !isDirectMessage &&
+      (dto.purpose === "business_media" || dto.purpose === "BUSINESS_MEDIA" || categorySlug === "business");
+    const mediaPurpose = normalizedPurpose === "avatar" ? "PROFILE_PHOTO" :
+      isBusinessMedia ? "BUSINESS_MEDIA" :
+      isDirectMessage ? "DIRECT_MESSAGE_IMAGE" :
+      isVideo ? "COMMUNITY_POST_VIDEO" : "COMMUNITY_POST_IMAGE";
+    const expectedCategorySlug = normalizedPurpose === "avatar" || isDirectMessage ? null : categorySlug;
+    const requestedSha256 = createHash("sha256").update(file.buffer).digest("hex");
+
+    if (dto.uploadId) {
+      const existingAsset = await this.prisma.withMemberIdentity(identity, (tx) =>
+        tx.mediaAsset.findUnique({ where: { id: uploadId } }),
+      );
+      if (existingAsset) {
+        const reusable =
+          existingAsset.ownerAccountId === session.accountId &&
+          existingAsset.purpose === mediaPurpose &&
+          existingAsset.storageProvider === "GOOGLE_DRIVE" &&
+          existingAsset.driveFileId !== null &&
+          existingAsset.sha256Checksum === requestedSha256 &&
+          existingAsset.byteSize === file.buffer.length &&
+          existingAsset.contentType === file.mimetype &&
+          existingAsset.categorySlug === expectedCategorySlug &&
+          existingAsset.deletedAt === null &&
+          !["DELETED", "REMOVED", "MODERATED"].includes(existingAsset.status);
+        if (!reusable) {
+          throw new ConflictException("This upload ID is already associated with different or unavailable media.");
+        }
+        const existingPublicUrl = `/api/v1/module2/media/object/${uploadId}`;
+        return {
+          uploadId, mediaId: uploadId, provider: "google_drive", purpose: normalizedPurpose,
+          driveFileId: existingAsset.driveFileId, driveFolderId: existingAsset.driveFolderId,
+          driveFolderPath: existingAsset.driveFolderPath,
+          cropAspectRatio: existingAsset.cropAspectRatio ?? cropAspectRatio,
+          objectKey: `google-drive/${existingAsset.driveFileId}`,
+          contentType: existingAsset.contentType, sizeBytes: existingAsset.byteSize,
+          publicUrl: existingPublicUrl, mediaUrl: existingPublicUrl,
+          status: "stored" as const, createdAt: existingAsset.createdAt.toISOString(),
+        };
+      }
+    }
+
     let stored: {
-      driveFileId: string;
-      driveFolderId: string;
-      driveFolderPath: string;
-      storedName: string;
-      size: number;
-      sha256Checksum: string;
+      driveFileId: string; driveFolderId: string; driveFolderPath: string;
+      storedName: string; size: number; sha256Checksum: string; reusedExisting?: boolean;
     };
     try {
-      const driveUploaded = await this.googleDrive.uploadImage({
-        uploadId,
-        accountId: session.accountId,
-        purpose: normalizedPurpose,
-        categorySlug,
-        postId: dto.postId ?? null,
-        fileName: file.originalname,
-        contentType: file.mimetype as (typeof allowedTypes)[number],
-        buffer: file.buffer,
+      stored = await this.googleDrive.uploadImage({
+        uploadId, accountId: session.accountId, purpose: normalizedPurpose, categorySlug,
+        postId: dto.postId ?? null, fileName: file.originalname,
+        contentType: file.mimetype as (typeof allowedTypes)[number], buffer: file.buffer,
       });
-      stored = driveUploaded;
     } catch (driveErr) {
-      // Fail closed: do not place private media bytes in audit JSON as an
-      // unbounded pseudo-storage fallback when Google Drive is unavailable.
-      throw driveErr;
+      this.logger.warn(
+        JSON.stringify({
+          event: "media_upload_drive_failed",
+          uploadId,
+          errorType: driveErr instanceof Error ? driveErr.name : "UnknownError",
+        }),
+      );
+      if (driveErr instanceof ConflictException) {
+        throw driveErr;
+      }
+      throw new ServiceUnavailableException(
+        "Media storage is temporarily unavailable. Please retry.",
+      );
     }
-    // Store a same-origin API path. Absolute loopback URLs work on the host
-    // machine but point back to the phone itself when the app runs on Android.
+
     const publicUrl = `/api/v1/module2/media/object/${uploadId}`;
     const uploadedAt = new Date().toISOString();
-
-    await this.prisma.auditEvent.create({
-      data: {
-        actorType: "MEMBER",
-        actorId: session.accountId,
-        action: "module2.media.uploaded",
-        targetType: "media_upload",
-        targetId: uploadId,
-        outcome: "stored",
-        requestId: uploadId,
-        redactedMetadata: {
-          uploadId,
-          fileName: stored.storedName,
-          purpose: dto.purpose,
-          contentType: file.mimetype,
-          provider: "google_drive",
-          driveFileId: stored.driveFileId,
-          objectKey: `google-drive/${stored.driveFileId}`,
-          publicUrl,
-          sizeBytes: stored.size,
-          uploadedAt,
-        },
-      },
-    });
-
-    await this.prisma.mediaAsset.create({
-      data: {
-        id: uploadId,
-        ownerAccountId: session.accountId,
-        postId: dto.postId ?? null,
-        purpose:
-          normalizedPurpose === "avatar"
-            ? "PROFILE_PHOTO"
-            : isBusinessMedia
-              ? "BUSINESS_MEDIA"
-              : isDirectMessage
-                ? "DIRECT_MESSAGE_IMAGE"
-                : isVideo
-                  ? "COMMUNITY_POST_VIDEO"
-                  : "COMMUNITY_POST_IMAGE",
-        storageProvider: "GOOGLE_DRIVE",
-        status:
-          normalizedPurpose === "avatar" || isBusinessMedia
-            ? "ATTACHED"
-            : "UPLOADED",
-        categorySlug:
-          normalizedPurpose === "avatar" || isDirectMessage ? null : categorySlug,
-        driveFileId: stored.driveFileId,
-        driveFolderId: stored.driveFolderId,
-        driveFolderPath: stored.driveFolderPath,
-        originalFileName: file.originalname,
-        contentType: file.mimetype,
-        byteSize: stored.size,
-        sha256Checksum: stored.sha256Checksum,
-        cropAspectRatio,
-        visibility: isDirectMessage ? "PRIVATE_SELF" : "VERIFIED_MEMBERS",
-      },
-    });
-
-    if (normalizedPurpose === "avatar") {
-      const updatedProfile = await this.prisma.memberProfile.update({
-        where: { accountId: session.accountId },
-        data: { avatarAsset: publicUrl, avatarMediaAssetId: uploadId },
-        select: { username: true },
-      });
-      if (updatedProfile.username) {
-        await this.prisma.communityDirectoryProfile.updateMany({
-          where: { username: updatedProfile.username },
-          data: { avatarAsset: publicUrl },
+    try {
+      await this.prisma.withMemberIdentity(identity, async (tx) => {
+        await tx.auditEvent.createMany({
+          data: [{
+            actorType: "MEMBER", actorId: session.accountId, action: "module2.media.uploaded",
+            targetType: "media_upload", targetId: uploadId, outcome: "stored", requestId: uploadId,
+            redactedMetadata: {
+              uploadId, fileName: stored.storedName, purpose: dto.purpose,
+              contentType: file.mimetype, provider: "google_drive", driveFileId: stored.driveFileId,
+              objectKey: `google-drive/${stored.driveFileId}`, publicUrl,
+              sizeBytes: stored.size, uploadedAt,
+            },
+          }],
         });
-      }
-      await this.prisma.communityPost.updateMany({
-        where: { authorAccountId: session.accountId },
-        data: { authorAvatar: publicUrl },
+        await tx.mediaAsset.create({
+          data: {
+            id: uploadId, ownerAccountId: session.accountId, postId: dto.postId ?? null,
+            purpose: mediaPurpose, storageProvider: "GOOGLE_DRIVE",
+            status: normalizedPurpose === "avatar" || isBusinessMedia ? "ATTACHED" : "UPLOADED",
+            categorySlug: expectedCategorySlug, driveFileId: stored.driveFileId,
+            driveFolderId: stored.driveFolderId, driveFolderPath: stored.driveFolderPath,
+            originalFileName: file.originalname, contentType: file.mimetype,
+            byteSize: stored.size, sha256Checksum: stored.sha256Checksum,
+            cropAspectRatio, visibility: isDirectMessage ? "PRIVATE_SELF" : "VERIFIED_MEMBERS",
+          },
+        });
+        if (normalizedPurpose === "avatar") {
+          const updatedProfile = await tx.memberProfile.update({
+            where: { accountId: session.accountId },
+            data: { avatarAsset: publicUrl, avatarMediaAssetId: uploadId },
+            select: { username: true },
+          });
+          if (updatedProfile.username) {
+            await tx.communityDirectoryProfile.updateMany({
+              where: { username: updatedProfile.username }, data: { avatarAsset: publicUrl },
+            });
+          }
+          await tx.communityPost.updateMany({
+            where: { authorAccountId: session.accountId }, data: { authorAvatar: publicUrl },
+          });
+        }
       });
+    } catch (persistenceError) {
+      if (stored.reusedExisting !== true) {
+        try {
+          await this.googleDrive.deleteMemberMediaFile(stored.driveFileId, session.accountId);
+        } catch (cleanupError) {
+          this.logger.error(JSON.stringify({
+            event: "media_upload_compensation_failed", uploadId,
+            persistenceErrorType: persistenceError instanceof Error ? persistenceError.name : "UnknownError",
+            cleanupErrorType: cleanupError instanceof Error ? cleanupError.name : "UnknownError",
+          }));
+        }
+      }
+      throw persistenceError;
     }
 
     return {
-      uploadId,
-      mediaId: uploadId,
-      provider: "google_drive",
-      purpose: normalizedPurpose,
-      driveFileId: stored.driveFileId,
-      driveFolderId: stored.driveFolderId,
-      driveFolderPath: stored.driveFolderPath,
-      cropAspectRatio,
-      objectKey: `google-drive/${stored.driveFileId}`,
-      contentType: file.mimetype,
-      sizeBytes: stored.size,
-      publicUrl,
-      mediaUrl: publicUrl,
-      status: "stored" as const,
-      createdAt: uploadedAt,
+      uploadId, mediaId: uploadId, provider: "google_drive", purpose: normalizedPurpose,
+      driveFileId: stored.driveFileId, driveFolderId: stored.driveFolderId,
+      driveFolderPath: stored.driveFolderPath, cropAspectRatio,
+      objectKey: `google-drive/${stored.driveFileId}`, contentType: file.mimetype,
+      sizeBytes: stored.size, publicUrl, mediaUrl: publicUrl,
+      status: "stored" as const, createdAt: uploadedAt,
     };
   }
 
@@ -5118,305 +5098,174 @@ export class Module2Service {
 
   async listMediaObjects(authorization: string | undefined) {
     const session = await this.auth.authenticateAuthorization(authorization);
-    const events = await this.prisma.auditEvent.findMany({
-      where: {
-        actorId: session.accountId,
-        action: "module2.media.uploaded",
-      },
-      orderBy: { createdAt: "desc" },
-      take: 40,
-    });
-    return events.map((event) => {
-      const meta =
-        event.redactedMetadata &&
-        typeof event.redactedMetadata === "object" &&
-        !Array.isArray(event.redactedMetadata)
-          ? (event.redactedMetadata as Record<string, unknown>)
-          : {};
-      return {
-        uploadId: event.targetId ?? event.id,
-        action: event.action,
-        actorId: event.actorId,
-        fileName: typeof meta.fileName === "string" ? meta.fileName : "media",
-        purpose: typeof meta.purpose === "string" ? meta.purpose : "post",
-        contentType:
-          typeof meta.contentType === "string"
-            ? meta.contentType
-            : "image/jpeg",
-        provider:
-          typeof meta.provider === "string" ? meta.provider : "google_drive",
-        objectKey: typeof meta.objectKey === "string" ? meta.objectKey : "",
-        driveFileId:
-          typeof meta.driveFileId === "string" ? meta.driveFileId : null,
-        sizeBytes: typeof meta.sizeBytes === "number" ? meta.sizeBytes : null,
-        publicUrl: typeof meta.publicUrl === "string" ? meta.publicUrl : "",
-        createdAt: event.createdAt.toISOString(),
-      };
-    });
+    const identity = createAuthenticatedMemberIdentity({ accountId: session.accountId, sessionId: session.id });
+    const assets = await this.prisma.withMemberIdentity(identity, (tx) =>
+      tx.mediaAsset.findMany({
+        where: {
+          ownerAccountId: session.accountId,
+          deletedAt: null,
+          purpose: { in: ["PROFILE_PHOTO", "COMMUNITY_POST_IMAGE", "COMMUNITY_POST_VIDEO", "BUSINESS_MEDIA", "DIRECT_MESSAGE_IMAGE"] },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 40,
+      }),
+    );
+    return assets.map((asset) => ({
+      uploadId: asset.id, action: "module2.media.uploaded", actorId: asset.ownerAccountId,
+      fileName: asset.originalFileName, purpose: asset.purpose, contentType: asset.contentType,
+      provider: String(asset.storageProvider).toLowerCase(),
+      objectKey: asset.driveFileId ? `google-drive/${asset.driveFileId}` : null,
+      driveFileId: asset.driveFileId, sizeBytes: asset.byteSize,
+      publicUrl: `/api/v1/module2/media/object/${asset.id}`,
+      status: asset.status, visibility: asset.visibility, createdAt: asset.createdAt.toISOString(),
+    }));
   }
 
   async resolveMediaObject(
     authorization: string | undefined,
     uploadId: string,
-  ): Promise<{
-    contentType: string;
-    buffer: Buffer;
-    redirectUrl?: string;
-  }> {
+  ): Promise<{ contentType: string; buffer: Buffer; redirectUrl?: string }> {
     const session = await this.auth.authenticateAuthorization(authorization);
-    const [event, asset] = await Promise.all([
-      this.prisma.auditEvent.findFirst({
-        where: {
-          targetId: uploadId,
-          action: "module2.media.uploaded",
-        },
-        orderBy: { createdAt: "desc" },
-      }),
-      this.prisma.mediaAsset.findUnique({
-        where: { id: uploadId },
-      }),
-    ]);
-    if (!event) {
-      throw new NotFoundException("The media upload record was not found.");
-    }
-    const anyPrisma = this.prisma as Record<string, any>;
-    if (typeof anyPrisma.directMessage?.findFirst !== "function") {
-      throw new InternalServerErrorException(
-        "Direct-message media authorization is unavailable.",
-      );
-    }
-    const directMessageAttachment = await anyPrisma.directMessage.findFirst({
-      where: { mediaUploadId: uploadId },
-      select: {
-        senderAccountId: true,
-        recipientAccountId: true,
-        requestStatus: true,
-      },
-    });
-    const isDirectMessageParticipant = directMessageAttachment
-      ? directMessageAttachment.senderAccountId === session.accountId ||
-        directMessageAttachment.recipientAccountId === session.accountId
-      : false;
-    if (directMessageAttachment && !isDirectMessageParticipant) {
-      throw new ForbiddenException(
-        "Direct-message media is restricted to the conversation participants.",
-      );
-    }
-    if (
-      directMessageAttachment &&
-      (asset?.ownerAccountId ?? event.actorId) !==
-        directMessageAttachment.senderAccountId
-    ) {
-      throw new ForbiddenException(
-        "Direct-message media ownership does not match its sender.",
-      );
-    }
-    if (
-      directMessageAttachment &&
-      directMessageAttachment.recipientAccountId === session.accountId &&
-      directMessageAttachment.requestStatus !== "ACCEPTED"
-    ) {
-      throw new ForbiddenException(
-        "Accept this message request before viewing its attachment.",
-      );
-    }
-    if (
-      directMessageAttachment &&
-      directMessageAttachment.senderAccountId !== session.accountId &&
-      session.testAccessApproved !== true &&
-      (session.account.status !== "ACTIVE" ||
-        session.account.verificationStatus !== "VERIFIED")
-    ) {
-      throw new ForbiddenException(
-        "Verified active membership is required to view this attachment.",
-      );
-    }
-    if (
-      !asset &&
-      event.actorId !== session.accountId &&
-      !directMessageAttachment
-    ) {
-      throw new ForbiddenException("Media access is restricted to its owner.");
-    }
-    if (
-      asset &&
-      (asset.deletedAt ||
-        ["DELETED", "REMOVED", "MODERATED"].includes(asset.status))
-    ) {
-      throw new NotFoundException("This media is no longer available.");
-    }
+    const identity = createAuthenticatedMemberIdentity({ accountId: session.accountId, sessionId: session.id });
 
-    const isOwner = asset
-      ? asset.ownerAccountId === session.accountId
-      : event.actorId === session.accountId;
-    let attachedPost: {
-      id: string;
-      authorAccountId: string | null;
-      visibility: string;
-      status: string;
-      deletedAt: Date | null;
-    } | null = null;
-    if (asset?.postId) {
-      attachedPost = await this.prisma.communityPost.findUnique({
-        where: { id: asset.postId },
-        select: {
-          id: true,
-          authorAccountId: true,
-          visibility: true,
-          status: true,
-          deletedAt: true,
-        },
+    // media_assets is authoritative. Member requests must not depend on an
+    // audit_events read, which is intentionally restricted to administrators.
+    const access = await this.prisma.withMemberIdentity(identity, async (tx) => {
+      const asset = await tx.mediaAsset.findUnique({ where: { id: uploadId } });
+      if (!asset) return null;
+      const directMessageAttachment = await tx.directMessage.findFirst({
+        where: { mediaUploadId: uploadId },
+        select: { senderAccountId: true, recipientAccountId: true, requestStatus: true },
       });
-      if (
-        !attachedPost ||
-        attachedPost.deletedAt ||
-        !["PUBLISHED", "EDITED"].includes(attachedPost.status)
-      ) {
-        throw new NotFoundException(
-          "The post containing this media is no longer available.",
-        );
-      }
+      const attachedPost = asset.postId
+        ? await tx.communityPost.findUnique({ where: { id: asset.postId } })
+        : null;
+      const isOwner = asset.ownerAccountId === session.accountId;
+      const needsDirectoryProfile = !isOwner && !directMessageAttachment &&
+        (asset.purpose === "PROFILE_PHOTO" || asset.visibility === "FOLLOWERS_ONLY" ||
+          attachedPost?.visibility === "FOLLOWERS_ONLY");
+      const ownerDirectoryProfile = needsDirectoryProfile
+        ? await tx.communityDirectoryProfile.findUnique({
+            where: { accountId: asset.ownerAccountId },
+            select: { id: true, profileVisibility: true, searchable: true },
+          })
+        : null;
+      const ownerFollow = ownerDirectoryProfile
+        ? await tx.memberFollow.findUnique({
+            where: { accountId_directoryProfileId: {
+              accountId: session.accountId, directoryProfileId: ownerDirectoryProfile.id,
+            } },
+            select: { isFollowing: true },
+          })
+        : null;
+      return { asset, directMessageAttachment, attachedPost, ownerDirectoryProfile, ownerFollow };
+    });
+
+    if (!access) throw new NotFoundException("This media is not available.");
+    const { asset, directMessageAttachment, attachedPost, ownerDirectoryProfile, ownerFollow } = access;
+    const isOwner = asset.ownerAccountId === session.accountId;
+    const isCommunityMedia = ["COMMUNITY_POST_IMAGE", "COMMUNITY_POST_VIDEO"].includes(asset.purpose);
+
+    if (asset.deletedAt || ["DELETED", "REMOVED", "MODERATED"].includes(asset.status)) {
+      throw new NotFoundException("This media is not available.");
+    }
+    if (!["UPLOADED", "ATTACHED"].includes(asset.status)) {
+      throw new NotFoundException("This media is not available.");
+    }
+    if (!["PROFILE_PHOTO", "COMMUNITY_POST_IMAGE", "COMMUNITY_POST_VIDEO", "BUSINESS_MEDIA", "DIRECT_MESSAGE_IMAGE"].includes(asset.purpose)) {
+      throw new NotFoundException("This media is not available.");
     }
 
-    if (!isOwner && !directMessageAttachment) {
+    if (asset.postId) {
+      if (!attachedPost || attachedPost.authorAccountId !== asset.ownerAccountId ||
+          attachedPost.deletedAt || !["PUBLISHED", "EDITED"].includes(attachedPost.status)) {
+        throw new NotFoundException("This media is not available.");
+      }
+    } else if (isCommunityMedia && !isOwner) {
+      throw new NotFoundException("This media is not available.");
+    }
+
+    if (directMessageAttachment) {
+      const isParticipant = session.accountId === directMessageAttachment.senderAccountId ||
+        session.accountId === directMessageAttachment.recipientAccountId;
+      if (!isParticipant || directMessageAttachment.senderAccountId !== asset.ownerAccountId) {
+        throw new NotFoundException("This media is not available.");
+      }
+      if (!isOwner && asset.status !== "ATTACHED") {
+        throw new NotFoundException("This media is not available.");
+      }
+      if (session.accountId === directMessageAttachment.recipientAccountId &&
+          directMessageAttachment.requestStatus !== "ACCEPTED") {
+        throw new ForbiddenException("Accept the message request before viewing its attachment.");
+      }
       if (
+        directMessageAttachment.senderAccountId !== session.accountId &&
         session.testAccessApproved !== true &&
         (session.account.status !== "ACTIVE" ||
           session.account.verificationStatus !== "VERIFIED")
       ) {
         throw new ForbiddenException(
-          "Verified active membership is required to view this media.",
+          "Verified active membership is required to view this attachment.",
         );
       }
-      const visibility =
-        attachedPost?.visibility ?? asset?.visibility ?? "VERIFIED_MEMBERS";
-      if (visibility === "PRIVATE_SELF") {
-        throw new ForbiddenException("This media is private to its owner.");
+    } else if (asset.purpose === "DIRECT_MESSAGE_IMAGE" && !isOwner) {
+      throw new NotFoundException("This media is not available.");
+    }
+
+    if (!isOwner && !directMessageAttachment) {
+      const testAccessApproved = session.testAccessApproved === true;
+      if (session.account.status !== "ACTIVE" || session.account.verificationStatus !== "VERIFIED") {
+        if (!testAccessApproved) {
+          throw new ForbiddenException("Only active, verified members can view this media.");
+        }
       }
-      if (visibility === "FOLLOWERS_ONLY") {
-        if (!asset?.ownerAccountId) {
-          throw new ForbiddenException(
-            "This media is restricted to the owner's followers.",
-          );
+      if (asset.status !== "ATTACHED") throw new NotFoundException("This media is not available.");
+
+      if (asset.purpose === "PROFILE_PHOTO") {
+        if (!ownerDirectoryProfile || !ownerDirectoryProfile.searchable ||
+            !["VERIFIED_MEMBERS", "FOLLOWERS_ONLY"].includes(ownerDirectoryProfile.profileVisibility)) {
+          throw new ForbiddenException("This member's profile media is not available to you.");
         }
-        const ownerProfile = await this.prisma.memberProfile.findUnique({
-          where: { accountId: asset.ownerAccountId },
-          select: { username: true },
-        });
-        const ownerDirectoryProfile = ownerProfile?.username
-          ? await this.prisma.communityDirectoryProfile.findUnique({
-              where: { username: ownerProfile.username },
-              select: { id: true },
-            })
-          : null;
-        const follow = ownerDirectoryProfile
-          ? await this.prisma.memberFollow.findUnique({
-              where: {
-                accountId_directoryProfileId: {
-                  accountId: session.accountId,
-                  directoryProfileId: ownerDirectoryProfile.id,
-                },
-              },
-              select: { isFollowing: true },
-            })
-          : null;
-        if (!follow?.isFollowing) {
-          throw new ForbiddenException(
-            "Following the post owner is required to view this media.",
-          );
+        if (ownerDirectoryProfile.profileVisibility === "FOLLOWERS_ONLY" && ownerFollow?.isFollowing !== true) {
+          throw new ForbiddenException("Follow this member to view their profile media.");
         }
-      } else if (visibility !== "VERIFIED_MEMBERS") {
-        throw new ForbiddenException("Media visibility does not allow access.");
+      }
+      if (isCommunityMedia && !attachedPost) throw new NotFoundException("This media is not available.");
+
+      const visibilityValues = [asset.visibility, attachedPost?.visibility]
+        .filter((value): value is string => Boolean(value));
+      if (visibilityValues.some((value) => value === "PRIVATE_SELF")) {
+        throw new ForbiddenException("This media is private and cannot be viewed by this account.");
+      }
+      if (visibilityValues.some((value) => value === "FOLLOWERS_ONLY") && ownerFollow?.isFollowing !== true) {
+        throw new ForbiddenException("Follow this member to view this community media.");
+      }
+      if (visibilityValues.some((value) => !["PUBLIC", "VERIFIED_MEMBERS", "FOLLOWERS_ONLY"].includes(value))) {
+        throw new ForbiddenException("This media is not available to this account.");
       }
     }
 
-    const meta =
-      event.redactedMetadata &&
-      typeof event.redactedMetadata === "object" &&
-      !Array.isArray(event.redactedMetadata)
-        ? (event.redactedMetadata as Record<string, unknown>)
-        : {};
-    const driveFileId =
-      asset?.driveFileId ??
-      (typeof meta.driveFileId === "string" ? meta.driveFileId : null);
-    if (
-      !driveFileId ||
-      (meta.provider !== "google_drive" &&
-        asset?.storageProvider !== "GOOGLE_DRIVE")
-    ) {
-      throw new NotFoundException(
-        "This media record has no retrievable Google Drive file. Upload the image again to replace it.",
-      );
+    if (!asset.driveFileId || asset.storageProvider !== "GOOGLE_DRIVE") {
+      throw new NotFoundException("This media record has no retrievable Google Drive file.");
     }
-
-    const recordedContentType = asset?.contentType ?? meta.contentType;
-    if (
-      driveFileId.startsWith("inline-db-") &&
-      typeof meta.inlineBase64 === "string" &&
-      meta.inlineBase64.length > 0
-    ) {
-      const inlineBuffer = Buffer.from(meta.inlineBase64, "base64");
-      const inlineType =
-        typeof recordedContentType === "string" &&
-        ["image/jpeg", "image/png", "image/webp", "video/mp4"].includes(
-          recordedContentType,
-        )
-          ? recordedContentType
-          : "image/jpeg";
-      return {
-        contentType: inlineType,
-        buffer: inlineBuffer,
-      };
+    if (!asset.ownerAccountId ||
+        !Number.isSafeInteger(asset.byteSize) || asset.byteSize <= 0) {
+      throw new ServiceUnavailableException("The media record has no trusted owner or byte-size receipt.");
     }
-
-    try {
-      if (!asset?.ownerAccountId || !asset.sha256Checksum || !Number.isSafeInteger(asset.byteSize) || asset.byteSize <= 0) {
-        throw new ServiceUnavailableException("The media record has no trusted owner, byte-size or SHA-256 receipt. Upload the media again.");
-      }
-      const media = await this.googleDrive.downloadMemberMediaFile({
-        driveFileId,
-        ownerAccountId: asset.ownerAccountId,
-        expectedSha256: asset.sha256Checksum,
-        expectedByteSize: asset.byteSize,
-      });
-      const storedContentType =
-        typeof recordedContentType === "string" &&
-        ["image/jpeg", "image/png", "image/webp", "video/mp4"].includes(
-          recordedContentType,
-        )
-          ? recordedContentType
-          : media.contentType;
-      return {
-        contentType: storedContentType,
-        buffer: media.buffer,
-      };
-    } catch (driveDownloadErr) {
-      if (
-        typeof meta.inlineBase64 === "string" &&
-        meta.inlineBase64.length > 0
-      ) {
-        const inlineBuffer = Buffer.from(meta.inlineBase64, "base64");
-        if (asset && (
-          !asset.sha256Checksum ||
-          inlineBuffer.length !== asset.byteSize ||
-          createHash("sha256").update(inlineBuffer).digest("hex") !== asset.sha256Checksum
-        )) {
-          throw new ServiceUnavailableException("The inline media fallback failed its stored byte-size or SHA-256 integrity check.");
-        }
-        const inlineType =
-          typeof recordedContentType === "string" &&
-          ["image/jpeg", "image/png", "image/webp", "video/mp4"].includes(
-            recordedContentType,
-          )
-            ? recordedContentType
-            : "image/jpeg";
-        return {
-          contentType: inlineType,
-          buffer: inlineBuffer,
-        };
-      }
-      throw driveDownloadErr;
-    }
+    const media = await this.googleDrive.downloadMemberMediaFile({
+      driveFileId: asset.driveFileId,
+      ownerAccountId: asset.ownerAccountId,
+      // Legacy rows may have a null DB checksum. Google Drive's Sakhi upload
+      // metadata retains the original SHA-256; the storage service validates
+      // that receipt against owner, purpose, byte size and downloaded bytes.
+      expectedSha256: asset.sha256Checksum ?? null,
+      expectedByteSize: asset.byteSize,
+    });
+    const recordedContentType = asset.contentType;
+    const storedContentType = typeof recordedContentType === "string" &&
+      ["image/jpeg", "image/png", "image/webp", "video/mp4"].includes(recordedContentType)
+        ? recordedContentType : media.contentType;
+    return { contentType: storedContentType, buffer: media.buffer };
   }
 
   private async severFollowsBetweenAccounts(

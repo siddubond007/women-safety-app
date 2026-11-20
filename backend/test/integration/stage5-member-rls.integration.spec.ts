@@ -1,5 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "pg";
+import { randomUUID } from "node:crypto";
+import { ConfigService } from "@nestjs/config";
+import { createAuthenticatedMemberIdentity } from "../../src/auth/member-identity.js";
+import { PrismaService } from "../../src/database/prisma.service.js";
 
 const adminUrl = process.env.SAKHI_STAGE5_RLS_ADMIN_TEST_URL;
 const appUrl = process.env.SAKHI_STAGE5_RLS_APP_TEST_URL;
@@ -12,8 +16,13 @@ const sessionA = "44444444-4444-4444-8444-444444444441";
 const sessionB = "44444444-4444-4444-8444-444444444442";
 const directoryA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const directoryB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const communityPostId = "55555555-5555-4555-8555-555555555551";
+const communityMediaId = "66666666-6666-4666-8666-666666666661";
+const draftMediaId = "77777777-7777-4777-8777-777777777771";
 
 const cleanup = async (client: Client) => {
+  await client.query("delete from public.media_assets where id = any($1::uuid[])", [[communityMediaId, draftMediaId]]);
+  await client.query("delete from public.community_posts where id = $1", [communityPostId]);
   await client.query("delete from public.member_moderation_blocks where account_id = any($1::uuid[])", [[accountA, accountB]]);
   await client.query("delete from public.member_follows where account_id = any($1::uuid[])", [[accountA, accountB]]);
   await client.query("delete from public.eligibility_verification_sessions where id = any($1::uuid[])", [[sessionA, sessionB]]);
@@ -59,6 +68,32 @@ describe.skipIf(!enabled)("Stage 5 PostgreSQL member-data RLS contract", () => {
        values ($1,$3,'Synthetic Directory A','@synthetica','avatar-a.webp','Safe projection A',true,'VERIFIED_MEMBERS'),
               ($2,$4,'Synthetic Directory B','@syntheticb','avatar-b.webp','Safe projection B',true,'FOLLOWERS_ONLY')`,
       [directoryA, directoryB, accountA, accountB],
+    );
+    await admin.query(
+      `insert into public.community_posts(
+         id,author_account_id,author_name,author_username,author_avatar,author_verified,
+         content,image_asset,category_slug,visibility,status
+       ) values (
+         $1,$2,'Synthetic Member B','@syntheticb','avatar-b.webp',true,
+         'Synthetic followers-only media fixture',$3,'community','FOLLOWERS_ONLY','PUBLISHED'
+       )`,
+      [communityPostId, accountB, `/api/v1/module2/media/object/${communityMediaId}`],
+    );
+    await admin.query(
+      `insert into public.media_assets(
+         id,owner_account_id,post_id,purpose,storage_provider,status,drive_folder_path,
+         original_file_name,content_type,byte_size,sha256_checksum,visibility,drive_file_id
+       ) values (
+         $1,$2,$3,'COMMUNITY_POST_IMAGE','GOOGLE_DRIVE','ATTACHED',
+         'Sakhi Staging Media/feeds/community/synthetic','synthetic.jpg','image/jpeg',
+         4,repeat('a',64),'FOLLOWERS_ONLY','synthetic-drive-object'
+       ),
+       (
+         $4,$2,null,'COMMUNITY_POST_IMAGE','GOOGLE_DRIVE','UPLOADED',
+         'Sakhi Staging Media/feeds/community/synthetic','synthetic-draft.jpg','image/jpeg',
+         4,repeat('b',64),'FOLLOWERS_ONLY','synthetic-draft-drive-object'
+       )`,
+      [communityMediaId, accountB, communityPostId, draftMediaId],
     );
     await admin.query(
       `insert into public.eligibility_consents(id,account_id,notice_version,accepted_at,biometric_processing_consented,source)
@@ -109,6 +144,9 @@ describe.skipIf(!enabled)("Stage 5 PostgreSQL member-data RLS contract", () => {
       [accountB],
     );
     expect(hiddenFollowerOnly.rowCount).toBe(0);
+    expect((await app.query("select id from public.community_posts where id=$1", [communityPostId])).rowCount).toBe(0);
+    expect((await app.query("select id from public.media_assets where id=$1", [communityMediaId])).rowCount).toBe(0);
+    expect((await app.query("select id from public.media_assets where id=$1", [draftMediaId])).rowCount).toBe(0);
     await app.query("rollback");
 
     await admin.query(
@@ -123,6 +161,9 @@ describe.skipIf(!enabled)("Stage 5 PostgreSQL member-data RLS contract", () => {
       [accountB],
     );
     expect(followed.rows.map((row) => row.account_id)).toEqual([accountB]);
+    expect((await app.query("select id from public.community_posts where id=$1", [communityPostId])).rowCount).toBe(1);
+    expect((await app.query("select id from public.media_assets where id=$1", [communityMediaId])).rowCount).toBe(1);
+    expect((await app.query("select id from public.media_assets where id=$1", [draftMediaId])).rowCount).toBe(0);
     await app.query("rollback");
 
     await admin.query(
@@ -136,6 +177,8 @@ describe.skipIf(!enabled)("Stage 5 PostgreSQL member-data RLS contract", () => {
       [accountB],
     );
     expect(hidden.rowCount).toBe(0);
+    expect((await app.query("select id from public.community_posts where id=$1", [communityPostId])).rowCount).toBe(0);
+    expect((await app.query("select id from public.media_assets where id=$1", [communityMediaId])).rowCount).toBe(0);
     await app.query("rollback");
 
     await admin.query(
@@ -159,6 +202,34 @@ describe.skipIf(!enabled)("Stage 5 PostgreSQL member-data RLS contract", () => {
       [accountA],
     );
     expect(incomingBlock.rows.map((row) => row.account_id)).toEqual([accountB]);
+    expect((await app.query("select id from public.community_posts where id=$1", [communityPostId])).rowCount).toBe(0);
+    expect((await app.query("select id from public.media_assets where id=$1", [communityMediaId])).rowCount).toBe(0);
+    await app.query("rollback");
+
+    await admin.query(
+      "delete from public.member_moderation_blocks where account_id=$1 and blocked_account_id=$2",
+      [accountB, accountA],
+    );
+    await admin.query(
+      `insert into public.member_moderation_blocks(id,account_id,blocked_username,blocked_account_id,blocked_display_name)
+       values (gen_random_uuid(),$1,'@syntheticb',$2,'Synthetic Member B')`,
+      [accountA, accountB],
+    );
+    await app.query("begin");
+    await app.query("select set_config('app.account_id',$1,true)", [accountA]);
+    expect((await app.query("select id from public.community_posts where id=$1", [communityPostId])).rowCount).toBe(0);
+    expect((await app.query("select id from public.media_assets where id=$1", [communityMediaId])).rowCount).toBe(0);
+    await app.query("rollback");
+
+    await admin.query(
+      "delete from public.member_moderation_blocks where account_id=$1 and blocked_account_id=$2",
+      [accountA, accountB],
+    );
+    await admin.query("update public.community_posts set status='MODERATED' where id=$1", [communityPostId]);
+    await app.query("begin");
+    await app.query("select set_config('app.account_id',$1,true)", [accountA]);
+    expect((await app.query("select id from public.community_posts where id=$1", [communityPostId])).rowCount).toBe(0);
+    expect((await app.query("select id from public.media_assets where id=$1", [communityMediaId])).rowCount).toBe(0);
     await app.query("rollback");
   });
 
@@ -193,6 +264,40 @@ describe.skipIf(!enabled)("Stage 5 PostgreSQL member-data RLS contract", () => {
       expect(byName.get(table)?.relrowsecurity, `${table} RLS enabled`).toBe(true);
       expect(byName.get(table)?.relforcerowsecurity, `${table} RLS forced`).toBe(true);
     }
+
+    const followerPolicies = await admin.query<{ tablename: string; roles: string[] }>(
+      `select tablename, roles::text[] as roles
+       from pg_policies
+       where schemaname='public'
+         and policyname in ('community_posts_followers_read','media_assets_followers_read')
+       order by tablename`,
+    );
+    // PostgreSQL does not guarantee the order of role names in the
+    // pg_policies.roles array. Normalize only that unordered dimension,
+    // while retaining the exact policy count, table ordering, and role set.
+    const normalizedFollowerPolicies = followerPolicies.rows.map((policy) => ({
+      ...policy,
+      roles: [...policy.roles].sort(),
+    }));
+    expect(normalizedFollowerPolicies).toEqual([
+      {
+        tablename: "community_posts",
+        roles: ["sakhi_dev_app", "sakhi_staging_app", "sakhi_test_app"],
+      },
+      {
+        tablename: "media_assets",
+        roles: ["sakhi_dev_app", "sakhi_staging_app", "sakhi_test_app"],
+      },
+    ]);
+
+    const followIndex = await admin.query<{ indexdef: string }>(
+      `select indexdef from pg_indexes
+       where schemaname='public'
+         and tablename='member_follows'
+         and indexname='member_follows_directory_profile_id_idx'`,
+    );
+    expect(followIndex.rows).toHaveLength(1);
+    expect(followIndex.rows[0]?.indexdef).toContain("(directory_profile_id)");
   });
 
   it("allows member audit insertion but does not expose audit rows to member reads", async () => {
@@ -208,6 +313,62 @@ describe.skipIf(!enabled)("Stage 5 PostgreSQL member-data RLS contract", () => {
     );
     expect(memberRead.rowCount).toBe(0);
     await app.query("rollback");
+  });
+
+  it("uses explicit transaction-local identity for member audit inserts without exposing audit reads", async () => {
+    const prisma = new PrismaService(new ConfigService({
+      SAKHI_ENV: "test",
+      SAKHI_APP_DATABASE_URL: appUrl,
+    }));
+    const requestId = `stage5-community-media-${randomUUID()}`;
+    const eventData = {
+      actorType: "MEMBER",
+      actorId: accountA,
+      action: "module2.media.uploaded",
+      targetType: "media_upload",
+      targetId: communityMediaId,
+      outcome: "stored",
+      requestId,
+      redactedMetadata: { synthetic: true },
+    };
+    await prisma.$connect();
+    try {
+      await expect(prisma.auditEvent.create({ data: eventData })).rejects.toThrow();
+      const identity = createAuthenticatedMemberIdentity({
+        accountId: accountA,
+        sessionId: sessionA,
+      });
+      // Prisma create() uses INSERT ... RETURNING. Because members cannot read
+      // audit rows, that response path is intentionally rejected by RLS.
+      await expect(
+        prisma.withMemberIdentity(identity, (tx) =>
+          tx.auditEvent.create({ data: eventData }),
+        ),
+      ).rejects.toThrow();
+      const inserted = await prisma.withMemberIdentity(identity, async (tx) => {
+        const identityContext = await tx.$queryRaw<
+          Array<{ role: string; account_id: string }>
+        >`SELECT current_user::text AS role,
+                 current_setting('app.account_id', true)::text AS account_id`;
+        expect(identityContext[0]?.role).toBe("sakhi_test_app");
+        expect(identityContext[0]?.account_id).toBe(accountA);
+        return tx.auditEvent.createMany({ data: [eventData] });
+      });
+      expect(inserted.count).toBe(1);
+      const adminRead = await admin.query(
+        "select id from public.audit_events where request_id=$1",
+        [requestId],
+      );
+      const memberRead = await app.query(
+        "select id from public.audit_events where request_id=$1",
+        [requestId],
+      );
+      expect(adminRead.rowCount).toBe(1);
+      expect(memberRead.rowCount).toBe(0);
+    } finally {
+      await admin.query("delete from public.audit_events where request_id=$1", [requestId]);
+      await prisma.$disconnect();
+    }
   });
 
   it("revokes table and column grants from anon, authenticated and BYPASSRLS service_role", async () => {
