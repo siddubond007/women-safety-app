@@ -1,0 +1,92 @@
+name: Sakhi community-media history reconciliation
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_reconcile:
+        description: "Reconcile the already-applied community-media migration in Prisma history"
+        required: true
+        type: boolean
+        default: false
+      approval_phrase:
+        description: "Enter YES_RECONCILE_20261120_COMMUNITY_MEDIA exactly"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sakhi-staging-community-media-history-reconciliation
+  cancel-in-progress: false
+
+jobs:
+  reconcile-community-media-history:
+    name: Reconcile only the approved community-media migration history
+    if: inputs.confirm_reconcile == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: staging
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      SAKHI_ENV: staging
+      SAKHI_MIGRATION_TARGET: 20261119190000_community_followers_media_visibility
+      SAKHI_ALLOW_STAGING_MIGRATIONS: ${{ inputs.approval_phrase }}
+      SAKHI_MIGRATOR_DATABASE_URL: ${{ secrets.SAKHI_STAGING_MIGRATOR_DATABASE_URL }}
+    steps:
+      - name: Checkout exact reviewed PR commit
+        uses: actions/checkout@v4
+        with:
+          ref: f79462f178c77b160e2a15fa4687d6f0f68d140b
+          persist-credentials: false
+
+      - name: Verify immutable source revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "f79462f178c77b160e2a15fa4687d6f0f68d140b" || {
+            echo "::error::Unexpected source revision; refusing staging reconciliation."
+            exit 1
+          }
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.22.0
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install locked backend dependencies
+        run: npm ci --include=dev
+
+      - name: Prepare and verify pinned Supabase Root 2021 CA
+        run: bash ./scripts/prepare-staging-db-ca.sh
+
+      - name: Validate exact approval, secret presence and CA path
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${SAKHI_ALLOW_STAGING_MIGRATIONS}" = "YES_RECONCILE_20261120_COMMUNITY_MEDIA" || {
+            echo "::error::Exact community-media reconciliation approval phrase was not supplied."
+            exit 1
+          }
+          test -n "${SAKHI_MIGRATOR_DATABASE_URL}" || {
+            echo "::error::Missing SAKHI_STAGING_MIGRATOR_DATABASE_URL staging environment secret."
+            exit 1
+          }
+          test -s "${SAKHI_DB_CA_FILE}"
+          case "${SAKHI_DB_CA_FILE}" in
+            */prod-ca-2021.crt) ;;
+            *) echo "::error::Unexpected Supabase CA path."; exit 1 ;;
+          esac
+          echo "Dedicated migrator secret is present; its value will not be printed."
+          echo "Pinned Supabase Root 2021 CA file is available."
+
+      - name: Reconcile only the already-applied migration in Prisma history
+        run: npx prisma migrate resolve --applied 20261119190000_community_followers_media_visibility
+
+      - name: Remove temporary CA file
+        if: always()
+        run: rm -f "${SAKHI_DB_CA_FILE}"
