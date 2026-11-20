@@ -5248,14 +5248,17 @@ export class Module2Service {
     if (!asset.driveFileId || asset.storageProvider !== "GOOGLE_DRIVE") {
       throw new NotFoundException("This media record has no retrievable Google Drive file.");
     }
-    if (!asset.ownerAccountId || !asset.sha256Checksum ||
+    if (!asset.ownerAccountId ||
         !Number.isSafeInteger(asset.byteSize) || asset.byteSize <= 0) {
-      throw new ServiceUnavailableException("The media record has no trusted owner, byte-size or SHA-256 receipt.");
+      throw new ServiceUnavailableException("The media record has no trusted owner or byte-size receipt.");
     }
     const media = await this.googleDrive.downloadMemberMediaFile({
       driveFileId: asset.driveFileId,
       ownerAccountId: asset.ownerAccountId,
-      expectedSha256: asset.sha256Checksum,
+      // Legacy rows may have a null DB checksum. Google Drive's Sakhi upload
+      // metadata retains the original SHA-256; the storage service validates
+      // that receipt against owner, purpose, byte size and downloaded bytes.
+      expectedSha256: asset.sha256Checksum ?? null,
       expectedByteSize: asset.byteSize,
     });
     const recordedContentType = asset.contentType;
