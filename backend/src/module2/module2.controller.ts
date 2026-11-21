@@ -24,9 +24,11 @@ import {
   CreateSafetyEvidenceDto,
   EditCommunityPostDto,
   EditPostCommentDto,
+  MuteOrRestrictMemberDto,
   PatchMemberBusinessDto,
   ReactToPostDto,
   RecordSafetyEventDto,
+  RespondMessageRequestDto,
   SendDirectMessageDto,
   StartLocationShareDto,
   UpdateEmergencyContactDto,
@@ -70,6 +72,30 @@ export class Module2Controller {
     return this.service.listCategories();
   }
 
+  @Get("search")
+  unifiedSearch(
+    @Headers("authorization") authorization: string | undefined,
+    @Query("q") q?: string,
+    @Query("category") category?: string,
+    @Query("city") city?: string,
+    @Query("lat") lat?: string,
+    @Query("lng") lng?: string,
+    @Query("radiusKm") radiusKm?: string,
+    @Query("page") page?: string,
+    @Query("limit") limit?: string,
+  ) {
+    return this.service.unifiedSearch(authorization, {
+      q,
+      category,
+      city,
+      lat: lat !== undefined ? Number(lat) : undefined,
+      lng: lng !== undefined ? Number(lng) : undefined,
+      radiusKm: radiusKm !== undefined ? Number(radiusKm) : undefined,
+      page: page !== undefined ? Number(page) : undefined,
+      limit: limit !== undefined ? Number(limit) : undefined,
+    });
+  }
+
   @Get("nearby-circles")
   listNearbyCircles(
     @Headers("authorization") authorization?: string,
@@ -95,6 +121,8 @@ export class Module2Controller {
     @Query("search") search?: string,
     @Query("savedOnly") savedOnly?: string,
     @Query("limit") limit?: string,
+    @Query("page") page?: string,
+    @Query("cursor") cursor?: string,
   ) {
     return this.service.listPosts(authorization, {
       categorySlug,
@@ -102,6 +130,8 @@ export class Module2Controller {
       search,
       savedOnly: savedOnly === "true" || savedOnly === "1",
       limit: limit ? Number(limit) : undefined,
+      page: page ? Number(page) : undefined,
+      cursor,
     });
   }
 
@@ -410,12 +440,24 @@ export class Module2Controller {
     return this.service.toggleFollow(authorization, profileId);
   }
 
+  @Get("messages/conversations")
+  listMessageConversations(
+    @Headers("authorization") authorization: string | undefined,
+  ) {
+    return this.service.listMessageConversations(authorization);
+  }
+
   @Get("messages")
   listDirectMessages(
     @Headers("authorization") authorization: string | undefined,
     @Query("peerId") peerId?: string,
+    @Query("cursor") cursor?: string,
+    @Query("limit") limit?: string,
   ) {
-    return this.service.listDirectMessages(authorization, peerId);
+    return this.service.listDirectMessages(authorization, peerId, {
+      cursor,
+      limit: limit !== undefined ? Number(limit) : undefined,
+    });
   }
 
   @Post("messages")
@@ -425,6 +467,70 @@ export class Module2Controller {
     @Body() dto: SendDirectMessageDto,
   ) {
     return this.service.sendDirectMessage(authorization, dto);
+  }
+
+  @Post("messages/requests/:peerId/respond")
+  @HttpCode(200)
+  respondToMessageRequest(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("peerId") peerId: string,
+    @Body() dto: RespondMessageRequestDto,
+  ) {
+    return this.service.respondToMessageRequest(
+      authorization,
+      peerId,
+      dto.action,
+    );
+  }
+
+  @Post("messages/:peerId/read")
+  @HttpCode(200)
+  markDirectMessagesRead(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("peerId") peerId: string,
+  ) {
+    return this.service.markDirectMessagesRead(authorization, peerId);
+  }
+
+  @Get("notifications/inbox")
+  listNotificationsInbox(
+    @Headers("authorization") authorization: string | undefined,
+    @Query("category") category?: string,
+    @Query("unreadOnly") unreadOnly?: string,
+    @Query("page") page?: string,
+    @Query("limit") limit?: string,
+  ) {
+    return this.service.listNotificationsInbox(authorization, {
+      category,
+      unreadOnly: unreadOnly === "true" || unreadOnly === "1",
+      page: page !== undefined ? Number(page) : undefined,
+      limit: limit !== undefined ? Number(limit) : undefined,
+    });
+  }
+
+  @Post("notifications/read-all")
+  @HttpCode(200)
+  markAllNotificationsRead(
+    @Headers("authorization") authorization: string | undefined,
+  ) {
+    return this.service.markAllNotificationsRead(authorization);
+  }
+
+  @Post("notifications/:notificationId/read")
+  @HttpCode(200)
+  markNotificationRead(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("notificationId") notificationId: string,
+  ) {
+    return this.service.markNotificationRead(authorization, notificationId);
+  }
+
+  @Delete("notifications/:notificationId")
+  deleteNotification(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("notificationId") notificationId: string,
+  ) {
+    return this.service.deleteNotification(authorization, notificationId);
   }
 
   @Get("sessions")
@@ -701,6 +807,20 @@ export class Module2Controller {
     return this.service.toggleBlockedUser(authorization, dto);
   }
 
+  @Post("moderation/mute")
+  @HttpCode(200)
+  toggleMuteOrRestrictMember(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: MuteOrRestrictMemberDto,
+  ) {
+    return this.service.toggleMuteOrRestrictMember(authorization, dto);
+  }
+
+  @Get("moderation/state")
+  getModerationState(@Headers("authorization") authorization?: string) {
+    return this.service.getViewerModerationState(authorization);
+  }
+
   @Post("account/delete")
   @HttpCode(200)
   requestAccountDeletion(
@@ -875,6 +995,13 @@ export class Module2Controller {
     return this.service.getMenstrualCycleTracker(authorization);
   }
 
+  @Get("cycle-tracker/overview")
+  getMenstrualCycleTrackerOverviewAlias(
+    @Headers("authorization") authorization?: string,
+  ) {
+    return this.service.getMenstrualCycleTracker(authorization);
+  }
+
   @Get("cycle-tracker/calculate")
   calculateMenstrualCycleStateless(
     @Query("lastPeriod") lastPeriod?: string,
@@ -940,6 +1067,14 @@ export class Module2Controller {
     return this.service.updateMenstrualTrackerPreferences(authorization, dto);
   }
 
+  @Patch("cycle-tracker/preferences")
+  patchMenstrualTrackerPreferencesAlias(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() dto: Record<string, unknown>,
+  ) {
+    return this.service.updateMenstrualTrackerPreferences(authorization, dto);
+  }
+
   @Get("cycle-tracker/export")
   exportMenstrualTrackerData(@Headers("authorization") authorization?: string) {
     return this.service.exportMenstrualTrackerData(authorization);
@@ -947,6 +1082,13 @@ export class Module2Controller {
 
   @Delete("cycle-tracker/all")
   deleteAllMenstrualTrackerData(
+    @Headers("authorization") authorization?: string,
+  ) {
+    return this.service.deleteAllMenstrualTrackerData(authorization);
+  }
+
+  @Delete("cycle-tracker/data")
+  deleteAllMenstrualTrackerDataAlias(
     @Headers("authorization") authorization?: string,
   ) {
     return this.service.deleteAllMenstrualTrackerData(authorization);

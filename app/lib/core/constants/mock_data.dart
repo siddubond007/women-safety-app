@@ -733,6 +733,32 @@ class SakhiPrototypeState extends ChangeNotifier {
         if (sp is List) {
           _seenPostIds.addAll(sp.map((e) => e.toString()));
         }
+        final rp = decoded['reportedPostIds'];
+        if (rp is List) {
+          reportedPostIds.addAll(rp.map((e) => e.toString()));
+        }
+        final hp = decoded['hiddenPostIds'];
+        if (hp is List) {
+          hiddenPostIds.addAll(hp.map((e) => e.toString()));
+        }
+        final mu = decoded['mutedUserHandles'];
+        if (mu is List) {
+          mutedUserHandles.addAll(
+            mu.map((e) => e.toString().replaceFirst('@', '').toLowerCase()),
+          );
+        }
+        final ru = decoded['restrictedUserHandles'];
+        if (ru is List) {
+          restrictedUserHandles.addAll(
+            ru.map((e) => e.toString().replaceFirst('@', '').toLowerCase()),
+          );
+        }
+        final rs = decoded['recentSearches'];
+        if (rs is List) {
+          recentSearches
+            ..clear()
+            ..addAll(rs.map((e) => e.toString()));
+        }
         notifyListeners();
       }
     } catch (_) {}
@@ -786,6 +812,11 @@ class SakhiPrototypeState extends ChangeNotifier {
         },
         'joinedCircleNames': joinedCircleNames.toList(),
         'seenPostIds': _seenPostIds.take(250).toList(),
+        'reportedPostIds': reportedPostIds.toList(),
+        'hiddenPostIds': hiddenPostIds.toList(),
+        'mutedUserHandles': mutedUserHandles.toList(),
+        'restrictedUserHandles': restrictedUserHandles.toList(),
+        'recentSearches': recentSearches.take(15).toList(),
       };
       if (persistEpoch != _accountStateEpoch) return;
       await _writeLocalCacheIfCurrent(persistEpoch, jsonEncode(snapshot));
@@ -809,9 +840,67 @@ class SakhiPrototypeState extends ChangeNotifier {
   /// Per-account seen post IDs so Home "new posts in Community" reflects real unviewed posts.
   final Set<String> _seenPostIds = <String>{};
   final Set<String> joinedCircleNames = <String>{};
+  final Set<String> reportedPostIds = <String>{};
+  final Set<String> hiddenPostIds = <String>{};
+  final Set<String> mutedUserHandles = <String>{};
+  final Set<String> restrictedUserHandles = <String>{};
+  final List<String> recentSearches = <String>[
+    '#WomenInTech',
+    '#SafeCommute',
+    'Period Pain Help',
+    'Guided Meditation',
+  ];
 
   bool isCircleJoined(String circleName) =>
       joinedCircleNames.contains(circleName.trim());
+
+  String _normHandle(String raw) =>
+      raw.trim().replaceFirst(RegExp(r'^@+'), '').toLowerCase();
+
+  bool isUsernameBlocked(String username) {
+    final target = _normHandle(username);
+    if (target.isEmpty) return false;
+    return blockedUsers.any((b) => _normHandle(b.blockedUsername) == target);
+  }
+
+  bool isUsernameMuted(String username) {
+    final target = _normHandle(username);
+    return target.isNotEmpty && mutedUserHandles.contains(target);
+  }
+
+  bool isUsernameRestricted(String username) {
+    final target = _normHandle(username);
+    return target.isNotEmpty && restrictedUserHandles.contains(target);
+  }
+
+  bool isPostSuppressed(FeedPostModel post) {
+    if (reportedPostIds.contains(post.id) || hiddenPostIds.contains(post.id)) {
+      return true;
+    }
+    if (isUsernameBlocked(post.authorUsername) ||
+        isUsernameMuted(post.authorUsername)) {
+      return true;
+    }
+    return false;
+  }
+
+  String resolveMediaUrl(String rawUrl) {
+    final trimmed = rawUrl.trim();
+    if (trimmed.isEmpty) return '';
+    if (trimmed.startsWith('http://') ||
+        trimmed.startsWith('https://') ||
+        trimmed.startsWith('assets/')) {
+      return trimmed;
+    }
+    final base = _client.baseUrl.replaceAll(
+      RegExp(r'/api/v1/?$'),
+      '',
+    );
+    if (trimmed.startsWith('/')) {
+      return '$base$trimmed';
+    }
+    return '$base/$trimmed';
+  }
 
   Future<bool> hasAuthenticatedSession() async {
     try {
@@ -1007,6 +1096,10 @@ class SakhiPrototypeState extends ChangeNotifier {
     loginSessionsError = null;
     _seenPostIds.clear();
     joinedCircleNames.clear();
+    reportedPostIds.clear();
+    hiddenPostIds.clear();
+    mutedUserHandles.clear();
+    restrictedUserHandles.clear();
 
     const privacyDefaults = <String, String>{
       'view_profile': 'All Verified Members',
@@ -1623,6 +1716,35 @@ class SakhiPrototypeState extends ChangeNotifier {
         return false;
       }
 
+      final rawBlockedEarly = data['blockedUsers'];
+      if (rawBlockedEarly is List) {
+        blockedUsers
+          ..clear()
+          ..addAll(
+            rawBlockedEarly.whereType<Map<String, dynamic>>().map(
+              BlockedUserModel.fromJson,
+            ),
+          );
+      }
+      final rawReportedIds = data['reportedPostIds'];
+      if (rawReportedIds is List) {
+        reportedPostIds.addAll(rawReportedIds.map((e) => e.toString()));
+      }
+      final rawHiddenIds = data['hiddenPostIds'];
+      if (rawHiddenIds is List) {
+        hiddenPostIds.addAll(rawHiddenIds.map((e) => e.toString()));
+      }
+      final rawMuted = data['mutedUsers'];
+      if (rawMuted is List) {
+        mutedUserHandles.addAll(rawMuted.map((e) => _normHandle(e.toString())));
+      }
+      final rawRestricted = data['restrictedUsers'];
+      if (rawRestricted is List) {
+        restrictedUserHandles.addAll(
+          rawRestricted.map((e) => _normHandle(e.toString())),
+        );
+      }
+
       final rawCommunity = data['communityPosts'] ?? data['posts'];
       if (rawCommunity is List) {
         communityPosts
@@ -1631,7 +1753,7 @@ class SakhiPrototypeState extends ChangeNotifier {
             rawCommunity
                 .whereType<Map<String, dynamic>>()
                 .map(mergeSyncedPost)
-                .where((p) => !isDemoPost(p)),
+                .where((p) => !isDemoPost(p) && !isPostSuppressed(p)),
           );
       }
       final rawExplorePosts = data['exploreRecommendedPosts'];
@@ -1642,7 +1764,7 @@ class SakhiPrototypeState extends ChangeNotifier {
             rawExplorePosts
                 .whereType<Map<String, dynamic>>()
                 .map(mergeSyncedPost)
-                .where((p) => !isDemoPost(p)),
+                .where((p) => !isDemoPost(p) && !isPostSuppressed(p)),
           );
       }
       totalDatabasePosts =
@@ -2008,6 +2130,8 @@ class SakhiPrototypeState extends ChangeNotifier {
       final normalizedPurpose =
           (purpose == 'avatar' || purpose == 'profile_photo')
           ? 'profile_photo'
+          : purpose == 'direct_message'
+          ? 'direct_message'
           : 'community_post';
       final response = await _client.postMultipart(
         'module2/media/upload',
@@ -2887,10 +3011,17 @@ class SakhiPrototypeState extends ChangeNotifier {
     required String recipientHandle,
     required String recipientName,
     required String message,
+    String? attachmentUrl,
+    String? attachmentType,
+    String? mediaUploadId,
+    String? clientMessageId,
   }) async {
     final requestEpoch = _accountStateEpoch;
     final trimmed = message.trim();
-    if (trimmed.isEmpty) return null;
+    final hasAttachment =
+        (attachmentUrl != null && attachmentUrl.trim().isNotEmpty) ||
+        (mediaUploadId != null && mediaUploadId.trim().isNotEmpty);
+    if (trimmed.isEmpty && !hasAttachment) return null;
 
     try {
       final token = await _client.readAccessToken();
@@ -2907,7 +3038,15 @@ class SakhiPrototypeState extends ChangeNotifier {
           'recipientId': recipientId,
           'recipientHandle': recipientHandle,
           'recipientName': recipientName,
-          'message': trimmed,
+          'message': trimmed.isEmpty ? '📷 Photo' : trimmed,
+          if (attachmentUrl != null && attachmentUrl.trim().isNotEmpty)
+            'attachmentUrl': attachmentUrl.trim(),
+          if (attachmentType != null && attachmentType.trim().isNotEmpty)
+            'attachmentType': attachmentType.trim(),
+          if (mediaUploadId != null && mediaUploadId.trim().isNotEmpty)
+            'mediaUploadId': mediaUploadId.trim(),
+          if (clientMessageId != null && clientMessageId.trim().isNotEmpty)
+            'clientMessageId': clientMessageId.trim(),
         },
       );
       if (requestEpoch != _accountStateEpoch) return null;
@@ -2919,6 +3058,226 @@ class SakhiPrototypeState extends ChangeNotifier {
     } catch (_) {
       return null;
     }
+  }
+
+  Future<Map<String, dynamic>> fetchMessageConversations() async {
+    try {
+      final token = await _client.readAccessToken();
+      if (token != null && token.isNotEmpty) {
+        final res = await _client.get(
+          'module2/messages/conversations',
+          authenticated: true,
+        );
+        return res;
+      }
+    } catch (_) {}
+    return <String, dynamic>{
+      'conversations': const <Map<String, dynamic>>[],
+      'requests': const <Map<String, dynamic>>[],
+      'totalUnreadCount': 0,
+      'loadFailed': true,
+    };
+  }
+
+  void ensureBlockedUserLocally({
+    required String username,
+    required String displayName,
+    String? id,
+  }) {
+    final trimmedUsername = username.trim();
+    if (trimmedUsername.isEmpty) return;
+    final normTarget = _normHandle(trimmedUsername);
+    final canonicalHandle = normTarget.isEmpty
+        ? trimmedUsername
+        : '@$normTarget';
+    blockedUsers.removeWhere(
+      (item) => _normHandle(item.blockedUsername) == normTarget,
+    );
+    blockedUsers.add(
+      BlockedUserModel(
+        id: id ?? 'block_${DateTime.now().millisecondsSinceEpoch}',
+        blockedUsername: canonicalHandle,
+        blockedDisplayName: displayName.trim().isEmpty
+            ? canonicalHandle
+            : displayName.trim(),
+      ),
+    );
+    communityPosts.removeWhere(
+      (post) =>
+          _normHandle(post.authorUsername) == normTarget ||
+          post.authorName.trim().toLowerCase() ==
+              displayName.trim().toLowerCase(),
+    );
+    exploreRecommendedPosts.removeWhere(
+      (post) =>
+          _normHandle(post.authorUsername) == normTarget ||
+          post.authorName.trim().toLowerCase() ==
+              displayName.trim().toLowerCase(),
+    );
+    for (final f in followers) {
+      if (_normHandle(f.username) == normTarget) {
+        f.isFollowing = false;
+      }
+    }
+    unawaited(_persistLocalCache());
+    notifyListeners();
+  }
+
+  Future<bool> respondToMessageRequest(String peerId, String action) async {
+    final cleanAction = action.trim().toUpperCase();
+    try {
+      final res = await _client.post(
+        'module2/messages/requests/${Uri.encodeComponent(peerId.trim())}/respond',
+        authenticated: true,
+        body: {'action': cleanAction},
+      );
+      if (cleanAction == 'BLOCK') {
+        final blockedMap = res['blocked'];
+        final blockedId = blockedMap is Map
+            ? blockedMap['id']?.toString()
+            : null;
+        ensureBlockedUserLocally(
+          username: peerId,
+          displayName: peerId.replaceFirst('@', ''),
+          id: blockedId,
+        );
+      }
+      notifyListeners();
+      return true;
+    } catch (_) {
+      if (cleanAction == 'BLOCK') {
+        ensureBlockedUserLocally(
+          username: peerId,
+          displayName: peerId.replaceFirst('@', ''),
+        );
+      }
+      return false;
+    }
+  }
+
+  Future<void> markDirectMessagesRead(String peerId) async {
+    try {
+      final token = await _client.readAccessToken();
+      if (token == null || token.isEmpty) return;
+      await _client.post(
+        'module2/messages/${Uri.encodeComponent(peerId.trim())}/read',
+        authenticated: true,
+      );
+    } catch (_) {}
+  }
+
+  Future<Map<String, dynamic>> fetchNotificationsInbox({
+    String category = 'ALL',
+    bool unreadOnly = false,
+  }) async {
+    try {
+      final token = await _client.readAccessToken();
+      if (token != null && token.isNotEmpty) {
+        final query = Uri(
+          queryParameters: {
+            if (category.isNotEmpty && category != 'ALL') 'category': category,
+            if (unreadOnly) 'unreadOnly': 'true',
+          },
+        ).query;
+        final path = query.isEmpty
+            ? 'module2/notifications/inbox'
+            : 'module2/notifications/inbox?$query';
+        return await _client.get(path, authenticated: true);
+      }
+    } catch (_) {}
+    return <String, dynamic>{
+      'notifications': const <Map<String, dynamic>>[],
+      'unreadCount': 0,
+      'discreetModeEnabled': true,
+      'loadFailed': true,
+    };
+  }
+
+  Future<void> markNotificationRead(String notificationId) async {
+    try {
+      await _client.post(
+        'module2/notifications/${Uri.encodeComponent(notificationId)}/read',
+        authenticated: true,
+      );
+    } catch (_) {}
+  }
+
+  Future<void> markAllNotificationsRead() async {
+    try {
+      await _client.post(
+        'module2/notifications/read-all',
+        authenticated: true,
+      );
+    } catch (_) {}
+  }
+
+  Future<void> deleteNotification(String notificationId) async {
+    try {
+      await _client.delete(
+        'module2/notifications/${Uri.encodeComponent(notificationId)}',
+        authenticated: true,
+      );
+    } catch (_) {}
+  }
+
+  Future<Map<String, dynamic>> unifiedSearch({
+    String q = '',
+    String category = 'all',
+    String? city,
+    double? lat,
+    double? lng,
+    double? radiusKm,
+  }) async {
+    if (q.trim().isNotEmpty) {
+      addRecentSearch(q.trim());
+    }
+    try {
+      final token = await _client.readAccessToken();
+      if (token != null && token.isNotEmpty) {
+        final params = <String, String>{
+          if (q.trim().isNotEmpty) 'q': q.trim(),
+          if (category.trim().isNotEmpty) 'category': category.trim(),
+          if (city != null && city.trim().isNotEmpty) 'city': city.trim(),
+          if (lat != null) 'lat': lat.toString(),
+          if (lng != null) 'lng': lng.toString(),
+          if (radiusKm != null) 'radiusKm': radiusKm.toString(),
+        };
+        final qs = Uri(queryParameters: params).query;
+        return await _client.get(
+          qs.isEmpty ? 'module2/search' : 'module2/search?$qs',
+          authenticated: true,
+        );
+      }
+    } catch (_) {}
+    return <String, dynamic>{
+      'members': const <Map<String, dynamic>>[],
+      'businesses': const <Map<String, dynamic>>[],
+      'products': const <Map<String, dynamic>>[],
+      'posts': const <Map<String, dynamic>>[],
+      'topics': const <Map<String, dynamic>>[],
+      'wellness': const <Map<String, dynamic>>[],
+      'nearbyPoliceStations': const <Map<String, dynamic>>[],
+    };
+  }
+
+  void addRecentSearch(String query) {
+    final trimmed = query.trim();
+    if (trimmed.length < 2) return;
+    recentSearches.removeWhere(
+      (item) => item.toLowerCase() == trimmed.toLowerCase(),
+    );
+    recentSearches.insert(0, trimmed);
+    if (recentSearches.length > 15) {
+      recentSearches.removeRange(15, recentSearches.length);
+    }
+    unawaited(_persistLocalCache());
+    notifyListeners();
+  }
+
+  void clearRecentSearches() {
+    recentSearches.clear();
+    unawaited(_persistLocalCache());
+    notifyListeners();
   }
 
   Future<bool> updatePrivacySetting(String id, String newValue) async {
@@ -3086,16 +3445,38 @@ class SakhiPrototypeState extends ChangeNotifier {
   Future<bool> reportUserOrPost({
     required String targetHandle,
     required String reason,
+    String? targetType,
     String? postId,
+    String? commentId,
+    String? businessId,
+    String? messageId,
     String? category,
     String? details,
+    bool alsoBlockUser = false,
+    String? authorDisplayName,
   }) async {
     final target = targetHandle.trim();
     final normalizedReason = reason.trim();
     if (target.isEmpty || normalizedReason.length < 3) return false;
+
+    // Immediately suppress reported post from all feeds in UI (0ms latency)
+    if (postId != null && postId.trim().isNotEmpty) {
+      final pid = postId.trim();
+      reportedPostIds.add(pid);
+      communityPosts.removeWhere((p) => p.id == pid);
+      exploreRecommendedPosts.removeWhere((p) => p.id == pid);
+    }
+    if (alsoBlockUser && target != '@community') {
+      ensureBlockedUserLocally(
+        username: target,
+        displayName: authorDisplayName ?? target.replaceFirst('@', ''),
+      );
+    }
+    unawaited(_persistLocalCache());
+    notifyListeners();
+
     final isServerPost =
         postId != null && RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(postId);
-    if (_isBackendSynced && postId != null && !isServerPost) return false;
 
     if (_isBackendSynced || isServerPost) {
       try {
@@ -3104,17 +3485,24 @@ class SakhiPrototypeState extends ChangeNotifier {
           authenticated: true,
           body: {
             'targetHandle': target,
-            'targetType': postId == null ? 'member' : 'post',
+            'targetType': targetType ?? (postId == null ? 'member' : 'post'),
             if (isServerPost) 'postId': postId,
+            if (commentId != null && commentId.trim().isNotEmpty)
+              'commentId': commentId.trim(),
+            if (businessId != null && businessId.trim().isNotEmpty)
+              'businessId': businessId.trim(),
+            if (messageId != null && messageId.trim().isNotEmpty)
+              'messageId': messageId.trim(),
             'category': category ?? 'inappropriate_content',
             'reason': normalizedReason,
             if (details != null && details.trim().isNotEmpty)
               'details': details.trim(),
+            'alsoBlockUser': alsoBlockUser,
           },
         );
         return response['reportId'] != null || response['status'] != null;
       } catch (_) {
-        return false;
+        return true;
       }
     }
     return true;
@@ -3129,13 +3517,28 @@ class SakhiPrototypeState extends ChangeNotifier {
     String? reason,
     String? reasonCode,
     String? details,
+    bool alsoBlockUser = false,
   }) async {
     return reportUserOrPost(
       targetHandle: targetHandle ?? reportedAccountId ?? accountId ?? '',
       reason: reason ?? reasonCode ?? 'inappropriate_content',
       postId: postId,
+      commentId: commentId,
       category: reasonCode ?? reason ?? 'inappropriate_content',
       details: details,
+      alsoBlockUser: alsoBlockUser,
+    );
+  }
+
+  Future<bool> toggleBlockUser({
+    required String username,
+    required String displayName,
+    String? accountId,
+  }) {
+    return toggleBlockedUser(
+      username: username,
+      displayName: displayName,
+      accountId: accountId,
     );
   }
 
@@ -3146,6 +3549,46 @@ class SakhiPrototypeState extends ChangeNotifier {
   }) async {
     final trimmedUsername = username.trim();
     if (trimmedUsername.isEmpty) return false;
+    final normTarget = _normHandle(trimmedUsername);
+    final canonicalHandle = normTarget.isEmpty
+        ? trimmedUsername
+        : '@$normTarget';
+
+    void applyBlockLocally(bool isNowBlocked, String id) {
+      blockedUsers.removeWhere(
+        (item) => _normHandle(item.blockedUsername) == normTarget,
+      );
+      if (isNowBlocked) {
+        blockedUsers.add(
+          BlockedUserModel(
+            id: id,
+            blockedUsername: canonicalHandle,
+            blockedDisplayName: displayName.trim().isEmpty
+                ? canonicalHandle
+                : displayName.trim(),
+          ),
+        );
+        communityPosts.removeWhere(
+          (post) =>
+              _normHandle(post.authorUsername) == normTarget ||
+              post.authorName.trim().toLowerCase() ==
+                  displayName.trim().toLowerCase(),
+        );
+        exploreRecommendedPosts.removeWhere(
+          (post) =>
+              _normHandle(post.authorUsername) == normTarget ||
+              post.authorName.trim().toLowerCase() ==
+                  displayName.trim().toLowerCase(),
+        );
+        for (final f in followers) {
+          if (_normHandle(f.username) == normTarget) {
+            f.isFollowing = false;
+          }
+        }
+      }
+      unawaited(_persistLocalCache());
+      notifyListeners();
+    }
 
     if (_isBackendSynced) {
       try {
@@ -3153,61 +3596,119 @@ class SakhiPrototypeState extends ChangeNotifier {
           'module2/moderation/block',
           authenticated: true,
           body: {
-            'blockedUsername': trimmedUsername,
+            'blockedUsername': canonicalHandle,
             'blockedDisplayName': displayName.trim().isEmpty
-                ? trimmedUsername
+                ? canonicalHandle
                 : displayName.trim(),
           },
         );
         final blocked = response['isBlocked'] as bool?;
         if (blocked == null) return false;
-        blockedUsers.removeWhere(
-          (item) => item.blockedUsername == trimmedUsername,
+        applyBlockLocally(
+          blocked,
+          (response['id'] ?? accountId ?? canonicalHandle).toString(),
         );
-        if (blocked) {
-          blockedUsers.add(
-            BlockedUserModel(
-              id: (response['id'] ?? accountId ?? trimmedUsername).toString(),
-              blockedUsername: trimmedUsername,
-              blockedDisplayName: displayName,
-            ),
-          );
-          communityPosts.removeWhere(
-            (post) =>
-                post.authorUsername == trimmedUsername ||
-                post.authorName == displayName,
-          );
-        } else {
+        if (!blocked) {
           unawaited(syncFromBackend());
         }
-        notifyListeners();
         return true;
       } catch (_) {
-        return false;
+        // Fall through to local optimistic block
       }
     }
 
-    final idx = blockedUsers.indexWhere(
-      (item) => item.blockedUsername == trimmedUsername,
+    final currentlyBlocked = isUsernameBlocked(canonicalHandle);
+    applyBlockLocally(
+      !currentlyBlocked,
+      accountId ?? 'blk_${DateTime.now().millisecondsSinceEpoch}',
     );
-    if (idx != -1) {
-      blockedUsers.removeAt(idx);
+    return true;
+  }
+
+  Future<bool> toggleHidePost(String postId) async {
+    final pid = postId.trim();
+    if (pid.isEmpty) return false;
+    final wasHidden = hiddenPostIds.contains(pid);
+    if (wasHidden) {
+      hiddenPostIds.remove(pid);
     } else {
-      blockedUsers.add(
-        BlockedUserModel(
-          id: accountId ?? 'blk_${DateTime.now().millisecondsSinceEpoch}',
-          blockedUsername: trimmedUsername,
-          blockedDisplayName: displayName,
-        ),
+      hiddenPostIds.add(pid);
+      communityPosts.removeWhere((p) => p.id == pid);
+      exploreRecommendedPosts.removeWhere((p) => p.id == pid);
+    }
+    unawaited(_persistLocalCache());
+    notifyListeners();
+    try {
+      await _client.post(
+        'module2/moderation/mute',
+        authenticated: true,
+        body: {
+          'postId': pid,
+          'mode': wasHidden ? 'UNHIDE_POST' : 'HIDE_POST',
+        },
       );
-      communityPosts.removeWhere(
-        (post) =>
-            post.authorUsername == trimmedUsername ||
-            post.authorName == displayName,
+    } catch (_) {}
+    return !wasHidden;
+  }
+
+  Future<bool> toggleMuteUser({
+    required String username,
+    String? displayName,
+  }) async {
+    final norm = _normHandle(username);
+    if (norm.isEmpty) return false;
+    final wasMuted = mutedUserHandles.contains(norm);
+    if (wasMuted) {
+      mutedUserHandles.remove(norm);
+    } else {
+      mutedUserHandles.add(norm);
+      communityPosts.removeWhere((p) => _normHandle(p.authorUsername) == norm);
+      exploreRecommendedPosts.removeWhere(
+        (p) => _normHandle(p.authorUsername) == norm,
       );
     }
+    unawaited(_persistLocalCache());
     notifyListeners();
-    return true;
+    try {
+      await _client.post(
+        'module2/moderation/mute',
+        authenticated: true,
+        body: {
+          'targetUsername': '@$norm',
+          'targetDisplayName': displayName ?? '@$norm',
+          'mode': wasMuted ? 'UNMUTE' : 'MUTE',
+        },
+      );
+    } catch (_) {}
+    return !wasMuted;
+  }
+
+  Future<bool> toggleRestrictUser({
+    required String username,
+    String? displayName,
+  }) async {
+    final norm = _normHandle(username);
+    if (norm.isEmpty) return false;
+    final wasRestricted = restrictedUserHandles.contains(norm);
+    if (wasRestricted) {
+      restrictedUserHandles.remove(norm);
+    } else {
+      restrictedUserHandles.add(norm);
+    }
+    unawaited(_persistLocalCache());
+    notifyListeners();
+    try {
+      await _client.post(
+        'module2/moderation/mute',
+        authenticated: true,
+        body: {
+          'targetUsername': '@$norm',
+          'targetDisplayName': displayName ?? '@$norm',
+          'mode': wasRestricted ? 'UNRESTRICT' : 'RESTRICT',
+        },
+      );
+    } catch (_) {}
+    return !wasRestricted;
   }
 
   // ===========================================================================

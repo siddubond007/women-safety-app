@@ -11,20 +11,33 @@ import {
   Post,
   Put,
   Query,
+  Res,
 } from "@nestjs/common";
+import type { Response } from "express";
 import { DevelopmentMemberStateDto } from "./admin-member-state.dto.js";
 import { ManualEligibilityDecisionDto } from "./admin-review.dto.js";
 import { AdminReviewService } from "./admin-review.service.js";
+
+function extractBearerHeader(authorization?: string): string | undefined {
+  if (!authorization) return undefined;
+  const trimmed = authorization.trim();
+  if (/^Bearer\s+/i.test(trimmed)) {
+    return trimmed.replace(/^Bearer\s+/i, "").trim() || undefined;
+  }
+  return undefined;
+}
 
 function pickAdminToken(
   primary?: string,
   fallback?: string,
   stagingSession?: string,
+  authorizationHeader?: string,
 ): string | undefined {
   return (
     primary?.trim() ||
     fallback?.trim() ||
     stagingSession?.trim() ||
+    extractBearerHeader(authorizationHeader) ||
     undefined
   );
 }
@@ -448,6 +461,128 @@ export class AdminReviewController {
     return this.adminReview.resolveReport(
       reportId,
       body,
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
+  @Post("reports/:reportId/resolve")
+  @HttpCode(200)
+  resolveReportAlias(
+    @Param("reportId") reportId: string,
+    @Body() body: Record<string, unknown>,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.resolveReport(
+      reportId,
+      body,
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
+  @Patch("moderation/reports/:reportId/triage")
+  triageReport(
+    @Param("reportId") reportId: string,
+    @Body() body: Record<string, unknown>,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.triageReport(
+      reportId,
+      body,
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
+  @Patch("reports/:reportId/triage")
+  triageReportAlias(
+    @Param("reportId") reportId: string,
+    @Body() body: Record<string, unknown>,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.triageReport(
+      reportId,
+      body,
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
+  @Get("moderation/reports/:reportId")
+  getReportDetail(
+    @Param("reportId") reportId: string,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.getReportDetail(
+      reportId,
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
+  @Get("media/:uploadId/preview")
+  async previewMediaForModeration(
+    @Param("uploadId") uploadId: string,
+    @Res() response: Response,
+    @Headers("authorization") authorizationHeader?: string,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    const resolvedToken = pickAdminToken(
+      token,
+      altToken,
+      stagingSessionToken,
+      authorizationHeader,
+    );
+    const media = await this.adminReview.previewReportedMedia(
+      uploadId,
+      resolvedToken,
+    );
+    response.setHeader("Content-Type", media.contentType);
+    response.setHeader("Cache-Control", "private, no-store, max-age=0");
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    return response.status(200).send(media.buffer);
+  }
+
+  @Get("wellness-resources")
+  listWellnessResources(
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.listWellnessResources(
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
+  @Post("wellness-resources")
+  @HttpCode(201)
+  upsertWellnessResource(
+    @Body() body: Record<string, unknown>,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.upsertWellnessResource(
+      body,
+      pickAdminToken(token, altToken, stagingSessionToken),
+    );
+  }
+
+  @Delete("wellness-resources/:resourceId")
+  deleteWellnessResource(
+    @Param("resourceId") resourceId: string,
+    @Headers("x-sakhi-admin-token") token?: string,
+    @Headers("x-sakhi-admin-review-token") altToken?: string,
+    @Headers("x-sakhi-staging-admin-session") stagingSessionToken?: string,
+  ) {
+    return this.adminReview.deleteWellnessResource(
+      resourceId,
       pickAdminToken(token, altToken, stagingSessionToken),
     );
   }

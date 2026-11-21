@@ -918,6 +918,290 @@ class _MenstrualCycleTrackerScreenState
 
           const SizedBox(height: 14),
 
+          // 2B. Personal Cycle Length (24 / 26 / 28+ Days) & Reminder Lead-Time Card
+          SakhiCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppColors.pastelPink,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.tune_rounded,
+                        color: Color(0xFFD63E85),
+                        size: 18,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Cycle Prediction Mode (${p.averageCycleLength} Days)',
+                            style: AppTypography.cardTitle,
+                          ),
+                          Text(
+                            p.predictionBasisLabel,
+                            style: AppTypography.caption,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ChoiceChip(
+                        label: const Text('Automatic (History)'),
+                        selected: !_controller.preferences.useCustomCycleLength,
+                        selectedColor: AppColors.pastelLavender,
+                        onSelected: (_) {
+                          _controller.updatePreferences(
+                            _controller.preferences.copyWith(
+                              useCustomCycleLength: false,
+                            ),
+                          );
+                          SakhiDialogs.showPrototypeSnackbar(
+                            context,
+                            'Switched to Automatic history-based cycle prediction.',
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ChoiceChip(
+                        label: const Text('Custom Cycle Length'),
+                        selected: _controller.preferences.useCustomCycleLength,
+                        selectedColor: AppColors.pastelPink,
+                        onSelected: (_) {
+                          _controller.updatePreferences(
+                            _controller.preferences.copyWith(
+                              useCustomCycleLength: true,
+                            ),
+                          );
+                          SakhiDialogs.showPrototypeSnackbar(
+                            context,
+                            'Switched to Custom manual cycle length (${_controller.preferences.averageCycleLength} days).',
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [24, 26, 28, 30, 32].map((days) {
+                    final isSelected =
+                        _controller.preferences.averageCycleLength == days;
+                    return SakhiChip(
+                      label: '$days Days',
+                      isSelected: isSelected,
+                      onTap: () {
+                        _controller.updatePreferences(
+                          _controller.preferences.copyWith(
+                            averageCycleLength: days,
+                            useCustomCycleLength: true,
+                          ),
+                        );
+                        SakhiDialogs.showPrototypeSnackbar(
+                          context,
+                          'Updated your personal cycle length to $days days.',
+                        );
+                      },
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Text(
+                      'Custom (21–40d):',
+                      style: AppTypography.caption,
+                    ),
+                    Expanded(
+                      child: Slider(
+                        value: _controller.preferences.averageCycleLength
+                            .clamp(21, 40)
+                            .toDouble(),
+                        min: 21,
+                        max: 40,
+                        divisions: 19,
+                        label:
+                            '${_controller.preferences.averageCycleLength} days',
+                        activeColor: const Color(0xFFD63E85),
+                        onChanged: (val) {
+                          _controller.updatePreferences(
+                            _controller.preferences.copyWith(
+                              averageCycleLength: val.round(),
+                              useCustomCycleLength: true,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    Text(
+                      '${_controller.preferences.averageCycleLength}d',
+                      style: AppTypography.bodyMedium.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: const Color(0xFFD63E85),
+                      ),
+                    ),
+                  ],
+                ),
+                const Divider(height: 16),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.notifications_active_outlined,
+                      size: 16,
+                      color: AppColors.primaryPurple,
+                    ),
+                    const SizedBox(width: 6),
+                    const Expanded(
+                      child: Text(
+                        'Discreet Period Reminder Lead Time:',
+                        style: AppTypography.caption,
+                      ),
+                    ),
+                    ...[1, 2, 3].map((leadDays) {
+                      final active =
+                          _controller.preferences.periodReminderDaysBefore ==
+                          leadDays;
+                      return Padding(
+                        padding: const EdgeInsets.only(left: 6),
+                        child: ChoiceChip(
+                          label: Text('${leadDays}d before'),
+                          selected: active,
+                          onSelected: (_) {
+                            _controller.updatePreferences(
+                              _controller.preferences.copyWith(
+                                periodReminderDaysBefore: leadDays,
+                                notificationsEnabled: true,
+                              ),
+                            );
+                          },
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 14),
+
+          // 2C. Period Pain Help & Cramp Relief Quick Hub (Friend Review Requirement)
+          SakhiCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFDF2F8),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.healing_rounded,
+                        color: Color(0xFFBE185D),
+                        size: 18,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Period Pain Help & Health Articles',
+                            style: AppTypography.cardTitle,
+                          ),
+                          const Text(
+                            'Doctor-informed cramp relief: heat therapy, gentle yoga, hydration, rest & when to see a gynecologist.',
+                            style: AppTypography.caption,
+                          ),
+                        ],
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => _tabController.animateTo(3),
+                      child: const Text('All Guides'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                ...sakhiMenstrualHealthArticles.take(3).map((article) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: () => _openArticleReader(article),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFAF5FF),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: AppColors.borderSubtle),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.menu_book_rounded,
+                              color: AppColors.primaryPurple,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    article.title,
+                                    style: AppTypography.bodyMedium.copyWith(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '${article.category} • ${article.readTime}',
+                                    style: AppTypography.caption.copyWith(
+                                      color: const Color(0xFFD63E85),
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Icon(
+                              Icons.chevron_right_rounded,
+                              color: AppColors.primaryPurple,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 14),
+
           // 3. Interactive Monthly Cycle Calendar
           SakhiCard(
             child: Column(

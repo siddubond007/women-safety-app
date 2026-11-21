@@ -1,0 +1,32 @@
+INDEPENDENT REVIEW ADDENDUM (2026-11-06)
+---------------------------------------
+This ZIP's original manifest details below describe the source package as supplied.
+A subsequent independent review added source corrections and a CI staging APK workflow.
+The package remains an unverified source candidate, NOT a final APK or a production release.
+Full Prisma/backend/Flutter/Android validation has not run on the final candidate.
+Quiet hours and FCM/APNs push delivery were not found; TTS uses device-native FlutterTts;
+soundscapes are synthesized AudioTrack presets. See SAKHI_FINAL_REVIEW_HANDOFF.md.
+
+SAKHI PLATFORM — COMPLETE REPAIRED SOURCE ZIP MANIFEST
+======================================================
+ZIP Filename             : SAKHI_MODULES8-12_REPAIRED_COMPLETE_SOURCE_20261106.zip
+Source Repository        : https://github.com/siddubond007/women-safety-app
+Source Branch            : module-8-implementation
+Baseline HEAD Commit     : d304f119e62c4be1c7624873f7ce0c5e2a53f2d5
+Creation Date (UTC)      : 2026-11-06T03:48:00Z
+Total Files Included     : 572
+Uncompressed Size        : 24,069,253 bytes (~22.95 MB)
+
+Project Components Included:
+- Backend (NestJS + Prisma): backend/src/, backend/test/, backend/prisma/schema.prisma, backend/prisma/migrations/ (20 migrations including 20261106010000_modules8_9_10_11_12_complete), backend/prisma/staging/, backend/scripts/
+- Flutter Mobile App (Android/iOS/Web): app/lib/, app/assets/, app/test/, app/android/, app/ios/, app/web/, app/pubspec.yaml, app/pubspec.lock
+- Super-Admin Web Application (React + TypeScript + Vite): super-admin/src/, super-admin/package.json, super-admin/package-lock.json
+- Deployment & CI Workflows: render.yaml (staging branches preserved at release/complete-enterprise-fix), .github/workflows/
+- Documentation & Reports: SAKHI_REPAIR_REPORT.md, SAKHI_ZIP_MANIFEST.txt, docs/
+
+Excluded Generated / Secret Paths:
+- .git/, node_modules/, .dart_tool/, build/, .gradle/, dist/
+- Android release keystores (*.jks), key.properties, real .env secret files, temporary .patch files
+
+Known Limitations:
+- Physical-device audio output (FlutterTts and AudioTrack PCM synthesis) and Android AlarmManager notification firing require verification on a real Android device after building the APK.

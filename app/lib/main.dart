@@ -21,6 +21,7 @@ import 'features/complaints/screens/complaint_tracking_screens.dart';
 import 'features/complaints/screens/discreet_complaint_hub_screen.dart';
 import 'features/explore/screens/explore_screen.dart';
 import 'features/followers/screens/followers_following_screen.dart';
+import 'features/notifications/screens/messages_and_notifications_inbox_screens.dart';
 import 'features/notifications/screens/notification_preferences_screen.dart';
 import 'features/onboarding/sakhi_onboarding_screen.dart';
 import 'features/profile/screens/edit_profile_screen.dart';
@@ -155,6 +156,10 @@ class _SakhiAppState extends State<SakhiApp> {
         AppRoutes.privacySettings: (_) => const PrivacySettingsScreen(),
         AppRoutes.notificationPreferences: (_) =>
             const NotificationPreferencesScreen(),
+        AppRoutes.notificationsInbox: (_) =>
+            const SakhiNotificationsInboxScreen(),
+        AppRoutes.messagesInbox: (_) =>
+            const SakhiMessagesInboxScreen(),
         AppRoutes.followers: (_) => const FollowersFollowingScreen(),
         AppRoutes.following: (_) =>
             const FollowersFollowingScreen(initialFollowing: true),
