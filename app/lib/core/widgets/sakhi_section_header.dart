@@ -19,7 +19,14 @@ class SakhiSectionHeader extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(title, style: AppTypography.sectionTitle),
+        Expanded(
+          child: Text(
+            title,
+            style: AppTypography.sectionTitle,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
         if (actionLabel != null)
           GestureDetector(
             onTap: onActionTap,

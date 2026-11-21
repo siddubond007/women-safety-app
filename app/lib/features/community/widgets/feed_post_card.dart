@@ -1586,6 +1586,7 @@ class _FeedPostCardState extends State<FeedPostCard> {
       'Other safety concern',
     ];
     var selected = reasons.first;
+    var alsoBlockAuthor = false;
     final detailsCtrl = TextEditingController();
 
     showDialog<void>(
@@ -1607,7 +1608,7 @@ class _FeedPostCardState extends State<FeedPostCard> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Confidential: Your identity is never disclosed to the reported member.',
+                    'Confidential: Your identity is never disclosed to the reported member, and this post will be hidden from your feed immediately.',
                     style: AppTypography.subtitle,
                   ),
                   const SizedBox(height: 8),
@@ -1626,6 +1627,28 @@ class _FeedPostCardState extends State<FeedPostCard> {
                       labelText: 'Additional details (optional)',
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  CheckboxListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    activeColor: AppColors.sosRed,
+                    value: alsoBlockAuthor,
+                    onChanged: (val) =>
+                        setDialogState(() => alsoBlockAuthor = val ?? false),
+                    title: Text(
+                      'Also block ${post.authorName} (${post.authorUsername})',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        color: AppColors.sosRed,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Hide all posts, comments, profile views, and messages from this member',
+                      style: TextStyle(fontSize: 11.5),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -1636,7 +1659,7 @@ class _FeedPostCardState extends State<FeedPostCard> {
               child: const Text('Cancel'),
             ),
             SakhiPillButton(
-              label: 'Submit Report',
+              label: alsoBlockAuthor ? 'Report & Block' : 'Submit Report',
               backgroundColor: AppColors.sosRed,
               onPressed: () async {
                 final submitted = await SakhiPrototypeState.instance
@@ -1646,6 +1669,8 @@ class _FeedPostCardState extends State<FeedPostCard> {
                       category: selected.toLowerCase().replaceAll(' ', '_'),
                       reason: selected,
                       details: detailsCtrl.text,
+                      alsoBlockUser: alsoBlockAuthor,
+                      authorDisplayName: post.authorName,
                     );
                 if (!ctx.mounted) return;
                 if (!submitted) {
@@ -1661,7 +1686,9 @@ class _FeedPostCardState extends State<FeedPostCard> {
                 Navigator.pop(ctx);
                 SakhiDialogs.showPrototypeSnackbar(
                   context,
-                  'Report submitted confidentially to Sakhi safety moderators.',
+                  alsoBlockAuthor
+                      ? 'Post reported and ${post.authorUsername} blocked.'
+                      : 'Post reported and removed from your feed.',
                 );
               },
             ),
@@ -1782,15 +1809,37 @@ class _FeedPostCardState extends State<FeedPostCard> {
                   Icons.visibility_off_outlined,
                   color: AppColors.primaryPurple,
                 ),
-                title: const Text('Hide or Mute Post'),
-                onTap: () {
+                title: const Text('Hide Post from Feed'),
+                onTap: () async {
                   Navigator.pop(ctx);
+                  await SakhiPrototypeState.instance.toggleHidePost(post.id);
+                  if (!context.mounted) return;
                   SakhiDialogs.showPrototypeSnackbar(
                     context,
                     'Post hidden from your Social Wall view.',
                   );
                 },
               ),
+              if (!isOwn)
+                ListTile(
+                  leading: const Icon(
+                    Icons.volume_off_outlined,
+                    color: AppColors.primaryPurple,
+                  ),
+                  title: Text('Mute ${post.authorName} (${post.authorUsername})'),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    await SakhiPrototypeState.instance.toggleMuteUser(
+                      username: post.authorUsername,
+                      displayName: post.authorName,
+                    );
+                    if (!context.mounted) return;
+                    SakhiDialogs.showPrototypeSnackbar(
+                      context,
+                      'Muted ${post.authorUsername} from your feed.',
+                    );
+                  },
+                ),
               if (!isOwn) ...[
                 ListTile(
                   leading: const Icon(

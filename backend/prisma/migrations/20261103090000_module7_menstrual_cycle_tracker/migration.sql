@@ -1,7 +1,8 @@
 -- Module 7: Women's Menstrual Cycle Tracker (SRS Sections 9.1–9.5)
 -- Strictly owner-isolated health tables with foreign-key cascade deletion.
+-- Idempotent because staging already contains these tables from an earlier out-of-band apply.
 
-CREATE TABLE "menstrual_cycle_logs" (
+CREATE TABLE IF NOT EXISTS "menstrual_cycle_logs" (
   "id" UUID NOT NULL DEFAULT gen_random_uuid(),
   "account_id" UUID NOT NULL,
   "start_date" DATE NOT NULL,
@@ -23,7 +24,7 @@ CREATE TABLE "menstrual_cycle_logs" (
     ON DELETE CASCADE ON UPDATE CASCADE
 );
 
-CREATE TABLE "menstrual_daily_logs" (
+CREATE TABLE IF NOT EXISTS "menstrual_daily_logs" (
   "id" UUID NOT NULL DEFAULT gen_random_uuid(),
   "account_id" UUID NOT NULL,
   "log_date" DATE NOT NULL,
@@ -43,7 +44,7 @@ CREATE TABLE "menstrual_daily_logs" (
     ON DELETE CASCADE ON UPDATE CASCADE
 );
 
-CREATE TABLE "menstrual_tracker_preferences" (
+CREATE TABLE IF NOT EXISTS "menstrual_tracker_preferences" (
   "account_id" UUID NOT NULL,
   "default_cycle_length" INTEGER NOT NULL DEFAULT 28,
   "default_period_duration" INTEGER NOT NULL DEFAULT 5,
@@ -62,6 +63,6 @@ CREATE TABLE "menstrual_tracker_preferences" (
     ON DELETE CASCADE ON UPDATE CASCADE
 );
 
-CREATE INDEX "menstrual_cycle_logs_account_start_idx" ON "menstrual_cycle_logs"("account_id", "start_date");
-CREATE UNIQUE INDEX "menstrual_daily_logs_account_date_key" ON "menstrual_daily_logs"("account_id", "log_date");
-CREATE INDEX "menstrual_daily_logs_account_date_idx" ON "menstrual_daily_logs"("account_id", "log_date");
+CREATE INDEX IF NOT EXISTS "menstrual_cycle_logs_account_start_idx" ON "menstrual_cycle_logs"("account_id", "start_date");
+CREATE UNIQUE INDEX IF NOT EXISTS "menstrual_daily_logs_account_date_key" ON "menstrual_daily_logs"("account_id", "log_date");
+CREATE INDEX IF NOT EXISTS "menstrual_daily_logs_account_date_idx" ON "menstrual_daily_logs"("account_id", "log_date");
