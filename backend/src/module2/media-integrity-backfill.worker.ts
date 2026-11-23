@@ -29,7 +29,7 @@ export class MediaIntegrityBackfillWorker implements OnModuleInit {
     private readonly googleDrive: GoogleDriveStorageService,
   ) {}
 
-  async onModuleInit(): Promise<void> {
+  onModuleInit(): void {
     const mode = process.env.SAKHI_STAGING_MEDIA_INTEGRITY_BACKFILL_MODE;
     if (!mode || mode === "disabled") return;
 
@@ -46,17 +46,19 @@ export class MediaIntegrityBackfillWorker implements OnModuleInit {
       return;
     }
 
-    try {
-      const summary = await this.runOnce(mode);
-      this.logger.log(JSON.stringify({ event: "sakhi.media_integrity_backfill.finished", ...summary }));
-    } catch (error) {
-      this.logger.error(
-        JSON.stringify({
-          event: "sakhi.media_integrity_backfill.failed",
-          errorType: error instanceof Error ? error.name : "UnknownError",
-        }),
-      );
-    }
+    // Do not delay the API health check or service startup for this bounded maintenance job.
+    void this.runOnce(mode)
+      .then((summary) => {
+        this.logger.log(JSON.stringify({ event: "sakhi.media_integrity_backfill.finished", ...summary }));
+      })
+      .catch((error: unknown) => {
+        this.logger.error(
+          JSON.stringify({
+            event: "sakhi.media_integrity_backfill.failed",
+            errorType: error instanceof Error ? error.name : "UnknownError",
+          }),
+        );
+      });
   }
 
   async runOnce(mode: BackfillMode) {
