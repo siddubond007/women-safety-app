@@ -88,7 +88,7 @@ jobs:
         run: npm run build
 
   flutter:
-    name: Flutter analysis, tests and Signed Release APK build
+    name: Flutter analysis, tests and optional Signed Release APK build
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -114,11 +114,50 @@ jobs:
         run: flutter analyze
       - name: Run Flutter tests
         run: flutter test
+      - name: Configure Android release signing from GitHub secrets
+        id: android-signing
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${ANDROID_KEYSTORE_BASE64}" || -z "${ANDROID_STORE_PASSWORD}" || -z "${ANDROID_KEY_ALIAS}" || -z "${ANDROID_KEY_PASSWORD}" ]]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Release APK skipped::Android signing secrets are not configured. Flutter analysis and tests still ran."
+            exit 0
+          fi
+
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/sakhi-release-key.jks
+          chmod 600 android/app/sakhi-release-key.jks
+          keytool -list -keystore android/app/sakhi-release-key.jks \
+            -storepass "$ANDROID_STORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" \
+            -keypass "$ANDROID_KEY_PASSWORD" > /dev/null
+
+          cat > android/key.properties <<EOF
+          storePassword=$ANDROID_STORE_PASSWORD
+          keyPassword=$ANDROID_KEY_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          storeFile=sakhi-release-key.jks
+          EOF
+          chmod 600 android/key.properties
+          echo "configured=true" >> "$GITHUB_OUTPUT"
       - name: Build Signed Production Release APK
+        if: steps.android-signing.outputs.configured == 'true'
         run: flutter build apk --release
       - name: Upload Signed Release APK Artifact
+        if: steps.android-signing.outputs.configured == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: Sakhi_Production_Signed_V3_APK
           path: app/build/app/outputs/flutter-apk/app-release.apk
           retention-days: 30
+      - name: Report skipped release artifact
+        if: steps.android-signing.outputs.configured != 'true'
+        run: echo "Release APK was not produced because Android signing secrets are not configured."
+      - name: Remove temporary Android signing files
+        if: always() && steps.android-signing.outputs.configured == 'true'
+        run: rm -f android/key.properties android/app/sakhi-release-key.jks
