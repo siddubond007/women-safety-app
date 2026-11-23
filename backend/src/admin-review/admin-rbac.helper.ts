@@ -488,6 +488,15 @@ export class SakhiAdminRbacRegistry {
     if (!def) {
       throw new UnauthorizedException("The stored staff role is not recognized; access is denied.");
     }
+    if (
+      staff.isAuthorisedComplaintReviewer &&
+      staff.role !== "SUPER_ADMIN" &&
+      staff.role !== "COMPLAINT_REVIEWER"
+    ) {
+      throw new UnauthorizedException(
+        "Complaint-reviewer clearance conflicts with the staff role; access is denied.",
+      );
+    }
     return {
       staffId: staff.id,
       staffCode: staff.staffCode,
@@ -500,8 +509,7 @@ export class SakhiAdminRbacRegistry {
       clearanceLevel: staff.clearanceLevel || def.defaultClearanceLevel,
       isAuthorisedComplaintReviewer:
         staff.role === "SUPER_ADMIN" ||
-        staff.role === "COMPLAINT_REVIEWER" ||
-        staff.isAuthorisedComplaintReviewer,
+        staff.role === "COMPLAINT_REVIEWER",
       permissions: { ...def.defaultPermissions, ...staff.permissions },
       allowedRoutes:
         Array.isArray(staff.allowedRoutes) && staff.allowedRoutes.length > 0
@@ -759,6 +767,15 @@ export class SakhiAdminRbacRegistry {
     if (r.isAuthorisedComplaintReviewer !== undefined && typeof r.isAuthorisedComplaintReviewer !== "boolean") {
       throw new UnauthorizedException("Stored complaint-reviewer authorization is invalid; access is denied.");
     }
+    if (
+      r.isAuthorisedComplaintReviewer === true &&
+      role !== "SUPER_ADMIN" &&
+      role !== "COMPLAINT_REVIEWER"
+    ) {
+      throw new UnauthorizedException(
+        "Stored complaint-reviewer clearance conflicts with the staff role; access is denied.",
+      );
+    }
     const allowedRoutes = Array.isArray(rawPerms.allowedRoutes)
       ? rawPerms.allowedRoutes
       : Array.isArray(r.allowedRoutes)
@@ -780,8 +797,7 @@ export class SakhiAdminRbacRegistry {
       accessTokenPreview: String(r.accessTokenPreview ?? "SAKHI-STAFF-••••"),
       isAuthorisedComplaintReviewer:
         role === "SUPER_ADMIN" ||
-        role === "COMPLAINT_REVIEWER" ||
-        Boolean(r.isAuthorisedComplaintReviewer),
+        role === "COMPLAINT_REVIEWER",
       clearanceLevel: String(r.clearanceLevel ?? def.defaultClearanceLevel),
       permissions: {
         view: rawPerms.view === undefined ? def.defaultPermissions.view : rawPerms.view as boolean,
@@ -1156,14 +1172,16 @@ export class SakhiAdminRbacRegistry {
       if (!(nextRole in ADMIN_ROLE_DEFINITIONS)) {
         throw new BadRequestException(`Invalid admin role "${dto.role}".`);
       }
-      existing.role = nextRole;
-      const def = ADMIN_ROLE_DEFINITIONS[nextRole];
-      existing.allowedRoutes = [...def.allowedRoutes];
-      if (!dto.permissions) {
+      if (nextRole !== existing.role) {
+        existing.role = nextRole;
+        const def = ADMIN_ROLE_DEFINITIONS[nextRole];
+        existing.allowedRoutes = [...def.allowedRoutes];
+        // Actual role changes must never inherit grants from the previous role.
+        // Re-submitting the same role must preserve existing custom grants.
         existing.permissions = { ...def.defaultPermissions };
+        existing.isAuthorisedComplaintReviewer =
+          nextRole === "SUPER_ADMIN" || nextRole === "COMPLAINT_REVIEWER";
       }
-      existing.isAuthorisedComplaintReviewer =
-        nextRole === "SUPER_ADMIN" || nextRole === "COMPLAINT_REVIEWER";
     }
 
     if (dto.status !== undefined) {
@@ -1213,6 +1231,16 @@ export class SakhiAdminRbacRegistry {
       existing.clearanceLevel = dto.clearanceLevel.trim();
     }
     if (dto.permissions) {
+      for (const [key, value] of Object.entries(dto.permissions)) {
+        if (
+          !["view", "create", "edit", "approve", "suspend", "export", "delete"].includes(key) ||
+          typeof value !== "boolean"
+        ) {
+          throw new BadRequestException(
+            "Staff permissions must contain only recognized boolean permission values.",
+          );
+        }
+      }
       existing.permissions = {
         ...existing.permissions,
         ...dto.permissions,
@@ -1225,11 +1253,6 @@ export class SakhiAdminRbacRegistry {
     }
     if (dto.regenerateToken !== undefined && typeof dto.regenerateToken !== "boolean") {
       throw new BadRequestException("regenerateToken must be a boolean.");
-    }
-    for (const [key, value] of Object.entries(dto.permissions ?? {})) {
-      if (!["view", "create", "edit", "approve", "suspend", "export", "delete"].includes(key) || typeof value !== "boolean") {
-        throw new BadRequestException("Staff permissions must contain only recognized boolean permission values.");
-      }
     }
     if (dto.regenerateToken === true) {
       const rand = randomBytes(32).toString("base64url");

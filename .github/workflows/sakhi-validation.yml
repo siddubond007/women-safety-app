@@ -24,6 +24,7 @@ on:
       - fix/sakhi-runtime-db-isolation-20261113
       - fix/stage3b2-reviewed-staging-migrations-20261114
       - release/staging-apk-hosted-20261112
+      - fix/community-media-rls-drive-publishing-20261119
     paths:
       - "backend/**"
       - "super-admin/**"

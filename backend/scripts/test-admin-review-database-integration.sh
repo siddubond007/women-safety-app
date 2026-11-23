@@ -18,6 +18,7 @@ export NODE_ENV=development
 export HOST=127.0.0.1
 
 APP_PASSWORD="$(openssl rand -hex 32)"
+DEV_ROLE_PASSWORD="$(openssl rand -hex 32)"
 MIGRATOR_PASSWORD="$(openssl rand -hex 32)"
 STAGING_ROLE_PASSWORD="$(openssl rand -hex 32)"
 STAGING_MIGRATOR_PASSWORD="$(openssl rand -hex 32)"
@@ -30,6 +31,7 @@ SUPABASE_RENAMER_PASSWORD="$(openssl rand -hex 32)"
 psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v ON_ERROR_STOP=1 \
   -v app_password="$APP_PASSWORD" \
+  -v dev_role_password="$DEV_ROLE_PASSWORD" \
   -v migrator_password="$MIGRATOR_PASSWORD" \
   -v staging_role_password="$STAGING_ROLE_PASSWORD" \
   -v staging_migrator_password="$STAGING_MIGRATOR_PASSWORD" \
@@ -39,6 +41,10 @@ psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
 SELECT format(
   'CREATE ROLE sakhi_test_app LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS',
   :'app_password'
+) \gexec
+SELECT format(
+  'CREATE ROLE sakhi_dev_app LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS',
+  :'dev_role_password'
 ) \gexec
 SELECT format(
   'CREATE ROLE sakhi_test_migrator LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION BYPASSRLS',
@@ -66,7 +72,13 @@ SELECT format(
   :'supabase_renamer_password'
 ) \gexec
 
-GRANT CONNECT ON DATABASE sakhi_test TO sakhi_test_app, sakhi_test_migrator, sakhi_staging_migrator, sakhi_staging_fixture_cleanup, sakhi_test_supabase_postgres;
+-- Reproduce Supabase Data API roles so the Stage 4B migration proves that
+-- even a BYPASSRLS service_role has no direct table/column privileges.
+CREATE ROLE anon NOLOGIN NOSUPERUSER NOBYPASSRLS;
+CREATE ROLE authenticated NOLOGIN NOSUPERUSER NOBYPASSRLS;
+CREATE ROLE service_role NOLOGIN NOSUPERUSER BYPASSRLS;
+
+GRANT CONNECT ON DATABASE sakhi_test TO sakhi_test_app, sakhi_dev_app, sakhi_test_migrator, sakhi_staging_migrator, sakhi_staging_fixture_cleanup, sakhi_test_supabase_postgres;
 GRANT CREATE ON DATABASE sakhi_test TO sakhi_test_migrator;
 GRANT USAGE ON SCHEMA public TO sakhi_test_app, sakhi_staging_fixture_cleanup;
 GRANT USAGE, CREATE ON SCHEMA public TO sakhi_test_migrator, sakhi_staging_migrator, sakhi_test_supabase_postgres;
@@ -131,6 +143,9 @@ MIGRATION_HOLD_DIR="$(mktemp -d)"
 MANUAL_ADMIN_MIGRATIONS=(
   "20261117140000_single_use_admin_bootstrap_credential"
   "20261117150000_staging_mfa_fixture_cleanup_role"
+  "20261119140000_admin_staff_role_constraints"
+  "20261119150000_secure_admin_bootstrap_function_search_path"
+  "20261119160000_revoke_data_api_roles_from_member_data"
 )
 restore_admin_migrations() {
   for migration in "${MANUAL_ADMIN_MIGRATIONS[@]}"; do
@@ -154,11 +169,58 @@ trap - EXIT
 # session_user=current_user=postgres and no superuser privilege, as in staging.
 psql "postgresql://supabase_admin:${SUPABASE_ADMIN_PASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
   -v ON_ERROR_STOP=1 <<'SQL'
+ALTER TABLE public.member_accounts OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.auth_sessions OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.otp_challenges OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.account_deletion_requests OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.member_profiles OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.member_consents OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.member_communication_preferences OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.eligibility_submissions OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.community_posts OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.community_post_likes OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.community_post_saves OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.community_post_comments OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.community_groups OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.member_follows OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.member_privacy_preferences OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.member_notification_preferences OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.member_notifications OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.safety_emergency_contacts OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.safety_sos_events OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.safety_location_shares OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.member_moderation_blocks OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.member_user_reports OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.direct_messages OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.media_assets OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.community_post_reactions OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.business_directory_listings OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.business_enquiries OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.business_reports OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.menstrual_cycle_logs OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.menstrual_daily_logs OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.menstrual_tracker_preferences OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.community_directory_profiles OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.eligibility_consents OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.eligibility_support_requests OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.eligibility_verification_sessions OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.audit_events OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.moderation_decisions OWNER TO sakhi_staging_migrator;
 ALTER TABLE public.admin_staff_accounts OWNER TO sakhi_staging_migrator;
-ALTER TABLE public.admin_staff_sessions OWNER TO postgres;
-ALTER TABLE public.admin_staff_mfa OWNER TO postgres;
+ALTER TABLE public.discreet_complaints OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.eligibility_provider_callback_events OWNER TO sakhi_staging_migrator;
+ALTER TABLE public.admin_auth_sessions OWNER TO postgres;
 ALTER TABLE public.admin_staff_backup_codes OWNER TO postgres;
+ALTER TABLE public.admin_staff_mfa OWNER TO postgres;
 ALTER TABLE public.admin_staff_recovery_requests OWNER TO postgres;
+ALTER TABLE public.admin_staff_sessions OWNER TO postgres;
+ALTER TABLE public.community_circle_memberships OWNER TO postgres;
+ALTER TABLE public.community_circle_posts OWNER TO postgres;
+ALTER TABLE public.member_push_tokens OWNER TO postgres;
+ALTER TABLE public.member_wellness_preferences OWNER TO postgres;
+-- Keep the isolated integration fixture role capable of seeding and cleaning
+-- data after ownership is transferred to the staging-equivalent principals.
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO sakhi_test_migrator;
 SQL
 
 # The login role supabase_admin is the renamed cluster bootstrap superuser.
@@ -284,10 +346,94 @@ SET ROLE postgres;
 \\i ${MIGRATION_ROOT}/20261117150000_staging_mfa_fixture_cleanup_role/migration.sql
 SQL
 
-# The test migrator owns _prisma_migrations and can safely record only the
-# exact migrations already applied above by the table owner.
-npx prisma migrate resolve --applied 20261117140000_single_use_admin_bootstrap_credential
-npx prisma migrate resolve --applied 20261117150000_staging_mfa_fixture_cleanup_role
+# Apply the Stage 4A role constraints as the owning staging migrator.
+# Apply the bootstrap function hardening and Stage 4B Data API revocations as
+# restricted postgres; the Stage 4B migration temporarily SET ROLEs to the
+# staging migrator for the member tables owned by that principal.
+psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
+  -v ON_ERROR_STOP=1 <<SQL
+SET ROLE sakhi_staging_migrator;
+\i ${MIGRATION_ROOT}/20261119140000_admin_staff_role_constraints/migration.sql
+RESET ROLE;
+SQL
+
+# Seed the disposable database with the risky Data API grants observed in
+# Supabase staging. The Stage 4B migration must revoke these before CI passes.
+psql "postgresql://supabase_admin:${SUPABASE_ADMIN_PASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
+  -v ON_ERROR_STOP=1 <<'SQL'
+GRANT SELECT ON TABLE
+  public.member_accounts,
+  public.member_profiles,
+  public.admin_staff_accounts
+TO sakhi_staging_app;
+
+GRANT ALL PRIVILEGES ON TABLE
+  public.member_accounts,
+  public.auth_sessions,
+  public.otp_challenges,
+  public.account_deletion_requests,
+  public.member_profiles,
+  public.member_consents,
+  public.member_communication_preferences,
+  public.eligibility_submissions,
+  public.community_posts,
+  public.community_post_likes,
+  public.community_post_saves,
+  public.community_post_comments,
+  public.community_groups,
+  public.community_circle_memberships,
+  public.community_circle_posts,
+  public.member_follows,
+  public.member_privacy_preferences,
+  public.member_notification_preferences,
+  public.member_push_tokens,
+  public.member_wellness_preferences,
+  public.member_notifications,
+  public.safety_emergency_contacts,
+  public.safety_sos_events,
+  public.safety_location_shares,
+  public.member_moderation_blocks,
+  public.member_user_reports,
+  public.direct_messages,
+  public.media_assets,
+  public.community_post_reactions,
+  public.business_directory_listings,
+  public.business_enquiries,
+  public.business_reports,
+  public.menstrual_cycle_logs,
+  public.menstrual_daily_logs,
+  public.menstrual_tracker_preferences,
+  public.community_directory_profiles,
+  public.eligibility_consents,
+  public.eligibility_support_requests,
+  public.eligibility_verification_sessions,
+  public.audit_events,
+  public.moderation_decisions,
+  public.admin_staff_accounts,
+  public.admin_staff_sessions,
+  public.admin_staff_mfa,
+  public.admin_staff_backup_codes,
+  public.admin_staff_recovery_requests,
+  public.admin_auth_sessions,
+  public.discreet_complaints,
+  public.eligibility_provider_callback_events,
+  public.admin_bootstrap_credentials
+TO anon, authenticated, service_role;
+SQL
+
+psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}" \
+  -v ON_ERROR_STOP=1 <<SQL
+SET ROLE postgres;
+\i ${MIGRATION_ROOT}/20261119150000_secure_admin_bootstrap_function_search_path/migration.sql
+\i ${MIGRATION_ROOT}/20261119160000_revoke_data_api_roles_from_member_data/migration.sql
+RESET ROLE;
+SQL
+
+# The test migrator owns _prisma_migrations and records the exact migrations
+# already applied above under their reviewed table-owner identities.
+for migration in "${MANUAL_ADMIN_MIGRATIONS[@]}"; do
+  npx prisma migrate resolve --applied "${migration}"
+done
 
 npm run prisma:generate
 npm run db:seed
@@ -363,7 +509,17 @@ export SAKHI_MANUAL_REVIEW_RETENTION_DESCRIPTION="TEST ONLY: integration fixture
 
 npm run test:db-admin-review
 
+# Exercise the already-applied Stage 3D/Stage 5 account-isolation policies and
+# forced-RLS table inventory against two separate non-production DB roles.
+export SAKHI_STAGE5_RLS_ADMIN_TEST_URL="postgresql://sakhi_test_migrator:${MIGRATOR_PASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}?schema=public"
+export SAKHI_STAGE5_RLS_APP_TEST_URL="postgresql://sakhi_test_app:${APP_PASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}?schema=public"
+NODE_ENV=test npx vitest run test/integration/stage5-member-rls.integration.spec.ts --reporter=verbose
+
 # Verify forced RLS metadata for staff-security tables against the same disposable PostgreSQL 17 database.
 NODE_ENV=test npx vitest run test/admin-mfa-role-boundary.database.integration.spec.ts --reporter=verbose
 
-unset SAKHI_APP_DATABASE_URL SAKHI_MIGRATOR_DATABASE_URL SAKHI_ADMIN_REVIEW_TOKEN
+unset SAKHI_APP_DATABASE_URL SAKHI_MIGRATOR_DATABASE_URL SAKHI_ADMIN_REVIEW_TOKEN SAKHI_STAGE5_RLS_ADMIN_TEST_URL SAKHI_STAGE5_RLS_APP_TEST_URL
+
+# Execute the exact community follower RLS performance migration in a fresh
+# disposable PostgreSQL database, including its no-approved-role fail-closed path.
+bash scripts/test-community-followers-rls-migration.sh

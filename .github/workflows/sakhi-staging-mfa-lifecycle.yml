@@ -152,5 +152,5 @@ jobs:
         run: npm run prisma:generate
 
       - name: Run staging MFA lifecycle integration
-        if: github.event_name == 'workflow_dispatch' && inputs.run_mfa_integration == true
+        if: (github.event_name == 'workflow_dispatch' && inputs.run_mfa_integration == true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[run-staging-mfa]'))
         run: npx vitest run test/admin-mfa.database.integration.spec.ts --reporter=verbose

@@ -422,6 +422,7 @@ model MemberFollow {
 
   @@unique([accountId, directoryProfileId], map: "member_follows_account_profile_key")
   @@index([accountId], map: "member_follows_account_idx")
+  @@index([directoryProfileId], map: "member_follows_directory_profile_id_idx")
   @@map("member_follows")
 }
 
@@ -933,8 +934,8 @@ model AdminStaffAccount {
   mustResetPassword             Boolean   @default(false) @map("must_reset_password")
   failedLoginAttempts           Int       @default(0) @map("failed_login_attempts")
   lockedUntil                   DateTime? @map("locked_until") @db.Timestamptz(6)
-  role                          String    @default("COMPLAINT_REVIEWER") @db.VarChar(40)
-  status                        String    @default("ACTIVE") @db.VarChar(24)
+  role                          String    @db.VarChar(40)
+  status                        String    @db.VarChar(24)
   accessTokenDigest             String    @map("access_token_digest") @db.VarChar(128)
   accessTokenPreview            String    @map("access_token_preview") @db.VarChar(64)
   isAuthorisedComplaintReviewer Boolean   @default(false) @map("is_authorised_complaint_reviewer")

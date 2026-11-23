@@ -3530,8 +3530,10 @@ export class AdminReviewService {
     // Normalize before authorization: the persistence helper also normalizes
     // role names, so permission checks must use the same canonical value.
     const normalizedRole = String(body.role ?? "").trim().toUpperCase();
-    if (normalizedRole === "SUPER_ADMIN" && !principal.permissions.approve) {
-      throw new ForbiddenException("The approve permission is required to create a Super Admin account.");
+    if (normalizedRole === "SUPER_ADMIN") {
+      throw new ForbiddenException(
+        "Creating an additional Super Admin is disabled until an independent two-person approval workflow is implemented. Create a least-privilege staff role instead.",
+      );
     }
     const username = String(body.username ?? "").trim().toLowerCase();
     const initialPassword = String(body.initialPassword ?? "");
@@ -3597,6 +3599,32 @@ export class AdminReviewService {
       ["SUPER_ADMIN"],
       "Updating Admin Staff Accounts",
     );
+    const targetStaff = SakhiAdminRbacRegistry.listStaff().find(
+      (staff) => staff.id === staffId || staff.staffCode === staffId,
+    );
+    const isSelfTarget =
+      staffId === principal.staffId || targetStaff?.id === principal.staffId;
+    if (
+      body.role !== undefined &&
+      String(body.role).trim().toUpperCase() === "SUPER_ADMIN" &&
+      targetStaff?.role !== "SUPER_ADMIN"
+    ) {
+      throw new ForbiddenException(
+        "Promoting staff to Super Admin is disabled until an independent two-person approval workflow is implemented.",
+      );
+    }
+    if (
+      isSelfTarget &&
+      (body.role !== undefined ||
+        body.status !== undefined ||
+        body.permissions !== undefined ||
+        body.isAuthorisedComplaintReviewer !== undefined ||
+        body.clearanceLevel !== undefined)
+    ) {
+      throw new ForbiddenException(
+        "Staff cannot change their own role, status, permissions, or security clearance. Another Super Admin must perform this action.",
+      );
+    }
     if (!principal.permissions.edit) throw new ForbiddenException("The edit permission is required for Updating Admin Staff Accounts.");
     if (typeof body.status === "string") {
       const statusPermission = body.status.trim().toUpperCase() === "ACTIVE" ? "approve" : "suspend";

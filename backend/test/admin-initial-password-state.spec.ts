@@ -36,7 +36,7 @@ describe("initial Super Admin password setup state", () => {
 
   it("requires password setup for passwordless non-Super-Admin staff as well", () => {
     const staff = SakhiAdminRbacRegistry.refreshStaffRecordFromDatabase(
-      row({ role: "VERIFICATION_ADMIN", passwordHash: null, mustResetPassword: false }),
+      row({ role: "VERIFICATION_ADMIN", passwordHash: null, mustResetPassword: false, isAuthorisedComplaintReviewer: false }),
     );
     expect(staff.mustResetPassword).toBe(true);
   });
