@@ -154,3 +154,24 @@ jobs:
       - name: Run staging MFA lifecycle integration
         if: (github.event_name == 'workflow_dispatch' && inputs.run_mfa_integration == true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[run-staging-mfa]'))
         run: npx vitest run test/admin-mfa.database.integration.spec.ts --reporter=verbose
+
+      - name: Verify staging Google Drive OAuth and root-folder access
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[run-staging-drive-check]')
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl --silent --show-error --fail-with-body --max-time 30 'https://sakhi-staging-api.onrender.com/api/v1/integrations/google-drive/status?verify=true')"
+          SAKHI_DRIVE_STATUS_RESPONSE="$response" node --input-type=module <<'NODE'
+          const result = JSON.parse(process.env.SAKHI_DRIVE_STATUS_RESPONSE ?? "{}");
+          const remoteVerified = Boolean(result.verifiedAt);
+          console.log(JSON.stringify({
+            provider: result.provider,
+            configured: result.configured === true,
+            connected: result.connected === true,
+            remoteVerified,
+            errorMessage: result.errorMessage ?? null,
+          }));
+          if (result.configured !== true || result.connected !== true || !remoteVerified) {
+            process.exitCode = 1;
+          }
+          NODE
