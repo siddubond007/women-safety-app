@@ -24,10 +24,13 @@ function config(raw, expectedUser, ca, schemaRequired) {
     password.includes("REPLACE_WITH") ||
     password.includes("[YOUR-PASSWORD]") ||
     (schemaRequired && url.searchParams.get("schema") !== "public") ||
-    url.searchParams.get("sslmode") !== "verify-full"
+    !["verify-full", "require"].includes(url.searchParams.get("sslmode"))
   ) {
     throw new Error("Staging database URL failed exact project, role, port, schema or TLS checks.");
   }
+  // Supabase pooler URIs commonly use sslmode=require. This is safe here because
+  // the connection below independently enforces the pinned Supabase Root 2021 CA
+  // with rejectUnauthorized=true (certificate-chain and hostname verification).
   url.searchParams.delete("sslmode");
   url.searchParams.delete("sslrootcert");
   url.searchParams.delete("sslcert");
