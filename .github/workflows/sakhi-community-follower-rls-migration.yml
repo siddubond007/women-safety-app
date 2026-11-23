@@ -51,7 +51,10 @@ jobs:
         run: npm ci --include=dev
 
       - name: Prepare and verify pinned Supabase Root 2021 CA
-        run: bash ./scripts/prepare-staging-db-ca.sh
+        run: |
+          bash ./scripts/prepare-staging-db-ca.sh
+          cp "${SAKHI_DB_CA_FILE}" prod-ca-2021.crt
+          test -s prod-ca-2021.crt
 
       - name: Validate exact approval and staging target before any DDL
         shell: bash
@@ -67,6 +70,6 @@ jobs:
           node scripts/staging-preflight.cjs migrations
           node scripts/staging-community-follower-rls-migration.cjs
 
-      - name: Remove temporary CA file
+      - name: Remove temporary CA files
         if: always()
-        run: rm -f "${SAKHI_DB_CA_FILE}"
+        run: rm -f "${SAKHI_DB_CA_FILE}" prod-ca-2021.crt
