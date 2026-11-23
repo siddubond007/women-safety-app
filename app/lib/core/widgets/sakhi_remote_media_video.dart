@@ -305,8 +305,10 @@ class _SakhiRemoteMediaVideoState extends State<SakhiRemoteMediaVideo> {
                 ),
                 child: SafeArea(
                   top: false,
-                  child: Row(
-                    children: [
+                  child: Listener(
+                    onPointerDown: (_) => _showControls(),
+                    child: Row(
+                      children: [
                       IconButton(
                         tooltip: controller.value.isPlaying ? 'Pause' : 'Play',
                         visualDensity: VisualDensity.compact,
@@ -363,7 +365,8 @@ class _SakhiRemoteMediaVideoState extends State<SakhiRemoteMediaVideo> {
                           size: 23,
                         ),
                       ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
