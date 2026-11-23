@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/constants/mock_data.dart';
+import '../../auth/backend_api_client.dart';
 import '../../../core/navigation/app_routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -15,6 +16,15 @@ import '../../../core/widgets/sakhi_card.dart';
 import '../../../core/widgets/sakhi_chip.dart';
 import '../../../core/widgets/sakhi_create_hub_sheet.dart';
 import '../../../core/widgets/sakhi_dialogs.dart';
+
+String _createSakhiRequestUuidV4() {
+  final random = math.Random.secure();
+  final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  final hex = bytes.map((value) => value.toRadixString(16).padLeft(2, '0')).join();
+  return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20, 32)}';
+}
 
 const Map<String, String> sakhiPostCategoryLabels = {
   'community': 'Community',
@@ -320,6 +330,8 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
   bool _isRendering = false;
   bool _isPublishing = false;
   bool _isPickingMedia = false;
+  String? _pendingUploadId;
+  String? _pendingPostId;
 
   _SelectedDevicePhoto? _selectedPhoto;
   Uint8List? _renderedPhotoBytes;
@@ -374,6 +386,54 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
       'trending' => 'Trending',
       _ => 'Community',
     };
+  }
+
+  bool _sameMediaBytes(Uint8List first, Uint8List second) {
+    if (identical(first, second)) return true;
+    if (first.length != second.length) return false;
+    for (var index = 0; index < first.length; index++) {
+      if (first[index] != second[index]) return false;
+    }
+    return true;
+  }
+
+  void _setRenderedPhotoBytes(Uint8List bytes) {
+    final previous = _renderedPhotoBytes;
+    if (previous == null || !_sameMediaBytes(previous, bytes)) {
+      _pendingUploadId = null;
+    }
+    _renderedPhotoBytes = bytes;
+  }
+
+  String _safePublishFailureMessage(
+    BackendApiException error,
+    String stage,
+  ) {
+    final requestReference = error.requestId == null || error.requestId!.isEmpty
+        ? ''
+        : ' Reference: ${error.requestId}';
+    if (error.statusCode == 401 || error.code == 'session_missing') {
+      return 'Your Sakhi session expired. Sign in again; your draft is preserved.$requestReference';
+    }
+    if (error.statusCode == 403) {
+      return 'Your account is not currently permitted to complete this action. Your draft is preserved.$requestReference';
+    }
+    if (error.statusCode == 413) {
+      return 'This media file is too large. Choose a smaller file; your draft is preserved.$requestReference';
+    }
+    if (error.statusCode == 409) {
+      return 'This upload or post request conflicts with an existing item. Your draft is preserved; select the media again if you changed it.$requestReference';
+    }
+    if (error.statusCode == 503) {
+      return 'Sakhi media storage is temporarily unavailable. Your draft is preserved; retry shortly.$requestReference';
+    }
+    if (error.code == 'timeout') {
+      return '$stage timed out. Your draft is preserved. Check your connection and retry.$requestReference';
+    }
+    if (error.code == 'network_unavailable' || error.code == 'http_error') {
+      return 'Could not reach the Sakhi server. Check your connection; your draft is preserved.$requestReference';
+    }
+    return '$stage failed. Your draft is preserved. Please retry.$requestReference';
   }
 
   @override
@@ -465,6 +525,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
         height: h,
       );
       setState(() {
+        _pendingUploadId = null;
         _selectedVideo = null;
         _selectedPhoto = item;
         _zoom = 1.0;
@@ -530,6 +591,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
       }
       if (firstLoaded != null && mounted) {
         setState(() {
+          _pendingUploadId = null;
           _selectedVideo = null;
           _selectedPhoto = firstLoaded;
           _zoom = 1.0;
@@ -576,6 +638,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
         mime.startsWith('video/') ? mime : 'video/mp4',
       );
       setState(() {
+        _pendingUploadId = null;
         _selectedPhoto = null;
         _renderedPhotoBytes = null;
         _selectedVideo = _SelectedVideoDraft(
@@ -800,9 +863,10 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
         height: height,
       );
       setState(() {
+        _pendingUploadId = null;
         _selectedVideo = null;
         _selectedPhoto = item;
-        _renderedPhotoBytes = pngBytes;
+        _setRenderedPhotoBytes(pngBytes);
         _cropPreset = '4:5';
         _zoom = 1.0;
         _offsetX = 0.0;
@@ -831,7 +895,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
         _offsetX == 0.0 &&
         _offsetY == 0.0 &&
         _selectedFilterId == 'original') {
-      setState(() => _renderedPhotoBytes = photo.bytes);
+      setState(() => _setRenderedPhotoBytes(photo.bytes));
       return;
     }
     setState(() => _isRendering = true);
@@ -938,8 +1002,9 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
             );
             if (!mounted) return;
             setState(() {
-              _renderedPhotoBytes =
-                  byteData?.buffer.asUint8List() ?? photo.bytes;
+              _setRenderedPhotoBytes(
+                byteData?.buffer.asUint8List() ?? photo.bytes,
+              );
               _isRendering = false;
             });
           } finally {
@@ -955,7 +1020,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _renderedPhotoBytes = photo.bytes;
+        _setRenderedPhotoBytes(photo.bytes);
         _isRendering = false;
       });
     }
@@ -1020,6 +1085,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
       return;
     }
 
+    var failureStage = 'Preparing your post';
     setState(() => _isPublishing = true);
     try {
       if (_selectedPhoto != null && _renderedPhotoBytes == null) {
@@ -1048,6 +1114,8 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
                 : '4:5')
           : _cropPreset;
 
+      failureStage = 'Media upload';
+      final stableUploadId = _pendingUploadId ??= _createSakhiRequestUuidV4();
       final uploadRes = await state.uploadMediaFile(
         purpose: 'community_post',
         fileName: uploadName,
@@ -1055,15 +1123,16 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
         contentType: contentType,
         categorySlug: _categorySlug,
         cropAspectRatio: effectiveCropPreset,
+        uploadId: stableUploadId,
+        throwOnError: true,
       );
       if (!mounted) return;
       if (uploadRes == null) {
-        setState(() => _isPublishing = false);
-        SakhiDialogs.showPrototypeSnackbar(
-          context,
-          'Media upload failed \u2014 your draft is preserved so you can retry.',
+        throw const BackendApiException(
+          statusCode: 502,
+          code: 'media_upload_failed',
+          message: 'Sakhi did not confirm the media upload.',
         );
-        return;
       }
 
       var caption = _captionController.text.trim();
@@ -1082,7 +1151,9 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
         hashtags.add('#SakhiResource');
       }
 
-      final uploadId = uploadRes['uploadId'] ?? '';
+      final uploadId = uploadRes['uploadId'] ?? stableUploadId;
+      failureStage = 'Post publishing';
+      final stablePostId = _pendingPostId ??= _createSakhiRequestUuidV4();
       final ok = await state.createCommunityPost(
         caption,
         categoryBadge: _selectedTagBadge,
@@ -1094,13 +1165,15 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
         allowComments: _allowComments,
         imageAsset: uploadRes['mediaUrl'],
         mediaUploadIds: uploadId.isNotEmpty ? <String>[uploadId] : const [],
+        clientPostId: stablePostId,
+        throwOnError: true,
       );
       if (!mounted) return;
       setState(() => _isPublishing = false);
       if (!ok) {
         SakhiDialogs.showPrototypeSnackbar(
           context,
-          'Post could not be published. Your draft is still here so you can retry.',
+          'Post could not be confirmed. Your draft is still here so you can retry.',
         );
         return;
       }
@@ -1111,12 +1184,19 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
       );
       widget.onPublished?.call();
       Navigator.of(context).pop();
+    } on BackendApiException catch (error) {
+      if (!mounted) return;
+      setState(() => _isPublishing = false);
+      SakhiDialogs.showPrototypeSnackbar(
+        context,
+        _safePublishFailureMessage(error, failureStage),
+      );
     } catch (_) {
       if (!mounted) return;
       setState(() => _isPublishing = false);
       SakhiDialogs.showPrototypeSnackbar(
         context,
-        'Publication failed. Your draft remains open.',
+        '$failureStage failed. Your draft remains open; please retry.',
       );
     }
   }
@@ -1690,6 +1770,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
                                   foregroundColor: Colors.white,
                                 ),
                                 onPressed: () => setState(() {
+                                  _pendingUploadId = null;
                                   _selectedPhoto = null;
                                   _renderedPhotoBytes = null;
                                 }),
@@ -2141,6 +2222,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
                 return GestureDetector(
                   onTap: () {
                     setState(() {
+                      _pendingUploadId = null;
                       _selectedVideo = null;
                       _selectedPhoto = item;
                       _zoom = 1.0;
@@ -2293,6 +2375,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
                 label: badgeKey,
                 isSelected: selected,
                 onTap: () => setState(() {
+                  _pendingUploadId = null;
                   _selectedTagBadge = badgeKey;
                   if (badgeKey == 'Safety Awareness') {
                     _categorySlug = 'safety_awareness';
@@ -2353,6 +2436,7 @@ class _SakhiMediaPostFlowScreenState extends State<SakhiMediaPostFlowScreen> {
             onChanged: (value) {
               if (value != null) {
                 setState(() {
+                  _pendingUploadId = null;
                   _categorySlug = value;
                   _selectedTagBadge = _defaultBadgeForSlug(value);
                 });

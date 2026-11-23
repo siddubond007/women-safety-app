@@ -26,6 +26,11 @@ const REVIEWED_MIGRATION_SETS = [
     approvalPhrase: "YES_APPLY_20261119_STAGE4_RBAC_RLS",
     label: "Stage 4 RBAC/RLS",
   },
+  {
+    migrations: ["20261120130000_community_followers_rls_performance"],
+    approvalPhrase: "YES_APPLY_20261120_COMMUNITY_FOLLOWERS_RLS",
+    label: "Community follower RLS performance",
+  },
 ];
 const EXPECTED_USER = `sakhi_staging_migrator.${PROJECT_REF}`;
 const BASELINE_MIGRATIONS = [

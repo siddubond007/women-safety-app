@@ -422,6 +422,7 @@ model MemberFollow {
 
   @@unique([accountId, directoryProfileId], map: "member_follows_account_profile_key")
   @@index([accountId], map: "member_follows_account_idx")
+  @@index([directoryProfileId], map: "member_follows_directory_profile_id_idx")
   @@map("member_follows")
 }
 
