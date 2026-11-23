@@ -5,6 +5,26 @@ import { resolve } from "node:path";
 
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_API = "https://www.googleapis.com/drive/v3";
+
+export type LegacyMemberMediaIntegrityBackfillInput = {
+  mediaId: string;
+  driveFileId: string;
+  ownerAccountId: string;
+  purpose: "avatar" | "post";
+  categorySlug: string | null;
+  driveFolderId: string;
+  contentType: string;
+  byteSize: number;
+};
+
+export type LegacyMemberMediaIntegrityBackfillResult = {
+  mediaId: string;
+  status: "verified" | "rejected" | "failed";
+  receiptState: "present" | "missing" | "patched";
+  sha256Checksum?: string;
+  byteSize?: number;
+  reason?: string;
+};
 const DRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3/files";
 const DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder";
 
@@ -630,6 +650,143 @@ export class GoogleDriveStorageService {
       buffer: content,
       contentType: contentResponse.headers.get("content-type")?.split(";")[0] ?? "application/octet-stream",
     };
+  }
+
+  async backfillLegacyMemberMediaIntegrityReceipts(
+    inputs: readonly LegacyMemberMediaIntegrityBackfillInput[],
+    apply: boolean,
+  ): Promise<LegacyMemberMediaIntegrityBackfillResult[]> {
+    if (inputs.length > 25) {
+      throw new ServiceUnavailableException("Legacy media integrity backfill is limited to 25 assets per run.");
+    }
+    if (inputs.length === 0) return [];
+    const accessToken = await this.getAccessToken();
+    const results: LegacyMemberMediaIntegrityBackfillResult[] = [];
+    for (const input of inputs) {
+      results.push(await this.backfillLegacyMemberMediaIntegrityReceipt(accessToken, input, apply));
+    }
+    return results;
+  }
+
+  private async backfillLegacyMemberMediaIntegrityReceipt(
+    accessToken: string,
+    input: LegacyMemberMediaIntegrityBackfillInput,
+    apply: boolean,
+  ): Promise<LegacyMemberMediaIntegrityBackfillResult> {
+    const rejected = (reason: string): LegacyMemberMediaIntegrityBackfillResult => ({
+      mediaId: input.mediaId, status: "rejected", receiptState: "missing", reason,
+    });
+    const failed = (reason: string): LegacyMemberMediaIntegrityBackfillResult => ({
+      mediaId: input.mediaId, status: "failed", receiptState: "missing", reason,
+    });
+    if (
+      !/^[0-9a-f-]{36}$/i.test(input.mediaId) ||
+      !/^[A-Za-z0-9_-]{10,200}$/.test(input.driveFileId) ||
+      !/^[0-9a-f-]{36}$/i.test(input.ownerAccountId) ||
+      !["avatar", "post"].includes(input.purpose) ||
+      !/^[A-Za-z0-9_-]{10,200}$/.test(input.driveFolderId) ||
+      !["image/jpeg", "image/png", "image/webp"].includes(input.contentType) ||
+      !Number.isSafeInteger(input.byteSize) || input.byteSize <= 0 || input.byteSize > 25 * 1024 * 1024
+    ) return rejected("invalid_input");
+
+    try {
+      const metadataResponse = await fetch(
+        `${DRIVE_API}/files/${encodeURIComponent(input.driveFileId)}?fields=id,trashed,size,mimeType,parents,appProperties`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      );
+      if (metadataResponse.status === 404) return rejected("drive_file_missing");
+      if (!metadataResponse.ok) return failed("drive_metadata_unavailable");
+      const file = (await metadataResponse.json()) as {
+        id?: string;
+        trashed?: boolean;
+        size?: string;
+        mimeType?: string;
+        parents?: string[];
+        appProperties?: Record<string, string>;
+      };
+      const properties = file.appProperties ?? {};
+      if (file.id !== input.driveFileId || file.trashed === true) return rejected("drive_file_unavailable");
+      if (properties.sakhiAccountId !== input.ownerAccountId) return rejected("owner_metadata_mismatch");
+      if (properties.sakhiUploadId !== input.mediaId) return rejected("upload_id_metadata_mismatch");
+      if (properties.sakhiPurpose !== input.purpose) return rejected("purpose_metadata_mismatch");
+      if (Number(file.size) !== input.byteSize) return rejected("drive_size_metadata_mismatch");
+      if (file.mimeType !== input.contentType) return rejected("drive_content_type_mismatch");
+      if (!Array.isArray(file.parents) || !file.parents.includes(input.driveFolderId)) return rejected("drive_folder_mismatch");
+      if (input.purpose === "post" && properties.sakhiCategorySlug !== (input.categorySlug || "community")) {
+        return rejected("category_metadata_mismatch");
+      }
+      if (properties.sakhiByteSize !== undefined && Number(properties.sakhiByteSize) !== input.byteSize) {
+        return rejected("existing_receipt_size_mismatch");
+      }
+      if (properties.sakhiSha256 !== undefined && !/^[a-f0-9]{64}$/i.test(properties.sakhiSha256)) {
+        return rejected("existing_receipt_checksum_invalid");
+      }
+
+      const contentResponse = await fetch(
+        `${DRIVE_API}/files/${encodeURIComponent(input.driveFileId)}?alt=media`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      );
+      if (!contentResponse.ok) return failed("drive_content_download_failed");
+      const content = Buffer.from(await contentResponse.arrayBuffer());
+      if (content.length !== input.byteSize) return rejected("downloaded_byte_size_mismatch");
+      const sha256Checksum = createHash("sha256").update(content).digest("hex");
+      if (properties.sakhiSha256 && properties.sakhiSha256.toLowerCase() !== sha256Checksum) {
+        return rejected("existing_receipt_checksum_mismatch");
+      }
+
+      const receiptPresent =
+        properties.sakhiSha256?.toLowerCase() === sha256Checksum &&
+        Number(properties.sakhiByteSize) === input.byteSize;
+      if (receiptPresent) {
+        return {
+          mediaId: input.mediaId, status: "verified", receiptState: "present",
+          sha256Checksum, byteSize: content.length,
+        };
+      }
+      if (!apply) {
+        return {
+          mediaId: input.mediaId, status: "verified", receiptState: "missing",
+          sha256Checksum, byteSize: content.length,
+        };
+      }
+
+      const nextProperties = {
+        ...properties,
+        sakhiSha256: sha256Checksum,
+        sakhiByteSize: String(content.length),
+      };
+      const patchResponse = await fetch(
+        `${DRIVE_API}/files/${encodeURIComponent(input.driveFileId)}?fields=id,size,appProperties`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ appProperties: nextProperties }),
+        },
+      );
+      if (!patchResponse.ok) return failed("drive_receipt_patch_failed");
+      const patched = (await patchResponse.json()) as {
+        id?: string; size?: string; appProperties?: Record<string, string>;
+      };
+      if (
+        patched.id !== input.driveFileId ||
+        Number(patched.size) !== input.byteSize ||
+        patched.appProperties?.sakhiAccountId !== input.ownerAccountId ||
+        patched.appProperties?.sakhiUploadId !== input.mediaId ||
+        patched.appProperties?.sakhiPurpose !== input.purpose ||
+        patched.appProperties?.sakhiSha256?.toLowerCase() !== sha256Checksum ||
+        Number(patched.appProperties?.sakhiByteSize) !== input.byteSize
+      ) return failed("drive_receipt_patch_verification_failed");
+
+      return {
+        mediaId: input.mediaId, status: "verified", receiptState: "patched",
+        sha256Checksum, byteSize: content.length,
+      };
+    } catch {
+      return failed("drive_request_failed");
+    }
   }
 
   async verifyMemberMediaFile(
