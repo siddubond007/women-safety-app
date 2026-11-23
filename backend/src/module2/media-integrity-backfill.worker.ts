@@ -216,7 +216,7 @@ export class MediaIntegrityBackfillWorker implements OnModuleInit {
           tx.auditEvent.create({
             data: {
               actorType: "SYSTEM",
-              actorId: SYSTEM_ACTOR_ID,
+              actorId: null,
               action: COMPLETION_ACTION,
               targetType: "maintenance_job",
               targetId: COMPLETION_TARGET_ID,
