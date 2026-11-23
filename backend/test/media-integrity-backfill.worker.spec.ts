@@ -130,6 +130,21 @@ describe("MediaIntegrityBackfillWorker", () => {
     expect(drive.backfillLegacyMemberMediaIntegrityReceipts).toHaveBeenCalled();
   });
 
+  it("does not persist a database checksum in apply mode until the Drive receipt is present", async () => {
+    const { worker, tx } = createHarness({
+      result: { mediaId, status: "verified", receiptState: "missing", sha256Checksum, byteSize: asset.byteSize },
+    });
+    process.env.SAKHI_ENV = "staging";
+    process.env.NODE_ENV = "production";
+    process.env.SAKHI_STAGING_MEDIA_INTEGRITY_BACKFILL_CONFIRM = "APPLY_STAGING_MEDIA_INTEGRITY_BACKFILL_V1";
+
+    const result = await worker.runOnce("apply");
+
+    expect(result).toMatchObject({ scanned: 1, verified: 0, persisted: 0, failed: 1 });
+    expect(tx.mediaAsset.updateMany).not.toHaveBeenCalled();
+    expect(tx.auditEvent.create).not.toHaveBeenCalled();
+  });
+
   it("skips a backfill whose completion marker already exists", async () => {
     const { worker, drive, tx } = createHarness({ completed: true });
     process.env.SAKHI_ENV = "staging";
