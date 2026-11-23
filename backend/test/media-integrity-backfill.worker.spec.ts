@@ -8,6 +8,7 @@ const accountId = "2f6f7fa1-8c5c-4bb0-ae1a-0f7e3a2e5a41";
 const driveFileId = "drive_file_1234567890";
 const driveFolderId = "synthetic-media-folder";
 const sha256Checksum = "a".repeat(64);
+const originalNodeEnv = process.env.NODE_ENV;
 
 const asset = {
   id: mediaId,
@@ -57,6 +58,8 @@ function createHarness(options?: {
 }
 
 afterEach(() => {
+  if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = originalNodeEnv;
   delete process.env.SAKHI_STAGING_MEDIA_INTEGRITY_BACKFILL_MODE;
   delete process.env.SAKHI_STAGING_MEDIA_INTEGRITY_BACKFILL_CONFIRM;
   delete process.env.SAKHI_ENV;
@@ -65,6 +68,8 @@ afterEach(() => {
 describe("MediaIntegrityBackfillWorker", () => {
   it("previews verified legacy media without writing to Drive metadata or PostgreSQL", async () => {
     const { worker, drive, tx } = createHarness();
+    process.env.SAKHI_ENV = "staging";
+    process.env.NODE_ENV = "production";
 
     const result = await worker.runOnce("preview");
 
@@ -78,6 +83,9 @@ describe("MediaIntegrityBackfillWorker", () => {
 
   it("persists the checksum and audit records only after Drive has patched the receipt", async () => {
     const { worker, drive, tx } = createHarness();
+    process.env.SAKHI_ENV = "staging";
+    process.env.NODE_ENV = "production";
+    process.env.SAKHI_STAGING_MEDIA_INTEGRITY_BACKFILL_CONFIRM = "APPLY_STAGING_MEDIA_INTEGRITY_BACKFILL_V1";
 
     const result = await worker.runOnce("apply");
 
@@ -110,6 +118,9 @@ describe("MediaIntegrityBackfillWorker", () => {
     const { worker, drive, tx } = createHarness({
       result: { mediaId, status: "rejected", receiptState: "missing", reason: "upload_id_metadata_mismatch" },
     });
+    process.env.SAKHI_ENV = "staging";
+    process.env.NODE_ENV = "production";
+    process.env.SAKHI_STAGING_MEDIA_INTEGRITY_BACKFILL_CONFIRM = "APPLY_STAGING_MEDIA_INTEGRITY_BACKFILL_V1";
 
     const result = await worker.runOnce("apply");
 
@@ -121,6 +132,9 @@ describe("MediaIntegrityBackfillWorker", () => {
 
   it("skips a backfill whose completion marker already exists", async () => {
     const { worker, drive, tx } = createHarness({ completed: true });
+    process.env.SAKHI_ENV = "staging";
+    process.env.NODE_ENV = "production";
+    process.env.SAKHI_STAGING_MEDIA_INTEGRITY_BACKFILL_CONFIRM = "APPLY_STAGING_MEDIA_INTEGRITY_BACKFILL_V1";
 
     const result = await worker.runOnce("apply");
 
@@ -131,6 +145,8 @@ describe("MediaIntegrityBackfillWorker", () => {
 
   it("refuses to process more than the configured safety limit", async () => {
     const { worker, drive } = createHarness({ assets: Array.from({ length: 26 }, (_, index) => ({ ...asset, id: `99999999-9999-4999-8999-${String(index).padStart(12, "0")}` })) });
+    process.env.SAKHI_ENV = "staging";
+    process.env.NODE_ENV = "production";
 
     const result = await worker.runOnce("preview");
 

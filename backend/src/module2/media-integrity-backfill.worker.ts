@@ -61,6 +61,12 @@ export class MediaIntegrityBackfillWorker implements OnModuleInit {
   }
 
   async runOnce(mode: BackfillMode) {
+    if (process.env.SAKHI_ENV !== "staging" || process.env.NODE_ENV !== "production") {
+      return { mode, skipped: true, reason: "staging_only", scanned: 0, verified: 0, persisted: 0, failed: 0 };
+    }
+    if (mode === "apply" && process.env.SAKHI_STAGING_MEDIA_INTEGRITY_BACKFILL_CONFIRM !== APPLY_CONFIRMATION) {
+      return { mode, skipped: true, reason: "apply_confirmation_required", scanned: 0, verified: 0, persisted: 0, failed: 0 };
+    }
     if (this.running) {
       return { mode, skipped: true, reason: "already_running", scanned: 0, verified: 0, persisted: 0, failed: 0 };
     }
@@ -139,7 +145,8 @@ export class MediaIntegrityBackfillWorker implements OnModuleInit {
         if (
           result.status !== "verified" ||
           !result.sha256Checksum ||
-          result.byteSize !== asset.byteSize
+          result.byteSize !== asset.byteSize ||
+          (mode === "apply" && result.receiptState === "missing")
         ) {
           failed += 1;
           logResults.push({ mediaId: asset.id, status: result.status, reason: result.reason ?? "verification_failed" });
