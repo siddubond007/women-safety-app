@@ -21,7 +21,7 @@ For every file it verifies:
 
 If the metadata or bytes do not match, the asset is left unchanged and the job does not write its completion marker.
 
-The worker never changes media content, ownership, post association, visibility, status, or folder location. Apply mode only adds the missing SHA-256/byte-size appProperties to the existing Drive file, updates the matching database checksum, and writes audit events.
+The worker never changes media content, ownership, post association, visibility, status, or folder location. Apply mode only adds the missing SHA-256/byte-size appProperties to the existing Drive file, updates the matching database checksum, and writes audit events. A narrowly scoped RLS INSERT policy permits only these two backfill audit actions from the staging/test app roles when the internal system-job identity is active; it does not grant generic SYSTEM audit writes.
 
 The worker is limited to 25 assets per run. It uses the internal system-job database identity and is not exposed through a controller.
 
