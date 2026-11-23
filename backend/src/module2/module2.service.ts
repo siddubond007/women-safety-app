@@ -113,6 +113,249 @@ export class Module2Service {
   private static readonly commentLikesMap = new Map<string, Set<string>>();
   private static readonly postPollMetaMap = new Map<string, { question: string; options: string[]; votes: Record<string, number> }>();
   private static readonly postExtraMediaMap = new Map<string, string[]>();
+  private static readonly dmRateLimitBuckets = new Map<string, number[]>();
+
+  private normalizeModerationHandle(value: unknown): string {
+    return typeof value === "string"
+      ? value.trim().replace(/^@+/, "").toLowerCase()
+      : "";
+  }
+
+  private buildHandleVariants(value: string): string[] {
+    const raw = (value ?? "").trim();
+    const clean = raw.replace(/^@+/, "");
+    const lower = clean.toLowerCase();
+    return Array.from(
+      new Set([raw, clean, `@${clean}`, lower, `@${lower}`].filter(Boolean)),
+    );
+  }
+
+  private parseStringArrayJson(raw: unknown): string[] {
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((item) => (typeof item === "string" ? item.trim() : String(item ?? "").trim()))
+      .filter(Boolean);
+  }
+
+  private async resolveViewerModerationContext(
+    accountId: string,
+    viewerUsername?: string | null,
+    preloadedOutgoingBlocks?: Array<{ blockedUsername: string }>,
+  ) {
+    const anyPrisma = this.prisma as Record<string, any>;
+    const normViewer = this.normalizeModerationHandle(viewerUsername ?? "");
+    const viewerVariants = normViewer ? this.buildHandleVariants(normViewer) : [];
+
+    const [outgoingBlocks, incomingBlocks, userReports, privacyPref] = await Promise.all([
+      preloadedOutgoingBlocks
+        ? Promise.resolve(preloadedOutgoingBlocks)
+        : typeof anyPrisma.memberModerationBlock?.findMany === "function"
+          ? anyPrisma.memberModerationBlock
+              .findMany({
+                where: { accountId },
+                select: { blockedUsername: true },
+              })
+              .catch(() => [])
+          : Promise.resolve([]),
+      viewerVariants.length > 0 &&
+      typeof anyPrisma.memberModerationBlock?.findMany === "function"
+        ? anyPrisma.memberModerationBlock
+            .findMany({
+              where: { blockedUsername: { in: viewerVariants } },
+              select: { accountId: true },
+            })
+            .catch(() => [])
+        : Promise.resolve([]),
+      typeof anyPrisma.memberUserReport?.findMany === "function"
+        ? anyPrisma.memberUserReport
+            .findMany({
+              where: { reporterAccountId: accountId },
+              select: { postId: true, commentId: true, targetHandle: true, targetType: true },
+            })
+            .catch(() => [])
+        : Promise.resolve([]),
+      typeof anyPrisma.memberPrivacyPreference?.findUnique === "function"
+        ? anyPrisma.memberPrivacyPreference
+            .findUnique({
+              where: { accountId },
+            })
+            .catch(() => null)
+        : Promise.resolve(null),
+    ]);
+
+    const blockedHandles = new Set<string>();
+    for (const b of outgoingBlocks as Array<Record<string, any>>) {
+      const h = this.normalizeModerationHandle(b?.blockedUsername);
+      if (h) blockedHandles.add(h);
+    }
+
+    const accountsWhoBlockedViewer = new Set<string>();
+    for (const ib of incomingBlocks as Array<Record<string, any>>) {
+      if (ib?.accountId) accountsWhoBlockedViewer.add(String(ib.accountId));
+    }
+
+    const reportedPostIds = new Set<string>();
+    const reportedCommentIds = new Set<string>();
+    for (const r of userReports as Array<Record<string, any>>) {
+      if (typeof r?.postId === "string" && r.postId.trim()) {
+        reportedPostIds.add(r.postId.trim());
+      }
+      if (typeof r?.commentId === "string" && r.commentId.trim()) {
+        reportedCommentIds.add(r.commentId.trim());
+      }
+    }
+
+    const mutedHandles = new Set<string>(
+      this.parseStringArrayJson(privacyPref?.mutedHandles).map((h) =>
+        this.normalizeModerationHandle(h),
+      ).filter(Boolean),
+    );
+    const restrictedHandles = new Set<string>(
+      this.parseStringArrayJson(privacyPref?.restrictedHandles).map((h) =>
+        this.normalizeModerationHandle(h),
+      ).filter(Boolean),
+    );
+    const hiddenPostIds = new Set<string>(
+      this.parseStringArrayJson(privacyPref?.hiddenPostIds),
+    );
+
+    return {
+      blockedHandles,
+      accountsWhoBlockedViewer,
+      reportedPostIds,
+      reportedCommentIds,
+      mutedHandles,
+      restrictedHandles,
+      hiddenPostIds,
+    };
+  }
+
+  private isNotificationCategoryAllowedByPreferences(
+    category: string,
+    pref: Record<string, any> | null,
+  ): boolean {
+    if (!pref) return true;
+    const cat = (category ?? "").toUpperCase();
+    if (cat === "DIRECT_MESSAGE") return pref.messages !== false;
+    if (cat === "BUSINESS_ENQUIRY") return pref.businessEnquiries !== false;
+    if (cat === "PERIOD_REMINDER" || cat === "WELLNESS_REMINDER") {
+      return pref.wellnessReminders !== false;
+    }
+    if (cat === "EMERGENCY_CONTACT_ALERT" || cat === "SOS_UPDATE") {
+      return pref.safetyAlerts !== false;
+    }
+    if (cat === "COMMUNITY_ANNOUNCEMENT" || cat === "COMMUNITY_REPLIES_LIKES" || cat === "NEW_FOLLOWER") {
+      return pref.communityUpdates !== false;
+    }
+    return true;
+  }
+
+  async createPersistentNotification(
+    accountId: string,
+    notification: {
+      id?: string;
+      category: string;
+      title: string;
+      body: string;
+      discreetTitle?: string | null;
+      discreetBody?: string | null;
+      deepLink?: string | null;
+      actorHandle?: string | null;
+      actorName?: string | null;
+      actorAvatar?: string | null;
+      metadata?: Record<string, any>;
+      idempotencyKey?: string | null;
+      createdAt?: Date | string;
+    },
+  ) {
+    if (!accountId) return null;
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (typeof anyPrisma.memberNotification?.create !== "function") {
+      throw new ServiceUnavailableException(
+        "Notification storage is not initialized. Run the Module 8 database migration.",
+      );
+    }
+
+    const notifPref =
+      typeof anyPrisma.memberNotificationPreference?.findUnique === "function"
+        ? await anyPrisma.memberNotificationPreference
+            .findUnique({ where: { accountId } })
+            .catch(() => null)
+        : null;
+    if (!this.isNotificationCategoryAllowedByPreferences(notification.category, notifPref)) {
+      return null;
+    }
+
+    const cleanKey = notification.idempotencyKey?.trim() || null;
+    const createdAtDate =
+      notification.createdAt instanceof Date
+        ? notification.createdAt
+        : notification.createdAt
+          ? new Date(String(notification.createdAt))
+          : new Date();
+
+    const payload = {
+      accountId,
+      category: notification.category.trim().slice(0, 48),
+      title: notification.title.trim().slice(0, 160),
+      body: notification.body.trim().slice(0, 500),
+      discreetTitle: notification.discreetTitle
+        ? notification.discreetTitle.trim().slice(0, 160)
+        : null,
+      discreetBody: notification.discreetBody
+        ? notification.discreetBody.trim().slice(0, 500)
+        : null,
+      deepLink: (notification.deepLink ?? "/notifications-inbox").trim().slice(0, 255),
+      actorHandle: notification.actorHandle
+        ? notification.actorHandle.trim().slice(0, 80)
+        : null,
+      actorName: notification.actorName
+        ? notification.actorName.trim().slice(0, 100)
+        : null,
+      actorAvatar: notification.actorAvatar
+        ? notification.actorAvatar.trim().slice(0, 255)
+        : null,
+      metadata: notification.metadata ?? {},
+      idempotencyKey: cleanKey,
+      deliveryStatus: "DELIVERED",
+      createdAt: createdAtDate,
+    };
+
+    if (cleanKey && typeof anyPrisma.memberNotification?.upsert === "function") {
+      return anyPrisma.memberNotification.upsert({
+        where: { idempotencyKey: cleanKey },
+        create: {
+          id: notification.id && /^[0-9a-fA-F-]{36}$/.test(notification.id) ? notification.id : randomUUID(),
+          ...payload,
+          isRead: false,
+          readAt: null,
+        },
+        update: {
+          title: payload.title,
+          body: payload.body,
+          discreetTitle: payload.discreetTitle,
+          discreetBody: payload.discreetBody,
+          deepLink: payload.deepLink,
+        },
+      });
+    }
+
+    if (cleanKey && typeof anyPrisma.memberNotification?.findFirst === "function") {
+      const existing = await anyPrisma.memberNotification.findFirst({
+        where: { idempotencyKey: cleanKey },
+      });
+      if (existing) return existing;
+    }
+
+    return anyPrisma.memberNotification.create({
+      data: {
+        id: notification.id && /^[0-9a-fA-F-]{36}$/.test(notification.id) ? notification.id : randomUUID(),
+        ...payload,
+        isRead: false,
+        readAt: null,
+      },
+    });
+  }
 
   private groupThreadedComments<T extends Record<string, any>>(
     flat: T[],
@@ -613,10 +856,17 @@ export class Module2Service {
           .catch(() => incomingFollowerHandles.size)
       : 0;
 
+    const moderationCtx = await this.resolveViewerModerationContext(
+      session.accountId,
+      currentUsername,
+      blockedUsers,
+    );
+
     const mappedFollowers = directoryProfiles
       .filter(
         (dir) =>
-          normalizeHandle(dir.username) !== normalizeHandle(currentUsername),
+          normalizeHandle(dir.username) !== normalizeHandle(currentUsername) &&
+          !moderationCtx.blockedHandles.has(normalizeHandle(dir.username)),
       )
       .map((dir) => {
         const isFollowing = followMap.has(dir.id)
@@ -651,6 +901,25 @@ export class Module2Service {
       ]),
     );
     const canViewPost = (post: (typeof allPosts)[number]) => {
+      if (
+        moderationCtx.reportedPostIds.has(post.id) ||
+        moderationCtx.hiddenPostIds.has(post.id)
+      ) {
+        return false;
+      }
+      const authorNorm = normalizeHandle(post.authorUsername ?? "");
+      if (
+        moderationCtx.blockedHandles.has(authorNorm) ||
+        moderationCtx.mutedHandles.has(authorNorm)
+      ) {
+        return false;
+      }
+      if (
+        post.authorAccountId &&
+        moderationCtx.accountsWhoBlockedViewer.has(post.authorAccountId)
+      ) {
+        return false;
+      }
       if (post.authorAccountId === session.accountId) return true;
       if (post.visibility === "PRIVATE_SELF") return false;
       if (post.visibility === "FOLLOWERS_ONLY") {
@@ -724,12 +993,22 @@ export class Module2Service {
     for (const c of allPostComments as Array<Record<string, any>>) {
       const pid = String(c.postId ?? "");
       if (!pid) continue;
+      if (c.id && moderationCtx.reportedCommentIds.has(String(c.id))) continue;
+      if (
+        c.accountId &&
+        moderationCtx.accountsWhoBlockedViewer.has(String(c.accountId))
+      ) {
+        continue;
+      }
       const mp = c.accountId ? commentProfileByAccountId.get(String(c.accountId)) : null;
       const resolvedAuthorName = mp?.displayName ?? c.authorName ?? "Sakhi Member";
       const resolvedUsername = this.deriveUsername(
         String(resolvedAuthorName),
         mp?.username ?? null,
       );
+      if (moderationCtx.blockedHandles.has(normalizeHandle(resolvedUsername))) {
+        continue;
+      }
       const resolvedAvatar = mp
         ? this.resolveMemberAvatar(mp.avatarAsset, mp.avatarMediaAssetId)
         : "";
@@ -950,6 +1229,10 @@ export class Module2Service {
         blockedUsername: b.blockedUsername,
         blockedDisplayName: b.blockedDisplayName,
       })),
+      reportedPostIds: [...moderationCtx.reportedPostIds],
+      hiddenPostIds: [...moderationCtx.hiddenPostIds],
+      mutedUsers: [...moderationCtx.mutedHandles],
+      restrictedUsers: [...moderationCtx.restrictedHandles],
     };
   }
 
@@ -4319,50 +4602,215 @@ export class Module2Service {
     dto: ReportUserOrPostDto,
   ) {
     const session = await this.auth.authenticateAuthorization(authorization);
-    const targetHandle = dto.targetHandle?.trim();
-    if (!targetHandle) {
-      throw new BadRequestException("A report target is required.");
-    }
-    const isUuid = (v?: string) =>
+    const rawTarget = (
+      dto.targetHandle ??
+      dto.reportedAccountId ??
+      dto.postId ??
+      "@community"
+    ).trim();
+    const targetHandle = rawTarget.startsWith("@")
+      ? rawTarget.slice(0, 100)
+      : `@${rawTarget}`.slice(0, 100);
+    const isUuid = (v?: string): boolean =>
       Boolean(v && /^[0-9a-fA-F-]{36}$/.test(v.trim()));
     const resolvedTargetType = (
       dto.targetType ??
-      (dto.commentId ? "COMMENT" : dto.postId ? "POST" : "MEMBER")
+      (dto.commentId
+        ? "COMMENT"
+        : dto.postId
+          ? "POST"
+          : dto.businessId
+            ? "BUSINESS"
+            : dto.messageId
+              ? "DIRECT_MESSAGE"
+              : "MEMBER")
     )
       .trim()
       .toUpperCase()
       .slice(0, 32);
 
-    const report = await this.prisma.memberUserReport.create({
-      data: {
-        reporterAccountId: session.accountId,
-        targetHandle,
-        targetType: resolvedTargetType,
-        ...(isUuid(dto.postId) ? { postId: dto.postId!.trim() } : {}),
-        ...(isUuid(dto.commentId) ? { commentId: dto.commentId!.trim() } : {}),
-        category: (dto.category ?? "SAFETY_CONCERN").trim().slice(0, 64),
-        reason: dto.reason.trim(),
-        details: dto.details?.trim() ? dto.details.trim().slice(0, 1000) : null,
-        status: "SUBMITTED",
-      },
-    });
+    const anyPrisma = this.prisma as Record<string, any>;
+    let targetPostSnapshot: Record<string, any> | null = null;
+    let targetCommentSnapshot: Record<string, any> | null = null;
+    let resolvedReportedAccountId: string | null = isUuid(dto.reportedAccountId)
+      ? dto.reportedAccountId!.trim()
+      : null;
 
-    await this.prisma.auditEvent.create({
-      data: {
-        actorType: "MEMBER",
-        actorId: session.accountId,
-        action: "module2.moderation.reported",
-        targetType: "member_user_report",
-        targetId: report.id,
-        outcome: "submitted",
-        requestId: randomUUID(),
-      },
-    });
+    if (dto.postId?.trim() && typeof anyPrisma.communityPost?.findUnique === "function") {
+      const foundPost = await anyPrisma.communityPost
+        .findUnique({ where: { id: dto.postId.trim() } })
+        .catch(() => null);
+      if (foundPost) {
+        if (!resolvedReportedAccountId && isUuid(foundPost.authorAccountId)) {
+          resolvedReportedAccountId = foundPost.authorAccountId;
+        }
+        targetPostSnapshot = {
+          id: foundPost.id,
+          authorAccountId: foundPost.authorAccountId,
+          authorName: foundPost.authorName,
+          authorUsername: foundPost.authorUsername,
+          content: foundPost.content,
+          imageAsset: foundPost.imageAsset,
+          categoryBadge: foundPost.categoryBadge,
+          createdAt:
+            foundPost.createdAt instanceof Date
+              ? foundPost.createdAt.toISOString()
+              : String(foundPost.createdAt ?? ""),
+        };
+      }
+    }
+    if (
+      dto.commentId?.trim() &&
+      typeof anyPrisma.communityPostComment?.findUnique === "function"
+    ) {
+      const foundComment = await anyPrisma.communityPostComment
+        .findUnique({ where: { id: dto.commentId.trim() } })
+        .catch(() => null);
+      if (foundComment) {
+        if (!resolvedReportedAccountId && isUuid(foundComment.accountId)) {
+          resolvedReportedAccountId = foundComment.accountId;
+        }
+        targetCommentSnapshot = {
+          id: foundComment.id,
+          postId: foundComment.postId,
+          authorName: foundComment.authorName,
+          content: foundComment.content,
+        };
+      }
+    }
+
+    if (!resolvedReportedAccountId && typeof anyPrisma.memberProfile?.findFirst === "function") {
+      const variants = this.buildHandleVariants(targetHandle);
+      const foundProf = await anyPrisma.memberProfile
+        .findFirst({ where: { username: { in: variants } }, select: { accountId: true } })
+        .catch(() => null);
+      if (foundProf?.accountId && isUuid(foundProf.accountId)) {
+        resolvedReportedAccountId = foundProf.accountId;
+      }
+    }
+
+    const priorReportCount =
+      typeof anyPrisma.memberUserReport?.count === "function"
+        ? await anyPrisma.memberUserReport
+            .count({ where: { targetHandle } })
+            .catch(() => 0)
+        : 0;
+    const catUpper = (dto.category ?? "SAFETY_CONCERN").trim().toUpperCase().slice(0, 64);
+    const isHighRisk =
+      priorReportCount >= 1 ||
+      catUpper.includes("THREAT") ||
+      catUpper.includes("HARASSMENT") ||
+      catUpper.includes("DOXXING") ||
+      catUpper.includes("SAFETY");
+    const priority = isHighRisk ? "P1_HIGH" : "P2_NORMAL";
+    const severity = isHighRisk ? "S2_HIGH" : "S2_MEDIUM";
+    const evidenceUrls = Array.isArray(dto.evidenceUrls)
+      ? dto.evidenceUrls
+          .map((u) => String(u ?? "").trim())
+          .filter((u) => u.length > 0 && u.length <= 500)
+      : [];
+    const targetSnapshot =
+      targetPostSnapshot || targetCommentSnapshot
+        ? {
+            ...(targetPostSnapshot ? { post: targetPostSnapshot, ...targetPostSnapshot } : {}),
+            ...(targetCommentSnapshot ? { comment: targetCommentSnapshot } : {}),
+          }
+        : undefined;
+
+    const baseData: Record<string, any> = {
+      reporterAccountId: session.accountId,
+      targetHandle,
+      targetType: resolvedTargetType,
+      ...(isUuid(dto.postId) ? { postId: dto.postId!.trim() } : {}),
+      ...(isUuid(dto.commentId) ? { commentId: dto.commentId!.trim() } : {}),
+      category: catUpper,
+      reason: dto.reason.trim(),
+      details: dto.details?.trim() ? dto.details.trim().slice(0, 1000) : null,
+      status: "SUBMITTED",
+    };
+
+    const extendedData: Record<string, any> = {
+      ...baseData,
+      ...(resolvedReportedAccountId ? { reportedAccountId: resolvedReportedAccountId } : {}),
+      ...(isUuid(dto.businessId) ? { businessId: dto.businessId!.trim() } : {}),
+      ...(isUuid(dto.messageId) ? { messageId: dto.messageId!.trim() } : {}),
+      evidenceUrls,
+      ...(targetSnapshot ? { targetSnapshot } : {}),
+      priority,
+      severity,
+      internalNotes: [],
+    };
+
+    let report: Record<string, any>;
+    try {
+      report = await this.prisma.memberUserReport.create({
+        data: extendedData as any,
+      });
+    } catch {
+      report = await this.prisma.memberUserReport.create({
+        data: baseData as any,
+      });
+    }
+
+    if (typeof anyPrisma.auditEvent?.create === "function") {
+      await anyPrisma.auditEvent
+        .create({
+          data: {
+            actorType: "MEMBER",
+            actorId: session.accountId,
+            action: "module2.moderation.reported",
+            targetType: "member_user_report",
+            targetId: report.id,
+            outcome: "submitted",
+            requestId: randomUUID(),
+            redactedMetadata: {
+              reportId: report.id,
+              targetHandle,
+              targetType: resolvedTargetType,
+              reportedAccountId: resolvedReportedAccountId,
+              postId: dto.postId ?? null,
+              commentId: dto.commentId ?? null,
+              businessId: dto.businessId ?? null,
+              messageId: dto.messageId ?? null,
+              priority,
+              severity,
+              evidenceUrls,
+              targetPostSnapshot,
+              targetCommentSnapshot,
+            },
+          },
+        })
+        .catch(() => undefined);
+    }
+
+    let blockedUserResult: Record<string, any> | null = null;
+    if (dto.alsoBlockUser === true && targetHandle && targetHandle !== "@community") {
+      try {
+        const displayNameGuess =
+          targetPostSnapshot?.authorName ??
+          targetHandle.replace(/^@+/, "");
+        blockedUserResult = await this.ensureBlockedUser(authorization, {
+          blockedUsername: targetHandle,
+          blockedDisplayName: String(displayNameGuess || targetHandle),
+        });
+      } catch {
+        blockedUserResult = null;
+      }
+    }
 
     return {
       reportId: report.id,
       status: report.status,
-      createdAt: report.createdAt.toISOString(),
+      priority: report.priority ?? priority,
+      severity: report.severity ?? severity,
+      createdAt:
+        report.createdAt instanceof Date
+          ? report.createdAt.toISOString()
+          : new Date().toISOString(),
+      hiddenPostId: dto.postId?.trim() || null,
+      hiddenCommentId: dto.commentId?.trim() || null,
+      alsoBlocked: Boolean(blockedUserResult?.isBlocked),
+      blockedUser: blockedUserResult,
     };
   }
 
@@ -4427,16 +4875,6 @@ export class Module2Service {
       throw new BadRequestException("The selected media file is empty.");
     }
 
-    const isVideo = file.mimetype === "video/mp4";
-    const maxBytes = isVideo ? 50 * 1024 * 1024 : 10 * 1024 * 1024;
-    if (file.size > maxBytes || file.buffer.length > maxBytes) {
-      throw new BadRequestException(
-        isVideo
-          ? "Video must be 60 seconds or shorter and 50 MB or smaller."
-          : "Images must be 10 MB or smaller.",
-      );
-    }
-
     const allowedTypes = [
       "image/jpeg",
       "image/png",
@@ -4446,6 +4884,29 @@ export class Module2Service {
     const detectedMime = this.detectBinaryMimeType(file.buffer);
     if (detectedMime) {
       file.mimetype = detectedMime;
+    }
+    const isVideo = file.mimetype === "video/mp4";
+    const isDirectMessage = ["direct_message", "DIRECT_MESSAGE_IMAGE"].includes(
+      dto.purpose ?? "",
+    );
+    if (isDirectMessage && isVideo) {
+      throw new BadRequestException(
+        "Direct-message attachments currently support JPG, PNG, and WebP images only.",
+      );
+    }
+    const maxBytes = isVideo
+      ? 50 * 1024 * 1024
+      : isDirectMessage
+        ? 15 * 1024 * 1024
+        : 10 * 1024 * 1024;
+    if (file.size > maxBytes || file.buffer.length > maxBytes) {
+      throw new BadRequestException(
+        isVideo
+          ? "Video must be 60 seconds or shorter and 50 MB or smaller."
+          : isDirectMessage
+            ? "Direct-message images must be 15 MB or smaller."
+            : "Images must be 10 MB or smaller.",
+      );
     }
     if (
       !allowedTypes.includes(file.mimetype as (typeof allowedTypes)[number])
@@ -4484,9 +4945,10 @@ export class Module2Service {
     const cropAspectRatio =
       dto.cropAspectRatio || (normalizedPurpose === "avatar" ? "1:1" : "4:5");
     const isBusinessMedia =
-      dto.purpose === "business_media" ||
-      dto.purpose === "BUSINESS_MEDIA" ||
-      categorySlug === "business";
+      !isDirectMessage &&
+      (dto.purpose === "business_media" ||
+        dto.purpose === "BUSINESS_MEDIA" ||
+        categorySlug === "business");
     let stored: {
       driveFileId: string;
       driveFolderId: string;
@@ -4568,15 +5030,18 @@ export class Module2Service {
             ? "PROFILE_PHOTO"
             : isBusinessMedia
               ? "BUSINESS_MEDIA"
-              : isVideo
-                ? "COMMUNITY_POST_VIDEO"
-                : "COMMUNITY_POST_IMAGE",
+              : isDirectMessage
+                ? "DIRECT_MESSAGE_IMAGE"
+                : isVideo
+                  ? "COMMUNITY_POST_VIDEO"
+                  : "COMMUNITY_POST_IMAGE",
         storageProvider: "GOOGLE_DRIVE",
         status:
           normalizedPurpose === "avatar" || isBusinessMedia
             ? "ATTACHED"
             : "UPLOADED",
-        categorySlug: normalizedPurpose === "avatar" ? null : categorySlug,
+        categorySlug:
+          normalizedPurpose === "avatar" || isDirectMessage ? null : categorySlug,
         driveFileId: stored.driveFileId,
         driveFolderId: stored.driveFolderId,
         driveFolderPath: stored.driveFolderPath,
@@ -4584,7 +5049,7 @@ export class Module2Service {
         contentType: file.mimetype,
         byteSize: stored.size,
         cropAspectRatio,
-        visibility: "VERIFIED_MEMBERS",
+        visibility: isDirectMessage ? "PRIVATE_SELF" : "VERIFIED_MEMBERS",
       },
     });
 
@@ -4775,7 +5240,63 @@ export class Module2Service {
     if (!event) {
       throw new NotFoundException("The media upload record was not found.");
     }
-    if (!asset && event.actorId !== session.accountId) {
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (typeof anyPrisma.directMessage?.findFirst !== "function") {
+      throw new InternalServerErrorException(
+        "Direct-message media authorization is unavailable.",
+      );
+    }
+    const directMessageAttachment = await anyPrisma.directMessage.findFirst({
+      where: { mediaUploadId: uploadId },
+      select: {
+        senderAccountId: true,
+        recipientAccountId: true,
+        requestStatus: true,
+      },
+    });
+    const isDirectMessageParticipant = directMessageAttachment
+      ? directMessageAttachment.senderAccountId === session.accountId ||
+        directMessageAttachment.recipientAccountId === session.accountId
+      : false;
+    if (directMessageAttachment && !isDirectMessageParticipant) {
+      throw new ForbiddenException(
+        "Direct-message media is restricted to the conversation participants.",
+      );
+    }
+    if (
+      directMessageAttachment &&
+      (asset?.ownerAccountId ?? event.actorId) !==
+        directMessageAttachment.senderAccountId
+    ) {
+      throw new ForbiddenException(
+        "Direct-message media ownership does not match its sender.",
+      );
+    }
+    if (
+      directMessageAttachment &&
+      directMessageAttachment.recipientAccountId === session.accountId &&
+      directMessageAttachment.requestStatus !== "ACCEPTED"
+    ) {
+      throw new ForbiddenException(
+        "Accept this message request before viewing its attachment.",
+      );
+    }
+    if (
+      directMessageAttachment &&
+      directMessageAttachment.senderAccountId !== session.accountId &&
+      session.testAccessApproved !== true &&
+      (session.account.status !== "ACTIVE" ||
+        session.account.verificationStatus !== "VERIFIED")
+    ) {
+      throw new ForbiddenException(
+        "Verified active membership is required to view this attachment.",
+      );
+    }
+    if (
+      !asset &&
+      event.actorId !== session.accountId &&
+      !directMessageAttachment
+    ) {
       throw new ForbiddenException("Media access is restricted to its owner.");
     }
     if (
@@ -4818,7 +5339,7 @@ export class Module2Service {
       }
     }
 
-    if (!isOwner) {
+    if (!isOwner && !directMessageAttachment) {
       if (
         session.testAccessApproved !== true &&
         (session.account.status !== "ACTIVE" ||
@@ -4944,40 +5465,357 @@ export class Module2Service {
     }
   }
 
-  async toggleBlockedUser(
+  private async severFollowsBetweenAccounts(
+    blockerAccountId: string,
+    blockedVariants: string[],
+  ) {
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (
+      blockedVariants.length === 0 ||
+      typeof anyPrisma.communityDirectoryProfile?.findFirst !== "function"
+    ) {
+      return;
+    }
+    try {
+      const targetDir = await anyPrisma.communityDirectoryProfile
+        .findFirst({ where: { username: { in: blockedVariants } } })
+        .catch(() => null);
+      if (targetDir && typeof anyPrisma.memberFollow?.updateMany === "function") {
+        await anyPrisma.memberFollow
+          .updateMany({
+            where: {
+              accountId: blockerAccountId,
+              directoryProfileId: targetDir.id,
+            },
+            data: { isFollowing: false },
+          })
+          .catch(() => undefined);
+      }
+      const viewerProfile = await anyPrisma.memberProfile
+        ?.findUnique({ where: { accountId: blockerAccountId } })
+        .catch(() => null);
+      const targetProfile = await anyPrisma.memberProfile
+        ?.findFirst({ where: { username: { in: blockedVariants } } })
+        .catch(() => null);
+      if (viewerProfile?.username && targetProfile?.accountId) {
+        const viewerVariants = this.buildHandleVariants(viewerProfile.username);
+        const viewerDir = await anyPrisma.communityDirectoryProfile
+          .findFirst({ where: { username: { in: viewerVariants } } })
+          .catch(() => null);
+        if (viewerDir && typeof anyPrisma.memberFollow?.updateMany === "function") {
+          await anyPrisma.memberFollow
+            .updateMany({
+              where: {
+                accountId: targetProfile.accountId,
+                directoryProfileId: viewerDir.id,
+              },
+              data: { isFollowing: false },
+            })
+            .catch(() => undefined);
+        }
+      }
+    } catch {
+      // Best-effort follow severance
+    }
+  }
+
+  async ensureBlockedUser(
     authorization: string | undefined,
-    dto: ToggleBlockedUserDto,
+    dto: { blockedUsername: string; blockedDisplayName?: string },
   ) {
     const session = await this.auth.authenticateAuthorization(authorization);
-    const username = dto.blockedUsername.trim();
-    const existing = await this.prisma.memberModerationBlock.findUnique({
-      where: {
-        accountId_blockedUsername: {
-          accountId: session.accountId,
-          blockedUsername: username,
+    const rawUsername = (dto.blockedUsername ?? "").trim();
+    if (!rawUsername) {
+      throw new BadRequestException("Provide a username to block.");
+    }
+    const cleanHandle = this.normalizeModerationHandle(rawUsername);
+    const canonicalUsername = cleanHandle ? `@${cleanHandle}` : rawUsername;
+    const variants = this.buildHandleVariants(rawUsername);
+    const anyPrisma = this.prisma as Record<string, any>;
+
+    let existing = await this.prisma.memberModerationBlock
+      .findUnique({
+        where: {
+          accountId_blockedUsername: {
+            accountId: session.accountId,
+            blockedUsername: canonicalUsername,
+          },
         },
-      },
-    });
+      })
+      .catch(() => null);
+
+    if (
+      !existing &&
+      typeof anyPrisma.memberModerationBlock?.findFirst === "function"
+    ) {
+      existing = await anyPrisma.memberModerationBlock
+        .findFirst({
+          where: {
+            accountId: session.accountId,
+            blockedUsername: { in: variants },
+          },
+        })
+        .catch(() => null);
+    }
 
     if (existing) {
-      await this.prisma.memberModerationBlock.delete({
-        where: { id: existing.id },
-      });
-      return { blockedUsername: username, isBlocked: false };
+      await this.severFollowsBetweenAccounts(session.accountId, variants);
+      return {
+        id: existing.id,
+        blockedUsername: existing.blockedUsername,
+        blockedDisplayName: existing.blockedDisplayName,
+        isBlocked: true,
+      };
     }
 
     const created = await this.prisma.memberModerationBlock.create({
       data: {
         accountId: session.accountId,
-        blockedUsername: username,
-        blockedDisplayName: dto.blockedDisplayName.trim(),
+        blockedUsername: canonicalUsername,
+        blockedDisplayName:
+          (dto.blockedDisplayName ?? "").trim() || canonicalUsername.replace(/^@+/, ""),
       },
     });
+    await this.severFollowsBetweenAccounts(session.accountId, variants);
     return {
       id: created.id,
       blockedUsername: created.blockedUsername,
       blockedDisplayName: created.blockedDisplayName,
       isBlocked: true,
+    };
+  }
+
+  async toggleBlockedUser(
+    authorization: string | undefined,
+    dto: ToggleBlockedUserDto & { mode?: "BLOCK" | "UNBLOCK" | "TOGGLE" },
+  ) {
+    const requestedMode = (dto.mode ?? "TOGGLE").toUpperCase();
+    if (requestedMode === "BLOCK") {
+      return this.ensureBlockedUser(authorization, dto);
+    }
+
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const rawUsername = dto.blockedUsername.trim();
+    const cleanHandle = this.normalizeModerationHandle(rawUsername);
+    const canonicalUsername = cleanHandle ? `@${cleanHandle}` : rawUsername;
+    const variants = this.buildHandleVariants(rawUsername);
+    const anyPrisma = this.prisma as Record<string, any>;
+
+    let existing = await this.prisma.memberModerationBlock
+      .findUnique({
+        where: {
+          accountId_blockedUsername: {
+            accountId: session.accountId,
+            blockedUsername: rawUsername,
+          },
+        },
+      })
+      .catch(() => null);
+
+    if (
+      !existing &&
+      typeof anyPrisma.memberModerationBlock?.findFirst === "function"
+    ) {
+      existing = await anyPrisma.memberModerationBlock
+        .findFirst({
+          where: {
+            accountId: session.accountId,
+            blockedUsername: { in: variants },
+          },
+        })
+        .catch(() => null);
+    }
+
+    if (existing || requestedMode === "UNBLOCK") {
+      if (existing) {
+        await this.prisma.memberModerationBlock.delete({
+          where: { id: existing.id },
+        });
+      }
+      if (typeof anyPrisma.memberModerationBlock?.deleteMany === "function") {
+        await anyPrisma.memberModerationBlock
+          .deleteMany({
+            where: {
+              accountId: session.accountId,
+              blockedUsername: { in: variants },
+            },
+          })
+          .catch(() => undefined);
+      }
+      return {
+        blockedUsername: canonicalUsername,
+        isBlocked: false,
+      };
+    }
+
+    const created = await this.prisma.memberModerationBlock.create({
+      data: {
+        accountId: session.accountId,
+        blockedUsername: canonicalUsername,
+        blockedDisplayName: dto.blockedDisplayName.trim() || canonicalUsername,
+      },
+    });
+
+    await this.severFollowsBetweenAccounts(session.accountId, variants);
+
+    return {
+      id: created.id,
+      blockedUsername: created.blockedUsername,
+      blockedDisplayName: created.blockedDisplayName,
+      isBlocked: true,
+    };
+  }
+
+  async toggleMuteOrRestrictMember(
+    authorization: string | undefined,
+    dto: {
+      targetUsername?: string;
+      targetDisplayName?: string;
+      mode?: "MUTE" | "UNMUTE" | "RESTRICT" | "UNRESTRICT" | "HIDE_POST" | "UNHIDE_POST";
+      postId?: string;
+    },
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    const mode = (dto.mode ?? (dto.postId ? "HIDE_POST" : "MUTE")).toUpperCase();
+
+    const currentPref =
+      typeof anyPrisma.memberPrivacyPreference?.findUnique === "function"
+        ? await anyPrisma.memberPrivacyPreference
+            .findUnique({ where: { accountId: session.accountId } })
+            .catch(() => null)
+        : null;
+
+    if (mode === "HIDE_POST" || mode === "UNHIDE_POST") {
+      const postId = (dto.postId ?? "").trim();
+      if (!postId) {
+        throw new BadRequestException("Provide a postId to hide or unhide.");
+      }
+      const set = new Set<string>(this.parseStringArrayJson(currentPref?.hiddenPostIds));
+      const shouldHide = mode === "HIDE_POST" ? !set.has(postId) : false;
+      if (shouldHide) {
+        set.add(postId);
+      } else {
+        set.delete(postId);
+      }
+      const nextHidden = [...set];
+      if (typeof anyPrisma.memberPrivacyPreference?.upsert === "function") {
+        await anyPrisma.memberPrivacyPreference.upsert({
+          where: { accountId: session.accountId },
+          create: {
+            accountId: session.accountId,
+            hiddenPostIds: nextHidden,
+          },
+          update: {
+            hiddenPostIds: nextHidden,
+          },
+        });
+      }
+      return {
+        postId,
+        isHidden: shouldHide,
+        hiddenPostIds: nextHidden,
+      };
+    }
+
+    const handle = this.normalizeModerationHandle(dto.targetUsername ?? "");
+    if (!handle) {
+      throw new BadRequestException("Provide a member username to mute or restrict.");
+    }
+
+    if (mode === "RESTRICT" || mode === "UNRESTRICT") {
+      const set = new Set<string>(
+        this.parseStringArrayJson(currentPref?.restrictedHandles)
+          .map((h) => this.normalizeModerationHandle(h))
+          .filter(Boolean),
+      );
+      const nextState = mode === "UNRESTRICT" ? false : !set.has(handle);
+      if (nextState) {
+        set.add(handle);
+      } else {
+        set.delete(handle);
+      }
+      const nextRestricted = [...set];
+      if (typeof anyPrisma.memberPrivacyPreference?.upsert === "function") {
+        await anyPrisma.memberPrivacyPreference.upsert({
+          where: { accountId: session.accountId },
+          create: {
+            accountId: session.accountId,
+            restrictedHandles: nextRestricted,
+          },
+          update: {
+            restrictedHandles: nextRestricted,
+          },
+        });
+      }
+      return {
+        targetUsername: `@${handle}`,
+        isRestricted: nextState,
+        restrictedUsers: nextRestricted.map((h) => `@${h}`),
+      };
+    }
+
+    const set = new Set<string>(
+      this.parseStringArrayJson(currentPref?.mutedHandles)
+        .map((h) => this.normalizeModerationHandle(h))
+        .filter(Boolean),
+    );
+    const nextMuted = mode === "UNMUTE" ? false : !set.has(handle);
+    if (nextMuted) {
+      set.add(handle);
+    } else {
+      set.delete(handle);
+    }
+    const nextMutedList = [...set];
+    if (typeof anyPrisma.memberPrivacyPreference?.upsert === "function") {
+      await anyPrisma.memberPrivacyPreference.upsert({
+        where: { accountId: session.accountId },
+        create: {
+          accountId: session.accountId,
+          mutedHandles: nextMutedList,
+        },
+        update: {
+          mutedHandles: nextMutedList,
+        },
+      });
+    }
+    return {
+      targetUsername: `@${handle}`,
+      isMuted: nextMuted,
+      mutedUsers: nextMutedList.map((h) => `@${h}`),
+    };
+  }
+
+  async getViewerModerationState(authorization: string | undefined) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const profile = await this.prisma.memberProfile
+      .findUnique({ where: { accountId: session.accountId } })
+      .catch(() => null);
+    const ctx = await this.resolveViewerModerationContext(
+      session.accountId,
+      profile?.username ?? null,
+    );
+    const blockedRows =
+      typeof (this.prisma.memberModerationBlock as Record<string, any>)?.findMany ===
+      "function"
+        ? await this.prisma.memberModerationBlock
+            .findMany({
+              where: { accountId: session.accountId },
+              orderBy: { createdAt: "desc" },
+            })
+            .catch(() => [])
+        : [];
+    return {
+      blockedUsers: blockedRows.map((b: Record<string, any>) => ({
+        id: b.id,
+        blockedUsername: b.blockedUsername,
+        blockedDisplayName: b.blockedDisplayName,
+      })),
+      blockedHandles: [...ctx.blockedHandles].map((h) => `@${h}`),
+      mutedUsers: [...ctx.mutedHandles].map((h) => `@${h}`),
+      restrictedUsers: [...ctx.restrictedHandles].map((h) => `@${h}`),
+      reportedPostIds: [...ctx.reportedPostIds],
+      hiddenPostIds: [...ctx.hiddenPostIds],
     };
   }
 
@@ -5474,7 +6312,45 @@ export class Module2Service {
       if (p?.accountId) profileByAccountId.set(String(p.accountId), p);
     }
 
-    const mapped = comments.map((c: Record<string, any>) => {
+    const viewerProfileForComments =
+      typeof (this.prisma.memberProfile as Record<string, any>)?.findUnique ===
+      "function"
+        ? await this.prisma.memberProfile
+            .findUnique({ where: { accountId: session.accountId } })
+            .catch(() => null)
+        : null;
+    const modCtxForComments = await this.resolveViewerModerationContext(
+      session.accountId,
+      viewerProfileForComments?.username ?? null,
+    );
+    const visibleComments = comments.filter((c: Record<string, any>) => {
+      if (c.id && modCtxForComments.reportedCommentIds.has(String(c.id))) {
+        return false;
+      }
+      if (
+        c.accountId &&
+        modCtxForComments.accountsWhoBlockedViewer.has(String(c.accountId))
+      ) {
+        return false;
+      }
+      const mp = c.accountId
+        ? profileByAccountId.get(String(c.accountId))
+        : null;
+      const handle = this.deriveUsername(
+        String(mp?.displayName ?? c.authorName ?? "Sakhi Member"),
+        mp?.username ?? null,
+      );
+      if (
+        modCtxForComments.blockedHandles.has(
+          this.normalizeModerationHandle(handle),
+        )
+      ) {
+        return false;
+      }
+      return true;
+    });
+
+    const mapped = visibleComments.map((c: Record<string, any>) => {
       const isOwn = Boolean(c.accountId && c.accountId === session.accountId);
       const isPostOwner = Boolean(
         post?.authorAccountId && post.authorAccountId === session.accountId,
@@ -5721,67 +6597,129 @@ export class Module2Service {
     };
   }
 
-  async listDirectMessages(authorization: string | undefined, peerId?: string) {
-    const session = await this.auth.authenticateAuthorization(authorization);
-    const cleanedPeerId = peerId?.trim() ?? "";
-    let peerAccountId: string | null = null;
-
-    if (cleanedPeerId) {
-      const isUuid =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-          cleanedPeerId,
-        );
-      let peerProfile: { accountId: string } | null = null;
-
-      if (isUuid) {
-        const directoryProfile =
-          await this.prisma.communityDirectoryProfile.findUnique({
-            where: { id: cleanedPeerId },
-            select: { username: true },
-          });
-        if (directoryProfile) {
-          peerProfile = await this.prisma.memberProfile.findFirst({
-            where: {
-              username: {
-                equals: directoryProfile.username,
-                mode: "insensitive",
-              },
-            },
-            select: { accountId: true },
-          });
-        } else {
-          peerProfile = await this.prisma.memberProfile.findUnique({
-            where: { accountId: cleanedPeerId },
-            select: { accountId: true },
-          });
-        }
-      } else {
-        const cleanHandle = cleanedPeerId.replace(/^@+/, "");
-        peerProfile = await this.prisma.memberProfile.findFirst({
-          where: {
-            OR: [
-              {
-                username: {
-                  equals: cleanedPeerId,
-                  mode: "insensitive",
-                },
-              },
-              {
-                username: {
-                  equals: `@${cleanHandle}`,
-                  mode: "insensitive",
-                },
-              },
-            ],
-          },
-          select: { accountId: true },
-        });
+  private async resolvePeerAccountIdForMessaging(
+    peerIdOrHandle: string,
+  ): Promise<{ accountId: string | null; username: string | null; displayName: string | null }> {
+    const cleaned = (peerIdOrHandle ?? "").trim();
+    if (!cleaned) {
+      return { accountId: null, username: null, displayName: null };
+    }
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      cleaned,
+    );
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (isUuid) {
+      const byAccount = await anyPrisma.memberProfile
+        ?.findUnique({
+          where: { accountId: cleaned },
+          select: { accountId: true, username: true, displayName: true },
+        })
+        .catch(() => null);
+      if (byAccount?.accountId) {
+        return {
+          accountId: String(byAccount.accountId),
+          username: byAccount.username ?? null,
+          displayName: byAccount.displayName ?? null,
+        };
       }
+      const byDir = await anyPrisma.communityDirectoryProfile
+        ?.findUnique({
+          where: { id: cleaned },
+          select: { id: true, username: true, name: true },
+        })
+        .catch(() => null);
+      if (byDir?.username) {
+        const variants = this.buildHandleVariants(byDir.username);
+        const prof = await anyPrisma.memberProfile
+          ?.findFirst({
+            where: { username: { in: variants } },
+            select: { accountId: true, username: true, displayName: true },
+          })
+          .catch(() => null);
+        if (prof?.accountId) {
+          return {
+            accountId: String(prof.accountId),
+            username: prof.username ?? byDir.username,
+            displayName: prof.displayName ?? byDir.name ?? null,
+          };
+        }
+      }
+      return { accountId: cleaned, username: null, displayName: null };
+    }
 
-      if (!peerProfile || peerProfile.accountId === session.accountId) {
+    const variants = this.buildHandleVariants(cleaned);
+    const prof = await anyPrisma.memberProfile
+      ?.findFirst({
+        where: { username: { in: variants } },
+        select: { accountId: true, username: true, displayName: true },
+      })
+      .catch(() => null);
+    if (prof?.accountId) {
+      return {
+        accountId: String(prof.accountId),
+        username: prof.username ?? cleaned,
+        displayName: prof.displayName ?? null,
+      };
+    }
+    return { accountId: null, username: cleaned, displayName: null };
+  }
+
+  private mapDirectMessageRow(
+    message: Record<string, any>,
+    viewerAccountId: string,
+  ) {
+    const createdDate =
+      message.createdAt instanceof Date
+        ? message.createdAt
+        : new Date(String(message.createdAt ?? Date.now()));
+    const readDate =
+      message.readAt instanceof Date
+        ? message.readAt
+        : message.readAt
+          ? new Date(String(message.readAt))
+          : null;
+    const isOwnMessage = message.senderAccountId === viewerAccountId;
+    const isRead = isOwnMessage || Boolean(readDate);
+    return {
+      id: message.id,
+      senderAccountId: message.senderAccountId,
+      senderDirectoryProfileId: message.senderDirectoryProfileId ?? null,
+      senderName: message.senderName,
+      senderUsername: message.senderUsername,
+      senderAvatar: message.senderAvatar ?? "",
+      recipientId:
+        message.recipientDirectoryProfileId ?? message.recipientAccountId,
+      recipientAccountId: message.recipientAccountId,
+      recipientDirectoryProfileId: message.recipientDirectoryProfileId ?? null,
+      recipientHandle: message.recipientHandle,
+      recipientName: message.recipientName,
+      body: message.body,
+      attachmentUrl: message.attachmentUrl ?? null,
+      attachmentType: message.attachmentType ?? null,
+      mediaUploadId: message.mediaUploadId ?? null,
+      clientMessageId: message.clientMessageId ?? null,
+      requestStatus: message.requestStatus ?? "ACCEPTED",
+      readAt: readDate ? readDate.toISOString() : null,
+      isRead,
+      createdAt: createdDate.toISOString(),
+      timestamp: this.formatRelativeTime(createdDate),
+      isOwnMessage,
+    };
+  }
+
+  async listDirectMessages(
+    authorization: string | undefined,
+    peerId?: string,
+    options?: { cursor?: string; limit?: number },
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    let peerAccountId: string | null = null;
+    if (peerId && peerId.trim().length > 0) {
+      const resolved = await this.resolvePeerAccountIdForMessaging(peerId);
+      peerAccountId = resolved.accountId;
+      if (!peerAccountId) {
         return { items: [], messages: [] };
       }
-      peerAccountId = peerProfile.accountId;
     }
 
     const where = peerAccountId
@@ -5803,42 +6741,1118 @@ export class Module2Service {
             { recipientAccountId: session.accountId },
           ],
         };
+    const safeLimit =
+      options?.limit && Number.isFinite(options.limit)
+        ? Math.min(Math.max(Math.round(options.limit), 1), 250)
+        : 250;
     const rows = await this.prisma.directMessage.findMany({
       where,
       orderBy: { createdAt: "desc" },
-      take: 250,
+      take: safeLimit,
     });
-    const messages = rows.reverse().map((message) => ({
-      id: message.id,
-      senderAccountId: message.senderAccountId,
-      senderDirectoryProfileId: message.senderDirectoryProfileId,
-      senderName: message.senderName,
-      senderUsername: message.senderUsername,
-      senderAvatar: message.senderAvatar ?? "",
-      recipientId:
-        message.recipientDirectoryProfileId ?? message.recipientAccountId,
-      recipientAccountId: message.recipientAccountId,
-      recipientDirectoryProfileId: message.recipientDirectoryProfileId,
-      recipientHandle: message.recipientHandle,
-      recipientName: message.recipientName,
-      body: message.body,
-      createdAt: message.createdAt.toISOString(),
-      timestamp: this.formatRelativeTime(message.createdAt),
-      isOwnMessage: message.senderAccountId === session.accountId,
-    }));
+    let chronological = [...rows].reverse();
+    if (options?.cursor && options.cursor.trim().length > 0) {
+      const idx = chronological.findIndex((m) => m.id === options.cursor?.trim());
+      if (idx >= 0) {
+        chronological = chronological.slice(idx + 1);
+      }
+    }
+    const messages = chronological.map((message: Record<string, any>) =>
+      this.mapDirectMessageRow(message, session.accountId),
+    );
     return { items: messages, messages };
   }
+
+  async listMessageConversations(authorization: string | undefined) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    const viewerProfile =
+      typeof anyPrisma.memberProfile?.findUnique === "function"
+        ? await anyPrisma.memberProfile
+            .findUnique({ where: { accountId: session.accountId } })
+            .catch(() => null)
+        : null;
+    const modCtx = await this.resolveViewerModerationContext(
+      session.accountId,
+      viewerProfile?.username ?? null,
+    );
+
+    const allMessages = await this.listDirectMessages(authorization);
+    const items = allMessages.messages ?? [];
+
+    const follows =
+      typeof anyPrisma.memberFollow?.findMany === "function"
+        ? await anyPrisma.memberFollow
+            .findMany({
+              where: { accountId: session.accountId, isFollowing: true },
+              include: { directoryProfile: true },
+            })
+            .catch(() => [])
+        : [];
+    const followedHandles = new Set<string>();
+    for (const f of follows as Array<Record<string, any>>) {
+      const h = this.normalizeModerationHandle(f?.directoryProfile?.username);
+      if (h) followedHandles.add(h);
+    }
+
+    const groupedByPeer = new Map<
+      string,
+      {
+        peerAccountId: string;
+        peerDirectoryId: string | null;
+        peerName: string;
+        peerUsername: string;
+        peerAvatar: string;
+        messages: Array<Record<string, any>>;
+      }
+    >();
+
+    for (const msg of items) {
+      const isOwn = Boolean(msg.isOwnMessage);
+      const peerAccountId = isOwn
+        ? String(msg.recipientAccountId)
+        : String(msg.senderAccountId);
+      const peerDirectoryId = isOwn
+        ? (msg.recipientDirectoryProfileId ?? null)
+        : (msg.senderDirectoryProfileId ?? null);
+      const peerName = isOwn
+        ? String(msg.recipientName || "Sakhi Member")
+        : String(msg.senderName || "Sakhi Member");
+      const peerUsername = isOwn
+        ? String(msg.recipientHandle || "@member")
+        : String(msg.senderUsername || "@member");
+      const peerAvatar = isOwn ? "" : String(msg.senderAvatar || "");
+      const normPeerHandle = this.normalizeModerationHandle(peerUsername);
+      if (
+        modCtx.blockedHandles.has(normPeerHandle) ||
+        modCtx.accountsWhoBlockedViewer.has(peerAccountId)
+      ) {
+        continue;
+      }
+
+      const existing = groupedByPeer.get(peerAccountId) ?? {
+        peerAccountId,
+        peerDirectoryId,
+        peerName,
+        peerUsername: peerUsername.startsWith("@")
+          ? peerUsername
+          : `@${peerUsername}`,
+        peerAvatar,
+        messages: [] as Array<Record<string, any>>,
+      };
+      if (!existing.peerAvatar && peerAvatar) existing.peerAvatar = peerAvatar;
+      if (!existing.peerDirectoryId && peerDirectoryId) {
+        existing.peerDirectoryId = peerDirectoryId;
+      }
+      existing.messages.push(msg);
+      groupedByPeer.set(peerAccountId, existing);
+    }
+
+    const conversations: Array<Record<string, any>> = [];
+    const requests: Array<Record<string, any>> = [];
+    let totalUnreadCount = 0;
+
+    for (const group of groupedByPeer.values()) {
+      const lastMsg = group.messages[group.messages.length - 1];
+      if (!lastMsg) continue;
+      const normHandle = this.normalizeModerationHandle(group.peerUsername);
+      const viewerHasSentMessage = group.messages.some((m) => m.isOwnMessage);
+      const isFollowingPeer = followedHandles.has(normHandle);
+
+      const incomingMessages = group.messages.filter((m) => !m.isOwnMessage);
+      const allIncomingDeclined =
+        incomingMessages.length > 0 &&
+        incomingMessages.every((m) => m.requestStatus === "DECLINED") &&
+        !viewerHasSentMessage;
+      if (allIncomingDeclined) {
+        continue;
+      }
+
+      const hasExplicitAccepted = incomingMessages.some(
+        (m) => m.requestStatus === "ACCEPTED",
+      );
+      const hasPendingRequestRow = incomingMessages.some(
+        (m) => m.requestStatus === "PENDING_REQUEST",
+      );
+
+      const isRequest =
+        hasPendingRequestRow ||
+        (!hasExplicitAccepted &&
+          !viewerHasSentMessage &&
+          !isFollowingPeer &&
+          modCtx.restrictedHandles.has(normHandle));
+
+      const unreadCount = group.messages.filter(
+        (m) => !m.isOwnMessage && !m.isRead && m.requestStatus !== "DECLINED",
+      ).length;
+      if (!isRequest) {
+        totalUnreadCount += unreadCount;
+      }
+
+      const previewBody =
+        lastMsg.attachmentUrl && (!lastMsg.body || lastMsg.body === "📷 Photo")
+          ? "📷 Sent a photo"
+          : String(lastMsg.body || "");
+
+      const summary = {
+        conversationId: `conv_${group.peerAccountId}`,
+        peerId: group.peerDirectoryId ?? group.peerAccountId,
+        peerAccountId: group.peerAccountId,
+        peerDirectoryProfileId: group.peerDirectoryId,
+        peerName: group.peerName,
+        peerUsername: group.peerUsername,
+        peerAvatar: group.peerAvatar,
+        isVerified: true,
+        isFollowing: isFollowingPeer,
+        isMuted: modCtx.mutedHandles.has(normHandle),
+        isRestricted: modCtx.restrictedHandles.has(normHandle),
+        requestStatus: isRequest ? "PENDING_REQUEST" : "ACCEPTED",
+        unreadCount,
+        messagesCount: group.messages.length,
+        lastMessage: {
+          id: lastMsg.id,
+          body: previewBody,
+          attachmentUrl: lastMsg.attachmentUrl ?? null,
+          createdAt: lastMsg.createdAt,
+          timestamp: lastMsg.timestamp,
+          isOwnMessage: lastMsg.isOwnMessage,
+        },
+        updatedAt: lastMsg.createdAt,
+      };
+
+      if (isRequest) {
+        requests.push(summary);
+      } else {
+        conversations.push(summary);
+      }
+    }
+
+    conversations.sort((a, b) =>
+      String(b.updatedAt).localeCompare(String(a.updatedAt)),
+    );
+    requests.sort((a, b) =>
+      String(b.updatedAt).localeCompare(String(a.updatedAt)),
+    );
+
+    return {
+      source: "postgresql_live" as const,
+      conversations,
+      requests,
+      totalUnreadCount,
+      totalRequestsCount: requests.length,
+    };
+  }
+
+  async respondToMessageRequest(
+    authorization: string | undefined,
+    peerId: string,
+    action: string,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const normalizedAction = (action ?? "ACCEPT").trim().toUpperCase();
+    const cleanedPeerId = (peerId ?? "").trim();
+    if (!cleanedPeerId) {
+      throw new BadRequestException("Provide a peer identifier.");
+    }
+    if (!["ACCEPT", "DECLINE", "BLOCK"].includes(normalizedAction)) {
+      throw new BadRequestException("Action must be ACCEPT, DECLINE, or BLOCK.");
+    }
+
+    const resolvedPeer = await this.resolvePeerAccountIdForMessaging(cleanedPeerId);
+    const anyPrisma = this.prisma as Record<string, any>;
+
+    if (normalizedAction === "BLOCK") {
+      const targetUsername =
+        resolvedPeer.username ??
+        (cleanedPeerId.startsWith("@") ? cleanedPeerId : `@${cleanedPeerId}`);
+      const blocked = await this.ensureBlockedUser(authorization, {
+        blockedUsername: targetUsername,
+        blockedDisplayName:
+          resolvedPeer.displayName ?? targetUsername.replace(/^@+/, ""),
+      });
+      if (
+        resolvedPeer.accountId &&
+        typeof anyPrisma.directMessage?.updateMany === "function"
+      ) {
+        await anyPrisma.directMessage
+          .updateMany({
+            where: {
+              senderAccountId: resolvedPeer.accountId,
+              recipientAccountId: session.accountId,
+            },
+            data: { requestStatus: "DECLINED" },
+          })
+          .catch(() => undefined);
+      }
+      return {
+        peerId: cleanedPeerId,
+        peerAccountId: resolvedPeer.accountId,
+        action: "BLOCK",
+        requestStatus: "BLOCKED",
+        blocked,
+      };
+    }
+
+    const status: "ACCEPTED" | "DECLINED" =
+      normalizedAction === "DECLINE" ? "DECLINED" : "ACCEPTED";
+
+    let updatedCount = 0;
+    if (
+      resolvedPeer.accountId &&
+      typeof anyPrisma.directMessage?.updateMany === "function"
+    ) {
+      const updateRes = await anyPrisma.directMessage.updateMany({
+        where: {
+          senderAccountId: resolvedPeer.accountId,
+          recipientAccountId: session.accountId,
+        },
+        data: {
+          requestStatus: status,
+          ...(status === "ACCEPTED" ? { readAt: new Date() } : {}),
+        },
+      });
+      updatedCount = Number(updateRes?.count ?? 0);
+    }
+
+    return {
+      peerId: cleanedPeerId,
+      peerAccountId: resolvedPeer.accountId,
+      action: normalizedAction,
+      requestStatus: status,
+      updatedMessagesCount: updatedCount,
+    };
+  }
+
+  async markDirectMessagesRead(
+    authorization: string | undefined,
+    peerId: string,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const cleanedPeerId = (peerId ?? "").trim();
+    if (!cleanedPeerId) {
+      throw new BadRequestException("Provide a peer identifier.");
+    }
+    const resolvedPeer = await this.resolvePeerAccountIdForMessaging(cleanedPeerId);
+    const now = new Date();
+    let updatedCount = 0;
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (
+      resolvedPeer.accountId &&
+      typeof anyPrisma.directMessage?.updateMany === "function"
+    ) {
+      const res = await anyPrisma.directMessage.updateMany({
+        where: {
+          senderAccountId: resolvedPeer.accountId,
+          recipientAccountId: session.accountId,
+          readAt: null,
+        },
+        data: { readAt: now },
+      });
+      updatedCount = Number(res?.count ?? 0);
+    }
+    return {
+      markedRead: true,
+      peerId: cleanedPeerId,
+      peerAccountId: resolvedPeer.accountId,
+      updatedCount,
+      readAt: now.toISOString(),
+    };
+  }
+
+  async listNotificationsInbox(
+    authorization: string | undefined,
+    query: {
+      category?: string;
+      unreadOnly?: boolean;
+      page?: number;
+      limit?: number;
+    } = {},
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (typeof anyPrisma.memberNotification?.findMany !== "function") {
+      throw new ServiceUnavailableException(
+        "Notification inbox database table is not initialized. Run the Module 8 migration.",
+      );
+    }
+
+    const safePage = Math.max(Number(query.page) || 1, 1);
+    const safeLimit = Math.min(Math.max(Number(query.limit) || 25, 1), 100);
+
+    const [profile, notifPref, cyclePref, recentDms, enquiries] =
+      await Promise.all([
+        typeof anyPrisma.memberProfile?.findUnique === "function"
+          ? anyPrisma.memberProfile
+              .findUnique({ where: { accountId: session.accountId } })
+              .catch(() => null)
+          : Promise.resolve(null),
+        typeof anyPrisma.memberNotificationPreference?.findUnique === "function"
+          ? anyPrisma.memberNotificationPreference
+              .findUnique({ where: { accountId: session.accountId } })
+              .catch(() => null)
+          : Promise.resolve(null),
+        typeof anyPrisma.menstrualTrackerPreference?.findUnique === "function"
+          ? anyPrisma.menstrualTrackerPreference
+              .findUnique({ where: { accountId: session.accountId } })
+              .catch(() => null)
+          : Promise.resolve(null),
+        typeof anyPrisma.directMessage?.findMany === "function"
+          ? anyPrisma.directMessage
+              .findMany({
+                where: { recipientAccountId: session.accountId },
+                orderBy: { createdAt: "desc" },
+                take: 15,
+              })
+              .catch(() => [])
+          : Promise.resolve([]),
+        typeof anyPrisma.businessEnquiry?.findMany === "function"
+          ? anyPrisma.businessEnquiry
+              .findMany({
+                where: {
+                  OR: [
+                    { ownerAccountId: session.accountId },
+                    { senderAccountId: session.accountId },
+                  ],
+                },
+                orderBy: { updatedAt: "desc" },
+                take: 10,
+              })
+              .catch(() => [])
+          : Promise.resolve([]),
+      ]);
+
+    const modCtx = await this.resolveViewerModerationContext(
+      session.accountId,
+      profile?.username ?? null,
+    );
+    const discreetWellness = cyclePref?.discreetNotifications ?? true;
+
+    // Ensure durable notification records exist for account-scoped system & activity events
+    if (session.account.verificationStatus === "VERIFIED") {
+      await this.createPersistentNotification(session.accountId, {
+        idempotencyKey: `verif:${session.accountId}:VERIFIED`,
+        category: "VERIFICATION_RESULT",
+        title: "Sakhi Identity Verification Approved",
+        body: "Your verified women-only membership badge is active across Community, Business Pages, and Safety Circles.",
+        discreetTitle: "Account Status Update",
+        discreetBody: "Your Sakhi membership verification status has been updated.",
+        deepLink: "/profile",
+        actorName: "Sakhi Trust & Safety",
+        actorHandle: "@sakhi_official",
+      }).catch(() => null);
+    }
+
+    if (notifPref?.messages ?? true) {
+      for (const dm of recentDms as Array<Record<string, any>>) {
+        const senderNorm = this.normalizeModerationHandle(dm.senderUsername);
+        if (
+          modCtx.blockedHandles.has(senderNorm) ||
+          modCtx.accountsWhoBlockedViewer.has(String(dm.senderAccountId)) ||
+          dm.requestStatus === "DECLINED"
+        ) {
+          continue;
+        }
+        await this.createPersistentNotification(session.accountId, {
+          idempotencyKey: `dm:${dm.id}`,
+          category: "DIRECT_MESSAGE",
+          title: `Message from ${dm.senderName}`,
+          body: String(dm.body ?? "Sent you a message").slice(0, 140),
+          discreetTitle: "New Sakhi Message",
+          discreetBody: "You have a new private message waiting in Sakhi.",
+          deepLink: `/messages?peerId=${encodeURIComponent(dm.senderUsername)}`,
+          actorName: dm.senderName,
+          actorHandle: dm.senderUsername,
+          actorAvatar: dm.senderAvatar ?? null,
+          createdAt: dm.createdAt,
+        }).catch(() => null);
+      }
+    }
+
+    if (notifPref?.businessEnquiries ?? true) {
+      for (const eq of enquiries as Array<Record<string, any>>) {
+        const isOwner = String(eq.ownerAccountId ?? "") === session.accountId;
+        await this.createPersistentNotification(session.accountId, {
+          idempotencyKey: `biz:${eq.id}:${eq.status}`,
+          category: "BUSINESS_ENQUIRY",
+          title: isOwner
+            ? `Business enquiry for ${eq.businessName}`
+            : `Update on your enquiry to ${eq.businessName}`,
+          body: `${eq.subjectOrProduct ?? "Business Enquiry"} • Status: ${eq.status ?? "OPEN"}`,
+          deepLink: "/explore",
+          actorName: isOwner ? eq.senderDisplayName : eq.businessName,
+          actorHandle: eq.senderUsername ?? "@business",
+          createdAt: eq.updatedAt,
+        }).catch(() => null);
+      }
+    }
+
+    if (notifPref?.wellnessReminders ?? true) {
+      try {
+        const tracker = await this.getMenstrualCycleTracker(authorization);
+        const rem = tracker.predictionSummary?.reminderPreview;
+        if (rem && tracker.predictionSummary?.nextPeriodStart) {
+          await this.createPersistentNotification(session.accountId, {
+            idempotencyKey: `cycle:${session.accountId}:${tracker.predictionSummary.nextPeriodStart}`,
+            category: "PERIOD_REMINDER",
+            title: discreetWellness
+              ? "Wellness Check-In"
+              : (rem.title ?? "Upcoming Period Reminder"),
+            body: discreetWellness
+              ? "You have a personal calendar update waiting in your wellness tracker."
+              : (rem.body ?? "Open your Menstrual Cycle Tracker to review your upcoming cycle estimate."),
+            discreetTitle: "Wellness Check-In",
+            discreetBody:
+              "You have a personal calendar update waiting in your wellness tracker.",
+            deepLink: "/menstrual-cycle-tracker",
+            actorName: "Sakhi Wellness",
+            actorHandle: "@sakhi_wellness",
+          }).catch(() => null);
+        }
+      } catch {
+        // Ignore if cycle tracker has not been configured yet
+      }
+    }
+
+    const categoryFilter = (query.category ?? "").trim().toUpperCase();
+    const whereClause: Record<string, any> = {
+      accountId: session.accountId,
+      ...(query.unreadOnly ? { isRead: false } : {}),
+      ...(categoryFilter && categoryFilter !== "ALL"
+        ? { category: categoryFilter }
+        : {}),
+    };
+
+    const [rows, totalCount, unreadCount] = await Promise.all([
+      anyPrisma.memberNotification.findMany({
+        where: whereClause,
+        orderBy: { createdAt: "desc" },
+        skip: (safePage - 1) * safeLimit,
+        take: safeLimit,
+      }),
+      typeof anyPrisma.memberNotification?.count === "function"
+        ? anyPrisma.memberNotification.count({ where: whereClause })
+        : Promise.resolve(0),
+      typeof anyPrisma.memberNotification?.count === "function"
+        ? anyPrisma.memberNotification.count({
+            where: { accountId: session.accountId, isRead: false },
+          })
+        : Promise.resolve(0),
+    ]);
+
+    const filtered = (rows as Array<Record<string, any>>)
+      .filter((n) => {
+        const actorNorm = this.normalizeModerationHandle(n.actorHandle);
+        return !actorNorm || !modCtx.blockedHandles.has(actorNorm);
+      })
+      .map((n) => {
+        const createdDate =
+          n.createdAt instanceof Date
+            ? n.createdAt
+            : new Date(String(n.createdAt ?? Date.now()));
+        const useDiscreet =
+          discreetWellness &&
+          (n.category === "PERIOD_REMINDER" || n.category === "COMPLAINT_STATUS");
+        return {
+          id: String(n.id),
+          accountId: String(n.accountId),
+          category: String(n.category ?? "COMMUNITY_ANNOUNCEMENT"),
+          title: useDiscreet
+            ? String(n.discreetTitle || "Wellness Check-In")
+            : String(n.title),
+          body: useDiscreet
+            ? String(
+                n.discreetBody ||
+                  "You have a personal update waiting in your Sakhi app.",
+              )
+            : String(n.body),
+          discreetTitle: n.discreetTitle ?? "Wellness Check-In",
+          discreetBody:
+            n.discreetBody ??
+            "You have a personal update waiting in your Sakhi app.",
+          isDiscreetRendered: useDiscreet,
+          deepLink: String(n.deepLink ?? "/notifications-inbox"),
+          actorName: n.actorName ?? "Sakhi",
+          actorHandle: n.actorHandle ?? "@sakhi",
+          actorAvatar: n.actorAvatar ?? "",
+          metadata: n.metadata ?? {},
+          isRead: Boolean(n.isRead),
+          readAt:
+            n.readAt instanceof Date
+              ? n.readAt.toISOString()
+              : (n.readAt ?? null),
+          idempotencyKey: n.idempotencyKey ?? null,
+          deliveryStatus: n.deliveryStatus ?? "DELIVERED",
+          createdAt: createdDate.toISOString(),
+          timestamp: this.formatRelativeTime(createdDate),
+        };
+      });
+
+    const resolvedTotal = Number(totalCount || filtered.length);
+    return {
+      source: "postgresql_live" as const,
+      items: filtered,
+      notifications: filtered,
+      unreadCount: Number(unreadCount ?? 0),
+      totalCount: resolvedTotal,
+      page: safePage,
+      limit: safeLimit,
+      hasMore: safePage * safeLimit < resolvedTotal,
+      discreetModeEnabled: discreetWellness,
+    };
+  }
+
+  async markNotificationRead(
+    authorization: string | undefined,
+    notificationId: string,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const cleanId = (notificationId ?? "").trim();
+    if (!cleanId) {
+      throw new BadRequestException("Provide a notification ID.");
+    }
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (typeof anyPrisma.memberNotification?.findFirst !== "function") {
+      throw new ServiceUnavailableException(
+        "Notification storage is not initialized.",
+      );
+    }
+
+    const existing = await anyPrisma.memberNotification.findFirst({
+      where: {
+        accountId: session.accountId,
+        OR: [{ id: cleanId }, { idempotencyKey: cleanId }],
+      },
+    });
+    if (!existing) {
+      throw new NotFoundException("Notification was not found in your account.");
+    }
+
+    const now = new Date();
+    const updated = await anyPrisma.memberNotification.update({
+      where: { id: existing.id },
+      data: {
+        isRead: true,
+        readAt: existing.readAt ?? now,
+      },
+    });
+    return {
+      notificationId: updated.id,
+      isRead: Boolean(updated.isRead),
+      readAt:
+        updated.readAt instanceof Date
+          ? updated.readAt.toISOString()
+          : now.toISOString(),
+    };
+  }
+
+  async markAllNotificationsRead(authorization: string | undefined) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (typeof anyPrisma.memberNotification?.updateMany !== "function") {
+      throw new ServiceUnavailableException(
+        "Notification storage is not initialized.",
+      );
+    }
+    const now = new Date();
+    const res = await anyPrisma.memberNotification.updateMany({
+      where: {
+        accountId: session.accountId,
+        isRead: false,
+      },
+      data: {
+        isRead: true,
+        readAt: now,
+      },
+    });
+    return {
+      markedAllRead: true,
+      updatedCount: Number(res?.count ?? 0),
+      unreadCount: 0,
+      readAt: now.toISOString(),
+    };
+  }
+
+  async deleteNotification(
+    authorization: string | undefined,
+    notificationId: string,
+  ) {
+    const session = await this.auth.authenticateAuthorization(authorization);
+    const cleanId = (notificationId ?? "").trim();
+    if (!cleanId) {
+      throw new BadRequestException("Provide a notification ID.");
+    }
+    const anyPrisma = this.prisma as Record<string, any>;
+    if (typeof anyPrisma.memberNotification?.findFirst !== "function") {
+      throw new ServiceUnavailableException(
+        "Notification storage is not initialized.",
+      );
+    }
+    const existing = await anyPrisma.memberNotification.findFirst({
+      where: {
+        accountId: session.accountId,
+        OR: [{ id: cleanId }, { idempotencyKey: cleanId }],
+      },
+    });
+    if (!existing) {
+      throw new NotFoundException("Notification was not found in your account.");
+    }
+    await anyPrisma.memberNotification.delete({
+      where: { id: existing.id },
+    });
+    return {
+      deleted: true,
+      notificationId: existing.id,
+    };
+  }
+
+  async unifiedSearch(
+    authorization: string | undefined,
+    query: {
+      q?: string;
+      category?: string;
+      city?: string;
+      lat?: number;
+      lng?: number;
+      radiusKm?: number;
+      page?: number;
+      limit?: number;
+    } = {},
+  ) {
+    await this.auth.authenticateAuthorization(authorization);
+    const rawQ = (query.q ?? "").trim();
+    const qLower = rawQ.toLowerCase().replace(/^#/, "");
+    const rawCategory = (query.category ?? "all").trim().toLowerCase();
+    const categoryAliases: Record<string, string> = {
+      all: "all",
+      member: "members",
+      members: "members",
+      people: "members",
+      business: "businesses",
+      businesses: "businesses",
+      product: "products",
+      products: "products",
+      service: "products",
+      services: "products",
+      post: "posts",
+      posts: "posts",
+      topic: "topics",
+      topics: "topics",
+      circle: "topics",
+      circles: "topics",
+      wellness: "wellness",
+      health: "wellness",
+      safety: "nearby_safety",
+      nearby_safety: "nearby_safety",
+      police: "nearby_safety",
+      nearbypolicestations: "nearby_safety",
+    };
+    const requestedCategory = categoryAliases[rawCategory] ?? "all";
+
+    const parsedLimit = Number(query.limit ?? 25);
+    const parsedPage = Number(query.page ?? 1);
+    if (
+      (query.limit !== undefined && (!Number.isFinite(parsedLimit) || parsedLimit < 1)) ||
+      (query.page !== undefined && (!Number.isFinite(parsedPage) || parsedPage < 1))
+    ) {
+      throw new BadRequestException("Provide valid positive page and limit parameters.");
+    }
+    const safeLimit = Math.min(Math.max(Math.round(parsedLimit), 1), 100);
+    const safePage = Math.max(Math.round(parsedPage), 1);
+    const offset = (safePage - 1) * safeLimit;
+    const paginateSlice = <T>(items: T[]): T[] =>
+      items.slice(offset, offset + safeLimit);
+
+    const shouldLoad = (bucket: string) =>
+      requestedCategory === "all" || requestedCategory === bucket;
+
+    const [
+      membersResult,
+      businessesResult,
+      postsResult,
+      nearbyCirclesResult,
+      policeStationsResult,
+    ] = await Promise.all([
+      shouldLoad("members")
+        ? rawQ
+          ? this.searchMembers(authorization, rawQ).catch(() => ({ members: [] }))
+          : this.listFollowers(authorization, "following")
+              .then((r) => ({ members: r.items }))
+              .catch(() => ({ members: [] }))
+        : Promise.resolve({ members: [] }),
+      shouldLoad("businesses") || shouldLoad("products")
+        ? this.listMemberBusinesses(authorization, {
+            search: shouldLoad("businesses") ? rawQ || undefined : undefined,
+            city: query.city,
+            lat: query.lat,
+            lng: query.lng,
+            radiusKm: query.radiusKm,
+          }).catch(() => ({ businesses: [] }))
+        : Promise.resolve({ businesses: [] }),
+      shouldLoad("posts")
+        ? this.listPosts(authorization, {
+            search: rawQ || undefined,
+            limit: safeLimit,
+            page: safePage,
+          }).catch(() => ({ posts: [] }))
+        : Promise.resolve({ posts: [] }),
+      shouldLoad("topics")
+        ? this.listNearbyCircles(
+            authorization,
+            query.lat,
+            query.lng,
+            query.radiusKm ?? 20,
+            query.city,
+          ).catch(() => ({ activeCircles: [], nearbyMembers: [] }))
+        : Promise.resolve({ activeCircles: [], nearbyMembers: [] }),
+      shouldLoad("nearby_safety")
+        ? this.listNearbyPoliceStations(
+            query.lat,
+            query.lng,
+            (query.radiusKm ?? 15) * 1000,
+          ).catch(() => ({ stations: [] }))
+        : Promise.resolve({ stations: [] }),
+    ]);
+
+    const allMembers: Array<Record<string, any>> = shouldLoad("members")
+      ? (membersResult.members ?? [])
+      : [];
+    const allBusinessesRaw = businessesResult.businesses ?? [];
+    const allBusinesses = shouldLoad("businesses")
+      ? allBusinessesRaw.filter((biz: Record<string, any>) => {
+          if (!qLower) return true;
+          return (
+            String(biz.businessName ?? "").toLowerCase().includes(qLower) ||
+            String(biz.category ?? "").toLowerCase().includes(qLower) ||
+            String(biz.description ?? "").toLowerCase().includes(qLower) ||
+            String(biz.city ?? "").toLowerCase().includes(qLower)
+          );
+        })
+      : [];
+    const posts = shouldLoad("posts") ? (postsResult.posts ?? []) : [];
+
+    const allProducts: Array<Record<string, any>> = [];
+    if (shouldLoad("products")) {
+      for (const biz of allBusinessesRaw as Array<Record<string, any>>) {
+        const prodList = Array.isArray(biz.productsServices)
+          ? biz.productsServices
+          : [];
+        for (const prod of prodList as Array<Record<string, any>>) {
+          const title = String(prod.title ?? prod.name ?? "").trim();
+          const desc = String(prod.description ?? "").trim();
+          const price = String(
+            prod.price ?? prod.priceLabel ?? biz.priceRange ?? "",
+          ).trim();
+          if (!title) continue;
+          if (
+            !qLower ||
+            title.toLowerCase().includes(qLower) ||
+            desc.toLowerCase().includes(qLower) ||
+            String(biz.businessName ?? "").toLowerCase().includes(qLower) ||
+            String(biz.category ?? "").toLowerCase().includes(qLower)
+          ) {
+            allProducts.push({
+              id: `${biz.id}_${title.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`,
+              title,
+              description: desc || `Offered by ${biz.businessName}`,
+              priceLabel: price || "Contact for price",
+              businessId: biz.id,
+              businessName: biz.businessName,
+              businessCategory: biz.category,
+              city: biz.city,
+              isVerifiedWomanOwned: Boolean(biz.isVerifiedWomanOwned),
+            });
+          }
+        }
+      }
+    }
+
+    const defaultHashtagTopics = [
+      {
+        id: "topic-women-in-tech",
+        name: "#WomenInTech",
+        category: "Career & Mentorship",
+        description: "Career growth, coding circles, and leadership discussions.",
+        membersCount: 420,
+      },
+      {
+        id: "topic-safe-commute",
+        name: "#SafeCommute",
+        category: "Safety Awareness",
+        description: "Verified metro, cab, and late-evening travel safety updates.",
+        membersCount: 615,
+      },
+      {
+        id: "topic-mental-wellness",
+        name: "#MentalWellness",
+        category: "Wellness & Mindfulness",
+        description: "4-7-8 breathing, guided meditation, and emotional balance.",
+        membersCount: 530,
+      },
+      {
+        id: "topic-period-care",
+        name: "#PeriodPainHelp",
+        category: "Reproductive Health",
+        description: "Menstrual cycle comfort, cramp care, and gynecologist visit guides.",
+        membersCount: 490,
+      },
+      {
+        id: "topic-women-founders",
+        name: "#WomenFounders",
+        category: "Entrepreneurship",
+        description: "Showcases and peer advice from verified women-owned businesses.",
+        membersCount: 380,
+      },
+    ];
+    const allCircles = shouldLoad("topics")
+      ? [...(nearbyCirclesResult.activeCircles ?? []), ...defaultHashtagTopics]
+      : [];
+    const allTopics = allCircles.filter((t: Record<string, any>) => {
+      if (!qLower) return true;
+      return (
+        String(t.name ?? "").toLowerCase().includes(qLower) ||
+        String(t.category ?? "").toLowerCase().includes(qLower) ||
+        String(t.description ?? "").toLowerCase().includes(qLower)
+      );
+    });
+
+    const wellnessCatalog = shouldLoad("wellness")
+      ? [
+          ...Module2Service.MENSTRUAL_HEALTH_ARTICLES.map((art) => ({
+            id: art.id,
+            type: "HEALTH_ARTICLE",
+            category: art.category,
+            title: art.title,
+            subtitle: art.summary,
+            readTime: art.readTime,
+            highlights: art.highlights,
+            deepLink: "/menstrual-cycle-tracker",
+          })),
+          {
+            id: "wellness-breathing-478",
+            type: "BREATHING_EXERCISE",
+            category: "Mental Wellness Studio",
+            title: "4-7-8 Calm Breathing & Box Breathing Studio",
+            subtitle:
+                "Interactive guided breathing with natural voice cues and synthesized harmonic ambient drones.",
+            readTime: "4–10 min session",
+            highlights: [
+              "4-7-8 Calm Breath for relaxation and evening wind-down",
+              "Box Breathing (4-4-4-4) for grounded focus",
+            ],
+            deepLink: "/wellness",
+          },
+          {
+            id: "wellness-guided-meditation",
+            type: "GUIDED_MEDITATION",
+            category: "Mental Wellness Studio",
+            title: "Miracle of Mind — Guided Meditation & Harmonic Drones",
+            subtitle:
+                "Spoken step-by-step mindfulness meditation with 5 synthesized polyphonic harmonic pads.",
+            readTime: "7–21 min session",
+            highlights: [
+              "Full spoken meditation guidance with independent voice & ambient volume",
+              "5 synthesized harmonic ambient drones generated on-device",
+            ],
+            deepLink: "/wellness",
+          },
+        ]
+      : [];
+    const allWellness = wellnessCatalog.filter((w) => {
+      if (!qLower) return true;
+      return (
+        w.title.toLowerCase().includes(qLower) ||
+        w.subtitle.toLowerCase().includes(qLower) ||
+        w.category.toLowerCase().includes(qLower) ||
+        w.highlights.some((h) => h.toLowerCase().includes(qLower))
+      );
+    });
+
+    const allPoliceStations = shouldLoad("nearby_safety")
+      ? (policeStationsResult.stations ?? []).filter(
+          (s: Record<string, any>) => {
+            if (!qLower) return true;
+            return (
+              String(s.name ?? "").toLowerCase().includes(qLower) ||
+              String(s.address ?? "").toLowerCase().includes(qLower) ||
+              String(s.city ?? "").toLowerCase().includes(qLower)
+            );
+          },
+        )
+      : [];
+
+    const members = paginateSlice(allMembers);
+    const businesses = paginateSlice(allBusinesses);
+    const products = paginateSlice(allProducts);
+    const topics = paginateSlice(allTopics);
+    const wellness = paginateSlice(allWellness);
+    const nearbyPoliceStations = paginateSlice(allPoliceStations);
+
+    return {
+      source: "postgresql_live" as const,
+      query: rawQ,
+      category: requestedCategory,
+      page: safePage,
+      limit: safeLimit,
+      totalCounts: {
+        members: allMembers.length,
+        businesses: allBusinesses.length,
+        products: allProducts.length,
+        posts: posts.length,
+        topics: allTopics.length,
+        wellness: allWellness.length,
+        nearbyPoliceStations: allPoliceStations.length,
+      },
+      counts: {
+        members: members.length,
+        businesses: businesses.length,
+        products: products.length,
+        posts: posts.length,
+        topics: topics.length,
+        wellness: wellness.length,
+        nearbyPoliceStations: nearbyPoliceStations.length,
+      },
+      members,
+      businesses,
+      products,
+      posts,
+      topics,
+      wellness,
+      nearbyPoliceStations,
+    };
+  }
+
   async sendDirectMessage(
     authorization: string | undefined,
     dto: {
       recipientId?: string;
       recipientHandle?: string;
       recipientName?: string;
-      message: string;
+      message?: string;
+      attachmentUrl?: string;
+      attachmentType?: string;
+      mediaUploadId?: string;
+      clientMessageId?: string;
     },
   ) {
     const session = await this.auth.authenticateAuthorization(authorization);
-    const body = dto.message?.trim() ?? "";
+    const anyPrisma = this.prisma as Record<string, any>;
+
+    const clientMessageId = dto.clientMessageId?.trim()
+      ? dto.clientMessageId.trim().slice(0, 80)
+      : null;
+    if (clientMessageId && typeof anyPrisma.directMessage?.findFirst === "function") {
+      const existingByClientMsgId = await anyPrisma.directMessage
+        .findFirst({
+          where: {
+            senderAccountId: session.accountId,
+            clientMessageId,
+          },
+        })
+        .catch(() => null);
+      if (existingByClientMsgId) {
+        return {
+          sent: true,
+          deduplicated: true,
+          message: this.mapDirectMessageRow(existingByClientMsgId, session.accountId),
+        };
+      }
+    }
+
+    const allowedAttachmentMimeTypes = new Set([
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+    ]);
+    let validatedMediaUploadId: string | null = dto.mediaUploadId?.trim() || null;
+    let resolvedAttachmentUrl: string | null = null;
+    let resolvedAttachmentType: string | null = null;
+
+    const rawAttachmentUrl = dto.attachmentUrl?.trim() || null;
+    if (rawAttachmentUrl && !validatedMediaUploadId) {
+      const matchInternal = /^\/api\/v1\/module2\/media\/object\/([0-9a-fA-F-]{36})$/.exec(
+        rawAttachmentUrl,
+      );
+      if (!matchInternal) {
+        throw new BadRequestException(
+          "Direct message attachments must reference a verified Sakhi media upload.",
+        );
+      }
+      validatedMediaUploadId = matchInternal[1]!;
+    }
+
+    if (validatedMediaUploadId) {
+      const [mediaAsset, uploadEvent] = await Promise.all([
+        typeof anyPrisma.mediaAsset?.findUnique === "function"
+          ? anyPrisma.mediaAsset
+              .findUnique({ where: { id: validatedMediaUploadId } })
+              .catch(() => null)
+          : Promise.resolve(null),
+        typeof anyPrisma.auditEvent?.findFirst === "function"
+          ? anyPrisma.auditEvent
+              .findFirst({
+                where: {
+                  targetId: validatedMediaUploadId,
+                  action: "module2.media.uploaded",
+                },
+                orderBy: { createdAt: "desc" },
+              })
+              .catch(() => null)
+          : Promise.resolve(null),
+      ]);
+
+      if (!mediaAsset || !uploadEvent) {
+        throw new NotFoundException(
+          "The referenced attachment upload was not found.",
+        );
+      }
+      if (String(mediaAsset.ownerAccountId) !== session.accountId) {
+        throw new ForbiddenException(
+          "You can only attach media files uploaded by your own account.",
+        );
+      }
+      if (
+        mediaAsset.purpose !== "DIRECT_MESSAGE_IMAGE" ||
+        mediaAsset.postId != null ||
+        mediaAsset.status !== "UPLOADED" ||
+        mediaAsset.visibility !== "PRIVATE_SELF"
+      ) {
+        throw new BadRequestException(
+          "Only a new private direct-message upload can be attached to a conversation.",
+        );
+      }
+      const byteSize = Number(mediaAsset.byteSize ?? 0);
+      if (!Number.isFinite(byteSize) || byteSize < 1 || byteSize > 15 * 1024 * 1024) {
+        throw new BadRequestException(
+          "Direct message attachments must be between 1 byte and 15 MB.",
+        );
+      }
+      const candidateType = String(mediaAsset.contentType ?? "").trim().toLowerCase();
+      if (
+        !allowedAttachmentMimeTypes.has(candidateType) ||
+        (dto.attachmentType?.trim() &&
+          dto.attachmentType.trim().toLowerCase() !== candidateType)
+      ) {
+        throw new BadRequestException(
+          "Attachment media type does not match the verified upload. Allowed: JPEG, PNG, WEBP, or MP4.",
+        );
+      }
+      if (typeof anyPrisma.directMessage?.findFirst === "function") {
+        const priorAttachment = await anyPrisma.directMessage.findFirst({
+          where: { mediaUploadId: validatedMediaUploadId },
+          select: { id: true },
+        });
+        if (priorAttachment) {
+          throw new BadRequestException(
+            "This upload has already been attached to a message. Upload the photo again before sharing it with someone else.",
+          );
+        }
+      }
+      resolvedAttachmentType = candidateType;
+      resolvedAttachmentUrl = `/api/v1/module2/media/object/${validatedMediaUploadId}`;
+    }
+
+    const rawBody = dto.message?.trim() ?? "";
+    const body = rawBody || (resolvedAttachmentUrl ? "📷 Photo" : "");
     if (!body) throw new BadRequestException("Enter a message before sending.");
 
     if (
@@ -5887,7 +7901,12 @@ export class Module2Service {
           id: true,
           status: true,
           verificationStatus: true,
-          privacyPreference: { select: { messageMe: true } },
+          privacyPreference: {
+            select: {
+              messageMe: true,
+              restrictedHandles: true,
+            },
+          },
         },
       },
     };
@@ -6102,57 +8121,124 @@ export class Module2Service {
       );
     }
 
-    const nowIso = new Date().toISOString();
-    const msgRecord = {
-      id: randomUUID(),
-      senderAccountId: session.accountId,
-      senderDirectoryProfileId: senderDirectoryProfile?.id ?? null,
-      senderName: senderProfile?.displayName ?? "Sakhi Member",
-      senderUsername: this.deriveUsername(
-        senderProfile?.displayName ?? "Sakhi Member",
-        senderProfile?.username ?? null,
-      ),
-      senderAvatar: senderProfile
-        ? this.resolveMemberAvatar(
-            senderProfile.avatarAsset,
-            senderProfile.avatarMediaAssetId,
-          )
-        : "",
-      // Keep the client's peer key for conversation lookup, but also store
-      // the resolved account ID as the authoritative recipient identity.
-      recipientId: requestedRecipientId || recipientProfile.accountId,
-      recipientAccountId: recipientProfile.accountId,
-      recipientDirectoryProfileId: recipientDirectoryProfile?.id ?? null,
-      recipientHandle,
-      recipientName: recipientProfile.displayName,
-      body,
-      createdAt: nowIso,
-      timestamp: "Just now",
-    };
+    // Determine whether this message enters ACCEPTED or PENDING_REQUEST state in PostgreSQL
+    const recipientRestrictedHandles = new Set<string>(
+      this.parseStringArrayJson(
+        recipientAccount.privacyPreference?.restrictedHandles,
+      ).map((h) => this.normalizeModerationHandle(h)),
+    );
+    const normSenderHandle = this.normalizeModerationHandle(senderHandle);
+    const recipientFollowsSender = senderDirectoryProfile
+      ? await this.prisma.memberFollow.findUnique({
+          where: {
+            accountId_directoryProfileId: {
+              accountId: recipientProfile.accountId,
+              directoryProfileId: senderDirectoryProfile.id,
+            },
+          },
+          select: { isFollowing: true },
+        })
+      : null;
+    const previouslyAcceptedConversation =
+      typeof anyPrisma.directMessage?.findFirst === "function"
+        ? await anyPrisma.directMessage.findFirst({
+            where: {
+              OR: [
+                {
+                  senderAccountId: recipientProfile.accountId,
+                  recipientAccountId: session.accountId,
+                  requestStatus: "ACCEPTED",
+                },
+                {
+                  senderAccountId: session.accountId,
+                  recipientAccountId: recipientProfile.accountId,
+                  requestStatus: "ACCEPTED",
+                },
+              ],
+            },
+            select: { id: true },
+          })
+        : null;
+    const recipientKnowsSender =
+      recipientFollowsSender?.isFollowing === true ||
+      previouslyAcceptedConversation != null;
+    const initialRequestStatus: "ACCEPTED" | "PENDING_REQUEST" =
+      recipientRestrictedHandles.has(normSenderHandle) || !recipientKnowsSender
+        ? "PENDING_REQUEST"
+        : "ACCEPTED";
+
+    const nowDate = new Date();
+    const nowIso = nowDate.toISOString();
+    const msgId = randomUUID();
+    const derivedSenderUsername = this.deriveUsername(
+      senderProfile?.displayName ?? "Sakhi Member",
+      senderProfile?.username ?? null,
+    );
+    const derivedSenderAvatar = senderProfile
+      ? this.resolveMemberAvatar(
+          senderProfile.avatarAsset,
+          senderProfile.avatarMediaAssetId,
+        )
+      : "";
+
+    let createdDbRow: Record<string, any> | null = null;
     try {
-      await this.prisma.directMessage.create({
+      createdDbRow = await this.prisma.directMessage.create({
         data: {
-          id: msgRecord.id,
+          id: msgId,
           senderAccountId: session.accountId,
           recipientAccountId: recipientProfile.accountId,
           senderDirectoryProfileId: senderDirectoryProfile?.id ?? null,
           recipientDirectoryProfileId: recipientDirectoryProfile?.id ?? null,
-          senderName: msgRecord.senderName,
-          senderUsername: msgRecord.senderUsername,
-          senderAvatar: msgRecord.senderAvatar || null,
-          recipientName: msgRecord.recipientName,
-          recipientHandle: msgRecord.recipientHandle,
-          body: msgRecord.body,
-          createdAt: new Date(nowIso),
-        },
+          senderName: senderProfile?.displayName ?? "Sakhi Member",
+          senderUsername: derivedSenderUsername,
+          senderAvatar: derivedSenderAvatar || null,
+          recipientName: recipientProfile.displayName,
+          recipientHandle,
+          body,
+          ...(resolvedAttachmentUrl
+            ? {
+                attachmentUrl: resolvedAttachmentUrl,
+                attachmentType: resolvedAttachmentType,
+                mediaUploadId: validatedMediaUploadId,
+              }
+            : {}),
+          ...(initialRequestStatus !== "ACCEPTED"
+            ? { requestStatus: initialRequestStatus }
+            : {}),
+          ...(clientMessageId ? { clientMessageId } : {}),
+          createdAt: nowDate,
+        } as any,
       });
-    } catch {
+    } catch (err: any) {
+      if (
+        clientMessageId &&
+        typeof anyPrisma.directMessage?.findFirst === "function"
+      ) {
+        const concurrentExisting = await anyPrisma.directMessage
+          .findFirst({
+            where: {
+              senderAccountId: session.accountId,
+              clientMessageId,
+            },
+          })
+          .catch(() => null);
+        if (concurrentExisting) {
+          return {
+            sent: true,
+            deduplicated: true,
+            message: this.mapDirectMessageRow(
+              concurrentExisting,
+              session.accountId,
+            ),
+          };
+        }
+      }
       throw new InternalServerErrorException(
         "Your message could not be saved. It has not been sent. Please try again.",
       );
     }
 
-    // Keep an audit trail without duplicating the private message body.
     try {
       await this.prisma.auditEvent.create({
         data: {
@@ -6160,24 +8246,72 @@ export class Module2Service {
           actorId: session.accountId,
           action: "module3.direct_message.persisted",
           targetType: "direct_message",
-          targetId: msgRecord.id,
+          targetId: msgId,
           outcome: "persisted",
           requestId: randomUUID(),
           redactedMetadata: {
-            messageId: msgRecord.id,
+            messageId: msgId,
             recipientAccountId: recipientProfile.accountId,
+            hasAttachment: Boolean(resolvedAttachmentUrl),
+            requestStatus: initialRequestStatus,
           },
         },
       });
     } catch {
-      // The message is already durable; an audit-only failure must not
-      // turn a successful send into a client-visible failure.
+      // Audit logging failure does not roll back the persisted message
     }
+
+    await this.createPersistentNotification(recipientProfile.accountId, {
+      category: "DIRECT_MESSAGE",
+      title: `New message from ${senderProfile?.displayName ?? "Sakhi Member"}`,
+      body:
+        resolvedAttachmentUrl && rawBody === ""
+          ? `${senderProfile?.displayName ?? "Sakhi Member"} sent you a photo.`
+          : body.slice(0, 140),
+      discreetTitle: "New Sakhi Message",
+      discreetBody: "You have a new private message waiting in Sakhi.",
+      deepLink: `/messages?peerId=${encodeURIComponent(derivedSenderUsername)}`,
+      actorHandle: derivedSenderUsername,
+      actorName: senderProfile?.displayName ?? "Sakhi Member",
+      actorAvatar: derivedSenderAvatar,
+      idempotencyKey: `dm:${msgId}`,
+    }).catch(() => null);
+
+    const mappedMsg = createdDbRow
+      ? this.mapDirectMessageRow(createdDbRow, session.accountId)
+      : {
+          id: msgId,
+          senderAccountId: session.accountId,
+          senderDirectoryProfileId: senderDirectoryProfile?.id ?? null,
+          senderName: senderProfile?.displayName ?? "Sakhi Member",
+          senderUsername: derivedSenderUsername,
+          senderAvatar: derivedSenderAvatar,
+          recipientId: requestedRecipientId || recipientProfile.accountId,
+          recipientAccountId: recipientProfile.accountId,
+          recipientDirectoryProfileId: recipientDirectoryProfile?.id ?? null,
+          recipientHandle,
+          recipientName: recipientProfile.displayName,
+          body,
+          ...(resolvedAttachmentUrl
+            ? {
+                attachmentUrl: resolvedAttachmentUrl,
+                attachmentType: resolvedAttachmentType,
+                mediaUploadId: validatedMediaUploadId,
+              }
+            : {}),
+          requestStatus: initialRequestStatus,
+          isRead: true,
+          createdAt: nowIso,
+          timestamp: "Just now",
+          isOwnMessage: true,
+        };
+
     return {
       sent: true,
       message: {
-        ...msgRecord,
-        isOwnMessage: true,
+        ...mappedMsg,
+        recipientId: requestedRecipientId || recipientProfile.accountId,
+        timestamp: "Just now",
       },
     };
   }
@@ -7092,6 +9226,37 @@ export class Module2Service {
       targetProfile.displayName,
       targetProfile.username,
     );
+    const normTargetHandle = normalizeHandle(handle);
+    const viewerProfileForMod = await this.prisma.memberProfile
+      .findUnique({ where: { accountId: session.accountId } })
+      .catch(() => null);
+    const modCtx = await this.resolveViewerModerationContext(
+      session.accountId,
+      viewerProfileForMod?.username ?? null,
+    );
+
+    if (
+      targetProfile.accountId !== session.accountId &&
+      modCtx.accountsWhoBlockedViewer.has(targetProfile.accountId)
+    ) {
+      throw new NotFoundException("Member profile was not found.");
+    }
+
+    const isBlockedByViewer =
+      targetProfile.accountId !== session.accountId &&
+      modCtx.blockedHandles.has(normTargetHandle);
+    const isMutedByViewer = modCtx.mutedHandles.has(normTargetHandle);
+    const isRestrictedByViewer = modCtx.restrictedHandles.has(normTargetHandle);
+
+    const anyPrismaForPrivacy = this.prisma as Record<string, any>;
+    const targetPrivacy =
+      typeof anyPrismaForPrivacy.memberPrivacyPreference?.findUnique ===
+      "function"
+        ? await anyPrismaForPrivacy.memberPrivacyPreference
+            .findUnique({ where: { accountId: targetProfile.accountId } })
+            .catch(() => null)
+        : null;
+
     const [targetDir, posts, followingCount, userLikes, userSaves] =
       await Promise.all([
         this.prisma.communityDirectoryProfile
@@ -7216,54 +9381,136 @@ export class Module2Service {
       );
     }
 
+    const isSelf = targetProfile.accountId === session.accountId;
+    const viewProfilePref = String(
+      targetPrivacy?.viewProfile ?? "Verified members only",
+    ).toLowerCase();
+    const seePostsPref = String(
+      targetPrivacy?.seePosts ?? "Verified members only",
+    ).toLowerCase();
+    const showLocationPref = String(
+      targetPrivacy?.showLocation ?? "General location only",
+    ).toLowerCase();
+    const messageMePref = String(
+      targetPrivacy?.messageMe ?? "Verified members only",
+    ).toLowerCase();
+
+    const isProfilePrivateToViewer =
+      !isSelf &&
+      (viewProfilePref.includes("only me") ||
+        viewProfilePref.includes("no one") ||
+        (viewProfilePref.includes("follower") && !isFollowing));
+
+    const canViewerSeePosts =
+      isSelf ||
+      (!isBlockedByViewer &&
+        !isProfilePrivateToViewer &&
+        !seePostsPref.includes("only me") &&
+        !seePostsPref.includes("no one") &&
+        (!seePostsPref.includes("follower") || isFollowing));
+
+    const canViewerMessage =
+      !isSelf &&
+      !isBlockedByViewer &&
+      !messageMePref.includes("no one") &&
+      (!messageMePref.includes("follower") || isFollowing);
+
+    const visiblePosts = canViewerSeePosts
+      ? posts.filter(
+          (post) =>
+            !modCtx.reportedPostIds.has(post.id) &&
+            !modCtx.hiddenPostIds.has(post.id) &&
+            (isSelf ||
+              post.visibility !== "FOLLOWERS_ONLY" ||
+              isFollowing),
+        )
+      : [];
+
+    const mappedOverviewPosts = visiblePosts.map((post) => ({
+      id: post.id,
+      postId: post.id,
+      authorAccountId: post.authorAccountId ?? targetProfile.accountId,
+      authorName: targetProfile.displayName,
+      authorUsername: handle,
+      authorAvatar: this.resolveMemberAvatar(
+        targetProfile.avatarAsset,
+        targetProfile.avatarMediaAssetId,
+      ),
+      authorVerified: targetProfile.account.verificationStatus === "VERIFIED",
+      timestamp: this.formatRelativeTime(post.createdAt),
+      createdAt: post.createdAt.toISOString(),
+      content: post.content,
+      body: post.content,
+      imageAsset: post.imageAsset,
+      mediaAsset: post.imageAsset,
+      categoryBadge: post.categoryBadge,
+      categorySlug: post.categorySlug,
+      visibility: post.visibility,
+      likesCount: post.likesCount,
+      commentsCount: hasOverviewCommentQuery
+        ? (overviewCommentCountByPostId.get(post.id) ?? 0)
+        : post.commentsCount,
+      savesCount: post.savesCount,
+      isLiked: likedSet.has(post.id),
+      isSaved: savedSet.has(post.id),
+      isOwnPost: post.authorAccountId === session.accountId,
+    }));
+
+    const mediaPosts = mappedOverviewPosts.filter((p) =>
+      Boolean(p.imageAsset && String(p.imageAsset).trim().length > 0),
+    );
+
     return {
       id: targetDir?.id ?? targetProfile.accountId,
       accountId: targetProfile.accountId,
       displayName: targetProfile.displayName,
       username: handle,
-      bio: targetProfile.bio ?? "",
-      location: targetProfile.location ?? "",
+      bio: isBlockedByViewer
+        ? "You have blocked this member."
+        : isProfilePrivateToViewer
+          ? "This member's profile is shared only with approved followers."
+          : (targetProfile.bio ?? ""),
+      location:
+        isBlockedByViewer ||
+        isProfilePrivateToViewer ||
+        showLocationPref.includes("hide")
+          ? ""
+          : (targetProfile.location ?? ""),
       avatarAsset: this.resolveMemberAvatar(
         targetProfile.avatarAsset,
         targetProfile.avatarMediaAssetId,
       ),
       isVerified: targetProfile.account.verificationStatus === "VERIFIED",
-      isFollowing,
-      followsMe,
-      postsCount: posts.length,
+      isFollowing: isBlockedByViewer ? false : isFollowing,
+      followsMe: isBlockedByViewer ? false : followsMe,
+      isBlocked: isBlockedByViewer,
+      isMuted: isMutedByViewer,
+      isRestricted: isRestrictedByViewer,
+      isPrivateProfile: isProfilePrivateToViewer,
+      canMessage: canViewerMessage,
+      messageRequiresRequest: !isFollowing && canViewerMessage,
+      postsCount: mappedOverviewPosts.length,
+      mediaCount: mediaPosts.length,
       followersCount,
       followingCount,
-      interests: this.parseInterests(targetProfile.interests),
-      businessProfileUrl: targetProfile.businessProfileUrl ?? null,
-      posts: posts.map((post) => ({
-        id: post.id,
-        postId: post.id,
-        authorAccountId: post.authorAccountId ?? targetProfile.accountId,
-        authorName: targetProfile.displayName,
-        authorUsername: handle,
-        authorAvatar: this.resolveMemberAvatar(
-          targetProfile.avatarAsset,
-          targetProfile.avatarMediaAssetId,
-        ),
-        authorVerified: targetProfile.account.verificationStatus === "VERIFIED",
-        timestamp: this.formatRelativeTime(post.createdAt),
-        createdAt: post.createdAt.toISOString(),
-        content: post.content,
-        body: post.content,
-        imageAsset: post.imageAsset,
-        mediaAsset: post.imageAsset,
-        categoryBadge: post.categoryBadge,
-        categorySlug: post.categorySlug,
-        visibility: post.visibility,
-        likesCount: post.likesCount,
-        commentsCount: hasOverviewCommentQuery
-          ? (overviewCommentCountByPostId.get(post.id) ?? 0)
-          : post.commentsCount,
-        savesCount: post.savesCount,
-        isLiked: likedSet.has(post.id),
-        isSaved: savedSet.has(post.id),
-        isOwnPost: post.authorAccountId === session.accountId,
-      })),
+      interests:
+        isBlockedByViewer || isProfilePrivateToViewer
+          ? []
+          : this.parseInterests(targetProfile.interests),
+      businessProfileUrl:
+        isBlockedByViewer || isProfilePrivateToViewer
+          ? null
+          : (targetProfile.businessProfileUrl ?? null),
+      businessProfileName:
+        isBlockedByViewer || isProfilePrivateToViewer
+          ? null
+          : (targetProfile.businessProfileName ?? null),
+      businessCategory:
+        isBlockedByViewer || isProfilePrivateToViewer
+          ? null
+          : (targetProfile.businessCategory ?? null),
+      posts: mappedOverviewPosts,
+      mediaPosts,
     };
   }
 
@@ -8913,44 +11160,95 @@ export class Module2Service {
 
   private static readonly MENSTRUAL_HEALTH_ARTICLES = [
     {
+      id: "period-pain-heat-therapy",
+      category: "Period Pain Help",
+      title: "Warm Compress & Comfort Care for Period Cramps",
+      readTime: "3 min read",
+      reviewedAt: "2026-11-05",
+      referenceSource: "General Wellness Suggestion • ACOG Patient Education (Dysmenorrhea: Painful Periods)",
+      summary:
+        "General wellness suggestions for using gentle external warmth to relax abdominal and lower-back tension during menstruation.",
+      highlights: [
+        "Applying a warm water bottle or heating pad wrapped in a soft cloth to the lower abdomen or lower back for 15–20 minutes can help soothe muscle tightness.",
+        "A warm shower or bath offers general relaxation and comfort before rest.",
+        "Wellness Notice: Warmth is a general comfort measure, not a medical treatment. Consult a qualified clinician if cramps are severe or interfere with daily activities.",
+      ],
+    },
+    {
+      id: "period-pain-gentle-exercise",
+      category: "Period Pain Help",
+      title: "Gentle Stretching & Restorative Movement on Period Days",
+      readTime: "4 min read",
+      reviewedAt: "2026-11-05",
+      referenceSource: "General Wellness Suggestion • ACOG Exercise & Menstrual Comfort Overview",
+      summary:
+        "Optional, low-impact stretches and light movement ideas for days when you feel comfortable moving.",
+      highlights: [
+        "Restorative postures such as Child's Pose (Balasana) or reclining with a pillow under the knees may feel comforting for lower-back tension.",
+        "If your energy allows, a short, unhurried walk outdoors can support general circulation and mood.",
+        "Always pace movement to how you feel: rest on heavy flow days and stop any activity that causes discomfort or dizziness.",
+      ],
+    },
+    {
+      id: "period-pain-hydration-nutrition",
+      category: "Period Pain Help",
+      title: "Hydration, Warm Fluids & Balanced Meals During Menstruation",
+      readTime: "4 min read",
+      reviewedAt: "2026-11-05",
+      referenceSource: "General Nutrition Guidance • WHO & ICMR-NIN Dietary Guidelines for Women",
+      summary:
+        "Everyday hydration and dietary habits to support energy and iron intake during your menstrual cycle.",
+      highlights: [
+        "Sipping warm water or caffeine-free herbal infusions (such as ginger or chamomile) helps maintain daily hydration.",
+        "Include iron-containing foods (leafy greens, lentils, dates, ragi) alongside Vitamin C sources (lemon, amla, citrus) as part of a balanced diet.",
+        "Reducing very salty snacks and excess caffeine may help you feel more comfortable if you experience premenstrual bloating.",
+      ],
+    },
+    {
+      id: "period-pain-rest-relaxation",
+      category: "Period Pain Help",
+      title: "Restful Sleep Postures & Slow Breathing for Evening Comfort",
+      readTime: "3 min read",
+      reviewedAt: "2026-11-05",
+      referenceSource: "General Wellness Suggestion • Mindfulness & Sleep Hygiene",
+      summary:
+        "Simple sleep positioning and slow breathing practices to help you unwind on period nights.",
+      highlights: [
+        "Resting on your side with a pillow between your knees can reduce pressure on the lower back and abdomen.",
+        "Practicing 5 minutes of slow, steady breathing before bed supports relaxation.",
+        "Allow extra time for sleep and daytime rest whenever your energy feels low.",
+      ],
+    },
+    {
       id: "cycle-phases-guide",
       category: "Cycle Science",
-      title: "Understanding Your 4 Menstrual Cycle Phases",
+      title: "Understanding Menstrual Cycle Phases (24, 26 & 28+ Day Cycles)",
       readTime: "4 min read",
+      reviewedAt: "2026-11-05",
+      referenceSource: "Educational Overview • ACOG Your Changing Body & Menstrual Cycle",
       summary:
-        "How hormone shifts across the Menstrual, Follicular, Ovulation, and Luteal phases influence energy, mood, sleep, and nutrition needs.",
+        "An educational overview of the Menstrual, Follicular, Ovulatory, and Luteal phases across different cycle lengths.",
       highlights: [
-        "Menstrual Phase (Days 1–5): Focus on iron-rich warm meals, gentle stretching, and restorative rest.",
-        "Follicular Phase (Days 6–13): Rising estrogen supports creative focus, strength training, and new routines.",
-        "Ovulation Window (Around Day 14): Peak energy and social connection; stay hydrated with electrolytes.",
-        "Luteal Phase (Days 15–28): Progesterone rises; complex carbohydrates and magnesium help ease PMS symptoms.",
+        "Adult menstrual cycles commonly range from 21 to 35 days (such as 24, 26, 28, or 32 days) measured from Day 1 of bleeding to the next Day 1.",
+        "Menstrual Phase: Uterine lining sheds over 2–7 days; focus on rest, hydration, and balanced meals.",
+        "Follicular & Ovulatory Phases: Estrogen rises ahead of ovulation; remember that calendar estimates cannot predict exact ovulation timing.",
+        "Luteal Phase: Progesterone rises after ovulation until the next period begins.",
       ],
     },
     {
       id: "irregular-cycles-when-to-see-doctor",
       category: "Clinical Guidance",
-      title: "When to Consult a Gynecologist About Cycle Irregularities",
+      title: "Warning Signs: When to Seek Professional Medical Care",
       readTime: "5 min read",
+      reviewedAt: "2026-11-05",
+      referenceSource: "Clinical Red-Flag Checklist • ACOG & WHO Reproductive Health Guidance",
       summary:
-        "Learn the difference between normal stress-related cycle shifts and signs of PCOS, thyroid imbalance, or endometriosis.",
+        "Important symptoms and cycle patterns that should be evaluated promptly by a qualified gynecologist or healthcare provider.",
       highlights: [
-        "Cycles consistently shorter than 21 days or longer than 35 days.",
-        "Cycle length varying by more than 7–9 days from month to month.",
-        "Soaking through a pad or tampon every 1–2 hours, or bleeding lasting longer than 7 days.",
-        "Severe pelvic pain that does not improve with standard care.",
-      ],
-    },
-    {
-      id: "cramps-and-pms-relief",
-      category: "Self-Care & Nutrition",
-      title: "Evidence-Based Relief for Menstrual Cramps & PMS",
-      readTime: "3 min read",
-      summary:
-        "Practical, doctor-recommended ways to calm prostaglandin-driven cramps, bloating, and luteal fatigue.",
-      highlights: [
-        "Heat therapy (40°C warm compress) relaxes uterine smooth muscle as effectively as mild analgesics.",
-        "Magnesium glycinate, omega-3s, and ginger tea help reduce inflammatory prostaglandins.",
-        "Reducing excess sodium and refined sugar 5 days before your period minimizes water retention.",
+        "Cycles consistently shorter than 21 days, longer than 35 days, or varying by more than 7–9 days from month to month.",
+        "Heavy bleeding: soaking through one or more pads or tampons every 1–2 hours for two consecutive hours, or bleeding lasting longer than 7 days.",
+        "Severe or worsening pelvic pain, pain accompanied by fever, vomiting, fainting, dizziness, or bleeding between periods.",
+        "Medical Disclaimer: Sakhi provides personal logging and educational information only and does not diagnose or treat medical conditions.",
       ],
     },
   ];
@@ -8972,9 +11270,9 @@ export class Module2Service {
         "When Discreet Notifications are enabled (the default), lock-screen reminders use neutral phrasing such as 'Wellness Check-In: You have a personal calendar update waiting in your wellness tracker' so nobody glancing at your phone screen sees health details.",
     },
     {
-      question: "What counts as an irregular menstrual cycle?",
+      question: "How do Automatic Mode and Custom Cycle Length Mode differ?",
       answer:
-        "For most adult women, a typical cycle ranges from 21 to 35 days. If your cycle lengths vary by more than 7 days between cycles or fall outside the 21–35 day window, Sakhi flags it so you can review your history with a healthcare professional.",
+        "In Automatic Mode (the default), Sakhi calculates your average cycle length from your logged period history once you have at least two completed cycles (falling back to your baseline length until then). In Custom Mode, Sakhi uses your manually selected cycle length (e.g., 24, 26, or 28 days) directly.",
     },
   ];
 
@@ -9029,6 +11327,7 @@ export class Module2Service {
     historicalPeriodDurations: number[];
     defaultCycleLength: number;
     defaultPeriodDuration: number;
+    useCustomCycleLength?: boolean;
     showFertilityEstimates: boolean;
     discreetNotifications: boolean;
     periodReminderDaysBefore: number;
@@ -9040,8 +11339,9 @@ export class Module2Service {
       (n) => Number.isFinite(n) && n >= 1 && n <= 15,
     );
 
+    const useCustom = params.useCustomCycleLength === true;
     const avgCycleLength =
-      validCycles.length > 0
+      !useCustom && validCycles.length > 0
         ? Math.round(
             validCycles.reduce((acc, v) => acc + v, 0) / validCycles.length,
           )
@@ -9053,6 +11353,12 @@ export class Module2Service {
             validDurations.reduce((acc, v) => acc + v, 0) / validDurations.length,
           )
         : Math.min(Math.max(params.defaultPeriodDuration || 5, 2), 10);
+
+    const predictionBasis = useCustom
+      ? `Custom manual cycle length (${avgCycleLength} days)`
+      : validCycles.length > 0
+        ? `Automatic rolling average from ${validCycles.length} logged cycle interval(s) (${avgCycleLength} days)`
+        : `Baseline fallback (${avgCycleLength} days — log at least 2 period start dates for automatic history-based averaging)`;
 
     let isIrregular = false;
     let irregularityReason =
@@ -9081,6 +11387,8 @@ export class Module2Service {
     if (!anchorStart) {
       return {
         hasLoggedCycles: false,
+        predictionMode: useCustom ? "CUSTOM" : "AUTOMATIC",
+        predictionBasis,
         averageCycleLength: avgCycleLength,
         averagePeriodDuration: avgPeriodDuration,
         lastPeriodStart: null,
@@ -9116,7 +11424,6 @@ export class Module2Service {
       };
     }
 
-    // Advance projected cycle start forward if anchorStart is more than 1 cycle in the past
     let projectedStart = this.addDaysUtc(anchorStart, avgCycleLength);
     let currentCycleStart = anchorStart;
     while (this.diffDaysUtc(today, projectedStart) >= avgCycleLength) {
@@ -9152,8 +11459,8 @@ export class Module2Service {
       phaseDescription =
         "Restorative shedding phase. Prioritize warmth, gentle stretching, iron replenishment, and extra rest.";
       wellnessSuggestions = [
-        "Pair iron-rich greens or dates with vitamin C (lemon/amla) to support iron absorption.",
-        "Use a warm compress or gentle pelvic stretches to ease uterine cramping naturally.",
+        "Pair iron-rich greens or dates with vitamin C (lemon/amla) to support iron intake.",
+        "Use a warm compress or gentle pelvic stretches for general comfort.",
         "Honor lower energy levels with earlier rest and calming herbal tea.",
       ];
     } else if (
@@ -9162,25 +11469,27 @@ export class Module2Service {
     ) {
       currentPhase = "Ovulation Window (Estimate)";
       phaseDescription =
-        "Peak estrogen window. Energy and communication are typically high—stay hydrated and balanced.";
+        "Mid-cycle window estimate. Stay hydrated and balanced.";
       wellnessSuggestions = [
-        "Increase hydration with coconut water or electrolytes during higher body-temperature days.",
-        "Antioxidant-rich fruits and fiber support healthy hormone metabolism.",
-        "Remember: calendar fertility windows are estimates only and never reliable contraception.",
+        "Maintain steady hydration with water or coconut water.",
+        "Include fiber-rich vegetables and fruits in daily meals.",
+        "Remember: calendar fertility windows are mathematical estimates only and never reliable contraception.",
       ];
     } else if (this.diffDaysUtc(today, pmsStart) >= 0) {
       currentPhase = "Luteal & PMS Care Phase";
       phaseDescription =
-        "Winding down toward your next cycle. Focus on magnesium, complex carbs, and emotional boundaries.";
+        "Winding down toward your next cycle. Focus on balanced complex carbs and rest.";
       wellnessSuggestions = [
-        "Complex carbohydrates (oats, sweet potato, brown rice) help stabilize serotonin and mood.",
-        "Reduce excess salt and caffeine to ease pre-period bloating and breast tenderness.",
-        "Practice 5 minutes of 4-7-8 breathing before bed for deeper luteal sleep.",
+        "Complex carbohydrates (oats, sweet potato, brown rice) support steady daytime energy.",
+        "Reduce excess salt and caffeine to ease pre-period bloating.",
+        "Practice 5 minutes of slow breathing before bed for evening relaxation.",
       ];
     }
 
     return {
       hasLoggedCycles: true,
+      predictionMode: useCustom ? "CUSTOM" : "AUTOMATIC",
+      predictionBasis,
       averageCycleLength: avgCycleLength,
       averagePeriodDuration: avgPeriodDuration,
       lastPeriodStart: this.formatDateOnlyUtc(anchorStart),
@@ -9237,6 +11546,7 @@ export class Module2Service {
       historicalPeriodDurations: [periodLen],
       defaultCycleLength: cycleLen,
       defaultPeriodDuration: periodLen,
+      useCustomCycleLength: false,
       showFertilityEstimates: true,
       discreetNotifications: true,
       periodReminderDaysBefore: 2,
@@ -9341,7 +11651,10 @@ export class Module2Service {
 
     const preferences = {
       defaultCycleLength: Number(rawPref?.defaultCycleLength ?? 28),
+      averageCycleLength: Number(rawPref?.defaultCycleLength ?? 28),
       defaultPeriodDuration: Number(rawPref?.defaultPeriodDuration ?? 5),
+      averagePeriodDuration: Number(rawPref?.defaultPeriodDuration ?? 5),
+      useCustomCycleLength: Boolean(rawPref?.useCustomCycleLength ?? false),
       discreetNotifications: rawPref?.discreetNotifications ?? true,
       periodReminderEnabled: rawPref?.periodReminderEnabled ?? true,
       periodReminderDaysBefore: Number(rawPref?.periodReminderDaysBefore ?? 2),
@@ -9413,7 +11726,6 @@ export class Module2Service {
       };
     });
 
-    // Compute historical cycle lengths from chronological start dates
     const sortedAsc = [...cycleLogs].sort((a, b) =>
       a.startDate.localeCompare(b.startDate),
     );
@@ -9455,6 +11767,7 @@ export class Module2Service {
       historicalPeriodDurations,
       defaultCycleLength: preferences.defaultCycleLength,
       defaultPeriodDuration: preferences.defaultPeriodDuration,
+      useCustomCycleLength: preferences.useCustomCycleLength,
       showFertilityEstimates: preferences.showFertilityEstimates,
       discreetNotifications: preferences.discreetNotifications,
       periodReminderDaysBefore: preferences.periodReminderDaysBefore,
@@ -9473,6 +11786,7 @@ export class Module2Service {
       preferences,
       predictionSummary,
       cycleLogs,
+      cycles: cycleLogs,
       dailyLogs,
       articles: Module2Service.MENSTRUAL_HEALTH_ARTICLES,
       faqs: Module2Service.MENSTRUAL_HEALTH_FAQS,
@@ -9651,9 +11965,10 @@ export class Module2Service {
           .map((s) => String(s).trim())
           .filter((s) => s.length > 0 && s.length <= 60)
       : [];
+    const notesText = dto.notes ?? dto.personalNotes;
     const notesEncrypted =
-      typeof dto.notes === "string" && dto.notes.trim().length > 0
-        ? dto.notes.trim().slice(0, 1000)
+      typeof notesText === "string" && notesText.trim().length > 0
+        ? notesText.trim().slice(0, 1000)
         : null;
 
     const anyPrisma = this.prisma as Record<string, any>;
@@ -9715,85 +12030,122 @@ export class Module2Service {
     const session = await this.auth.authenticateAuthorization(authorization);
     const anyPrisma = this.prisma as Record<string, any>;
 
+    const rawCycleLen = dto.defaultCycleLength ?? dto.averageCycleLength;
     const defaultCycleLength =
-      typeof dto.defaultCycleLength === "number"
-        ? Math.min(Math.max(Math.round(dto.defaultCycleLength), 21), 40)
+      typeof rawCycleLen === "number" && Number.isFinite(rawCycleLen)
+        ? Math.min(Math.max(Math.round(rawCycleLen), 21), 40)
         : undefined;
+    const rawPeriodLen =
+      dto.defaultPeriodDuration ??
+      dto.averagePeriodDuration ??
+      dto.averagePeriodLength;
     const defaultPeriodDuration =
-      typeof dto.defaultPeriodDuration === "number"
-        ? Math.min(Math.max(Math.round(dto.defaultPeriodDuration), 2), 10)
+      typeof rawPeriodLen === "number" && Number.isFinite(rawPeriodLen)
+        ? Math.min(Math.max(Math.round(rawPeriodLen), 2), 10)
         : undefined;
+    const rawRemDays = dto.periodReminderDaysBefore ?? dto.reminderDaysBefore;
     const periodReminderDaysBefore =
-      typeof dto.periodReminderDaysBefore === "number"
-        ? Math.min(Math.max(Math.round(dto.periodReminderDaysBefore), 1), 7)
+      typeof rawRemDays === "number" && Number.isFinite(rawRemDays)
+        ? Math.min(Math.max(Math.round(rawRemDays), 1), 7)
+        : undefined;
+    const useCustomCycleLength =
+      typeof dto.useCustomCycleLength === "boolean"
+        ? dto.useCustomCycleLength
         : undefined;
 
     if (typeof anyPrisma.menstrualTrackerPreference?.upsert === "function") {
-      await anyPrisma.menstrualTrackerPreference.upsert({
-        where: { accountId: session.accountId },
-        create: {
-          accountId: session.accountId,
-          defaultCycleLength: defaultCycleLength ?? 28,
-          defaultPeriodDuration: defaultPeriodDuration ?? 5,
-          discreetNotifications:
-            typeof dto.discreetNotifications === "boolean"
-              ? dto.discreetNotifications
+      const baseCreate: Record<string, any> = {
+        accountId: session.accountId,
+        defaultCycleLength: defaultCycleLength ?? 28,
+        defaultPeriodDuration: defaultPeriodDuration ?? 5,
+        discreetNotifications:
+          typeof dto.discreetNotifications === "boolean"
+            ? dto.discreetNotifications
+            : true,
+        periodReminderEnabled:
+          typeof dto.periodReminderEnabled === "boolean"
+            ? dto.periodReminderEnabled
+            : typeof dto.notificationsEnabled === "boolean"
+              ? dto.notificationsEnabled
               : true,
-          periodReminderEnabled:
-            typeof dto.periodReminderEnabled === "boolean"
-              ? dto.periodReminderEnabled
+        periodReminderDaysBefore: periodReminderDaysBefore ?? 2,
+        ovulationReminderEnabled:
+          typeof dto.ovulationReminderEnabled === "boolean"
+            ? dto.ovulationReminderEnabled
+            : false,
+        hydrationReminderEnabled:
+          typeof dto.hydrationReminderEnabled === "boolean"
+            ? dto.hydrationReminderEnabled
+            : true,
+        selfCareReminderEnabled:
+          typeof dto.selfCareReminderEnabled === "boolean"
+            ? dto.selfCareReminderEnabled
+            : true,
+        showFertilityEstimates:
+          typeof dto.showFertilityEstimates === "boolean"
+            ? dto.showFertilityEstimates
+            : typeof dto.fertilityTrackingEnabled === "boolean"
+              ? dto.fertilityTrackingEnabled
               : true,
-          periodReminderDaysBefore: periodReminderDaysBefore ?? 2,
-          ovulationReminderEnabled:
-            typeof dto.ovulationReminderEnabled === "boolean"
-              ? dto.ovulationReminderEnabled
-              : false,
-          hydrationReminderEnabled:
-            typeof dto.hydrationReminderEnabled === "boolean"
-              ? dto.hydrationReminderEnabled
-              : true,
-          selfCareReminderEnabled:
-            typeof dto.selfCareReminderEnabled === "boolean"
-              ? dto.selfCareReminderEnabled
-              : true,
-          showFertilityEstimates:
-            typeof dto.showFertilityEstimates === "boolean"
-              ? dto.showFertilityEstimates
-              : true,
-          medicalDisclaimerAcceptedAt:
-            dto.acceptMedicalDisclaimer === true ? new Date() : null,
-        },
-        update: {
-          ...(defaultCycleLength !== undefined ? { defaultCycleLength } : {}),
-          ...(defaultPeriodDuration !== undefined
-            ? { defaultPeriodDuration }
+        medicalDisclaimerAcceptedAt:
+          dto.acceptMedicalDisclaimer === true ? new Date() : null,
+      };
+      const baseUpdate: Record<string, any> = {
+        ...(defaultCycleLength !== undefined ? { defaultCycleLength } : {}),
+        ...(defaultPeriodDuration !== undefined
+          ? { defaultPeriodDuration }
+          : {}),
+        ...(typeof dto.discreetNotifications === "boolean"
+          ? { discreetNotifications: dto.discreetNotifications }
+          : {}),
+        ...(typeof dto.periodReminderEnabled === "boolean"
+          ? { periodReminderEnabled: dto.periodReminderEnabled }
+          : typeof dto.notificationsEnabled === "boolean"
+            ? { periodReminderEnabled: dto.notificationsEnabled }
             : {}),
-          ...(typeof dto.discreetNotifications === "boolean"
-            ? { discreetNotifications: dto.discreetNotifications }
+        ...(periodReminderDaysBefore !== undefined
+          ? { periodReminderDaysBefore }
+          : {}),
+        ...(typeof dto.ovulationReminderEnabled === "boolean"
+          ? { ovulationReminderEnabled: dto.ovulationReminderEnabled }
+          : {}),
+        ...(typeof dto.hydrationReminderEnabled === "boolean"
+          ? { hydrationReminderEnabled: dto.hydrationReminderEnabled }
+          : {}),
+        ...(typeof dto.selfCareReminderEnabled === "boolean"
+          ? { selfCareReminderEnabled: dto.selfCareReminderEnabled }
+          : {}),
+        ...(typeof dto.showFertilityEstimates === "boolean"
+          ? { showFertilityEstimates: dto.showFertilityEstimates }
+          : typeof dto.fertilityTrackingEnabled === "boolean"
+            ? { showFertilityEstimates: dto.fertilityTrackingEnabled }
             : {}),
-          ...(typeof dto.periodReminderEnabled === "boolean"
-            ? { periodReminderEnabled: dto.periodReminderEnabled }
-            : {}),
-          ...(periodReminderDaysBefore !== undefined
-            ? { periodReminderDaysBefore }
-            : {}),
-          ...(typeof dto.ovulationReminderEnabled === "boolean"
-            ? { ovulationReminderEnabled: dto.ovulationReminderEnabled }
-            : {}),
-          ...(typeof dto.hydrationReminderEnabled === "boolean"
-            ? { hydrationReminderEnabled: dto.hydrationReminderEnabled }
-            : {}),
-          ...(typeof dto.selfCareReminderEnabled === "boolean"
-            ? { selfCareReminderEnabled: dto.selfCareReminderEnabled }
-            : {}),
-          ...(typeof dto.showFertilityEstimates === "boolean"
-            ? { showFertilityEstimates: dto.showFertilityEstimates }
-            : {}),
-          ...(dto.acceptMedicalDisclaimer === true
-            ? { medicalDisclaimerAcceptedAt: new Date() }
-            : {}),
-        },
-      });
+        ...(dto.acceptMedicalDisclaimer === true
+          ? { medicalDisclaimerAcceptedAt: new Date() }
+          : {}),
+      };
+
+      try {
+        await anyPrisma.menstrualTrackerPreference.upsert({
+          where: { accountId: session.accountId },
+          create: {
+            ...baseCreate,
+            useCustomCycleLength: useCustomCycleLength ?? false,
+          },
+          update: {
+            ...baseUpdate,
+            ...(useCustomCycleLength !== undefined
+              ? { useCustomCycleLength }
+              : {}),
+          },
+        });
+      } catch {
+        await anyPrisma.menstrualTrackerPreference.upsert({
+          where: { accountId: session.accountId },
+          create: baseCreate,
+          update: baseUpdate,
+        });
+      }
     }
 
     return this.getMenstrualCycleTracker(authorization);
@@ -9808,6 +12160,7 @@ export class Module2Service {
       "Privacy Notice: Strictly confidential personal health export for the account owner / consulting healthcare provider.",
       "",
       "--- CYCLE SUMMARY & ESTIMATES ---",
+      `Prediction Mode: ${pred.predictionMode} (${pred.predictionBasis})`,
       `Average Cycle Length: ${pred.averageCycleLength} days`,
       `Average Period Duration: ${pred.averagePeriodDuration} days`,
       `Last Period Start: ${pred.lastPeriodStart ?? "Not logged"}`,
@@ -9857,21 +12210,59 @@ export class Module2Service {
   async deleteAllMenstrualTrackerData(authorization: string | undefined) {
     const session = await this.auth.authenticateAuthorization(authorization);
     const anyPrisma = this.prisma as Record<string, any>;
+    if (
+      typeof anyPrisma.menstrualCycleLog?.deleteMany !== "function" ||
+      typeof anyPrisma.menstrualDailyLog?.deleteMany !== "function" ||
+      typeof anyPrisma.menstrualTrackerPreference?.deleteMany !== "function"
+    ) {
+      throw new ServiceUnavailableException(
+        "Menstrual tracker database tables are not initialized.",
+      );
+    }
 
-    await Promise.all([
-      anyPrisma.menstrualCycleLog
-        ?.deleteMany({ where: { accountId: session.accountId } })
-        .catch(() => undefined),
-      anyPrisma.menstrualDailyLog
-        ?.deleteMany({ where: { accountId: session.accountId } })
-        .catch(() => undefined),
-      anyPrisma.menstrualTrackerPreference
-        ?.deleteMany({ where: { accountId: session.accountId } })
-        .catch(() => undefined),
-    ]);
+    let deletedCycles = 0;
+    let deletedDailyLogs = 0;
+    let deletedPreferences = 0;
+
+    if (typeof anyPrisma.$transaction === "function") {
+      const [cRes, dRes, pRes] = await anyPrisma.$transaction([
+        anyPrisma.menstrualCycleLog.deleteMany({
+          where: { accountId: session.accountId },
+        }),
+        anyPrisma.menstrualDailyLog.deleteMany({
+          where: { accountId: session.accountId },
+        }),
+        anyPrisma.menstrualTrackerPreference.deleteMany({
+          where: { accountId: session.accountId },
+        }),
+      ]);
+      deletedCycles = Number(cRes?.count ?? 0);
+      deletedDailyLogs = Number(dRes?.count ?? 0);
+      deletedPreferences = Number(pRes?.count ?? 0);
+    } else {
+      const [cRes, dRes, pRes] = await Promise.all([
+        anyPrisma.menstrualCycleLog.deleteMany({
+          where: { accountId: session.accountId },
+        }),
+        anyPrisma.menstrualDailyLog.deleteMany({
+          where: { accountId: session.accountId },
+        }),
+        anyPrisma.menstrualTrackerPreference.deleteMany({
+          where: { accountId: session.accountId },
+        }),
+      ]);
+      deletedCycles = Number(cRes?.count ?? 0);
+      deletedDailyLogs = Number(dRes?.count ?? 0);
+      deletedPreferences = Number(pRes?.count ?? 0);
+    }
 
     return {
       deleted: true,
+      deletedCounts: {
+        cycleLogs: deletedCycles,
+        dailyLogs: deletedDailyLogs,
+        preferences: deletedPreferences,
+      },
       message:
         "All personal menstrual cycle logs, daily symptoms, and tracker preferences have been permanently deleted.",
       tracker: await this.getMenstrualCycleTracker(authorization),

@@ -117,7 +117,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               size: 25,
                             ),
                             onPressed: () =>
-                                _openRoute(AppRoutes.notificationPreferences),
+                                _openRoute(AppRoutes.notificationsInbox),
                           ),
                           Positioned(
                             right: 11,
@@ -136,6 +136,15 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
                         ],
+                      ),
+                      IconButton(
+                        tooltip: 'Sakhi Messages',
+                        icon: const Icon(
+                          Icons.chat_bubble_outline_rounded,
+                          color: AppColors.primaryPurple,
+                          size: 22,
+                        ),
+                        onPressed: () => _openRoute(AppRoutes.messagesInbox),
                       ),
                       SakhiAvatar(
                         imageAsset: state.currentUser.avatarAsset,

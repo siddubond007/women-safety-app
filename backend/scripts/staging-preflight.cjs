@@ -6,6 +6,8 @@ const SUPABASE_ROOT_CA = path.join(__dirname, "..", "prod-ca-2021.crt");
 
 const EXPECTED_HOST = "aws-0-ap-south-1.pooler.supabase.com";
 const PROJECT_REF = "wmlpokholjfadyohdlgo";
+const EXPECTED_MIGRATION = "20261106010000_modules8_9_10_11_12_complete";
+const APPROVAL_PHRASE = "YES_APPLY_20261106010000_MODULES8_12";
 const EXPECTED_USER = `sakhi_staging_migrator.${PROJECT_REF}`;
 const BASELINE_MIGRATIONS = [
   "20261015163000_stage1_foundation",
@@ -21,12 +23,29 @@ const BASELINE_MIGRATIONS = [
   "20261019120000_module3_social_wall_and_drive_media",
   "20261022103000_platform_registration_policy_settings",
   "20261023110000_module4_emergency_sos_and_safety",
+  "20261026183000_module5_discreet_complaint_system",
+  "20261027170000_module10_rbac_admin_roles_and_module5_fixes",
+  "20261029190000_module6_business_pages",
+  "20261101120000_direct_message_dedicated_storage",
+  "20261101130000_direct_message_runtime_grants",
+  "20261101140000_auth_session_device_metadata",
+  "20261102140000_purge_seeded_demo_data",
+  "20261103090000_module7_menstrual_cycle_tracker",
 ];
 
 async function main() {
   const mode = process.argv[2] ?? "bootstrap";
   if (mode !== "bootstrap" && mode !== "migrations") {
     throw new Error("Unsupported staging preflight mode.");
+  }
+
+  if (mode === "migrations") {
+    if (process.env.SAKHI_MIGRATION_TARGET !== EXPECTED_MIGRATION) {
+      throw new Error("The exact reviewed staging migration target was not selected.");
+    }
+    if (process.env.SAKHI_ALLOW_STAGING_MIGRATIONS !== APPROVAL_PHRASE) {
+      throw new Error("Explicit staging migration approval was not supplied.");
+    }
   }
 
   const rawUrl = process.env.SAKHI_MIGRATOR_DATABASE_URL;
@@ -45,8 +64,12 @@ async function main() {
     password.includes("[YOUR-PASSWORD]") ||
     url.searchParams.get("schema") !== "public" ||
     url.searchParams.get("sslmode") !== "verify-full" ||
-    !((url.searchParams.get("sslcert") ?? "").replace(/\\/g, "/").endsWith("/prod-ca-2021.crt") ||
-      url.searchParams.get("sslcert") === "prod-ca-2021.crt")
+    !(
+      (url.searchParams.get("sslrootcert") ?? url.searchParams.get("sslcert") ?? "")
+        .replace(/\\/g, "/")
+        .endsWith("/prod-ca-2021.crt") ||
+      (url.searchParams.get("sslrootcert") ?? url.searchParams.get("sslcert")) === "prod-ca-2021.crt"
+    )
   ) {
     throw new Error("Staging connection target rejected; details are redacted.");
   }
@@ -57,6 +80,7 @@ async function main() {
   const clientUrl = new URL(rawUrl);
   clientUrl.searchParams.delete("sslmode");
   clientUrl.searchParams.delete("sslcert");
+  clientUrl.searchParams.delete("sslrootcert");
   const rootCa = fs.readFileSync(SUPABASE_ROOT_CA, "utf8");
   const client = new Client({
     connectionString: clientUrl.toString(),
@@ -111,15 +135,48 @@ async function main() {
         .filter((row) => row.finished_at && !row.rolled_back_at)
         .map((row) => row.migration_name),
     );
+    const failed = migrationRows.rows.filter(
+      (row) => !row.finished_at && !row.rolled_back_at,
+    );
+    if (failed.length > 0) {
+      throw new Error(
+        "The Prisma migration ledger contains an unfinished migration; refusing to continue.",
+      );
+    }
+
     const missing = BASELINE_MIGRATIONS.filter((name) => !applied.has(name));
     if (missing.length > 0) {
       throw new Error(
-        "The fresh staging baseline is incomplete; refusing to deploy migrations.",
+        "A required Module 1–7 predecessor migration is missing; refusing to deploy migrations.",
+      );
+    }
+
+    // Never let migrate deploy apply an arbitrary backlog. Only the reviewed
+    // Modules 8–12 migration may be pending; an already-applied target is also valid.
+    const migrationRoot = path.join(__dirname, "..", "prisma", "migrations");
+    const localMigrations = fs
+      .readdirSync(migrationRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort();
+    const pending = localMigrations.filter((name) => !applied.has(name));
+    if (!localMigrations.includes(EXPECTED_MIGRATION)) {
+      throw new Error("The reviewed Modules 8–12 migration directory is missing.");
+    }
+    if (
+      pending.length > 1 ||
+      pending.some((name) => name !== EXPECTED_MIGRATION) ||
+      (pending.length === 0 && !applied.has(EXPECTED_MIGRATION))
+    ) {
+      throw new Error(
+        "Unexpected pending migration set; only the reviewed Modules 8–12 migration is permitted.",
       );
     }
 
     process.stdout.write(
-      "Staging migration preflight passed: all existing baseline migrations are recorded as applied.\n",
+      pending.length === 1
+        ? "Staging migration preflight passed: Modules 1–7 predecessors are complete and only the reviewed Modules 8–12 migration is pending.\n"
+        : "Staging migration preflight passed: Modules 1–7 predecessors and the reviewed Modules 8–12 migration are already applied.\n",
     );
   } finally {
     await client.end().catch(() => undefined);

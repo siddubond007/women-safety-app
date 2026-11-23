@@ -22,7 +22,7 @@ try {
   $caCertificatePath = (Resolve-Path -LiteralPath (Join-Path $backendRoot 'prod-ca-2021.crt')).Path
   $encodedCaCertificatePath = [System.Uri]::EscapeDataString($caCertificatePath)
   $env:SAKHI_ENV = 'staging'
-  $env:SAKHI_MIGRATOR_DATABASE_URL = "postgresql://${poolerUser}:${encodedPassword}@${poolerHost}:5432/postgres?schema=public&sslmode=verify-full&sslcert=${encodedCaCertificatePath}"
+  $env:SAKHI_MIGRATOR_DATABASE_URL = "postgresql://${poolerUser}:${encodedPassword}@${poolerHost}:5432/postgres?schema=public&sslmode=verify-full&sslrootcert=${encodedCaCertificatePath}"
 } finally {
   [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
   $securePassword.Dispose()
@@ -38,17 +38,17 @@ try {
   & node .\scripts\staging-preflight.cjs
   if ($LASTEXITCODE -ne 0) { throw 'Staging preflight failed; no schema changes were attempted.' }
 
-  if ($PreflightOnly) {
-    $probeFile = Join-Path $env:TEMP ('sakhi-staging-prisma-probe-' + [guid]::NewGuid().ToString('N') + '.sql')
-    try {
-      Set-Content -LiteralPath $probeFile -Value 'SELECT current_database(), current_user, current_schema();' -Encoding ASCII
-      Write-Host 'Testing Prisma CLI TLS connectivity using a read-only SELECT...'
-      & .\node_modules\.bin\prisma.cmd db execute --file $probeFile
-      if ($LASTEXITCODE -ne 0) { throw 'Prisma TLS diagnostic failed; no schema changes were attempted.' }
-      Write-Host 'Prisma connection check passed. No database schema changes were attempted.' -ForegroundColor Green
-    } finally {
-      Remove-Item -LiteralPath $probeFile -Force -ErrorAction SilentlyContinue
+  if (-not $PreflightOnly) {
+    $expectedBootstrapApproval = 'YES_BOOTSTRAP_SAKHI_STAGING_EMPTY_DATABASE'
+    $bootstrapConfirmation = Read-Host 'This will create the full Module 1–7 baseline in the confirmed empty staging database. Type YES_BOOTSTRAP_SAKHI_STAGING_EMPTY_DATABASE to continue'
+    if ($bootstrapConfirmation -cne $expectedBootstrapApproval) {
+      throw 'Staging bootstrap was not explicitly approved; no schema changes were attempted.'
     }
+    $env:SAKHI_ALLOW_STAGING_BOOTSTRAP = $bootstrapConfirmation
+  }
+
+  if ($PreflightOnly) {
+    Write-Host 'Read-only staging connection and empty-schema checks passed. No Prisma SQL execution or schema changes were attempted.' -ForegroundColor Green
     return
   }
 
@@ -69,7 +69,15 @@ try {
     '20261018090000_module2_profile_social_settings',
     '20261019120000_module3_social_wall_and_drive_media',
     '20261022103000_platform_registration_policy_settings',
-    '20261023110000_module4_emergency_sos_and_safety'
+    '20261023110000_module4_emergency_sos_and_safety',
+    '20261026183000_module5_discreet_complaint_system',
+    '20261027170000_module10_rbac_admin_roles_and_module5_fixes',
+    '20261029190000_module6_business_pages',
+    '20261101120000_direct_message_dedicated_storage',
+    '20261101130000_direct_message_runtime_grants',
+    '20261101140000_auth_session_device_metadata',
+    '20261102140000_purge_seeded_demo_data',
+    '20261103090000_module7_menstrual_cycle_tracker'
   )
 
   foreach ($migrationName in $migrationNames) {
@@ -92,6 +100,7 @@ try {
   Write-Host 'No local dev/test database was targeted, and no synthetic member accounts were seeded.'
 } finally {
   Remove-Item Env:SAKHI_MIGRATOR_DATABASE_URL -ErrorAction SilentlyContinue
+  Remove-Item Env:SAKHI_ALLOW_STAGING_BOOTSTRAP -ErrorAction SilentlyContinue
   Remove-Item Env:SAKHI_ENV -ErrorAction SilentlyContinue
   Pop-Location
 }
