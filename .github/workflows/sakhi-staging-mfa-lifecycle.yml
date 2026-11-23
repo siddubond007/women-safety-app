@@ -155,6 +155,38 @@ jobs:
         if: (github.event_name == 'workflow_dispatch' && inputs.run_mfa_integration == true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[run-staging-mfa]'))
         run: npx vitest run test/admin-mfa.database.integration.spec.ts --reporter=verbose
 
+      - name: Audit backend and Super Admin dependency advisories
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[run-dependency-audit]')
+        shell: bash
+        run: |
+          set -euo pipefail
+          audit_report() {
+            local label="$1"
+            local scope="$2"
+            local output="$3"
+            shift 3
+            "$@" > "$output" || true
+            node - "$label" "$scope" "$output" <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const [label, scope, file] = process.argv.slice(2);
+          const report = JSON.parse(readFileSync(file, 'utf8'));
+          const vulnerabilities = Object.entries(report.vulnerabilities ?? {}).map(([name, v]) => ({
+            name,
+            severity: v.severity,
+            isDirect: v.isDirect,
+            range: v.range,
+            fixAvailable: v.fixAvailable,
+            advisories: (v.via ?? []).filter(x => typeof x === 'object').map(x => ({ title: x.title, url: x.url, range: x.range })),
+          }));
+          console.log(JSON.stringify({ label, scope, metadata: report.metadata?.vulnerabilities ?? {}, vulnerabilities }));
+          NODE
+          }
+          audit_report backend all "$RUNNER_TEMP/backend-all-audit.json" npm audit --json
+          audit_report backend production "$RUNNER_TEMP/backend-prod-audit.json" npm audit --omit=dev --json
+          audit_report super-admin all "$RUNNER_TEMP/admin-all-audit.json" npm audit --json --prefix ../super-admin
+          audit_report super-admin production "$RUNNER_TEMP/admin-prod-audit.json" npm audit --omit=dev --json --prefix ../super-admin
+        working-directory: backend
+
       - name: Read-only inventory of community-post media references
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[run-staging-post-media-inventory]')
         shell: bash
