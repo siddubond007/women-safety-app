@@ -332,13 +332,6 @@ class _SakhiRemoteMediaVideoState extends State<SakhiRemoteMediaVideo> {
             ),
           ),
         ),
-        Positioned.fill(
-          child: GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onTap: () => _showControls(),
-            child: const SizedBox.expand(),
-          ),
-        ),
       ],
     );
   }
