@@ -6,7 +6,6 @@ FOR INSERT
 TO public
 WITH CHECK (
   CURRENT_USER = ANY (ARRAY[
-    'sakhi_dev_app'::name,
     'sakhi_test_app'::name,
     'sakhi_staging_app'::name
   ])
