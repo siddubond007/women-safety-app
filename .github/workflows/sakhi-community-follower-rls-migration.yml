@@ -40,7 +40,7 @@ jobs:
       - name: Checkout exact reviewed PR #56 source
         uses: actions/checkout@v4
         with:
-          ref: 983a4c4e42dde92b698ca290228d373c942c9399
+          ref: a8e271e5ea531890bccf6ec7e8c422a8cf28d7bb
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
