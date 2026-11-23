@@ -310,11 +310,18 @@ jobs:
           }
           NODE
 
-      - name: Verify staging Google Drive OAuth and root-folder access
-        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[run-staging-drive-check]')
+      - name: Verify post-deployment staging API, Admin and Google Drive
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[run-postdeploy-smoke]')
         shell: bash
         run: |
           set -euo pipefail
+          curl --silent --show-error --fail-with-body --max-time 20 'https://sakhi-staging-api.onrender.com/api/v1/health/ready' >/dev/null
+          admin_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 20 'https://sakhi-staging-admin.onrender.com/')"
+          if [[ "$admin_status" != "200" ]]; then
+            echo "Super Admin static site returned HTTP $admin_status"
+            exit 1
+          fi
+          echo "Staging API readiness and Super Admin HTTP 200 checks passed."
           response="$(curl --silent --show-error --fail-with-body --max-time 30 'https://sakhi-staging-api.onrender.com/api/v1/integrations/google-drive/status?verify=true')"
           SAKHI_DRIVE_STATUS_RESPONSE="$response" node --input-type=module <<'NODE'
           const result = JSON.parse(process.env.SAKHI_DRIVE_STATUS_RESPONSE ?? "{}");
