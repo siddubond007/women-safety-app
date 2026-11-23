@@ -64,6 +64,7 @@
     "@scarf/scarf": false
   },
   "overrides": {
-    "multer": "2.5.0"
+    "multer": "2.5.0",
+    "effect": "3.22.1"
   }
 }
