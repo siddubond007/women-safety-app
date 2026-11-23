@@ -1,6 +1,7 @@
 package com.example.women_safety_app
 
 import android.Manifest
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -34,6 +35,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import kotlin.math.PI
+import kotlin.math.exp
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -70,11 +72,17 @@ class MainActivity : FlutterActivity(), SensorEventListener {
     private var screenReceiverRegistered = false
     private var isActivityResumed = false
 
-    // Synthesized Meditation Audio Engine (432Hz + 528Hz harmonic singing bowls)
+    private val wellnessChannelId = "sakhi_wellness_discreet_channel"
+    private val wellnessNotificationId = 9215
+
+    // Multi-Track Peaceful Polyphonic Ambient Meditation Engine (5 Rotating Soundscapes)
     @Volatile
     private var meditationPlaying = false
     @Volatile
-    private var meditationVolume = 0.75f
+    private var meditationVolume = 0.65f
+    @Volatile
+    private var meditationTrackIndex = 0
+    private var sessionRotationCounter = 0
     private var meditationThread: Thread? = null
     private var meditationAudioTrack: AudioTrack? = null
 
@@ -445,10 +453,21 @@ class MainActivity : FlutterActivity(), SensorEventListener {
                 }
 
                 "startMeditationAudio" -> {
-                    val vol = (call.argument<Double>("volume") ?: 0.75).toFloat().coerceIn(0f, 1f)
+                    val vol = (call.argument<Double>("volume") ?: 0.65).toFloat().coerceIn(0f, 1f)
+                    val requestedTrack = call.argument<Int>("trackIndex") ?: -1
                     meditationVolume = vol
+                    meditationTrackIndex = if (requestedTrack in 0..4) {
+                        requestedTrack
+                    } else {
+                        (sessionRotationCounter++) % 5
+                    }
                     startSynthesizedMeditationAudio()
-                    result.success(true)
+                    result.success(
+                        mapOf(
+                            "playing" to true,
+                            "trackIndex" to meditationTrackIndex
+                        )
+                    )
                 }
 
                 "pauseMeditationAudio", "stopMeditationAudio" -> {
@@ -457,13 +476,28 @@ class MainActivity : FlutterActivity(), SensorEventListener {
                 }
 
                 "setMeditationVolume" -> {
-                    val vol = (call.argument<Double>("volume") ?: 0.75).toFloat().coerceIn(0f, 1f)
+                    val vol = (call.argument<Double>("volume") ?: 0.65).toFloat().coerceIn(0f, 1f)
                     meditationVolume = vol
                     try {
                         meditationAudioTrack?.setVolume(vol)
                     } catch (_: Exception) {
                     }
                     result.success(true)
+                }
+
+                "setMeditationTrack" -> {
+                    val idx = (call.argument<Int>("trackIndex") ?: 0).coerceIn(0, 4)
+                    meditationTrackIndex = idx
+                    result.success(mapOf("trackIndex" to meditationTrackIndex))
+                }
+
+                "scheduleDiscreetWellnessReminder" -> {
+                    handleScheduleDiscreetWellnessReminder(call, result)
+                }
+
+                "cancelDiscreetWellnessReminder" -> {
+                    val cancelled = cancelScheduledDiscreetWellnessReminder()
+                    result.success(mapOf("cancelled" to cancelled))
                 }
 
                 "getLastKnownNativeLocation" -> {
@@ -499,6 +533,20 @@ class MainActivity : FlutterActivity(), SensorEventListener {
                 else -> result.notImplemented()
             }
         }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "sakhi/safety_hardware")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "scheduleDiscreetWellnessReminder" -> {
+                        handleScheduleDiscreetWellnessReminder(call, result)
+                    }
+                    "cancelDiscreetWellnessReminder" -> {
+                        val cancelled = cancelScheduledDiscreetWellnessReminder()
+                        result.success(mapOf("cancelled" to cancelled))
+                    }
+                    else -> result.notImplemented()
+                }
+            }
     }
 
     override fun onRequestPermissionsResult(
@@ -658,6 +706,144 @@ class MainActivity : FlutterActivity(), SensorEventListener {
             }
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
             nm?.createNotificationChannel(channel)
+
+            val wellnessChannel = NotificationChannel(
+                wellnessChannelId,
+                "Sakhi Discreet Wellness Check-Ins",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "Discreet lock-screen reminders for personal wellness and cycle calendar updates"
+                enableVibration(false)
+                lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+            }
+            nm?.createNotificationChannel(wellnessChannel)
+        }
+    }
+
+    private fun handleScheduleDiscreetWellnessReminder(
+        call: io.flutter.plugin.common.MethodCall,
+        result: MethodChannel.Result
+    ) {
+        val nextPeriodStart = (call.argument<String>("nextPeriodStart") ?: "").trim()
+        val daysBefore = (call.argument<Int>("daysBefore") ?: 2).coerceIn(1, 7)
+        val discreet = call.argument<Boolean>("discreet") ?: true
+        val rawTitle = (call.argument<String>("title") ?: "Wellness Check-In").trim()
+        val rawBody = (call.argument<String>("body")
+            ?: "You have a personal calendar update waiting in your wellness tracker.").trim()
+
+        val safeTitle = if (discreet) "Wellness Check-In" else rawTitle
+        val safeBody = if (discreet) {
+            "You have a personal calendar update waiting in your wellness tracker."
+        } else {
+            rawBody
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            result.error(
+                "NOTIFICATION_PERMISSION_DENIED",
+                "Notification permission is required to schedule cycle reminders.",
+                null
+            )
+            return
+        }
+
+        val dateMatch = Regex("^(\\d{4})-(\\d{2})-(\\d{2})$").find(nextPeriodStart)
+        if (dateMatch == null) {
+            cancelScheduledDiscreetWellnessReminder()
+            result.error(
+                "INVALID_REMINDER_DATE",
+                "Provide a valid nextPeriodStart date in YYYY-MM-DD format.",
+                null
+            )
+            return
+        }
+
+        val year = dateMatch.groupValues[1].toIntOrNull() ?: 0
+        val month = dateMatch.groupValues[2].toIntOrNull() ?: 0
+        val day = dateMatch.groupValues[3].toIntOrNull() ?: 0
+        if (year < 2024 || month !in 1..12 || day !in 1..31) {
+            result.error("INVALID_REMINDER_DATE", "Out-of-range calendar date.", null)
+            return
+        }
+
+        val calendar = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.YEAR, year)
+            set(java.util.Calendar.MONTH, month - 1)
+            set(java.util.Calendar.DAY_OF_MONTH, day)
+            set(java.util.Calendar.HOUR_OF_DAY, 9)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+            add(java.util.Calendar.DAY_OF_YEAR, -daysBefore)
+        }
+
+        val triggerAtMillis = calendar.timeInMillis
+        val nowMillis = System.currentTimeMillis()
+        if (triggerAtMillis <= nowMillis) {
+            cancelScheduledDiscreetWellnessReminder()
+            result.success(
+                mapOf(
+                    "scheduled" to false,
+                    "reason" to "Target reminder date is in the past; skipped immediate notification.",
+                    "targetEpochMillis" to triggerAtMillis
+                )
+            )
+            return
+        }
+
+        try {
+            val prefs = getSharedPreferences("sakhi_wellness_reminders", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putLong("triggerAtMillis", triggerAtMillis)
+                .putString("title", safeTitle)
+                .putString("body", safeBody)
+                .putString("nextPeriodStart", nextPeriodStart)
+                .putInt("daysBefore", daysBefore)
+                .putBoolean("discreet", discreet)
+                .apply()
+
+            val scheduledOk = DiscreetWellnessReminderReceiver.scheduleAlarm(
+                this,
+                triggerAtMillis,
+                safeTitle,
+                safeBody
+            )
+            if (!scheduledOk) {
+                result.error(
+                    "ALARM_SCHEDULE_FAILED",
+                    "System AlarmManager service was unavailable.",
+                    null
+                )
+                return
+            }
+            result.success(
+                mapOf(
+                    "scheduled" to true,
+                    "triggerAtMillis" to triggerAtMillis,
+                    "nextPeriodStart" to nextPeriodStart,
+                    "daysBefore" to daysBefore
+                )
+            )
+        } catch (e: Exception) {
+            result.error("SCHEDULE_EXCEPTION", e.message ?: "Failed to schedule reminder.", null)
+        }
+    }
+
+    private fun cancelScheduledDiscreetWellnessReminder(): Boolean {
+        return try {
+            val prefs = getSharedPreferences("sakhi_wellness_reminders", Context.MODE_PRIVATE)
+            prefs.edit().clear().apply()
+            DiscreetWellnessReminderReceiver.cancelAlarm(this)
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            nm?.cancel(wellnessNotificationId)
+            true
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -749,17 +935,51 @@ class MainActivity : FlutterActivity(), SensorEventListener {
                 track.play()
                 val pcm = ShortArray(bufferSamples)
                 var sampleIndex = 0L
+                // 5 synthesized polyphonic harmonic scales (Hz) for rotating ambient drones
+                val scales = arrayOf(
+                    // 0: 432 Hz Warm Harmonic Drone (C-pentatonic harmonic ratios)
+                    doubleArrayOf(256.0, 288.0, 320.0, 384.0, 426.7, 512.0),
+                    // 1: Soft Major-7th Ambient Pad (Fmaj7 chordal intervals)
+                    doubleArrayOf(174.61, 220.0, 261.63, 329.63, 392.0, 440.0),
+                    // 2: Open-Fifth Gentle Swell Drone (G-major fifths & octaves)
+                    doubleArrayOf(196.0, 246.94, 293.66, 392.0, 493.88, 587.33),
+                    // 3: Pentatonic Harmonic Fifths (Just-intonation pentatonic ratios)
+                    doubleArrayOf(240.0, 270.0, 300.0, 360.0, 400.0, 480.0),
+                    // 4: Low-Frequency Restorative Hum (Warm lower-register harmonic intervals)
+                    doubleArrayOf(144.0, 216.0, 288.0, 324.0, 384.0, 432.0)
+                )
                 while (meditationPlaying) {
+                    val activeScale = scales[meditationTrackIndex.coerceIn(0, scales.size - 1)]
                     for (i in 0 until bufferSamples) {
                         val t = sampleIndex.toDouble() / sampleRate.toDouble()
-                        val breathEnvelope = 0.65 + 0.35 * sin(2.0 * PI * 0.12 * t)
-                        val chimeEnvelope = 0.5 + 0.5 * sin(2.0 * PI * 0.05 * t)
-                        val wave432 = sin(2.0 * PI * 432.0 * t) * 0.38
-                        val wave216 = sin(2.0 * PI * 216.0 * t) * 0.32
-                        val wave528 = sin(2.0 * PI * 528.0 * t) * 0.20 * chimeEnvelope
-                        val wave648 = sin(2.0 * PI * 648.0 * t) * 0.10 * chimeEnvelope
-                        val mixed = (wave432 + wave216 + wave528 + wave648) * breathEnvelope * meditationVolume
-                        pcm[i] = (mixed * 11000.0).toInt().coerceIn(-32000, 32000).toShort()
+                        // Slow, gentle breathing pad (root + fifth at low amplitude, no dissonant beating)
+                        val padRoot = activeScale[0] * 0.5
+                        val padFifth = padRoot * 1.5
+                        val breathSwell = 0.45 + 0.35 * sin(2.0 * PI * 0.08 * t)
+                        val warmPad = (sin(2.0 * PI * padRoot * t) * 0.30 +
+                            sin(2.0 * PI * padFifth * t) * 0.16) * breathSwell
+
+                        // Pluck/strike a soft decaying bell/piano note every 3.5 seconds
+                        val noteInterval = 3.5
+                        val noteIdx = ((t / noteInterval).toInt()) % activeScale.size
+                        val noteAge = t % noteInterval
+                        val noteFreq = activeScale[noteIdx]
+                        // Smooth 120ms attack + exponential decay so there is never a harsh buzz
+                        val attack = (noteAge / 0.12).coerceIn(0.0, 1.0)
+                        val decay = exp(-noteAge * 1.35)
+                        val bellEnv = attack * decay
+                        val bellTone = (sin(2.0 * PI * noteFreq * t) * 0.42 +
+                            sin(2.0 * PI * (noteFreq * 2.0) * t) * 0.12 * exp(-noteAge * 2.4)) * bellEnv
+
+                        // Secondary overlapping harmony note offset by 1.75s
+                        val t2 = t + 1.75
+                        val noteIdx2 = ((t2 / noteInterval).toInt() + 2) % activeScale.size
+                        val noteAge2 = t2 % noteInterval
+                        val attack2 = (noteAge2 / 0.15).coerceIn(0.0, 1.0)
+                        val bellTone2 = sin(2.0 * PI * activeScale[noteIdx2] * t) * 0.22 * attack2 * exp(-noteAge2 * 1.5)
+
+                        val mixed = (warmPad + bellTone + bellTone2) * meditationVolume
+                        pcm[i] = (mixed * 7200.0).toInt().coerceIn(-28000, 28000).toShort()
                         sampleIndex++
                     }
                     track.write(pcm, 0, bufferSamples)
@@ -892,6 +1112,146 @@ class MainActivity : FlutterActivity(), SensorEventListener {
                 }
             }
         } catch (_: Exception) {
+        }
+    }
+}
+
+
+class DiscreetWellnessReminderReceiver : BroadcastReceiver() {
+    companion object {
+        const val ACTION_REMINDER = "com.example.women_safety_app.ACTION_DISCREET_WELLNESS_REMINDER"
+        private const val CHANNEL_ID = "sakhi_wellness_discreet_channel"
+        private const val NOTIFICATION_ID = 9215
+        private const val REQUEST_CODE = 9215
+
+        fun scheduleAlarm(
+            context: Context,
+            triggerAtMillis: Long,
+            title: String,
+            body: String
+        ): Boolean {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+                ?: return false
+            val intent = Intent(context, DiscreetWellnessReminderReceiver::class.java).apply {
+                action = ACTION_REMINDER
+                putExtra("title", title)
+                putExtra("body", body)
+            }
+            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
+            val pendingIntent = PendingIntent.getBroadcast(context, REQUEST_CODE, intent, flags)
+            // Cancel any previous pending alarm first to prevent duplicates
+            alarmManager.cancel(pendingIntent)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+                alarmManager.setWindow(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerAtMillis,
+                    15 * 60 * 1000L,
+                    pendingIntent
+                )
+            } else {
+                alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+            }
+            return true
+        }
+
+        fun cancelAlarm(context: Context) {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+            val intent = Intent(context, DiscreetWellnessReminderReceiver::class.java).apply {
+                action = ACTION_REMINDER
+            }
+            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+            } else {
+                PendingIntent.FLAG_NO_CREATE
+            }
+            val pendingIntent = PendingIntent.getBroadcast(context, REQUEST_CODE, intent, flags)
+            if (pendingIntent != null) {
+                alarmManager.cancel(pendingIntent)
+                pendingIntent.cancel()
+            }
+        }
+    }
+
+    override fun onReceive(context: Context?, intent: Intent?) {
+        val ctx = context ?: return
+        val action = intent?.action ?: return
+        val prefs = ctx.getSharedPreferences("sakhi_wellness_reminders", Context.MODE_PRIVATE)
+
+        if (action == Intent.ACTION_BOOT_COMPLETED || action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+            val triggerAt = prefs.getLong("triggerAtMillis", 0L)
+            if (triggerAt > System.currentTimeMillis()) {
+                val title = prefs.getString("title", "Wellness Check-In") ?: "Wellness Check-In"
+                val body = prefs.getString(
+                    "body",
+                    "You have a personal calendar update waiting in your wellness tracker."
+                ) ?: "You have a personal calendar update waiting in your wellness tracker."
+                scheduleAlarm(ctx, triggerAt, title, body)
+            }
+            return
+        }
+
+        if (action == ACTION_REMINDER) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(
+                    ctx,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                return
+            }
+            val title = intent.getStringExtra("title")
+                ?: prefs.getString("title", "Wellness Check-In")
+                ?: "Wellness Check-In"
+            val body = intent.getStringExtra("body")
+                ?: prefs.getString(
+                    "body",
+                    "You have a personal calendar update waiting in your wellness tracker."
+                )
+                ?: "You have a personal calendar update waiting in your wellness tracker."
+
+            val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val wellnessChannel = NotificationChannel(
+                    CHANNEL_ID,
+                    "Sakhi Discreet Wellness Check-Ins",
+                    NotificationManager.IMPORTANCE_DEFAULT
+                ).apply {
+                    description = "Discreet lock-screen reminders for personal wellness and cycle calendar updates"
+                    enableVibration(false)
+                    lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+                }
+                nm.createNotificationChannel(wellnessChannel)
+            }
+            val launchIntent = Intent(ctx, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val pendingFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
+            val pendingIntent = PendingIntent.getActivity(ctx, 215, launchIntent, pendingFlags)
+            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Notification.Builder(ctx, CHANNEL_ID)
+            } else {
+                @Suppress("DEPRECATION")
+                Notification.Builder(ctx)
+            }
+            builder
+                .setSmallIcon(android.R.drawable.ic_popup_reminder)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(true)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                builder.setVisibility(Notification.VISIBILITY_PRIVATE)
+            }
+            nm.notify(NOTIFICATION_ID, builder.build())
+            prefs.edit().remove("triggerAtMillis").apply()
         }
     }
 }

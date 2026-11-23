@@ -22,7 +22,7 @@ try {
   $caCertificatePath = (Resolve-Path -LiteralPath (Join-Path $backendRoot 'prod-ca-2021.crt')).Path
   $encodedCaCertificatePath = [System.Uri]::EscapeDataString($caCertificatePath)
   $env:SAKHI_ENV = 'staging'
-  $env:SAKHI_MIGRATOR_DATABASE_URL = "postgresql://${poolerUser}:${encodedPassword}@${poolerHost}:5432/postgres?schema=public&sslmode=verify-full&sslcert=${encodedCaCertificatePath}"
+  $env:SAKHI_MIGRATOR_DATABASE_URL = "postgresql://${poolerUser}:${encodedPassword}@${poolerHost}:5432/postgres?schema=public&sslmode=verify-full&sslrootcert=${encodedCaCertificatePath}"
 } finally {
   [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
   $securePassword.Dispose()

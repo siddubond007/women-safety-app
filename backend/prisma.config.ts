@@ -14,8 +14,19 @@ function getMigrationDatasourceUrl(): string {
         "Staging migrations require an explicit SAKHI_MIGRATOR_DATABASE_URL supplied securely to the migration process.",
       );
     }
-    assertSakhiDatabaseTarget(suppliedUrl, "migrator", "staging");
-    return suppliedUrl;
+    const normalizedUrl = new URL(suppliedUrl);
+    // Render may still hold the legacy sslcert query parameter. Normalize it
+    // to Prisma's sslrootcert parameter and remove sslcert (a client-cert option).
+    if (!normalizedUrl.searchParams.has("sslrootcert")) {
+      const legacyRootCert = normalizedUrl.searchParams.get("sslcert");
+      if (legacyRootCert) {
+        normalizedUrl.searchParams.set("sslrootcert", legacyRootCert);
+      }
+    }
+    normalizedUrl.searchParams.delete("sslcert");
+    const validatedUrl = normalizedUrl.toString();
+    assertSakhiDatabaseTarget(validatedUrl, "migrator", "staging");
+    return validatedUrl;
   }
 
   const expectedDatabase = environment === "test" ? "sakhi_test" : "sakhi_dev";

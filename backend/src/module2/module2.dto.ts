@@ -753,6 +753,14 @@ export class ReportUserOrPostDto {
 
   @IsOptional()
   @IsString()
+  businessId?: string;
+
+  @IsOptional()
+  @IsString()
+  messageId?: string;
+
+  @IsOptional()
+  @IsString()
   reportedAccountId?: string;
 
   @IsOptional()
@@ -769,6 +777,16 @@ export class ReportUserOrPostDto {
   @IsString()
   @MaxLength(1000)
   details?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  alsoBlockUser?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(6)
+  @IsString({ each: true })
+  evidenceUrls?: string[];
 }
 
 export class UpdateAvatarDto {
@@ -789,8 +807,8 @@ export class RequestMediaUploadDto {
   contentType!: "image/jpeg" | "image/png" | "image/webp" | "video/mp4";
 
   @IsString()
-  @IsIn(["avatar", "post", "wellness", "business"])
-  purpose!: "avatar" | "post" | "wellness" | "business";
+  @IsIn(["avatar", "post", "wellness", "business", "direct_message"])
+  purpose!: "avatar" | "post" | "wellness" | "business" | "direct_message";
 
   @IsOptional()
   @IsInt()
@@ -815,8 +833,8 @@ export class UploadMediaObjectDto {
   contentType!: "image/jpeg" | "image/png" | "image/webp" | "video/mp4";
 
   @IsString()
-  @IsIn(["avatar", "post", "wellness", "business"])
-  purpose!: "avatar" | "post" | "wellness" | "business";
+  @IsIn(["avatar", "post", "wellness", "business", "direct_message"])
+  purpose!: "avatar" | "post" | "wellness" | "business" | "direct_message";
 
   @IsOptional()
   @IsString()
@@ -833,10 +851,12 @@ export class UploadBinaryMediaDto {
     "profile_photo",
     "community_post",
     "business_media",
+    "direct_message",
     "PROFILE_PHOTO",
     "COMMUNITY_POST_IMAGE",
     "COMMUNITY_POST_VIDEO",
     "BUSINESS_MEDIA",
+    "DIRECT_MESSAGE_IMAGE",
   ])
   purpose?:
     | "avatar"
@@ -844,10 +864,12 @@ export class UploadBinaryMediaDto {
     | "profile_photo"
     | "community_post"
     | "business_media"
+    | "direct_message"
     | "PROFILE_PHOTO"
     | "COMMUNITY_POST_IMAGE"
     | "COMMUNITY_POST_VIDEO"
-    | "BUSINESS_MEDIA";
+    | "BUSINESS_MEDIA"
+    | "DIRECT_MESSAGE_IMAGE";
 
   @IsOptional()
   @IsString()
@@ -875,6 +897,28 @@ export class ToggleBlockedUserDto {
   @IsNotEmpty()
   @MaxLength(80)
   blockedDisplayName!: string;
+}
+
+export class MuteOrRestrictMemberDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  targetUsername?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  targetDisplayName?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(["MUTE", "UNMUTE", "RESTRICT", "UNRESTRICT", "HIDE_POST", "UNHIDE_POST"])
+  mode?: "MUTE" | "UNMUTE" | "RESTRICT" | "UNRESTRICT" | "HIDE_POST" | "UNHIDE_POST";
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  postId?: string;
 }
 
 export class RequestAccountDeletionDto {
@@ -1177,10 +1221,37 @@ export class SendDirectMessageDto {
   @MaxLength(120)
   recipientName?: string;
 
+  @ValidateIf((o) => !o.attachmentUrl && !o.mediaUploadId)
   @IsString()
   @MinLength(1)
   @MaxLength(1500)
-  message!: string;
+  message?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  attachmentUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  attachmentType?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  mediaUploadId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  clientMessageId?: string;
+}
+
+export class RespondMessageRequestDto {
+  @IsString()
+  @IsIn(["ACCEPT", "DECLINE", "BLOCK", "accept", "decline", "block"])
+  action!: string;
 }
 
 export class CreateSafetyEvidenceDto {
@@ -1210,10 +1281,14 @@ export class CreateSafetyEvidenceDto {
 
   @IsOptional()
   @IsNumber()
+  @Min(-90)
+  @Max(90)
   latitude?: number;
 
   @IsOptional()
   @IsNumber()
+  @Min(-180)
+  @Max(180)
   longitude?: number;
 }
 

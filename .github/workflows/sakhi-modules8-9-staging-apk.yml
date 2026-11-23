@@ -1,0 +1,161 @@
+name: Sakhi Modules 8-9 validation and staging APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - module-8-to-9-implementations-and-upgrades
+    paths:
+      - "backend/**"
+      - "super-admin/**"
+      - "app/**"
+      - ".github/workflows/sakhi-modules8-9-staging-apk.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - "super-admin/**"
+      - "app/**"
+      - ".github/workflows/sakhi-modules8-9-staging-apk.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sakhi-modules8-9-staging-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend schema, types, tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/sakhi_ci?schema=public
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.22.0"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: Validate Prisma schema
+        run: npm run prisma:validate
+      - name: Type-check source and tests
+        run: npm run typecheck
+      - name: Run backend tests
+        run: npm test
+      - name: Build backend
+        run: npm run build
+
+  super-admin:
+    name: Super Admin type-check, lint and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: super-admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.22.0"
+          cache: npm
+          cache-dependency-path: super-admin/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build
+
+  flutter:
+    name: Flutter tests and staging APK builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Verify hosted staging API readiness
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            --retry 6 --retry-all-errors --retry-delay 15 --max-time 40 \
+            https://sakhi-staging-api.onrender.com/api/v1/health/ready
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.7"
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Analyze Dart source
+        run: flutter analyze
+      - name: Run Flutter tests
+        run: flutter test
+      - name: Generate one-run staging-only signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          STORE_PASSWORD="$(openssl rand -hex 32)"
+          KEY_ALIAS="sakhi-staging-ci"
+          keytool -genkeypair -noprompt \
+            -keystore android/app/sakhi-staging-ci.jks \
+            -storepass "$STORE_PASSWORD" \
+            -keypass "$STORE_PASSWORD" \
+            -alias "$KEY_ALIAS" \
+            -keyalg RSA -keysize 2048 -validity 3650 \
+            -dname "CN=Sakhi Staging CI, OU=Testing, O=Sakhi, L=Tirupati, ST=Andhra Pradesh, C=IN"
+          cat > android/key.properties <<EOF_KEY
+          storePassword=$STORE_PASSWORD
+          keyPassword=$STORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=sakhi-staging-ci.jks
+          EOF_KEY
+          chmod 600 android/key.properties android/app/sakhi-staging-ci.jks
+          echo "::add-mask::$STORE_PASSWORD"
+          echo "Temporary staging-only signing key created."
+      - name: Build staging release APK (not for Play Store)
+        run: >-
+          flutter build apk --release
+          --dart-define=SAKHI_BACKEND_ENABLED=true
+          --dart-define=SAKHI_STAGING_TEST_MODE=true
+          --dart-define=SAKHI_API_BASE_URL=https://sakhi-staging-api.onrender.com/api/v1
+      - name: Verify staging APK signature and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs build/app/outputs/flutter-apk/app-release.apk
+          sha256sum build/app/outputs/flutter-apk/app-release.apk
+      - name: Upload staging release APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sakhi_Staging_Release_APK_TEST_ONLY
+          path: app/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 7
+      - name: Remove temporary signing material
+        if: always()
+        run: rm -f android/key.properties android/app/sakhi-staging-ci.jks
+      - name: Build staging-connected debug APK
+        run: >-
+          flutter build apk --debug
+          --dart-define=SAKHI_BACKEND_ENABLED=true
+          --dart-define=SAKHI_STAGING_TEST_MODE=true
+          --dart-define=SAKHI_API_BASE_URL=https://sakhi-staging-api.onrender.com/api/v1
+      - name: Upload debug APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sakhi_Staging_Connected_Debug_APK
+          path: app/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7

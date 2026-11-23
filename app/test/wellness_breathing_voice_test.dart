@@ -44,7 +44,7 @@ void main() {
   });
 
   testWidgets(
-    'voice guidance and singing-bowl audio have independent controls',
+    'voice guidance and ambient soundscape have independent controls',
     (tester) async {
       await tester.pumpWidget(
         const MaterialApp(home: SakhiAiMentalWellnessStudioScreen()),
@@ -52,13 +52,13 @@ void main() {
       await tester.pump();
 
       expect(find.byTooltip('Turn voice guidance off'), findsOneWidget);
-      expect(find.byTooltip('Mute singing bowl audio'), findsOneWidget);
+      expect(find.byTooltip('Mute peaceful soundscape'), findsOneWidget);
 
       await tester.tap(find.byTooltip('Turn voice guidance off'));
       await tester.pump();
 
       expect(find.byTooltip('Turn voice guidance on'), findsOneWidget);
-      expect(find.byTooltip('Mute singing bowl audio'), findsOneWidget);
+      expect(find.byTooltip('Mute peaceful soundscape'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -74,7 +74,8 @@ void main() {
 
     final startButton = find.text('Start AI Guided Session');
     await tester.ensureVisible(startButton);
-    await tester.pumpAndSettle();
+    // The breathing aura intentionally animates continuously; do not wait for settle.
+    await tester.pump(const Duration(milliseconds: 500));
     await tester.tap(startButton);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));

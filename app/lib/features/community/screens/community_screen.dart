@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../../core/assets/app_assets.dart';
 import '../../../core/constants/mock_data.dart';
+import '../../../core/navigation/app_route_paths.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -137,38 +138,6 @@ class _CommunityScreenState extends State<CommunityScreen> {
       MaterialPageRoute<void>(
         builder: (_) =>
             SearchResultsScreen(initialQuery: _searchController.text.trim()),
-      ),
-    );
-  }
-
-  void _showModuleNotice(String title, String message) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: AppColors.cardSurface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(22),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: AppTypography.sectionTitle),
-              const SizedBox(height: 8),
-              Text(message, style: AppTypography.bodyRegular),
-              const SizedBox(height: 12),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(sheetContext),
-                  child: const Text('Close'),
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -542,27 +511,27 @@ class _CommunityScreenState extends State<CommunityScreen> {
                           onPressed: _openSearchResults,
                         ),
                         IconButton(
-                          tooltip: 'Notifications',
+                          tooltip: 'Notifications Centre',
                           icon: const Icon(
                             Icons.notifications_none_rounded,
                             color: AppColors.primaryPurple,
                             size: 22,
                           ),
-                          onPressed: () => _showModuleNotice(
-                            'Notifications',
-                            'Notification preferences are available in Profile → Settings. A member notification inbox is not exposed by the current backend yet.',
+                          onPressed: () => Navigator.pushNamed(
+                            context,
+                            sakhiNotificationsInboxRoute,
                           ),
                         ),
                         IconButton(
-                          tooltip: 'Messages',
+                          tooltip: 'Sakhi Messages',
                           icon: const Icon(
                             Icons.chat_bubble_outline_rounded,
                             color: AppColors.primaryPurple,
                             size: 22,
                           ),
-                          onPressed: () => _showModuleNotice(
-                            'Sakhi Messages',
-                            'Messaging is a future module. For Women-Owned Business enquiries, open Business Pages → Customer Enquiries.',
+                          onPressed: () => Navigator.pushNamed(
+                            context,
+                            sakhiMessagesInboxRoute,
                           ),
                         ),
                       ],
