@@ -14,19 +14,27 @@ function config(raw, expectedUser, ca, schemaRequired) {
   if (!raw) throw new Error("Required staging database URL is missing.");
   const url = new URL(raw);
   const password = decodeURIComponent(url.password);
-  if (
-    !["postgres:", "postgresql:"].includes(url.protocol) ||
-    url.hostname !== EXPECTED_HOST ||
-    url.port !== "5432" ||
-    url.pathname !== "/postgres" ||
-    decodeURIComponent(url.username) !== expectedUser ||
-    password.length < 32 ||
-    password.includes("REPLACE_WITH") ||
-    password.includes("[YOUR-PASSWORD]") ||
-    (schemaRequired && url.searchParams.get("schema") !== "public") ||
-    !["verify-full", "require"].includes(url.searchParams.get("sslmode"))
-  ) {
-    throw new Error("Staging database URL failed exact project, role, port, schema or TLS checks.");
+  const checks = {
+    protocol: ["postgres:", "postgresql:"].includes(url.protocol),
+    host: url.hostname === EXPECTED_HOST,
+    port: url.port === "5432",
+    database: url.pathname === "/postgres",
+    username: decodeURIComponent(url.username) === expectedUser,
+    passwordPresentAndPlausible:
+      password.length >= 32 &&
+      !password.includes("REPLACE_WITH") &&
+      !password.includes("[YOUR-PASSWORD]"),
+    schema: !schemaRequired || url.searchParams.get("schema") === "public",
+    sslmode: ["verify-full", "require"].includes(url.searchParams.get("sslmode")),
+  };
+  const failedChecks = Object.entries(checks)
+    .filter(([, passed]) => !passed)
+    .map(([name]) => name);
+  if (failedChecks.length) {
+    // Deliberately report only field names, never URL values or credentials.
+    throw new Error(
+      "Staging database URL validation failed fields: " + failedChecks.join(", ") + "."
+    );
   }
   // Supabase pooler URIs commonly use sslmode=require. This is safe here because
   // the connection below independently enforces the pinned Supabase Root 2021 CA
