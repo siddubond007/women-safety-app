@@ -67,7 +67,9 @@ afterEach(() => {
 
 describe("MediaIntegrityBackfillWorker", () => {
   it("previews verified legacy media without writing to Drive metadata or PostgreSQL", async () => {
-    const { worker, drive, tx } = createHarness();
+    const { worker, drive, tx } = createHarness({
+      result: { mediaId, status: "verified", receiptState: "missing", sha256Checksum, byteSize: asset.byteSize },
+    });
     process.env.SAKHI_ENV = "staging";
     process.env.NODE_ENV = "production";
 
