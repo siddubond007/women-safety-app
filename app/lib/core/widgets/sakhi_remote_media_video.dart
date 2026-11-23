@@ -144,6 +144,26 @@ class _SakhiRemoteMediaVideoState extends State<SakhiRemoteMediaVideo> {
     }
   }
 
+  void _handleSurfaceTap() {
+    final controller = _controller;
+    if (controller?.value.isPlaying == true && !_controlsVisible) {
+      _showControls();
+      return;
+    }
+    unawaited(_togglePlayback());
+  }
+
+  String _formatDuration(Duration duration) {
+    final totalSeconds = duration.inSeconds;
+    final hours = totalSeconds ~/ 3600;
+    final minutes = (totalSeconds % 3600) ~/ 60;
+    final seconds = totalSeconds % 60;
+    if (hours > 0) {
+      return '${hours}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+    }
+    return '${minutes}:${seconds.toString().padLeft(2, '0')}';
+  }
+
   Future<void> _togglePlayback() async {
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) return;
@@ -242,7 +262,7 @@ class _SakhiRemoteMediaVideoState extends State<SakhiRemoteMediaVideo> {
         Positioned.fill(
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () => unawaited(_togglePlayback()),
+            onTap: _handleSurfaceTap,
             child: const SizedBox.expand(),
           ),
         ),
@@ -300,6 +320,15 @@ class _SakhiRemoteMediaVideoState extends State<SakhiRemoteMediaVideo> {
                         ),
                       ),
                       const SizedBox(width: 4),
+                      Text(
+                        _formatDuration(controller.value.position),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontFeatures: [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
                       Expanded(
                         child: VideoProgressIndicator(
                           controller,
@@ -312,7 +341,16 @@ class _SakhiRemoteMediaVideoState extends State<SakhiRemoteMediaVideo> {
                           padding: const EdgeInsets.symmetric(vertical: 10),
                         ),
                       ),
-                      const SizedBox(width: 4),
+                      const SizedBox(width: 8),
+                      Text(
+                        _formatDuration(controller.value.duration),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontFeatures: [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                      const SizedBox(width: 2),
                       IconButton(
                         tooltip: controller.value.volume > 0 ? 'Mute' : 'Unmute',
                         visualDensity: VisualDensity.compact,
