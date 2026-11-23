@@ -47,6 +47,20 @@ function getMigrationDatasourceUrl(): string {
       process.env.SAKHI_ALLOW_STAGING_MIGRATIONS ===
         "YES_RECONCILE_20261120_COMMUNITY_MEDIA";
 
+    // The community follower RLS DDL is applied by the dedicated, CA-pinned
+    // runner under the restricted staging postgres identity. Permit only the
+    // exact follow-up Prisma history reconciliation for that migration.
+    const communityFollowerRlsMigration =
+      "20261120130000_community_followers_rls_performance";
+    const communityFollowerRlsResolveApproved =
+      commandGroup === "migrate" &&
+      commandAction === "resolve" &&
+      commandArgs[2] === "--applied" &&
+      commandArgs[3] === communityFollowerRlsMigration &&
+      process.env.SAKHI_MIGRATION_TARGET === communityFollowerRlsMigration &&
+      process.env.SAKHI_ALLOW_STAGING_MIGRATIONS ===
+        "YES_APPLY_20261120_COMMUNITY_FOLLOWERS_RLS";
+
     const bootstrapApproved =
       process.env.SAKHI_ALLOW_STAGING_BOOTSTRAP ===
       "YES_BOOTSTRAP_SAKHI_STAGING_EMPTY_DATABASE";
@@ -99,10 +113,10 @@ function getMigrationDatasourceUrl(): string {
       if (
         commandGroup === "migrate" &&
         commandAction === "resolve" &&
-        !(bootstrapApproved || adminMigrationResolveApproved || stage4MigrationResolveApproved || communityMediaMigrationResolveApproved)
+        !(bootstrapApproved || adminMigrationResolveApproved || stage4MigrationResolveApproved || communityMediaMigrationResolveApproved || communityFollowerRlsResolveApproved)
       ) {
         throw new Error(
-          "Staging migrate resolve is restricted to the reviewed bootstrap, 2026-11-17 admin/MFA, exact Stage 4 targets, or the exact pre-applied community-media migration history reconciliation with its approval phrase.",
+          "Staging migrate resolve is restricted to the reviewed bootstrap, 2026-11-17 admin/MFA, exact Stage 4 targets, the exact pre-applied community-media migration history reconciliation, or the exact community follower RLS history reconciliation, each with its approval phrase.",
         );
       }
       if (
