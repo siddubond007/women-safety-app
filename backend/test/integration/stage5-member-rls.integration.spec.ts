@@ -19,9 +19,14 @@ const directoryB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const communityPostId = "55555555-5555-4555-8555-555555555551";
 const communityMediaId = "66666666-6666-4666-8666-666666666661";
 const draftMediaId = "77777777-7777-4777-8777-777777777771";
+const backfillMediaId = "88888888-8888-4888-8888-888888888881";
+const backfillFolderId = "synthetic-drive-folder";
+const backfillAuditRequestId = "99999999-9999-4999-8999-999999999991";
+const backfillCompletionRequestId = "99999999-9999-4999-8999-999999999992";
 
 const cleanup = async (client: Client) => {
-  await client.query("delete from public.media_assets where id = any($1::uuid[])", [[communityMediaId, draftMediaId]]);
+  await client.query("delete from public.audit_events where request_id = any($1::text[])", [[backfillAuditRequestId, backfillCompletionRequestId]]);
+  await client.query("delete from public.media_assets where id = any($1::uuid[])", [[communityMediaId, draftMediaId, backfillMediaId]]);
   await client.query("delete from public.community_posts where id = $1", [communityPostId]);
   await client.query("delete from public.member_moderation_blocks where account_id = any($1::uuid[])", [[accountA, accountB]]);
   await client.query("delete from public.member_follows where account_id = any($1::uuid[])", [[accountA, accountB]]);
@@ -81,19 +86,24 @@ describe.skipIf(!enabled)("Stage 5 PostgreSQL member-data RLS contract", () => {
     );
     await admin.query(
       `insert into public.media_assets(
-         id,owner_account_id,post_id,purpose,storage_provider,status,drive_folder_path,
+         id,owner_account_id,post_id,purpose,storage_provider,status,drive_folder_path,drive_folder_id,
          original_file_name,content_type,byte_size,sha256_checksum,visibility,drive_file_id
        ) values (
          $1,$2,$3,'COMMUNITY_POST_IMAGE','GOOGLE_DRIVE','ATTACHED',
-         'Sakhi Staging Media/feeds/community/synthetic','synthetic.jpg','image/jpeg',
+         'Sakhi Staging Media/feeds/community/synthetic',null,'synthetic.jpg','image/jpeg',
          4,repeat('a',64),'FOLLOWERS_ONLY','synthetic-drive-object'
        ),
        (
          $4,$2,null,'COMMUNITY_POST_IMAGE','GOOGLE_DRIVE','UPLOADED',
-         'Sakhi Staging Media/feeds/community/synthetic','synthetic-draft.jpg','image/jpeg',
+         'Sakhi Staging Media/feeds/community/synthetic',null,'synthetic-draft.jpg','image/jpeg',
          4,repeat('b',64),'FOLLOWERS_ONLY','synthetic-draft-drive-object'
+       ),
+       (
+         $5,$2,null,'COMMUNITY_POST_IMAGE','GOOGLE_DRIVE','UPLOADED',
+         'Sakhi Staging Media/feeds/community/synthetic',$6,'synthetic-backfill.jpg','image/jpeg',
+         4,null,'VERIFIED_MEMBERS','synthetic-backfill-drive-object'
        )`,
-      [communityMediaId, accountB, communityPostId, draftMediaId],
+      [communityMediaId, accountB, communityPostId, draftMediaId, backfillMediaId, backfillFolderId],
     );
     await admin.query(
       `insert into public.eligibility_consents(id,account_id,notice_version,accepted_at,biometric_processing_consented,source)
@@ -451,4 +461,76 @@ describe.skipIf(!enabled)("Stage 5 PostgreSQL member-data RLS contract", () => {
     );
     expect(columnGrants.rows.filter((row) => row.has_column_grant)).toEqual([]);
   });
+  it("allows only the internal system-job identity to backfill media checksums and write the two scoped audit events", async () => {
+    const prisma = new PrismaService(new ConfigService({
+      SAKHI_ENV: "test",
+      SAKHI_APP_DATABASE_URL: appUrl,
+    }));
+    await prisma.$connect();
+    try {
+      const updated = await prisma.withSystemAdminIdentity(async (tx) => {
+        const context = await tx.$queryRaw<Array<{ system_job: string; admin_role: string }>>`SELECT
+          current_setting('app.system_job', true)::text AS system_job,
+          current_setting('app.admin_role', true)::text AS admin_role`;
+        expect(context[0]?.system_job).toBe("true");
+        expect(context[0]?.admin_role).toBe("SUPER_ADMIN");
+
+        const before = await tx.mediaAsset.findUnique({
+          where: { id: backfillMediaId },
+          select: { sha256Checksum: true },
+        });
+        expect(before?.sha256Checksum).toBeNull();
+        const result = await tx.mediaAsset.updateMany({
+          where: { id: backfillMediaId, sha256Checksum: null },
+          data: { sha256Checksum: "c".repeat(64) },
+        });
+        expect(result.count).toBe(1);
+
+        await tx.auditEvent.create({
+          data: {
+            actorType: "SYSTEM", actorId: null,
+            action: "media.integrity.receipt_backfilled",
+            targetType: "media_asset", targetId: backfillMediaId,
+            outcome: "success", requestId: backfillAuditRequestId,
+            redactedMetadata: { source: "google_drive_verified_download", receiptPatched: true, byteSize: 4 },
+          },
+        });
+        await tx.auditEvent.create({
+          data: {
+            actorType: "SYSTEM", actorId: null,
+            action: "media.integrity.receipt_backfill.completed",
+            targetType: "maintenance_job", targetId: "staging_media_integrity_receipts_v1",
+            outcome: "success", requestId: backfillCompletionRequestId,
+            redactedMetadata: { assetsScanned: 1, assetsPersisted: 1, bytesProcessed: 4, version: 1 },
+          },
+        });
+        return result.count;
+      });
+      expect(updated).toBe(1);
+
+      const persisted = await admin.query("select sha256_checksum from public.media_assets where id=$1", [backfillMediaId]);
+      expect(persisted.rows[0]?.sha256_checksum).toBe("c".repeat(64));
+      const audit = await admin.query(
+        "select action from public.audit_events where request_id = any($1::text[])",
+        [[backfillAuditRequestId, backfillCompletionRequestId]],
+      );
+      expect(audit.rows.map((row) => row.action).sort()).toEqual([
+        "media.integrity.receipt_backfill.completed",
+        "media.integrity.receipt_backfilled",
+      ]);
+
+      await expect(prisma.auditEvent.create({
+        data: {
+          actorType: "SYSTEM", actorId: null,
+          action: "media.integrity.receipt_backfilled",
+          targetType: "media_asset", targetId: backfillMediaId,
+          outcome: "success", requestId: randomUUID(),
+          redactedMetadata: { source: "google_drive_verified_download", receiptPatched: true, byteSize: 4 },
+        },
+      })).rejects.toThrow();
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+
 });

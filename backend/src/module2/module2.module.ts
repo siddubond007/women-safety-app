@@ -5,11 +5,12 @@ import { Module2Controller } from "./module2.controller.js";
 import { Module2Service } from "./module2.service.js";
 import { GoogleDriveIntegrationController } from "./google-drive-integration.controller.js";
 import { GoogleDriveStorageService } from "./google-drive-storage.service.js";
+import { MediaIntegrityBackfillWorker } from "./media-integrity-backfill.worker.js";
 
 @Module({
   imports: [AuthModule, StorageModule],
   controllers: [Module2Controller, GoogleDriveIntegrationController],
-  providers: [Module2Service, GoogleDriveStorageService],
+  providers: [Module2Service, GoogleDriveStorageService, MediaIntegrityBackfillWorker],
   exports: [Module2Service, GoogleDriveStorageService],
 })
 export class Module2Module {}
