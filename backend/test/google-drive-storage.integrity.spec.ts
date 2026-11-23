@@ -384,7 +384,7 @@ describe("Google Drive object integrity and ownership", () => {
     expect(fetchMock.mock.calls.some((call) => (call[1] as RequestInit | undefined)?.method === "PATCH")).toBe(false);
   });
 
-  it("rejects a legacy Drive object when its upload identity or folder does not match the database receipt", async () => {
+  it("rejects a legacy Drive object when its upload identity does not match the database receipt", async () => {
     const mediaId = "99999999-9999-4999-8999-999999999999";
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: "synthetic-access-token", expires_in: 3600 }), { status: 200 }))
@@ -406,6 +406,68 @@ describe("Google Drive object integrity and ownership", () => {
 
     expect(result[0]).toMatchObject({ status: "rejected", reason: "upload_id_metadata_mismatch" });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects legacy Drive metadata that does not match the stored owner, purpose, category, folder, MIME type or byte size", async () => {
+    const mediaId = "99999999-9999-4999-8999-999999999999";
+    const folderId = "synthetic-media-folder";
+    const baseFile = {
+      id: driveFileId, trashed: false, size: String(bytes.length), mimeType: "image/jpeg",
+      parents: [folderId],
+      appProperties: {
+        sakhiUploadId: mediaId, sakhiPurpose: "post", sakhiAccountId: accountId,
+        sakhiCategorySlug: "community",
+      },
+    };
+    const cases = [
+      { reason: "owner_metadata_mismatch", file: { ...baseFile, appProperties: { ...baseFile.appProperties, sakhiAccountId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" } } },
+      { reason: "purpose_metadata_mismatch", file: { ...baseFile, appProperties: { ...baseFile.appProperties, sakhiPurpose: "avatar" } } },
+      { reason: "category_metadata_mismatch", file: { ...baseFile, appProperties: { ...baseFile.appProperties, sakhiCategorySlug: "business" } } },
+      { reason: "drive_folder_mismatch", file: { ...baseFile, parents: ["different-folder"] } },
+      { reason: "drive_content_type_mismatch", file: { ...baseFile, mimeType: "image/png" } },
+      { reason: "drive_size_metadata_mismatch", file: { ...baseFile, size: String(bytes.length + 1) } },
+    ];
+
+    for (const testCase of cases) {
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: "synthetic-access-token", expires_in: 3600 }), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify(testCase.file), { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+      const service = new GoogleDriveStorageService();
+      const result = await service.backfillLegacyMemberMediaIntegrityReceipts([{
+        mediaId, driveFileId, ownerAccountId: accountId, purpose: "post",
+        categorySlug: "community", driveFolderId: folderId,
+        contentType: "image/jpeg", byteSize: bytes.length,
+      }], true);
+      expect(result[0]).toMatchObject({ status: "rejected", reason: testCase.reason });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    }
+  });
+
+  it("does not overwrite a pre-existing Drive checksum that disagrees with downloaded bytes", async () => {
+    const mediaId = "99999999-9999-4999-8999-999999999999";
+    const folderId = "synthetic-media-folder";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: "synthetic-access-token", expires_in: 3600 }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: driveFileId, trashed: false, size: String(bytes.length), mimeType: "image/jpeg",
+        parents: [folderId], appProperties: {
+          sakhiUploadId: mediaId, sakhiPurpose: "post", sakhiAccountId: accountId,
+          sakhiCategorySlug: "community", sakhiSha256: "b".repeat(64), sakhiByteSize: String(bytes.length),
+        },
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(bytes, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const service = new GoogleDriveStorageService();
+
+    const result = await service.backfillLegacyMemberMediaIntegrityReceipts([{
+      mediaId, driveFileId, ownerAccountId: accountId, purpose: "post",
+      categorySlug: "community", driveFolderId: folderId,
+      contentType: "image/jpeg", byteSize: bytes.length,
+    }], true);
+
+    expect(result[0]).toMatchObject({ status: "rejected", reason: "existing_receipt_checksum_mismatch" });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
 });
