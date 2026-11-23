@@ -155,6 +155,54 @@ jobs:
         if: (github.event_name == 'workflow_dispatch' && inputs.run_mfa_integration == true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[run-staging-mfa]'))
         run: npx vitest run test/admin-mfa.database.integration.spec.ts --reporter=verbose
 
+      - name: Read-only inventory of community-post media references
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[run-staging-post-media-inventory]')
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import pg from 'pg';
+          const { Client } = pg;
+          const url = new URL(process.env.SAKHI_MIGRATOR_DATABASE_URL);
+          url.searchParams.delete('sslmode');
+          url.searchParams.delete('sslrootcert');
+          const ca = readFileSync(`${process.env.RUNNER_TEMP}/sakhi-db-ca/prod-ca-2021.crt`, 'utf8');
+          const client = new Client({ connectionString: url.toString(), ssl: { ca, rejectUnauthorized: true }, connectionTimeoutMillis: 10000, statement_timeout: 15000 });
+          const ids = [
+            '2dce99d0-f350-4edb-92ec-a88ec8065422',
+            'fdb5edce-3a3c-4d52-a9a3-42e5b3651ef9',
+            'f799f821-212c-4574-933d-d6d9441046fc',
+            'af8a775c-c80c-43b9-ae5d-99db25bec0b3',
+            '1cacad4b-0bf5-4124-ac22-82dd3a7c7a35',
+          ];
+          const paths = ids.map(id => `/api/v1/module2/media/object/${id}`);
+          await client.connect();
+          try {
+            const counts = await client.query(`
+              SELECT count(*)::int AS total_posts,
+                     count(*) FILTER (WHERE image_asset IS NOT NULL)::int AS posts_with_any_image,
+                     count(*) FILTER (WHERE image_asset LIKE '/api/v1/module2/media/object/%')::int AS posts_with_media_route,
+                     count(*) FILTER (WHERE image_asset = ANY($1::text[]))::int AS posts_referencing_failed_ids,
+                     count(*) FILTER (WHERE image_asset LIKE '/api/v1/module2/media/object/%'
+                       AND NOT EXISTS (
+                         SELECT 1 FROM public.media_assets ma
+                          WHERE image_asset = '/api/v1/module2/media/object/' || ma.id::text
+                       ))::int AS dangling_media_route_references
+                FROM public.community_posts
+            `, [paths]);
+            const rows = await client.query(`
+              SELECT id::text AS post_id, image_asset, status, visibility
+                FROM public.community_posts
+               WHERE image_asset = ANY($1::text[])
+               ORDER BY created_at
+            `, [paths]);
+            console.log(JSON.stringify({ counts: counts.rows[0], failedIdPostReferences: rows.rows }));
+          } finally {
+            await client.end();
+          }
+          NODE
+
       - name: Read-only inventory of previously failing media IDs
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[run-staging-media-inventory]')
         shell: bash
