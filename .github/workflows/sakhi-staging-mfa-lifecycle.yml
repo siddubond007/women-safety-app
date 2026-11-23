@@ -155,6 +155,81 @@ jobs:
         if: (github.event_name == 'workflow_dispatch' && inputs.run_mfa_integration == true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[run-staging-mfa]'))
         run: npx vitest run test/admin-mfa.database.integration.spec.ts --reporter=verbose
 
+      - name: Read-only inventory of previously failing media IDs
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[run-staging-media-inventory]')
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import pg from 'pg';
+          const { Client } = pg;
+          const url = new URL(process.env.SAKHI_MIGRATOR_DATABASE_URL);
+          url.searchParams.delete('sslmode');
+          url.searchParams.delete('sslrootcert');
+          const ca = readFileSync(`${process.env.RUNNER_TEMP}/sakhi-db-ca/prod-ca-2021.crt`, 'utf8');
+          const client = new Client({
+            connectionString: url.toString(),
+            ssl: { ca, rejectUnauthorized: true },
+            connectionTimeoutMillis: 10000,
+            statement_timeout: 15000,
+          });
+          const ids = [
+            '2dce99d0-f350-4edb-92ec-a88ec8065422',
+            'fdb5edce-3a3c-4d52-a9a3-42e5b3651ef9',
+            'f799f821-212c-4574-933d-d6d9441046fc',
+            'af8a775c-c80c-43b9-ae5d-99db25bec0b3',
+            '1cacad4b-0bf5-4124-ac22-82dd3a7c7a35',
+          ];
+          await client.connect();
+          try {
+            const media = await client.query(`
+              SELECT id::text AS id,
+                     drive_file_id IS NOT NULL AS has_drive_file,
+                     sha256_checksum IS NOT NULL AS has_db_checksum,
+                     byte_size,
+                     purpose,
+                     status,
+                     post_id IS NOT NULL AS attached_to_post,
+                     visibility,
+                     deleted_at IS NOT NULL AS deleted
+                FROM public.media_assets
+               WHERE id = ANY($1::uuid[])
+               ORDER BY id
+            `, [ids]);
+            const audit = await client.query(`
+              SELECT target_id,
+                     count(*)::int AS event_count,
+                     array_agg(DISTINCT action) AS actions,
+                     max(created_at) AS last_event_at
+                FROM public.audit_events
+               WHERE target_type = 'media_upload'
+                 AND target_id = ANY($1::text[])
+               GROUP BY target_id
+               ORDER BY target_id
+            `, [ids]);
+            const aggregate = await client.query(`
+              SELECT count(*)::int AS total,
+                     count(*) FILTER (WHERE drive_file_id IS NOT NULL)::int AS with_drive_file,
+                     count(*) FILTER (WHERE sha256_checksum IS NULL)::int AS null_db_checksum,
+                     count(*) FILTER (WHERE deleted_at IS NULL)::int AS not_deleted
+                FROM public.media_assets
+            `);
+            const mediaById = new Map(media.rows.map(row => [row.id, row]));
+            const auditById = new Map(audit.rows.map(row => [row.target_id, row]));
+            console.log(JSON.stringify({
+              failedMediaIds: ids.map(id => ({
+                id,
+                mediaAsset: mediaById.get(id) ?? null,
+                auditEvent: auditById.get(id) ?? null,
+              })),
+              aggregate: aggregate.rows[0],
+            }));
+          } finally {
+            await client.end();
+          }
+          NODE
+
       - name: Verify staging Google Drive OAuth and root-folder access
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[run-staging-drive-check]')
         shell: bash
