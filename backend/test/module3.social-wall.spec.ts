@@ -290,6 +290,7 @@ it("denies an unrelated verified member access to private media before downloadi
         storageProvider: "GOOGLE_DRIVE",
       }),
     },
+    directMessage: { findFirst: vi.fn().mockResolvedValue(null) },
   };
   const drive = { downloadFile: vi.fn() };
   const service = new Module2Service(
@@ -302,4 +303,139 @@ it("denies an unrelated verified member access to private media before downloadi
     service.resolveMediaObject("Bearer viewer-token", uploadId),
   ).rejects.toBeInstanceOf(ForbiddenException);
   expect(drive.downloadFile).not.toHaveBeenCalled();
+});
+
+it("restricts a direct-message attachment to its two participants and requires request acceptance", async () => {
+  const uploadId = "a2222222-2222-4333-8444-555555555555";
+  let viewerId = "recipient-1";
+  const auth = {
+    authenticateAuthorization: vi.fn().mockImplementation(async () => ({
+      accountId: viewerId,
+      account: { status: "ACTIVE", verificationStatus: "VERIFIED" },
+    })),
+  };
+  const auditEvent = {
+    id: "audit-dm-media",
+    actorId: "sender-1",
+    targetId: uploadId,
+    action: "module2.media.uploaded",
+    redactedMetadata: {
+      driveFileId: "private-dm-drive-file",
+      provider: "google_drive",
+      contentType: "image/jpeg",
+    },
+    createdAt: new Date("2026-10-20T09:00:00.000Z"),
+  };
+  const directMessage = {
+    senderAccountId: "sender-1",
+    recipientAccountId: "recipient-1",
+    requestStatus: "ACCEPTED",
+  };
+  const prisma = {
+    auditEvent: { findFirst: vi.fn().mockResolvedValue(auditEvent) },
+    mediaAsset: {
+      findUnique: vi.fn().mockResolvedValue({
+        id: uploadId,
+        ownerAccountId: "sender-1",
+        postId: null,
+        purpose: "DIRECT_MESSAGE_IMAGE",
+        status: "UPLOADED",
+        visibility: "PRIVATE_SELF",
+        deletedAt: null,
+        driveFileId: "private-dm-drive-file",
+        contentType: "image/jpeg",
+        storageProvider: "GOOGLE_DRIVE",
+      }),
+    },
+    directMessage: { findFirst: vi.fn().mockResolvedValue(directMessage) },
+  };
+  const drive = {
+    downloadFile: vi.fn().mockResolvedValue({
+      contentType: "image/jpeg",
+      buffer: Buffer.from([0xff, 0xd8, 0xff]),
+    }),
+  };
+  const service = new Module2Service(
+    auth as unknown as AuthenticationService,
+    prisma as unknown as PrismaService,
+    drive as unknown as GoogleDriveStorageService,
+  );
+
+  const allowed = await service.resolveMediaObject("Bearer recipient-token", uploadId);
+  expect(allowed.buffer).toEqual(Buffer.from([0xff, 0xd8, 0xff]));
+
+  viewerId = "stranger-1";
+  await expect(
+    service.resolveMediaObject("Bearer stranger-token", uploadId),
+  ).rejects.toBeInstanceOf(ForbiddenException);
+  expect(drive.downloadFile).toHaveBeenCalledOnce();
+
+  viewerId = "recipient-1";
+  (prisma.directMessage.findFirst as any).mockResolvedValueOnce({
+    ...directMessage,
+    requestStatus: "PENDING_REQUEST",
+  });
+  await expect(
+    service.resolveMediaObject("Bearer recipient-token", uploadId),
+  ).rejects.toBeInstanceOf(ForbiddenException);
+});
+
+
+it("stores direct-message uploads as private until attached to a conversation", async () => {
+  const auth = {
+    authenticateAuthorization: vi.fn().mockResolvedValue({
+      accountId: "sender-1",
+      account: { status: "ACTIVE", verificationStatus: "VERIFIED" },
+    }),
+  };
+  const auditCreate = vi.fn().mockResolvedValue({ id: "audit-dm-upload" });
+  const mediaAssetCreate = vi.fn().mockResolvedValue({ id: "dm-upload-1" });
+  const drive = {
+    uploadImage: vi.fn().mockResolvedValue({
+      driveFileId: "private-dm-file",
+      driveFolderId: "dm-folder",
+      driveFolderPath: "Sakhi Media/private/direct-message",
+      storedName: "private-photo.jpg",
+      size: 4,
+    }),
+  };
+  const prisma = {
+    auditEvent: { create: auditCreate },
+    mediaAsset: { create: mediaAssetCreate },
+  };
+  const service = new Module2Service(
+    auth as unknown as AuthenticationService,
+    prisma as unknown as PrismaService,
+    drive as unknown as GoogleDriveStorageService,
+  );
+
+  await service.uploadMediaFile(
+    "Bearer sender-token",
+    {
+      originalname: "private-photo.jpg",
+      mimetype: "image/jpeg",
+      buffer: Buffer.from([0xff, 0xd8, 0xff, 0xd9]),
+      size: 4,
+    },
+    { purpose: "direct_message", categorySlug: "direct-message" },
+  );
+
+  expect(mediaAssetCreate).toHaveBeenCalledWith(
+    expect.objectContaining({
+      data: expect.objectContaining({
+        purpose: "DIRECT_MESSAGE_IMAGE",
+        status: "UPLOADED",
+        visibility: "PRIVATE_SELF",
+        categorySlug: null,
+        ownerAccountId: "sender-1",
+      }),
+    }),
+  );
+  expect(drive.uploadImage).toHaveBeenCalledWith(
+    expect.objectContaining({
+      purpose: "post",
+      categorySlug: "direct-message",
+      accountId: "sender-1",
+    }),
+  );
 });
