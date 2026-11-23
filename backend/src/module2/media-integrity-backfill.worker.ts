@@ -4,7 +4,6 @@ import type { OnModuleInit } from "@nestjs/common";
 import { PrismaService } from "../database/prisma.service.js";
 import { GoogleDriveStorageService } from "./google-drive-storage.service.js";
 
-const SYSTEM_ACTOR_ID = "00000000-0000-4000-8000-000000000001";
 const BACKFILL_ACTION = "media.integrity.receipt_backfilled";
 const COMPLETION_ACTION = "media.integrity.receipt_backfill.completed";
 const COMPLETION_TARGET_ID = "staging_media_integrity_receipts_v1";
@@ -175,7 +174,7 @@ export class MediaIntegrityBackfillWorker implements OnModuleInit {
               await tx.auditEvent.create({
                 data: {
                   actorType: "SYSTEM",
-                  actorId: SYSTEM_ACTOR_ID,
+                  actorId: null,
                   action: BACKFILL_ACTION,
                   targetType: "media_asset",
                   targetId: asset.id,

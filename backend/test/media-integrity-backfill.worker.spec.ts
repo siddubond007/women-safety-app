@@ -100,6 +100,8 @@ describe("MediaIntegrityBackfillWorker", () => {
     expect(tx.auditEvent.create).toHaveBeenCalledTimes(2);
     expect(tx.auditEvent.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
+        actorType: "SYSTEM",
+        actorId: null,
         action: "media.integrity.receipt_backfilled",
         targetType: "media_asset",
         targetId: mediaId,
@@ -108,6 +110,8 @@ describe("MediaIntegrityBackfillWorker", () => {
     });
     expect(tx.auditEvent.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
+        actorType: "SYSTEM",
+        actorId: null,
         action: "media.integrity.receipt_backfill.completed",
         targetType: "maintenance_job",
         targetId: "staging_media_integrity_receipts_v1",
